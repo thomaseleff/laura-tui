@@ -10,6 +10,13 @@ keywords = ["tui", "terminal", "pty", "coding-agent", "ratatui"]
 categories = ["command-line-utilities", "development-tools"]
 authors = ["Tom Eleff <eleffthomas@gmail.com>"]
 
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [lib]
 name = "laura"
 path = "src/lib.rs"
