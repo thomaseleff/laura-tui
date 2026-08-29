@@ -1,4 +1,4 @@
-# Tutorial — your first Laura session
+# Tutorial
 
 This walks through one full loop: start Laura, open a file, comment on it, and submit a review back to your agent. It assumes `laura` is installed (see the [README](../README.md)).
 
@@ -13,11 +13,11 @@ laura
 Laura opens with a single tab running your shell:
 
 ```
-┌ Laura ─────────────────────────────────────────────────────┐
-│ [ 1 ]                                                      │
-├────────────────────────────────────────────────────────────┤
-│ $ _                                                        │
-└────────────────────────────────────────────────────────────┘
++- Laura ----------------------------------------------------+
+| [ 1 ]                                                      |
++------------------------------------------------------------+
+| $ _                                                        |
++------------------------------------------------------------+
 ```
 
 Type into the shell as usual — Laura hosts it, it doesn't wrap it. The bottom line shows the current key hints; press `Ctrl+H` any time for the full list, `Ctrl+Q` to quit.
@@ -43,12 +43,12 @@ laura open docs/protocol.md
 Laura splits the tab: your shell stays live on the left, the file renders on the right with a line-number gutter.
 
 ```
-┌ Laura ──────────────────────────────────────────────────────┐
-│ shell (pty)                │ docs/protocol.md               │
-│ $ …                        │ 1  # Protocol                  │
-│                            │ 2                              │
-│                            │ 3  An agent mutates a tab's …  │
-└────────────────────────────┴────────────────────────────────┘
++- Laura -----------------------------------------------------+
+| shell (pty)                | docs/protocol.md               |
+| $ ...                      | 1  # Protocol                  |
+|                            | 2                              |
+|                            | 3  An agent mutates a tab's ...|
++----------------------------+--------------------------------+
 ```
 
 The panel is live-watched: if the source file changes on disk, it re-renders on its own — no re-invoke.

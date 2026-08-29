@@ -4,7 +4,7 @@ $\Huge\textsf{Laura}$
 
 </div>
 
-<p align="center"><em>LOW-rah</em> — a tui workspace your agent builds with you in the terminal.</p>
+<p align="center"><em>LOW-rah</em> — a tui workspace your agent builds with you while you work.</p>
 
 ---
 
@@ -14,9 +14,9 @@ _Currently_, Laura hosts your agent's shell in a PTY and gives you both a live s
 
 <p align="center"><img src="docs/assets/laura-demo.gif" alt="Laura demo" width="100%"></p>
 
-## Install
+## Quickstart
 
-Requires Rust (stable). Installs a `laura` binary:
+**1. Install Laura.** Requires Rust (stable); installs a `laura` binary:
 
 ```bash
 cargo install --git https://github.com/thomaseleff/laura-tui laura --locked
@@ -24,37 +24,22 @@ cargo install --git https://github.com/thomaseleff/laura-tui laura --locked
 
 Or from a clone: `cargo build --release --locked` → `target/release/laura`.
 
-### For agents
-
-Install the skill so your agent knows how to use `laura`:
+**2. Install the skill** so your agent knows how to drive `laura`. In Claude Code:
 
 ```
-# Claude Code
 /plugin marketplace add thomaseleff/laura-tui
 /plugin install laura@laura-tui
 ```
 
-## Quickstart
-
-Start Laura — it hosts your default shell in a tab:
+**3. Start Laura** — it hosts your default shell in a tab:
 
 ```bash
 laura
 ```
 
-Inside that shell run any coding agent and ask it to show you a file:
+**4. Chat with your agent** in that shell. With the skill installed, it uses Laura's verbs itself — opening files in the live side-panel while your shell stays live on the left. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises. The *show → react → revise* loop never leaves the terminal.
 
-```bash
-laura open docs/protocol.md
-```
-
-The file renders on the right; your shell stays live on the left. The panel is **live-watched** — edit the source and it re-renders on changes.
-
-**Supported panel types:** `.md`/`.markdown` render with terminal styling (headings, bold, code);  every other file shows its raw bytes. Recognized code files get Nord syntax colours. Rendering is display-only — comments and reviews always quote the plain line text.
-
-## The core loop
-
-*Agent opens a panel → you see it → you comment in place → your review is injected back into the agent's shell → it revises.* Run `laura ready` once to enable review submission, focus the panel (`Ctrl+T` then `p`), press `c` to comment a line and `S` to submit.
+The panel is **live-watched** — edit the source and it re-renders on changes. `.md`/`.markdown` render with terminal styling (headings, bold, code); every other file shows its raw bytes, with Nord syntax colours for recognized code files. Rendering is display-only — comments and reviews always quote the plain line text. To review by hand: `laura ready` once to enable submission, focus the panel (`Ctrl+T` then `p`), press `c` to comment a line and `S` to submit.
 
 See the [tutorial](docs/tutorial.md) for a first session, [how-to](docs/how-to.md) for task recipes, the [CLI reference](docs/cli.md) for the verb set, the [protocol](docs/protocol.md) for the wire format, and the [explanation](docs/explanation.md) / [technical vision](docs/technical-vision.md) for why Laura exists.
 
