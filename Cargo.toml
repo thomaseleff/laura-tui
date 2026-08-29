@@ -2,7 +2,7 @@
 name = "laura-tui"
 version = "0.1.0"
 edition = "2024"
-description = "*LOW-rah* — a tui workspace your agent builds with you in the terminal."
+description = "*LOW-rah* — a tui workspace your agent builds with you while you work."
 license = "MIT"
 repository = "https://github.com/thomaseleff/laura-tui"
 readme = "README.md"

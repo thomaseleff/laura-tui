@@ -1,0 +1,15 @@
+[project]
+site_name = "Laura"
+site_url = "https://thomaseleff.github.io/laura-tui/"
+repo_url = "https://github.com/thomaseleff/laura-tui"
+repo_name = "thomaseleff/laura-tui"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Tutorial" = "tutorial.md" },
+  { "How-to" = "how-to.md" },
+  { "CLI reference" = "cli.md" },
+  { "Protocol" = "protocol.md" },
+  { "Explanation" = "explanation.md" },
+  { "Technical vision" = "technical-vision.md" },
+]

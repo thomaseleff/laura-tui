@@ -1,0 +1,12 @@
+# Laura
+
+> LOW-rah — a TUI workspace your agent builds with you while you work. Laura hosts your agent's shell in a PTY and gives you both a live side-panel: you or the agent open a file, mark it up in place, and your review is injected straight back into the agent's chat. The show → react → revise loop never leaves the terminal.
+
+## Docs
+
+- [Tutorial](https://thomaseleff.github.io/laura-tui/tutorial/): your first Laura session, start to finish
+- [How-to](https://thomaseleff.github.io/laura-tui/how-to/): task recipes
+- [CLI reference](https://thomaseleff.github.io/laura-tui/cli/): the verb set
+- [Protocol](https://thomaseleff.github.io/laura-tui/protocol/): the wire format
+- [Explanation](https://thomaseleff.github.io/laura-tui/explanation/): why Laura exists
+- [Technical vision](https://thomaseleff.github.io/laura-tui/technical-vision/): the longer arc
