@@ -1,0 +1,15 @@
+{
+    "name": "laura-tui",
+    "owner": {
+        "name": "Tom Eleff",
+        "url": "https://github.com/thomaseleff"
+    },
+    "plugins": [
+        {
+            "name": "laura",
+            "source": "./plugins/laura",
+            "description": "*LOW-rah* - a tui workspace your agent builds with you in the terminal.",
+            "version": "0.1.0"
+        }
+    ]
+}

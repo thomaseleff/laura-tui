@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Hold new releases for 4 weeks before opening an update PR.
+    cooldown:
+      default-days: 28

@@ -1,0 +1,41 @@
+[package]
+name = "laura-tui"
+version = "0.1.0"
+edition = "2024"
+description = "*LOW-rah* — a tui workspace your agent builds with you in the terminal."
+license = "MIT"
+repository = "https://github.com/thomaseleff/laura-tui"
+readme = "README.md"
+keywords = ["tui", "terminal", "pty", "coding-agent", "ratatui"]
+categories = ["command-line-utilities", "development-tools"]
+authors = ["Tom Eleff <eleffthomas@gmail.com>"]
+
+[lib]
+name = "laura"
+path = "src/lib.rs"
+
+[[bin]]
+name = "laura"
+path = "src/main.rs"
+
+# Exact pins agree with Cargo.lock so Dependabot is the single controlled update path.
+[dependencies]
+anyhow = "=1.0.104"
+clap = { version = "=4.6.6", features = ["derive"] }
+interprocess = "=2.4.3"
+# syntect highlights standalone code files (Nord, fg-only); default-fancy = pure-Rust regex, no oniguruma C dep, Windows-friendly.
+tui-markdown = { version = "=0.3.9", default-features = false }
+syntect = { version = "=5.3.0", default-features = false, features = [
+    "default-fancy",
+] }
+portable-pty = "=0.9.0"
+ratatui = "=0.30.2"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+tui-term = "=0.3.4"
+vt100 = "=0.16.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
