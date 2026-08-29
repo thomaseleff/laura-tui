@@ -30,7 +30,7 @@ Run your coding agent in the shell. Laura has already set `LAURA_TAB` in this PT
 laura ready
 ```
 
-Until a tab is `ready`, commenting and review submission stay inert — there's no consumer to read a review. An agent that has the [skill](../plugins/laura/skills/laura-open/SKILL.md) runs this itself.
+Until a tab is `ready`, commenting and review submission stay inert — there's no consumer to read a review. An agent that has the [skill](../plugins/laura/skills/open/SKILL.md) runs this itself.
 
 ## 3. Open a file in the panel
 
@@ -53,9 +53,11 @@ Laura splits the tab: your shell stays live on the left, the file renders on the
 
 The panel is live-watched: if the source file changes on disk, it re-renders on its own — no re-invoke.
 
+You're not limited to one. Each `laura open` splits a pane, so you (or the agent) can stack a plan, logs, and a diff in the same tab — see the [how-to](how-to.md) and [CLI reference](cli.md) for `--split`/`--dir`/`--ratio`.
+
 ## 4. Comment on a line
 
-Enter tab mode with `Ctrl+T`, then press `p` to focus the panel. Move the line cursor with `↑`/`↓` (the mouse wheel scrolls too). On the line you want, press `c`, type your comment, and press `Enter` to pin it (`Esc` cancels). The panel title shows `[review: n]` as comments accumulate.
+Open the panes popup with `Ctrl+P`, then press the panel's **digit** to focus it. Move the line cursor with `↑`/`↓` (the mouse wheel scrolls too). On the line you want, press `c`, type your comment, and press `Enter` to pin it (`Esc` cancels). The panel title shows `[review: n]` as comments accumulate.
 
 ## 5. Submit the review
 

@@ -1,4 +1,4 @@
-//! A DSR query in the stream produces the correct cursor-position reply.
+//! Pure byte-stream logic (the sanctioned unit-test exception): a DSR query in the stream produces the correct cursor-position reply, tested through the smallest public entry point `dsr_reply`.
 
 use laura::dsr_reply;
 

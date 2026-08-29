@@ -1,11 +1,12 @@
 //! The full chain — real `laura open` → tab socket → decode → panel holds the file's content — without the render loop. State, not pixels.
 
 use std::io::Write;
+use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
 use assert_cmd::Command;
-use laura::{Message, Panel};
+use laura::{Message, Panel, Response};
 
 #[test]
 fn open_renders_file_into_panel() -> Result<()> {
@@ -16,13 +17,25 @@ fn open_renders_file_into_panel() -> Result<()> {
     let name = format!("laura-test-{}.sock", std::process::id());
     let rx = laura::protocol::serve(&name)?;
 
-    Command::cargo_bin("laura")?
-        .args(["open", &path])
-        .env("LAURA_TAB", &name)
-        .assert()
-        .success();
+    let n = name.clone();
+    let p = path.clone();
+    let h = thread::spawn(move || {
+        Command::cargo_bin("laura")
+            .unwrap()
+            .args(["open", &p])
+            .env("LAURA_TAB", &n)
+            .assert()
+            .success();
+    });
 
-    let Message::Open { path, .. } = rx.recv_timeout(Duration::from_secs(5))? else {
+    let (msg, reply) = rx.recv_timeout(Duration::from_secs(5))?;
+    reply.send(&Response::Opened {
+        pane: 1,
+        warnings: vec![],
+    });
+    h.join().unwrap();
+
+    let Message::Open { path, .. } = msg else {
         panic!("expected Open message");
     };
     let panel = Panel::open(path);
