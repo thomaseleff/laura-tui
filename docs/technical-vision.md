@@ -33,6 +33,9 @@ laura must not *guess* whether a PTY hosts something that will consume an inject
 
 So the agent **declares itself** instead. Today that's a one-shot `laura ready` (a client verb that flips `tab.agent = true`); it covers both `laura -- claude` and "launch a shell, then run the agent" with one signal, and it **fails closed** — no declaration, no injection.
 
+### Arrangement is a verb set, not a fixed split
+A tab **is** a recursive split tree the agent drives through verbs. `open --split <id> --dir <h|v> --ratio <n> --side` splits any pane; `close`/`focus` address panes by a stable per-tab id (the shell is pane `0`; see [pane identity](protocol.md#pane-identity)); `layout` and `open --dry-run` report per-pane rects and overflow so a panel can be sized before it's committed. `dir`, `ratio`, and `side` are just fields on the mutation — laura owns the screen, so honoring them is rendering work, not new architecture. The socket is [request/response](protocol.md#request--response): every verb gets one reply (the new pane id, a report, or a typed error), because the run loop holds the live layout to answer from.
+
 ---
 
 ## Trajectory — where the invariants let us go
@@ -50,14 +53,13 @@ A connection-based transport also *upgrades* readiness: *connected = ready, disc
 ### Cross-agent messaging is laura routing, not a transport topology
 Agents never need to talk to each other; they talk to laura, and laura routes: tab A → laura → inject into tab B's PTY (the same injection path as review submission). This is why per-tab MCP servers being isolated from one another is a non-problem — they were never the bus. laura is. And it's why a shared MCP daemon is not needed: that would be a second hub redundant with laura, and it would cost the free addressing that `LAURA_TAB` gives a per-tab client.
 
-### The view side — arrangement, hooks, saved frames
-The trajectory above follows the injection boundary (`laura → PTY`) all the way out. The `laura → screen` side has the same room to grow, under the same rule that keeps the injection side honest: **one mutation protocol, no special cases.** Every piece below is another producer speaking `Message` into laura-held state — never a privileged path the agent gets and an extension can't.
+### The view side — hooks, saved frames
+The trajectory above follows the injection boundary (`laura → PTY`) all the way out. The `laura → screen` side grows the same way — arrangement already crossed it (see [The core](#arrangement-is-a-verb-set-not-a-fixed-split)) — under the rule that keeps the injection side honest: **one mutation protocol, no special cases.** Every piece below is another producer speaking `Message` into laura-held state — never a privileged path the agent gets and an extension can't.
 
-- **Arrangement is a verb set, not a fixed split.** Today a tab has one panel in a hardcoded layout. `open` is the first verb; split, place, size, and stack are the rest. They let the agent *assemble* the frame for the task — logs bottom, plan right, a statusline strip on top — instead of every tab looking the same. Position and size are just fields on the mutation; laura already owns the screen, so honoring them is rendering work, not new architecture.
 - **Panels refresh from background hooks.** `update` (reserved today, [protocol.md](protocol.md#message-shapes)) is the seam. A producer — the agent, a dev's script, a statusline binary — registers a command laura runs on an interval or event, and its output re-renders the panel. That's the same protocol a human `laura open` crosses; a live metadata panel is just a producer that keeps talking. This is how a context-usage statusline or a tailed `kubectl` panel lands without a bespoke feature each.
 - **A composed frame is saveable config.** Once arrangement is verbs, a frame *is* a sequence of them, so it serializes. Write the layout you like to config; reload it next session. No new mechanism — a recorded `Message` stream, replayed.
 
-All three are `laura → screen`: unconditional and always safe (the injection boundary never applies), all landing on the same laura-held state, all reachable by any producer. The proof-of-concept renders one markdown panel; the protocol is built to assemble the whole workspace.
+Both are `laura → screen`: unconditional and always safe (the injection boundary never applies), landing on the same laura-held state, reachable by any producer. Arrangement already composes the multi-pane workspace from these verbs; hooks and saved frames are the remaining producers that keep it refreshing and make it replayable.
 
 ### The one genuine one-way door — identity
-Under the invariants above, transport choice is *not* irreversible — start with the socket, add MCP later, run both. The only genuinely forward-consequential decision is the **addressing / identity model**: today a tab is addressed by its ephemeral `LAURA_TAB` socket name and lifecycle verbs act on the tab's single panel (no handles). Stable identity (address "the reviewer agent," or "tab 2") is what cross-agent messaging and multi-surface tabs may eventually need.
+Under the invariants above, transport choice is *not* irreversible — start with the socket, add MCP later, run both. The only genuinely forward-consequential decision is the **addressing / identity model**: today a tab is addressed by its ephemeral `LAURA_TAB` socket name, and within it panes already carry stable ids — but tabs, and the agents across them, don't. Stable identity (address "the reviewer agent," or "tab 2") is what cross-agent messaging and multi-surface tabs may eventually need.

@@ -2,18 +2,46 @@
 
 An agent mutates a tab's panel by running `laura open <file>` — a **separate process** from the TUI host. This is the seam it crosses.
 
-## Message shapes
+## Request / response
 
-Typed messages, one JSON object per line (NDJSON), internally tagged by `type`:
+One connection carries **one request and one response**: the producer connects, writes a single request frame, and reads a single response frame before the socket closes. The TUI run loop answers, because it holds the live layout state a reply reports on. A client that reads EOF with no frame treats it as `ok`.
+
+## Request shapes
+
+Typed messages, one JSON object per line (NDJSON), internally tagged by `type`. Fields have defaults, so older/shorter frames still parse:
 
 ```json
-{"type":"open","path":"spec.md","focus":true}
-{"type":"close"}
+{"type":"open","path":"spec.md","split":null,"dir":"horizontal","ratio":50,"side":"second","focus":true,"dry_run":false}
+{"type":"close","pane":null,"all":false}
+{"type":"focus","pane":1}
+{"type":"layout"}
 {"type":"ready"}
 {"type":"update","path":"spec.md"}
 ```
 
-`open`'s `focus` moves focus into the panel (default `true`, so an older `{"type":"open"}` still focuses); `close` removes the tab's panel; `ready` marks the tab as hosting an agent, which gates review injection (see below). `update` is a reserved re-render nudge, not yet emitted.
+- **`open`** splits a pane (`split`, default: the focused pane) into a new panel rendering `path`. `dir` is `horizontal`/`vertical`, `ratio` (1..99) is the first pane's percent, `side` (`first`/`second`) is where the new panel lands, `focus` moves focus into it (default `true`), `dry_run` reports the would-be layout without mutating.
+- **`close`** removes pane `pane` (default: the focused panel); `all` returns the tab to shell-only. The shell (pane `0`) can't be closed.
+- **`focus`** focuses a pane by id.
+- **`layout`** asks for the current layout report (no mutation).
+- **`ready`** marks the tab as hosting an agent, which gates review injection (see below).
+- **`update`** is a reserved re-render nudge, not yet emitted.
+
+## Response shapes
+
+One response per request, tagged by `type`:
+
+```json
+{"type":"ok"}
+{"type":"opened","pane":1,"warnings":["panel shown, but run `laura ready` to enable review submission"]}
+{"type":"report","area":{...},"panes":[{"id":0,"kind":"pty","rect":{...},"overflow_rows":0,"clipped":false}, ...]}
+{"type":"error","message":"no pane #7"}
+```
+
+`opened` carries the new pane id (which `laura open` prints) and any non-fatal warnings. `report` answers `layout` and `open --dry-run`: one `PaneReport` per pane with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a producer can measure fit. `error` is a typed failure (`laura` prints the message and exits non-zero).
+
+## Pane identity
+
+A tab is a recursive binary split tree; each leaf is a pane with a per-tab monotonic `u64` id. The shell is always pane `0`. Ids are stable and never reused within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id; the `^p` panes popup maps a 1-based positional label to the current id.
 
 ## Addressing
 
@@ -27,9 +55,13 @@ Client verbs read `$LAURA_TAB`, send one message, and exit:
 
 - `laura` — run the TUI, hosting your default shell in tab 1.
 - `laura -- <cmd>` — run the TUI, hosting `<cmd>` in tab 1 (new tabs still get the shell).
-- `laura open <file> [--no-focus]` — open a panel; focus moves into it unless `--no-focus`.
-- `laura close` — close the tab's panel.
+- `laura open <file> [--split <id>] [--dir h|v] [--ratio n] [--side first|second] [--no-focus] [--dry-run]` — split a pane and open a panel; prints the new pane id.
+- `laura close [<id>] [--all]` — close a panel (default: focused; `--all` for shell-only).
+- `laura focus <id>` — focus a pane.
+- `laura layout` — print the layout report (JSON).
 - `laura ready` — mark the tab as hosting an agent (enables review submission).
+
+See the [CLI reference](cli.md) for flag defaults and the report shape.
 
 `--help`, `--version`, and per-subcommand `--help` are provided by clap.
 

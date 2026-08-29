@@ -2,19 +2,25 @@
 
 Task recipes for common Laura actions. For a guided first run, see the [tutorial](tutorial.md).
 
-## Open or replace a panel
+## Open a panel (split a pane)
 
 ```bash
-laura open <path>            # renders <path> beside the shell; focuses the panel
-laura open <path> --no-focus # open without moving focus into the panel
+laura open <path>                     # split the focused pane, render <path>; prints the new pane id
+laura open <path> --split <id>        # split a specific pane instead of the focused one
+laura open <path> --dir v --ratio 30  # v stacks / h side-by-side; first pane gets 30%
+laura open <path> --side first        # new panel lands on the first side of the split
+laura open <path> --no-focus          # open without moving focus into the panel
+laura open <path> --dry-run           # print the would-be overflow report; open nothing
 ```
 
-Opening another file replaces the current panel (one panel per tab).
+Every `open` splits a pane, so panels accumulate — a tab holds as many as you arrange. Capture the printed id to target that pane later. Check fit before (or without) committing with `laura layout` or `--dry-run`: both print per-pane rects and overflow as JSON.
 
-## Close the panel
+## Close a panel
 
 ```bash
-laura close
+laura close            # close the focused panel
+laura close <id>       # close a specific panel by id
+laura close --all      # close every panel, back to shell-only
 ```
 
 ## Enable review (mark the tab ready)
@@ -25,9 +31,9 @@ laura ready
 
 Run once per tab before commenting or submitting a review. Fails closed: no `ready`, no review injection.
 
-## Focus the panel and move around
+## Focus a panel and move around
 
-`Ctrl+T` then `p` focuses the panel. `↑`/`↓` move the line cursor; the mouse wheel scrolls too. `Esc` leaves focus and returns keys to the shell.
+`Ctrl+P` opens the panes popup; press a pane's **digit** to focus it (or run `laura focus <id>` from the shell). `↑`/`↓` move the line cursor; the mouse wheel scrolls too. `Esc` leaves focus and returns keys to the shell.
 
 ## Comment on a line
 

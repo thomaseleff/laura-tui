@@ -2,7 +2,7 @@
 
 *LOW-rah* — a TUI workspace your agent builds with you while you work.
 
-Laura hosts your agent's shell in a PTY and gives you both a live side-panel: you or the agent open a file, mark it up in place, and your review is injected straight back into the agent's chat. The *show → react → revise* loop never leaves the terminal.
+Laura hosts your agent's shell in a PTY, and you or the agent open files into live panels — splitting the tab into a composable tree of panes. Mark a file up in place and your review is injected straight back into the agent's chat. The *show → react → revise* loop never leaves the terminal.
 
 ![Laura demo](assets/laura-demo.gif)
 
@@ -27,7 +27,7 @@ cargo install --git https://github.com/thomaseleff/laura-tui laura --locked
 laura
 ```
 
-**4. Chat with your agent** in that shell. With the skill installed, it uses Laura's verbs itself — opening files in the live side-panel while your shell stays live on the left. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises.
+**4. Chat with your agent** in that shell. With the skill installed, it uses Laura's verbs itself — splitting panes and opening files into them while your shell stays live alongside. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises.
 
 New to it? The [tutorial](tutorial.md) walks through one full loop, including the review keys.
 

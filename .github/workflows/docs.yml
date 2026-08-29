@@ -30,6 +30,10 @@ jobs:
           python-version: "3.12"
       - run: pip install zensical==0.0.18 # pinned: pre-1.0, API still moving
       - run: zensical build
+      - name: Publish raw markdown for agents at /content/
+        run: |
+          mkdir -p site/content
+          cp docs/*.md site/content/
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
