@@ -1,5 +1,5 @@
 [package]
-name = "laura-tui"
+name = "laura"
 version = "0.1.0"
 edition = "2024"
 description = "*LOW-rah* — a tui workspace your agent builds with you while you work."
@@ -20,10 +20,6 @@ panic = "abort"
 [lib]
 name = "laura"
 path = "src/lib.rs"
-
-[[bin]]
-name = "laura"
-path = "src/main.rs"
 
 # Exact pins agree with Cargo.lock so Dependabot is the single controlled update path.
 [dependencies]

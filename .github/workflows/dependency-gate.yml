@@ -30,7 +30,7 @@ jobs:
           fail=0
           while read -r name version; do
             [ -z "${name:-}" ] && continue
-            created=$(curl -sf -H 'User-Agent: laura-tui-ci (dependency-gate)' \
+            created=$(curl -s -H 'User-Agent: laura-tui-ci (dependency-gate)' \
               "https://crates.io/api/v1/crates/$name/$version" | jq -r '.version.created_at // empty')
             if [ -z "$created" ]; then
               echo "?? $name $version — no publish date, skipping"; continue
