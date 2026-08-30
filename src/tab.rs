@@ -8,6 +8,9 @@ use anyhow::Result;
 use portable_pty::CommandBuilder;
 use ratatui::layout::Rect;
 
+use serde_json::json;
+
+use crate::journal::{Journal, is_runtime_temp};
 use crate::layout::{Layout, rects};
 use crate::panel::Panel;
 use crate::protocol::{
@@ -56,6 +59,13 @@ fn build_report(layout: &Layout, panels: &HashMap<PaneId, &Panel>, area: Rect) -
 /// Per-tab counter for unique socket names; no clock/rng needed.
 static TAB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Delete a panel's backing file if it's a Laura-owned runtime temp (e.g. a `laura tail` spool).
+fn remove_if_temp(path: &str) {
+    if is_runtime_temp(path) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// One workspace tab: a PTY, its panel panes, the split tree, and its own `LAURA_TAB` socket. Per-tab sockets isolate tabs by addressing (protocol.rs).
 pub struct Tab {
     pub pty: PtyTab,
@@ -65,11 +75,18 @@ pub struct Tab {
     pub panels: HashMap<PaneId, Panel>,
     /// Focused pane; `PTY_PANE` means the shell has focus.
     pub focus: PaneId,
-    pub name: String,
+    /// The tab's `.sock` name (its `LAURA_TAB` address).
+    pub socket: String,
+    /// Display name shown in the tab bar; `None` renders the bare index.
+    pub name: Option<String>,
     /// Set by `Open{focus}`; the run loop consumes it to focus the new pane once.
     pub pending_focus: Option<PaneId>,
     /// Tab hosts an agent (declared via `laura ready`); gates review injection.
     pub agent: bool,
+    /// Per-session journal, created on `ready` (names + audits composition events).
+    pub journal: Option<Journal>,
+    /// Spawn sequence number, for the default session id.
+    seq: u64,
     next_pane: PaneId,
     rx: Receiver<(Message, Reply)>,
     pty_size: (u16, u16),
@@ -79,22 +96,32 @@ impl Tab {
     /// Mint a unique socket, serve it, point `cmd`'s `LAURA_TAB` at it, spawn the PTY.
     pub fn spawn(mut cmd: CommandBuilder, rows: u16, cols: u16) -> Result<Tab> {
         let n = TAB_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let name = format!("laura-{}-{}.sock", std::process::id(), n);
-        let rx = protocol::serve(&name)?;
-        cmd.env("LAURA_TAB", &name);
+        let socket = format!("laura-{}-{}.sock", std::process::id(), n);
+        let rx = protocol::serve(&socket)?;
+        cmd.env("LAURA_TAB", &socket);
         let pty = PtyTab::spawn(cmd, rows, cols)?;
         Ok(Tab {
             pty,
             layout: Layout::Pane(PTY_PANE),
             panels: HashMap::new(),
             focus: PTY_PANE,
-            name,
+            socket,
+            name: None,
             pending_focus: None,
             agent: false,
+            journal: None,
+            seq: n,
             next_pane: 1,
             rx,
             pty_size: (rows, cols),
         })
+    }
+
+    /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
+    pub fn log_event(&self, event: serde_json::Value) {
+        if let Some(j) = &self.journal {
+            j.log(event);
+        }
     }
 
     /// The focused panel, if a panel (not the PTY) has focus.
@@ -142,6 +169,7 @@ impl Tab {
                 ratio,
                 side,
                 focus,
+                follow,
                 dry_run,
             } => {
                 let target = split.unwrap_or(self.focus);
@@ -152,7 +180,10 @@ impl Tab {
                 match self.layout.split(target, dir, ratio, side, new) {
                     Ok(()) => {
                         self.next_pane += 1;
-                        self.panels.insert(new, Panel::open(path));
+                        let mut panel = Panel::open(path.clone());
+                        panel.set_follow(follow);
+                        self.panels.insert(new, panel);
+                        self.log_event(json!({"type": "open", "pane": new, "path": path}));
                         if focus {
                             self.pending_focus = Some(new);
                         }
@@ -173,9 +204,13 @@ impl Tab {
             }
             Message::Close { pane, all } => {
                 if all {
+                    for p in self.panels.values() {
+                        remove_if_temp(&p.path);
+                    }
                     self.layout = Layout::Pane(PTY_PANE);
                     self.panels.clear();
                     self.focus = PTY_PANE;
+                    self.log_event(json!({"type": "close", "all": true}));
                     return Response::Ok;
                 }
                 let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
@@ -186,10 +221,13 @@ impl Tab {
                 };
                 match self.layout.remove(target) {
                     Ok(()) => {
-                        self.panels.remove(&target);
+                        if let Some(p) = self.panels.remove(&target) {
+                            remove_if_temp(&p.path);
+                        }
                         if self.focus == target {
                             self.focus = PTY_PANE;
                         }
+                        self.log_event(json!({"type": "close", "pane": target}));
                         Response::Ok
                     }
                     Err(message) => Response::Error { message },
@@ -198,6 +236,7 @@ impl Tab {
             Message::Focus { pane } => {
                 if pane == PTY_PANE || self.panels.contains_key(&pane) {
                     self.focus = pane;
+                    self.log_event(json!({"type": "focus", "pane": pane}));
                     Response::Ok
                 } else {
                     Response::Error {
@@ -206,8 +245,24 @@ impl Tab {
                 }
             }
             Message::Layout => Response::Report(self.report(area)),
-            Message::Ready => {
+            Message::Ready { session, agent } => {
                 self.agent = true;
+                let session =
+                    session.unwrap_or_else(|| format!("laura-{}-{}", std::process::id(), self.seq));
+                let journal = Journal::open(&session, agent);
+                let path = journal.path().to_string_lossy().into_owned();
+                journal.log(json!({"type": "ready"}));
+                self.journal = Some(journal);
+                Response::Ready { journal: path }
+            }
+            Message::Feedback { sentiment, body } => {
+                let pane = (self.focus != PTY_PANE).then_some(self.focus);
+                self.log_event(json!({
+                    "type": "feedback",
+                    "sentiment": sentiment,
+                    "body": body,
+                    "pane": pane,
+                }));
                 Response::Ok
             }
             Message::Update { .. } => Response::Ok, // reserved; not yet emitted

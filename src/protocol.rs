@@ -65,6 +65,9 @@ pub enum Message {
         /// Move focus into the new panel. Defaults true so an older `{"type":"open"}` still focuses.
         #[serde(default = "default_true")]
         focus: bool,
+        /// Autoscroll: pin the cursor to the last line on open and every reload (tail-style).
+        #[serde(default)]
+        follow: bool,
         /// Report the would-be layout without committing.
         #[serde(default)]
         dry_run: bool,
@@ -80,8 +83,22 @@ pub enum Message {
     Focus { pane: PaneId },
     /// Query the current layout + per-pane geometry/overflow.
     Layout,
-    /// Mark the tab as hosting an agent; enables review submission.
-    Ready,
+    /// Mark the tab as hosting an agent; enables review submission. Optionally names the
+    /// journal `session` and the `agent`; the reply carries the journal path.
+    Ready {
+        #[serde(default)]
+        session: Option<String>,
+        #[serde(default)]
+        agent: Option<String>,
+    },
+    /// Append a meta-signal to the journal: how well Laura/the agent performed
+    /// (layout, render quality, a missing tool) — not review content.
+    Feedback {
+        /// `"+"` positive, `"-"` negative.
+        sentiment: String,
+        #[serde(default)]
+        body: Option<String>,
+    },
     /// Reserved re-render nudge; not yet emitted.
     Update { path: String },
 }
@@ -100,6 +117,8 @@ pub enum Response {
     },
     /// Answers `Layout` and dry-run `Open`.
     Report(LayoutReport),
+    /// `ready` succeeded; carries the session's journal path.
+    Ready { journal: String },
     /// The request failed.
     Error { message: String },
 }

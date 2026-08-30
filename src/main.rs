@@ -52,6 +52,9 @@ enum Cmd {
         /// Don't move focus into the panel.
         #[arg(long)]
         no_focus: bool,
+        /// Autoscroll: keep the newest line in view as the file grows.
+        #[arg(long)]
+        follow: bool,
         /// Print the would-be overflow report without opening anything.
         #[arg(long)]
         dry_run: bool,
@@ -67,8 +70,45 @@ enum Cmd {
     Focus { id: PaneId },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
-    /// Mark this tab as hosting an agent (enables review submission).
-    Ready,
+    /// Mark this tab as hosting an agent (enables review submission). Prints the journal path.
+    Ready {
+        /// Name the journal session (default: `laura-<pid>-<n>`).
+        #[arg(long)]
+        session: Option<String>,
+        /// Attribute journal events to this agent name.
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Append a feedback signal (layout/render quality, a missing tool) to the journal.
+    Feedback {
+        /// Positive signal.
+        #[arg(long, conflicts_with = "negative")]
+        positive: bool,
+        /// Negative signal.
+        #[arg(long)]
+        negative: bool,
+        /// Free-text note.
+        body: Option<String>,
+    },
+    /// Spool piped stdin to an internal file and show it in a live, autoscrolling panel.
+    /// Usage: `some-cmd | laura tail --follow`.
+    Tail {
+        /// Panel title (also names the spool file).
+        #[arg(long)]
+        title: Option<String>,
+        /// Autoscroll to the newest line as output arrives.
+        #[arg(long)]
+        follow: bool,
+        /// Pane to split (default: the focused pane).
+        #[arg(long)]
+        split: Option<PaneId>,
+        /// Split orientation: `h` side-by-side, `v` stacked.
+        #[arg(long, value_enum, default_value_t = Dir::Horizontal)]
+        dir: Dir,
+        /// Percent of the split given to the first pane (1..=99).
+        #[arg(long, default_value_t = 50)]
+        ratio: u16,
+    },
 }
 
 fn main() -> Result<()> {
@@ -81,6 +121,7 @@ fn main() -> Result<()> {
             ratio,
             side,
             no_focus,
+            follow,
             dry_run,
         }) => client_request(Message::Open {
             path,
@@ -89,12 +130,35 @@ fn main() -> Result<()> {
             ratio,
             side,
             focus: !no_focus,
+            follow,
             dry_run,
         }),
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
         Some(Cmd::Focus { id }) => client_request(Message::Focus { pane: id }),
         Some(Cmd::Layout) => client_request(Message::Layout),
-        Some(Cmd::Ready) => client_request(Message::Ready),
+        Some(Cmd::Ready { session, agent }) => client_request(Message::Ready { session, agent }),
+        Some(Cmd::Feedback {
+            positive,
+            negative,
+            body,
+        }) => {
+            let sentiment = match (positive, negative) {
+                (true, _) => "+",
+                (_, true) => "-",
+                _ => bail!("pass --positive or --negative"),
+            };
+            client_request(Message::Feedback {
+                sentiment: sentiment.into(),
+                body,
+            })
+        }
+        Some(Cmd::Tail {
+            title,
+            follow,
+            split,
+            dir,
+            ratio,
+        }) => tail(title, follow, split, dir, ratio),
         None => {
             let mut terminal = ratatui::init();
             // Capture the wheel so panels scroll; the shell gets no mouse anyway (keys only).
@@ -121,9 +185,79 @@ fn client_request(msg: Message) -> Result<()> {
             println!("{pane}");
         }
         Response::Report(report) => println!("{}", serde_json::to_string_pretty(&report)?),
+        Response::Ready { journal } => println!("{journal}"),
         Response::Error { message } => {
             eprintln!("{message}");
             std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
+/// `some-cmd | laura tail`: spool stdin to an internal file, show it as a live follow-panel,
+/// then keep copying stdin → file until EOF. The file lives under Laura's runtime dir and is
+/// auto-removed when the panel closes.
+///
+/// ponytail: file-backed, not socket-streamed — deferred. One temp file per invocation.
+fn tail(
+    title: Option<String>,
+    follow: bool,
+    split: Option<PaneId>,
+    dir: Dir,
+    ratio: u16,
+) -> Result<()> {
+    use std::io::Read;
+
+    let Ok(tab) = std::env::var("LAURA_TAB") else {
+        bail!("not inside a Laura tab (LAURA_TAB unset)");
+    };
+    let runtime = laura::journal::runtime_dir();
+    std::fs::create_dir_all(&runtime)?;
+    let stem = title.as_deref().unwrap_or("tail");
+    let stem: String = stem
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let path = runtime.join(format!("{stem}-{}.txt", std::process::id()));
+    let mut file = std::fs::File::create(&path)?;
+
+    // Open the panel first (empty file is fine) so it appears immediately, then stream into it.
+    match protocol::request(
+        &tab,
+        &Message::Open {
+            path: path.to_string_lossy().into_owned(),
+            split,
+            dir,
+            ratio,
+            side: Side::default(),
+            focus: false,
+            follow,
+            dry_run: false,
+        },
+    )? {
+        Response::Opened { pane, warnings } => {
+            for w in warnings {
+                eprintln!("{w}");
+            }
+            println!("{pane}");
+        }
+        Response::Error { message } => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+        _ => {}
+    }
+
+    let mut stdin = std::io::stdin().lock();
+    let mut buf = [0u8; 8192];
+    loop {
+        match stdin.read(&mut buf)? {
+            0 => break,
+            n => {
+                use std::io::Write;
+                file.write_all(&buf[..n])?;
+                file.flush()?;
+            }
         }
     }
     Ok(())

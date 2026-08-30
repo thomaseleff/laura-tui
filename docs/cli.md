@@ -20,12 +20,22 @@ laura open <path>       Split a pane and render <path> in the new panel. Prints 
       --ratio <1..99>   Percent of the split given to the first pane (default 50).
       --side <first|second>  Which side the new panel lands on (default second).
       --no-focus        Don't move focus into the panel.
+      --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
 laura close [<id>]      Close a panel (default: the focused one).
       --all             Close every panel, back to shell-only.
 laura focus <id>        Focus a pane by id.
 laura layout            Print the layout: per-pane rects + overflow (JSON).
-laura ready             Mark the tab as hosting an agent (enables review submission).
+laura ready             Mark the tab as hosting an agent (enables review submission). Prints the journal path.
+      --session <id>    Name the journal session (default: laura-<pid>-<n>).
+      --agent <name>    Attribute journal events to this agent name.
+laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
+      --positive        Positive signal.        (one of --positive/--negative is required)
+      --negative        Negative signal.
+      [<body>]          Optional free-text note.
+some-cmd | laura tail   Spool piped stdin to an internal file and show it in a live panel.
+      --title <t>       Panel title (also names the spool file).
+      --follow          Autoscroll to the newest line as output arrives.
 ```
 
 Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-hosted shell. Outside a tab they error with `not inside a Laura tab (LAURA_TAB unset)`.
@@ -45,6 +55,10 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 ```
 
 `overflow_rows > 0` (or `clipped`) means the panel is taller than its pane — widen/reshape the split or lower `--ratio` until it fits.
+
+## Journal
+
+`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/review/`feedback` event is teed to it, so a session is auditable after it ends. Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`) at `laura/sessions/<session>.ndjson`, overridable with `LAURA_DATA_DIR`. It's just files: `cat "$(ls -t <dir>/laura/sessions/*.ndjson | head -1)" | jq .`.
 
 ## Global
 

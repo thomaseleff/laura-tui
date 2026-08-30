@@ -1,8 +1,4 @@
-<div align="center">
-
-$\Huge\textsf{Laura}$
-
-</div>
+# Laura
 
 <p align="center"><em>LOW-rah</em> — a tui workspace your agent builds with you while you work.</p>
 
@@ -34,10 +30,10 @@ Or from a clone: `cargo build --release --locked` → `target/release/laura`.
 **3. Start Laura** — it hosts your default shell in a tab:
 
 ```bash
-laura
+laura -- claude "/laura:demo"
 ```
 
-**4. Chat with your agent** in that shell. With the skill installed, it uses Laura's verbs itself — splitting panes and opening files into them while your shell stays live alongside. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises. The *show → react → revise* loop never leaves the terminal.
+**4. Chat with your agent** in that shell. With the skill installed, the agent drives the `laura` CLI itself — splitting panes and opening files into them while your shell stays live alongside. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises. The *show → react → revise* loop never leaves the terminal.
 
 The panel is **live-watched** — edit the source and it re-renders on changes. `.md`/`.markdown` render with terminal styling (headings, bold, code); every other file shows its raw bytes, with Nord syntax colours for recognized code files. Rendering is display-only — comments and reviews always quote the plain line text. To review by hand: `laura ready` once to enable submission, focus the panel (`Ctrl+P` then its **digit**), press `c` to comment a line and `S` to submit.
 
@@ -45,7 +41,7 @@ See the [tutorial](docs/tutorial.md) for a first session, [how-to](docs/how-to.m
 
 ## Keys
 
-`Ctrl+P` panes popup (a **digit** focuses that pane) · `Ctrl+T` tab nav (`←/→` browse · `n` new tab · `x` close tab) · `Ctrl+H` help · `Ctrl+Q` quit (then `y`) · `F12` lock all input to the shell. In a focused panel: `↑/↓` move · `c` comment · `S` submit · `Esc` leave. Otherwise every key reaches the shell untouched (Shift/Ctrl/Alt combos included).
+`Ctrl+P` panes popup (type a pane **id** then `Enter` to focus; single-digit ids focus on keypress) · `Ctrl+T` tab nav (`←/→` browse · `n` new tab · `x` close tab) · `Ctrl+H` help · `Ctrl+Q` quit (then `y`) · `F12` lock all input to the shell. In a focused panel: `↑/↓` move · `c` comment · `S` submit · `Esc` leave. Otherwise every key reaches the shell untouched (Shift/Ctrl/Alt combos included).
 
 ## Windows / ConPTY
 

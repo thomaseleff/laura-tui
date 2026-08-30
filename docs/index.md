@@ -24,10 +24,10 @@ cargo install --git https://github.com/thomaseleff/laura-tui laura --locked
 **3. Start Laura** — it hosts your default shell in a tab:
 
 ```bash
-laura
+laura -- claude "/laura:demo"
 ```
 
-**4. Chat with your agent** in that shell. With the skill installed, it uses Laura's verbs itself — splitting panes and opening files into them while your shell stays live alongside. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises.
+**4. Chat with your agent** in that shell. With the skill installed, the agent drives the `laura` CLI itself — splitting panes and opening files into them while your shell stays live alongside. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises.
 
 New to it? The [tutorial](tutorial.md) walks through one full loop, including the review keys.
 

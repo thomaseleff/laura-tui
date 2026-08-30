@@ -21,7 +21,7 @@ fn area() -> Rect {
 
 /// Run `laura <args>` against a real tab, draining (and replying) until the client exits.
 fn drive_tab(tab: &mut Tab, args: &[&str]) {
-    let name = tab.name.clone();
+    let name = tab.socket.clone();
     let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     let (tx, rx) = mpsc::channel();
     let h = thread::spawn(move || {

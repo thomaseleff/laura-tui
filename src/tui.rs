@@ -10,27 +10,43 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers
 use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs,
-};
+use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use tui_term::widget::PseudoTerminal;
 
 use laura::protocol::PTY_PANE;
-use laura::{Panel, Tab, bracketed_paste};
+use laura::{Panel, Tab, bracketed_paste, wrap_line};
+use serde_json::json;
 
 use crate::keys::key_to_bytes;
 
-/// What `panel_focus` typing captures: a per-line comment or the review body. Only Enter branches (add comment vs. inject the review).
+/// What live typing captures: a per-line comment, the review body, or a tab rename. Enter branches per variant.
 enum Draft {
     Comment(String),
     Review(String),
+    Rename(String),
 }
 
 impl Draft {
     fn body_mut(&mut self) -> &mut String {
         match self {
-            Draft::Comment(s) | Draft::Review(s) => s,
+            Draft::Comment(s) | Draft::Review(s) | Draft::Rename(s) => s,
         }
+    }
+
+    fn body(&self) -> &str {
+        match self {
+            Draft::Comment(s) | Draft::Review(s) | Draft::Rename(s) => s,
+        }
+    }
+
+    /// Comment/Review are tied to the focused panel; Rename is not.
+    fn is_panel(&self) -> bool {
+        matches!(self, Draft::Comment(_) | Draft::Review(_))
+    }
+
+    /// `\`+Enter inserts a newline; Rename stays single-line.
+    fn multiline(&self) -> bool {
+        self.is_panel()
     }
 }
 
@@ -39,8 +55,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
 
     let mut tabs = vec![Tab::spawn(build_cmd(&program), area.height, area.width)?];
     let mut active = 0usize;
-    // `^p` opens the panes popup (a digit focuses a pane).
-    let mut panes = false;
+    // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
+    let mut panes: Option<String> = None;
     // `^t` toggles tab-nav in the footer (←/→ browse, n new); no popup.
     let mut tab_nav = false;
     // `F12` locks input: every key goes to the shell, Laura intercepts nothing but F12.
@@ -65,7 +81,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         if a.focus != PTY_PANE && !a.panels.contains_key(&a.focus) {
             a.focus = PTY_PANE;
         }
-        if a.focus == PTY_PANE {
+        // A panel draft is void once no panel is focused; a Rename draft survives (focus is the shell).
+        if a.focus == PTY_PANE && draft.as_ref().is_some_and(Draft::is_panel) {
             draft = None;
         }
 
@@ -78,7 +95,14 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             .inner(Margin::new(1, 1)); // shell sits inside its border box
         tabs[active].resize_to(pty_inner.height, pty_inner.width);
 
-        let titles: Vec<String> = (1..=tabs.len()).map(|i| format!(" {i} ")).collect();
+        let tab_labels: Vec<String> = tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| match &t.name {
+                Some(n) => format!(" {}:{n} ", i + 1),
+                None => format!(" {} ", i + 1),
+            })
+            .collect();
         terminal.draw(|f| {
             let rows = Layout::vertical([
                 Constraint::Length(1),
@@ -86,7 +110,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 Constraint::Length(1),
             ])
             .split(f.area());
-            f.render_widget(Tabs::new(titles).select(active), rows[0]);
+            f.render_widget(tab_bar(&tab_labels, active, rows[0].width), rows[0]);
             let tab = &tabs[active];
             let map = laura::rects(&tab.layout, rows[1]);
             for (id, rect) in &map {
@@ -117,17 +141,23 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  quit? press y to confirm · any other key cancels"
             } else if let Some(d) = &draft {
                 focus_hint = match d {
-                    Draft::Comment(text) => {
+                    Draft::Comment(_) => {
                         let cursor = tab.focused_panel().map_or(0, |p| p.cursor);
-                        format!("  comment L{}: {text}", cursor + 1)
+                        format!(
+                            "  comment L{} · \\+Enter newline · Enter add · Esc cancel",
+                            cursor + 1
+                        )
                     }
-                    Draft::Review(body) => format!("  overall (Enter submits): {body}"),
+                    Draft::Review(_) => {
+                        "  overall · \\+Enter newline · Enter submit · Esc cancel".into()
+                    }
+                    Draft::Rename(_) => "  rename tab · Enter save · Esc cancel".into(),
                 };
                 focus_hint.as_str()
-            } else if panes {
-                "  Esc dismiss"
+            } else if panes.is_some() {
+                "  type a pane id · Enter pick · Esc dismiss"
             } else if tab_nav {
-                "  ←/→ tabs · n new tab · x close tab · Esc dismiss"
+                "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
             } else if tab.focus != PTY_PANE {
                 if tab.agent {
                     "  ↑/↓ move · c comment · S submit · Esc leave focus"
@@ -138,8 +168,20 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  ^p panes · ^t tabs · ^h help · ^q quit"
             };
             f.render_widget(Paragraph::new(hint).dim(), rows[2]);
-            if panes {
-                render_panes(f, tab);
+            // A live draft grows a bordered input box over the bottom of the shell pane — never over
+            // a panel, so the file under review stays visible.
+            if let Some(d) = &draft
+                && let Some(pty_rect) = map.get(&PTY_PANE)
+            {
+                let (title, body) = match d {
+                    Draft::Comment(s) => ("comment", s.as_str()),
+                    Draft::Review(s) => ("overall", s.as_str()),
+                    Draft::Rename(s) => ("rename tab", s.as_str()),
+                };
+                render_draft_box(f, *pty_rect, title, body);
+            }
+            if let Some(buf) = &panes {
+                render_panes(f, tab, buf);
             }
             if help {
                 render_help(f);
@@ -183,6 +225,15 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Backspace => {
                                 draft.as_mut().unwrap().body_mut().pop();
                             }
+                            // `\`+Enter inserts a newline (Shift+Enter isn't portable); plain Enter submits.
+                            KeyCode::Enter
+                                if draft.as_ref().unwrap().multiline()
+                                    && draft.as_ref().unwrap().body().ends_with('\\') =>
+                            {
+                                let b = draft.as_mut().unwrap().body_mut();
+                                b.pop();
+                                b.push('\n');
+                            }
                             KeyCode::Enter => match draft.take().unwrap() {
                                 Draft::Comment(text) => {
                                     if let Some(p) = tabs[active].focused_panel_mut() {
@@ -191,6 +242,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 }
                                 Draft::Review(body) => {
                                     // Assemble + clear comments borrowing the panel, then inject (disjoint from `pty`).
+                                    let logged = tabs[active]
+                                        .focused_panel()
+                                        .map(|p| (p.path.clone(), p.comments.len()));
                                     let payload = tabs[active].focused_panel_mut().map(|p| {
                                         let bytes = bracketed_paste(&p.assemble_review(&body));
                                         p.comments.clear();
@@ -199,22 +253,52 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     if let Some(payload) = payload {
                                         tabs[active].pty.write(&payload);
                                     }
+                                    if let Some((path, comments)) = logged {
+                                        tabs[active].log_event(json!({
+                                            "type": "review",
+                                            "path": path,
+                                            "comments": comments,
+                                            "body": body,
+                                        }));
+                                    }
                                     tabs[active].focus = PTY_PANE;
+                                }
+                                Draft::Rename(text) => {
+                                    let text = text.trim();
+                                    tabs[active].name =
+                                        (!text.is_empty()).then(|| text.to_string());
                                 }
                             },
                             KeyCode::Esc => draft = None,
                             _ => {}
                         }
-                    } else if panes {
+                    } else if panes.is_some() {
+                        // Typed digits are the pane id (shell is #0), matching `laura close`/`focus`.
+                        // Commit as soon as no larger id could still be typed, else wait for `Enter`.
                         match key.code {
-                            KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
-                                let label = c as usize - '0' as usize;
-                                if let Some(id) = laura::pane_at(&tabs[active].layout, label) {
+                            KeyCode::Char(c) if c.is_ascii_digit() => {
+                                let buf = panes.as_mut().expect("popup open");
+                                buf.push(c);
+                                let buf = buf.clone();
+                                let ids = tabs[active].layout.order();
+                                if !pane_id_ambiguous(&ids, &buf) {
+                                    if let Some(id) = pane_id_exact(&ids, &buf) {
+                                        tabs[active].focus = id;
+                                    }
+                                    panes = None;
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                panes.as_mut().expect("popup open").pop();
+                            }
+                            KeyCode::Enter => {
+                                let buf = panes.take().expect("popup open");
+                                let ids = tabs[active].layout.order();
+                                if let Some(id) = pane_id_exact(&ids, &buf) {
                                     tabs[active].focus = id;
                                 }
-                                panes = false;
                             }
-                            _ => panes = false, // Esc or anything else dismisses
+                            _ => panes = None, // Esc or anything else dismisses
                         }
                     } else if tab_nav {
                         match key.code {
@@ -233,10 +317,15 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 active = active.min(tabs.len() - 1);
                                 tab_nav = false;
                             }
+                            KeyCode::Char('r') => {
+                                let cur = tabs[active].name.clone().unwrap_or_default();
+                                draft = Some(Draft::Rename(cur));
+                                tab_nav = false;
+                            }
                             _ => tab_nav = false, // Esc or anything else dismisses
                         }
                     } else if ctrl && key.code == KeyCode::Char('p') {
-                        panes = true;
+                        panes = Some(String::new());
                     } else if ctrl && key.code == KeyCode::Char('t') {
                         tab_nav = true;
                     } else if ctrl && key.code == KeyCode::Char('q') {
@@ -303,6 +392,82 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         }
     }
     Ok(())
+}
+
+/// The one-line tab bar: numbered (and optionally named) tabs, windowed to `width`, active reversed,
+/// with `‹`/`›` markers when clipped either side.
+fn tab_bar(labels: &[String], active: usize, width: u16) -> Line<'static> {
+    let (lo, hi) = tab_window(labels, active, width as usize);
+    let mut spans = vec![];
+    if lo > 0 {
+        spans.push(Span::raw("‹"));
+    }
+    for (i, label) in labels.iter().enumerate().take(hi).skip(lo) {
+        if i == active {
+            spans.push(Span::styled(label.clone(), Style::default().reversed()));
+        } else {
+            spans.push(Span::raw(label.clone()));
+        }
+    }
+    if hi < labels.len() {
+        spans.push(Span::raw("›"));
+    }
+    Line::from(spans)
+}
+
+/// The `[lo, hi)` slice of tab labels to show: always includes `active`, greedily fills `width`,
+/// reserving a column for each `‹`/`›` marker when the ends are clipped.
+fn tab_window(labels: &[String], active: usize, width: usize) -> (usize, usize) {
+    let w = |i: usize| labels[i].chars().count();
+    let total: usize = (0..labels.len()).map(w).sum();
+    if total <= width {
+        return (0, labels.len());
+    }
+    let (mut lo, mut hi, mut used) = (active, active + 1, w(active));
+    loop {
+        let reserve = usize::from(lo > 0) + usize::from(hi < labels.len());
+        let budget = width.saturating_sub(reserve);
+        if hi < labels.len() && used + w(hi) <= budget {
+            used += w(hi);
+            hi += 1;
+        } else if lo > 0 && used + w(lo - 1) <= budget {
+            lo -= 1;
+            used += w(lo);
+        } else {
+            break;
+        }
+    }
+    (lo, hi)
+}
+
+/// A bordered draft input box pinned to the bottom of `area` (the shell pane). Grows 2..=6 rows,
+/// then scrolls to keep the tail visible; wraps like a panel.
+fn render_draft_box(f: &mut Frame, area: Rect, title: &str, body: &str) {
+    let inner_w = area.width.saturating_sub(2).max(1) as usize;
+    let mut rows: Vec<String> = body
+        .split('\n')
+        .flat_map(|l| wrap_line(l, inner_w))
+        .collect();
+    if rows.is_empty() {
+        rows.push(String::new());
+    }
+    let view = rows.len().clamp(2, 6);
+    let h = view as u16 + 2; // + border
+    let box_area = Rect {
+        x: area.x,
+        y: area.y + area.height.saturating_sub(h),
+        width: area.width,
+        height: h.min(area.height),
+    };
+    let scroll = rows.len().saturating_sub(view) as u16;
+    let text: Vec<Line> = rows.into_iter().map(Line::from).collect();
+    f.render_widget(Clear, box_area);
+    f.render_widget(
+        Paragraph::new(text)
+            .block(Block::bordered().title(format!(" {title} ")))
+            .scroll((scroll, 0)),
+        box_area,
+    );
 }
 
 /// The frame minus the tab bar (top) and hint line (bottom).
@@ -394,7 +559,10 @@ fn render_scrollbar(f: &mut Frame, area: Rect, total: usize, view: usize, pos: u
     if total <= view {
         return;
     }
-    let mut sb = ScrollbarState::new(total)
+    // ratatui sizes the thumb over `content_length - 1 + view`; passing raw `total` makes that
+    // denominator exceed `total`, so full scroll lands short. `total - view + 1` fixes it to exactly
+    // `total`: pos=0 flush top, pos=total-view flush bottom.
+    let mut sb = ScrollbarState::new(total.saturating_sub(view) + 1)
         .viewport_content_length(view)
         .position(pos);
     f.render_stateful_widget(
@@ -439,8 +607,22 @@ fn with_cwd(mut cmd: CommandBuilder) -> CommandBuilder {
     cmd
 }
 
-/// Draw the `^p` panes popup: panes numbered positionally `1..N` with their stable ids; a digit focuses one.
-fn render_panes(f: &mut Frame, tab: &Tab) {
+/// True if some live id extends `buf` (a longer id is still reachable, so don't commit yet).
+fn pane_id_ambiguous(ids: &[laura::PaneId], buf: &str) -> bool {
+    ids.iter().any(|id| {
+        let s = id.to_string();
+        s.len() > buf.len() && s.starts_with(buf)
+    })
+}
+
+/// The live pane whose id string exactly equals `buf`, if any.
+fn pane_id_exact(ids: &[laura::PaneId], buf: &str) -> Option<laura::PaneId> {
+    ids.iter().copied().find(|id| id.to_string() == buf)
+}
+
+/// Draw the `^p` panes popup: each pane keyed by its stable id (shell is `#0`); typing that id
+/// focuses it. `buf` is the id being typed — its matching row is highlighted.
+fn render_panes(f: &mut Frame, tab: &Tab, buf: &str) {
     let key = |k: String, desc: String| {
         Line::from(vec![
             Span::raw("  "),
@@ -450,7 +632,7 @@ fn render_panes(f: &mut Frame, tab: &Tab) {
         ])
     };
     let mut lines = vec![];
-    for (i, id) in tab.layout.order().into_iter().enumerate() {
+    for id in tab.layout.order() {
         let name = if id == PTY_PANE {
             "shell".to_string()
         } else {
@@ -459,11 +641,18 @@ fn render_panes(f: &mut Frame, tab: &Tab) {
                 .map(|p| base_name(&p.path))
                 .unwrap_or_else(|| "?".into())
         };
-        lines.push(key(format!("{}", i + 1), format!("{name}  #{id}")));
+        // Dim rows the current input can't reach; leave the shortlist bright.
+        let matches = buf.is_empty() || id.to_string().starts_with(buf);
+        let row = key(format!("{id}"), name);
+        lines.push(if matches { row } else { row.dim() });
     }
     lines.push(Line::raw(""));
-    lines.push(key("digit".into(), "focus that pane".into()));
-    lines.push(key("Esc".into(), "dismiss".into()));
+    let typed = if buf.is_empty() {
+        "type a pane id".to_string()
+    } else {
+        format!("typed: {buf}")
+    };
+    lines.push(key(typed, "Enter pick · Esc dismiss".into()));
 
     let width = 40u16;
     let height = lines.len() as u16 + 2; // + border
@@ -506,13 +695,14 @@ fn render_help(f: &mut Frame) {
         key("^q", "quit (then y to confirm)"),
         Line::raw(""),
         group("Panes (^p …)"),
-        key("digit", "focus that pane"),
+        key("id", "type a pane id, Enter to focus"),
         key("Esc", "dismiss"),
         Line::raw(""),
         group("Tabs (^t …)"),
         key("←/→", "browse tabs"),
         key("n", "new tab"),
         key("x", "close tab"),
+        key("r", "rename tab"),
         key("Esc", "dismiss"),
         Line::raw(""),
         group("Panel focus"),
@@ -522,7 +712,8 @@ fn render_help(f: &mut Frame) {
         key("Esc", "leave focus"),
         Line::raw(""),
         group("Draft"),
-        key("Enter", "confirm"),
+        key("\\+Enter", "newline (comment/review)"),
+        key("Enter", "confirm / submit"),
         key("Esc", "cancel"),
     ];
     let width = 44u16;
@@ -538,4 +729,54 @@ fn render_help(f: &mut Frame) {
         Paragraph::new(lines).block(Block::bordered().title(" Help ")),
         area,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pane_id_ambiguous, pane_id_exact, tab_window};
+
+    // The pane-id popup entry lives in the TUI event loop (no CLI/socket surface), so its
+    // disambiguation is checked here per CLAUDE.md's exception. This is the `1` vs `10` case.
+    #[test]
+    fn pane_id_entry_resolves_1_versus_10() {
+        let ids = [0u64, 1, 2, 10];
+        // "1" is a live id but could still grow into "10" -> wait, don't commit.
+        assert!(pane_id_ambiguous(&ids, "1"));
+        assert_eq!(pane_id_exact(&ids, "1"), Some(1));
+        // "10" is terminal -> commit to #10.
+        assert!(!pane_id_ambiguous(&ids, "10"));
+        assert_eq!(pane_id_exact(&ids, "10"), Some(10));
+        // "2" and "0" have no longer sibling -> instant commit (the common <10 case).
+        assert!(!pane_id_ambiguous(&ids, "2"));
+        assert!(!pane_id_ambiguous(&ids, "0"));
+        assert_eq!(pane_id_exact(&ids, "0"), Some(0));
+        // A typed id that doesn't exist commits to nothing.
+        assert!(!pane_id_ambiguous(&ids, "7"));
+        assert_eq!(pane_id_exact(&ids, "7"), None);
+    }
+
+    // Windowing is bin-internal (no CLI/socket surface), so it's checked here per CLAUDE.md's exception.
+    #[test]
+    fn window_shows_all_when_it_fits() {
+        let labels = vec![" 1 ".to_string(), " 2 ".to_string(), " 3 ".to_string()];
+        assert_eq!(tab_window(&labels, 0, 80), (0, 3));
+    }
+
+    #[test]
+    fn window_always_includes_active_and_fits_width() {
+        // 10 tabs of 3 cols each = 30; a 12-wide bar can't show them all.
+        let labels: Vec<String> = (1..=10).map(|i| format!(" {i} ")).collect();
+        let (lo, hi) = tab_window(&labels, 9, 12);
+        assert!(lo <= 9 && 9 < hi, "active tab is inside the window");
+        // Reserve one col for the left `‹` marker; the rest holds visible labels.
+        let shown: usize = labels[lo..hi].iter().map(|s| s.chars().count()).sum();
+        assert!(
+            shown <= 12 - usize::from(lo > 0),
+            "fits the width minus markers"
+        );
+        assert!(
+            hi == labels.len(),
+            "the last (active) tab reaches the right edge"
+        );
+    }
 }

@@ -107,6 +107,36 @@ fn leading_indentation_survives_wrapping() -> Result<()> {
 }
 
 #[test]
+fn diff_projection_is_verbatim_and_colored() -> Result<()> {
+    use ratatui::style::Color;
+
+    let src = "@@ -1 +1 @@\n-    old = 1\n+    new = 2\n";
+    let panel = open(".diff", src)?;
+    // Source preserved verbatim for `L<n>` quoting.
+    assert_eq!(panel.content, src, "diff source must be verbatim");
+
+    // Add/remove lines carry green/red foreground (styling a user can see).
+    let rows = panel.layout(80).rows;
+    let color = |needle: &str| {
+        rows.iter()
+            .find(|r| r.text().contains(needle))
+            .and_then(|r| r.spans.iter().find(|s| !s.content.trim().is_empty()))
+            .and_then(|s| s.style.fg)
+    };
+    assert_eq!(
+        color("new = 2"),
+        Some(Color::Rgb(163, 190, 140)),
+        "addition is green"
+    );
+    assert_eq!(
+        color("old = 1"),
+        Some(Color::Rgb(191, 97, 106)),
+        "removal is red"
+    );
+    Ok(())
+}
+
+#[test]
 fn unknown_extension_stays_raw() -> Result<()> {
     // No bundled syntax for `.zzz` → plain text in the projection.
     let panel = open(".zzz", "keyword fn let const")?;

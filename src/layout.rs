@@ -113,13 +113,6 @@ fn boxed_pty() -> Box<Layout> {
     Box::new(Layout::Pane(PTY_PANE))
 }
 
-/// Map a 1-based positional picker label to its pane id (handles id gaps from closes).
-pub fn pane_at(layout: &Layout, label: usize) -> Option<PaneId> {
-    label
-        .checked_sub(1)
-        .and_then(|i| layout.order().get(i).copied())
-}
-
 /// Split `area` into (first, second) by `dir`/`ratio`, matching what the renderer draws.
 fn split_rect(area: Rect, dir: Dir, ratio: u16) -> (Rect, Rect) {
     let ratio = ratio.clamp(1, 99);

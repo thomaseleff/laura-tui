@@ -5,10 +5,12 @@
 //! - [`layout`] — geometry/split-tree: a tab's recursive pane arrangement and its rects.
 //! - [`render`] — file→styled: read a file into styled lines plus a plain-text projection.
 //! - [`panel`] — a file's review state: content, cursor, comments, and live reload.
+//! - [`journal`] — persisted per-session NDJSON log of composition events.
 //! - [`tab`] — one workspace tab tying the above together over its socket.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
 
+pub mod journal;
 pub mod layout;
 pub mod panel;
 pub mod protocol;
@@ -18,7 +20,8 @@ pub mod tab;
 
 pub use ratatui::layout::Rect;
 
-pub use layout::{Layout, pane_at, rects};
+pub use journal::Journal;
+pub use layout::{Layout, rects};
 pub use panel::{Panel, PanelLayout, PanelRow, bracketed_paste, wrap_line, wrap_spans};
 pub use protocol::{
     Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,

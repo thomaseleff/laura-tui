@@ -22,3 +22,14 @@ Standard Rust. No house style on top of it.
 - **The one exception** — pure logic a user can't reach through the CLI (DSR handshake reply from a byte stream, review-payload assembly, NDJSON framing). Test it through the smallest public entry point that reaches it; only if there's genuinely no such surface, a `#[cfg(test)]` check next to the code. Prefer exposing the seam over reaching into privates.
 
 Run before calling anything done: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`.
+
+## Implementation requirements
+
+Implementation should always be comprehensive of code, tests, docs and skills.
+
+- **Code** — the feature itself.
+- **Tests** — integration coverage per the workstream's *Done when* (see Testing).
+- **Docs** — `README.md` + `docs/` reflect the new verbs, flags, protocol messages, keybindings.
+- **Skills** — `plugins/laura/skills/` teach the agent the new surface; revise `skills/demo/` when a user-facing capability is worth demoing.
+
+New CLI verb, protocol message, or keybinding → assume all four apply and say so if you're skipping one. Docs and skills drift silently otherwise: nothing fails to compile when they fall behind.
