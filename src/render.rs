@@ -31,6 +31,7 @@ pub(crate) fn render(path: &str) -> Rendered {
         .as_deref()
     {
         Some("md" | "markdown") => render_markdown(&raw),
+        Some("diff" | "patch") => render_diff(&raw),
         Some(ext) => render_code(&raw, ext),
         None => plain(raw),
     }
@@ -45,6 +46,42 @@ fn plain(content: String) -> Rendered {
     let indent = vec![0; styled.len()];
     Rendered {
         content,
+        styled,
+        indent,
+    }
+}
+
+/// Color a unified diff by line prefix — additions green, removals red, hunk headers blue, file headers dim.
+/// syntect's bundled Diff syntax leaves these uncolored under the Nord theme, so we do it by first char. `content` stays verbatim.
+fn render_diff(raw: &str) -> Rendered {
+    let styled = raw
+        .lines()
+        .map(|l| {
+            // `+++`/`---` file headers must beat the `+`/`-` add/remove check.
+            let color = if l.starts_with("+++")
+                || l.starts_with("---")
+                || l.starts_with("diff ")
+                || l.starts_with("index ")
+            {
+                Some(Color::Rgb(120, 120, 120))
+            } else if l.starts_with("@@") {
+                Some(Color::Rgb(129, 161, 193)) // nord blue
+            } else if l.starts_with('+') {
+                Some(Color::Rgb(163, 190, 140)) // nord green
+            } else if l.starts_with('-') {
+                Some(Color::Rgb(191, 97, 106)) // nord red
+            } else {
+                None
+            };
+            match color {
+                Some(c) => Line::from(Span::styled(l.to_string(), Style::default().fg(c))),
+                None => Line::from(Span::raw(l.to_string())),
+            }
+        })
+        .collect::<Vec<_>>();
+    let indent = vec![0; styled.len()];
+    Rendered {
+        content: raw.to_string(),
         styled,
         indent,
     }

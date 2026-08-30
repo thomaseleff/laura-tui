@@ -21,6 +21,13 @@ const SCROLLBACK: usize = 10_000;
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
+/// Floor a PTY/vt100 size to what vt100 can hold: a wide char needs ≥2 cols, and it
+/// panics (screen.rs wide-char path unwraps `None`) on a 0/1-col grid — reachable when
+/// many splits shrink a pane to nothing. Rows likewise never zero.
+fn floor_size(rows: u16, cols: u16) -> (u16, u16) {
+    (rows.max(1), cols.max(2))
+}
+
 /// One PTY-hosted shell/agent plus its parsed screen. Killed on drop, winding down the reader/wait threads.
 pub struct PtyTab {
     parser: Arc<Mutex<vt100::Parser>>,
@@ -33,6 +40,7 @@ pub struct PtyTab {
 impl PtyTab {
     /// Spawn `cmd` in a fresh `rows`x`cols` PTY, streaming output into a vt100 parser.
     pub fn spawn(cmd: CommandBuilder, rows: u16, cols: u16) -> Result<Self> {
+        let (rows, cols) = floor_size(rows, cols);
         let pair = native_pty_system().openpty(PtySize {
             rows,
             cols,
@@ -85,6 +93,7 @@ impl PtyTab {
 
     /// Resize both the PTY and the parser grid.
     pub fn resize(&self, rows: u16, cols: u16) {
+        let (rows, cols) = floor_size(rows, cols);
         let _ = self.master.resize(PtySize {
             rows,
             cols,
@@ -173,4 +182,17 @@ fn spawn_reader(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::floor_size;
+
+    #[test]
+    fn floors_below_vt100_wide_char_minimum() {
+        // vt100 panics on a 0/1-col grid; the floor keeps every size viable.
+        assert_eq!(floor_size(0, 0), (1, 2));
+        assert_eq!(floor_size(24, 1), (24, 2));
+        assert_eq!(floor_size(24, 80), (24, 80)); // roomy sizes pass through
+    }
 }

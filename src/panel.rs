@@ -20,6 +20,8 @@ pub struct Panel {
     pub cursor: usize,
     /// `(line, text)` comments; multiple allowed, even several per line.
     pub comments: Vec<(usize, String)>,
+    /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
+    pub follow: bool,
     /// Last-seen source signature (mtime, byte len); drives `reload_if_changed`.
     sig: Option<(SystemTime, u64)>,
 }
@@ -40,7 +42,16 @@ impl Panel {
             indent,
             cursor: 0,
             comments: vec![],
+            follow: false,
             sig,
+        }
+    }
+
+    /// Enable/disable autoscroll; enabling snaps the cursor to the last line now.
+    pub fn set_follow(&mut self, on: bool) {
+        self.follow = on;
+        if on {
+            self.cursor = self.line_count() - 1;
         }
     }
 
@@ -160,7 +171,11 @@ impl Panel {
         self.styled = styled;
         self.indent = indent;
         self.sig = sig;
-        self.cursor = self.cursor.min(self.line_count() - 1);
+        self.cursor = if self.follow {
+            self.line_count() - 1 // autoscroll: newest line stays selected, so it renders at the bottom
+        } else {
+            self.cursor.min(self.line_count() - 1)
+        };
         true
     }
 }
