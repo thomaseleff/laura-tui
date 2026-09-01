@@ -1,6 +1,6 @@
 # Laura
 
-*LOW-rah* — a TUI workspace your agent builds with you while you work.
+*LOW-rah* — a TUI workspace your agent builds with you while you pair-program.
 
 Laura hosts your agent's shell in a PTY, and you or the agent open files into live panels — splitting the tab into a composable tree of panes. Mark a file up in place and your review is injected straight back into the agent's chat. The *show → react → revise* loop never leaves the terminal.
 

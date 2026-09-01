@@ -1,6 +1,6 @@
 # Laura
 
-<p align="center"><em>LOW-rah</em> — a tui workspace your agent builds with you while you work.</p>
+<p align="center"><em>LOW-rah</em> — a tui workspace your agent builds with you while you pair-program.</p>
 
 ---
 
@@ -42,6 +42,8 @@ See the [tutorial](docs/tutorial.md) for a first session, [how-to](docs/how-to.m
 ## Keys
 
 `Ctrl+P` panes popup (type a pane **id** then `Enter` to focus; single-digit ids focus on keypress) · `Ctrl+T` tab nav (`←/→` browse · `n` new tab · `x` close tab) · `Ctrl+H` help · `Ctrl+Q` quit (then `y`) · `F12` lock all input to the shell. In a focused panel: `↑/↓` move · `c` comment · `S` submit · `Esc` leave. Otherwise every key reaches the shell untouched (Shift/Ctrl/Alt combos included).
+
+`PageUp/PageDown` and the mouse wheel scroll Laura's history on the main screen; on the alternate screen (claude, vim, less) they forward to the child, which owns its own scrollback (no scrollbar then). A pasted multi-line block arrives as one unit, not a submit per line. A plain left **drag** selects within a pane and copies to the system clipboard on release (via OSC 52); from a file panel the copy is clean source — no line-number gutter, wrapped lines rejoined — while the PTY copies its glyphs verbatim.
 
 ## Windows / ConPTY
 

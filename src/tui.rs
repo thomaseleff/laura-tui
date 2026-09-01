@@ -6,7 +6,9 @@ use std::time::Duration;
 use anyhow::Result;
 use portable_pty::CommandBuilder;
 use ratatui::Frame;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -18,6 +20,36 @@ use laura::{Panel, Tab, bracketed_paste, wrap_line};
 use serde_json::json;
 
 use crate::keys::key_to_bytes;
+use crate::mouse::{self, Selection};
+
+/// Windows delivers a paste as a burst of key events (no `Event::Paste`). Given the first key of a
+/// suspected burst, drain everything already queued and fold it into one paste. A real paste is text
+/// only, so interleaved Release/Focus/Resize records are skipped; a single character means it was just
+/// this key plus its Release echo, not a paste, so the original key flows through unchanged.
+#[cfg(windows)]
+fn coalesce_paste_burst(first: ratatui::crossterm::event::KeyEvent) -> Result<Event> {
+    fn push(s: &mut String, code: KeyCode) {
+        match code {
+            KeyCode::Char(c) => s.push(c),
+            KeyCode::Enter => s.push('\n'),
+            _ => {}
+        }
+    }
+    let mut s = String::new();
+    push(&mut s, first.code);
+    while event::poll(Duration::ZERO)? {
+        if let Event::Key(k) = event::read()?
+            && k.kind == KeyEventKind::Press
+        {
+            push(&mut s, k.code);
+        }
+    }
+    Ok(if s.chars().count() >= 2 {
+        Event::Paste(s)
+    } else {
+        Event::Key(first)
+    })
+}
 
 /// What live typing captures: a per-line comment, the review body, or a tab rename. Enter branches per variant.
 enum Draft {
@@ -66,6 +98,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     // Draft captures typing for a comment or the review body.
     let mut draft: Option<Draft> = None;
     let mut help = false;
+    // An in-progress left-drag selection; local because a drag can't span a tab switch.
+    let mut selection: Option<Selection> = None;
 
     loop {
         // Content rect sits below the 1-line tab bar; sockets deliver while unfocused, so drain every tab.
@@ -103,7 +137,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 None => format!(" {} ", i + 1),
             })
             .collect();
-        terminal.draw(|f| {
+        let completed = terminal.draw(|f| {
             let rows = Layout::vertical([
                 Constraint::Length(1),
                 Constraint::Min(0),
@@ -120,16 +154,19 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     f.render_widget(pane_block(None, focused), *rect);
                     tab.pty
                         .with_screen(|s| f.render_widget(PseudoTerminal::new(s), inner));
-                    // Offset counts up from live (0); the scrollbar counts down from the top.
-                    let max = tab.pty.scrollback_max();
-                    let view = inner.height as usize;
-                    render_scrollbar(
-                        f,
-                        *rect,
-                        max + view,
-                        view,
-                        max - tab.pty.scrollback_offset(),
-                    );
+                    // The alt screen keeps no scrollback — the child owns its history, so no scrollbar.
+                    if !tab.pty.on_alt_screen() {
+                        // Offset counts up from live (0); the scrollbar counts down from the top.
+                        let max = tab.pty.scrollback_max();
+                        let view = inner.height as usize;
+                        render_scrollbar(
+                            f,
+                            *rect,
+                            max + view,
+                            view,
+                            max - tab.pty.scrollback_offset(),
+                        );
+                    }
                 } else if let Some(panel) = tab.panels.get(id) {
                     render_panel(f, *rect, panel, focused);
                 }
@@ -186,7 +223,17 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if help {
                 render_help(f);
             }
+            // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
+            if let Some(sel) = &selection
+                && let Some(rect) = map.get(&sel.pane)
+            {
+                let inner = rect.inner(Margin::new(1, 1));
+                mouse::highlight(f.buffer_mut(), inner, sel.anchor, sel.head);
+            }
         })?;
+        // The post-draw buffer swap resets `current_buffer`, so copy-on-release must read the frame
+        // that just showed the selection — snapshot it here while a drag is live, not the empty next one.
+        let drag_frame = selection.is_some().then(|| completed.buffer.clone());
 
         // A tab closes when its shell exits; when the last one goes, quit.
         if let Some(dead) = tabs.iter().position(|t| t.pty.has_exited()) {
@@ -199,7 +246,21 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
 
         // ~60fps poll so PTY output and panel reloads redraw without a keypress; ratatui diffs, so idle redraws emit ~nothing.
         if event::poll(Duration::from_millis(16))? {
-            match event::read()? {
+            #[cfg_attr(not(windows), allow(unused_mut))] // only rebound on Windows
+            let mut ev = event::read()?;
+            // Windows has no Event::Paste — crossterm reads console records, not the VT byte stream —
+            // so a paste lands as a rapid burst of Char/Enter key events. If more input is already
+            // queued the instant we read the first key, it's a paste, not a keystroke: drain the burst
+            // into one synthetic Event::Paste so the arm below handles it as a unit.
+            #[cfg(windows)]
+            if let Event::Key(k) = &ev
+                && k.kind == KeyEventKind::Press
+                && matches!(k.code, KeyCode::Char(_) | KeyCode::Enter)
+                && event::poll(Duration::ZERO)?
+            {
+                ev = coalesce_paste_burst(*k)?;
+            }
+            match ev {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     if key.code == KeyCode::F(12) {
@@ -246,7 +307,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         .focused_panel()
                                         .map(|p| (p.path.clone(), p.comments.len()));
                                     let payload = tabs[active].focused_panel_mut().map(|p| {
-                                        let bytes = bracketed_paste(&p.assemble_review(&body));
+                                        let bytes =
+                                            bracketed_paste(&p.assemble_review(&body), true);
                                         p.comments.clear();
                                         bytes
                                     });
@@ -357,10 +419,18 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Esc => tabs[active].focus = PTY_PANE,
                             _ => {}
                         }
-                    } else if key.code == KeyCode::PageUp {
-                        tabs[active].pty.scroll(pty_inner.height as isize);
-                    } else if key.code == KeyCode::PageDown {
-                        tabs[active].pty.scroll(-(pty_inner.height as isize));
+                    } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+                        // On the alt screen the child owns its history — forward the key so it scrolls
+                        // itself; on the main screen scroll Laura's own scrollback.
+                        if tabs[active].pty.on_alt_screen() {
+                            if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
+                                tabs[active].pty.write(&bytes);
+                            }
+                        } else if key.code == KeyCode::PageUp {
+                            tabs[active].pty.scroll(pty_inner.height as isize);
+                        } else {
+                            tabs[active].pty.scroll(-(pty_inner.height as isize));
+                        }
                     } else if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
                         tabs[active].pty.to_live(); // typing snaps to the live prompt
                         tabs[active].pty.write(&bytes);
@@ -369,21 +439,100 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 // The resize is applied by `resize_to` at the top of the loop from the content-inner
                 // rect; resizing the PTY to the raw terminal size here would clip the bottom rows.
                 Event::Resize(..) => {}
-                // Wheel routes by pointer: over a panel moves its cursor; over the PTY scrolls history.
+                // A pasted block arrives as one unit: into a draft body, or to the shell wrapped in
+                // bracketed paste (no trailing CR) so a REPL doesn't submit per newline.
+                Event::Paste(s) => {
+                    if let Some(d) = draft.as_mut() {
+                        // Rename is single-line: an interior newline can't land in the tab name.
+                        if d.multiline() {
+                            d.body_mut().push_str(&s);
+                        } else {
+                            d.body_mut().push_str(&s.replace('\n', " "));
+                        }
+                    } else if locked
+                        || (tabs[active].focus == PTY_PANE
+                            && panes.is_none()
+                            && !tab_nav
+                            && !help
+                            && !confirm_quit)
+                    {
+                        tabs[active].pty.to_live();
+                        tabs[active].pty.write(&bracketed_paste(&s, false));
+                    }
+                    // Popups / focused panel without a draft / help / confirm — paste is meaningless, drop it.
+                }
+                // Mouse: a child in SGR mouse mode gets real events; else the wheel scrolls
+                // history/cursor and a plain left drag selects within the pane. Shift+drag is the
+                // terminal's own reserved gesture (native, whole-window selection).
                 Event::Mouse(m) => {
-                    let step = match m.kind {
-                        MouseEventKind::ScrollUp => -3,
-                        MouseEventKind::ScrollDown => 3,
-                        _ => 0,
-                    };
-                    if step != 0 {
-                        match pane_at_point(&rect_map, m.column, m.row) {
-                            Some(PTY_PANE) | None => tabs[active].pty.scroll(-step as isize),
-                            Some(id) => {
-                                if let Some(p) = tabs[active].panels.get_mut(&id) {
-                                    p.move_cursor(step as isize);
+                    let over = pane_at_point(&rect_map, m.column, m.row);
+                    let left = matches!(
+                        m.kind,
+                        MouseEventKind::Down(MouseButton::Left)
+                            | MouseEventKind::Drag(MouseButton::Left)
+                            | MouseEventKind::Up(MouseButton::Left)
+                    );
+
+                    if let Some(mode) = (over == Some(PTY_PANE))
+                        .then(|| tabs[active].pty.mouse_capture())
+                        .flatten()
+                    {
+                        // Forward to the child; no `to_live` — forwarding mustn't disturb the view.
+                        if let Some(bytes) = mouse::sgr_mouse_bytes(&m, pty_inner, mode) {
+                            tabs[active].pty.write(&bytes);
+                        }
+                    } else {
+                        match m.kind {
+                            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                                let step: isize = if matches!(m.kind, MouseEventKind::ScrollUp) {
+                                    -3
+                                } else {
+                                    3
+                                };
+                                match over {
+                                    Some(PTY_PANE) | None => tabs[active].pty.scroll(-step),
+                                    Some(id) => {
+                                        if let Some(p) = tabs[active].panels.get_mut(&id) {
+                                            p.move_cursor(step);
+                                        }
+                                    }
                                 }
                             }
+                            _ if left => {
+                                mouse::update_selection(&mut selection, &m, over, &rect_map)
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Finish a selection on release: copy its glyphs (OSC 52 to our own stdout), then clear.
+                    if matches!(m.kind, MouseEventKind::Up(MouseButton::Left))
+                        && let Some(sel) = selection.take()
+                        && sel.anchor != sel.head
+                        && let Some(buf) = &drag_frame
+                        && let Some(rect) = rect_map.get(&sel.pane)
+                    {
+                        let inner = rect.inner(Margin::new(1, 1));
+                        // Panels draw a gutter + wrap the source, so copy source-aware; the PTY owns
+                        // its own glyphs (no gutter, child wraps) → scrape as-is.
+                        let text = match tabs[active].panels.get(&sel.pane) {
+                            Some(panel) => {
+                                let layout = panel.layout(inner.width as usize);
+                                let off = panel.scroll_offset(&layout, inner.height as usize);
+                                let line_at: Vec<usize> =
+                                    layout.rows.iter().map(|r| r.line).collect();
+                                let gutter = layout.gutter_width as u16 + 1;
+                                mouse::extract_panel(
+                                    buf, inner, gutter, off, &line_at, sel.anchor, sel.head,
+                                )
+                            }
+                            None => mouse::extract(buf, inner, sel.anchor, sel.head),
+                        };
+                        if !text.is_empty() {
+                            use std::io::Write;
+                            let mut out = std::io::stdout();
+                            let _ = out.write_all(&mouse::osc52(&text));
+                            let _ = out.flush();
                         }
                     }
                 }
@@ -537,14 +686,7 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
     // Scroll off the cursor line's *last* wrapped row, so its continuations stay on-screen instead of clipped.
     let view = area.height.saturating_sub(2) as usize;
     let total_rows = rows.len();
-    let cursor_end = layout
-        .starts
-        .get(panel.cursor + 1)
-        .map(|n| n - 1)
-        .unwrap_or(total_rows.saturating_sub(1));
-    let offset = cursor_end
-        .saturating_sub(view.saturating_sub(1))
-        .min(u16::MAX as usize) as u16;
+    let offset = panel.scroll_offset(&layout, view).min(u16::MAX as usize) as u16;
     f.render_widget(
         Paragraph::new(rows)
             .block(pane_block(Some(title), focused))
@@ -559,12 +701,19 @@ fn render_scrollbar(f: &mut Frame, area: Rect, total: usize, view: usize, pos: u
     if total <= view {
         return;
     }
-    // ratatui sizes the thumb over `content_length - 1 + view`; passing raw `total` makes that
-    // denominator exceed `total`, so full scroll lands short. `total - view + 1` fixes it to exactly
-    // `total`: pos=0 flush top, pos=total-view flush bottom.
-    let mut sb = ScrollbarState::new(total.saturating_sub(view) + 1)
+    // ratatui sizes the thumb over `content_length - 1 + view`; `steps + 1` maps pos=0 flush top,
+    // pos=steps flush bottom. But with the PTY's 10k-line scrollback the thumb collapses to a single
+    // cell parked in the corner — invisible against the border. Cap the reported range at 3× the
+    // viewport so the thumb stays ~1/4 of the track, scaling position into it so the ends still map flush.
+    let steps = total - view; // real scroll range: pos ∈ 0..=steps
+    let (content, position) = if steps > 3 * view {
+        (3 * view, pos * 3 * view / steps)
+    } else {
+        (steps, pos)
+    };
+    let mut sb = ScrollbarState::new(content + 1)
         .viewport_content_length(view)
-        .position(pos);
+        .position(position);
     f.render_stateful_widget(
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("↑"))
@@ -691,7 +840,7 @@ fn render_help(f: &mut Frame) {
         key("^t", "tab nav (footer)"),
         key("^h", "this help"),
         key("F12", "lock all input to the shell"),
-        key("⇧drag", "select text, then ^c to copy"),
+        key("drag", "select within pane (copies on release)"),
         key("^q", "quit (then y to confirm)"),
         Line::raw(""),
         group("Panes (^p …)"),

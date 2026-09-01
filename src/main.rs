@@ -7,11 +7,16 @@
 //! depends on this crate.
 
 mod keys;
+mod mouse;
 mod tui;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+// Bracketed paste is a no-op stub on Windows (crossterm #962) that can taint pasted Enter events, so
+// we only enable it on Unix and detect paste bursts manually on Windows (see tui::coalesce_paste_burst).
+#[cfg(not(windows))]
+use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
 
 use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
@@ -161,10 +166,15 @@ fn main() -> Result<()> {
         }) => tail(title, follow, split, dir, ratio),
         None => {
             let mut terminal = ratatui::init();
-            // Capture the wheel so panels scroll; the shell gets no mouse anyway (keys only).
+            // Capture the wheel so panels scroll and drags select; bracketed paste keeps a pasted
+            // multi-line block one unit instead of a submit per newline.
             let _ = execute!(std::io::stdout(), EnableMouseCapture);
+            #[cfg(not(windows))]
+            let _ = execute!(std::io::stdout(), EnableBracketedPaste);
             let result = tui::run(&mut terminal, cli.program);
             let _ = execute!(std::io::stdout(), DisableMouseCapture);
+            #[cfg(not(windows))]
+            let _ = execute!(std::io::stdout(), DisableBracketedPaste);
             ratatui::restore();
             result
         }

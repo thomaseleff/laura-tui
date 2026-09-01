@@ -143,6 +143,22 @@ impl PtyTab {
             .unwrap_or(0)
     }
 
+    /// True while the child is on the vt100 alternate screen (claude, vim, less) — no scrollback there.
+    pub fn on_alt_screen(&self) -> bool {
+        self.with_screen(|s| s.alternate_screen())
+    }
+
+    /// The child's mouse mode *iff* it's forwardable: some mode enabled **and** SGR (1006) encoding.
+    /// `None` otherwise — folds the SGR gate in so callers get one clean decision.
+    pub fn mouse_capture(&self) -> Option<vt100::MouseProtocolMode> {
+        self.with_screen(|s| {
+            let mode = s.mouse_protocol_mode();
+            (mode != vt100::MouseProtocolMode::None
+                && s.mouse_protocol_encoding() == vt100::MouseProtocolEncoding::Sgr)
+                .then_some(mode)
+        })
+    }
+
     /// Run `f` against the current parsed screen (for rendering).
     pub fn with_screen<R>(&self, f: impl FnOnce(&vt100::Screen) -> R) -> R {
         let p = self.parser.lock().expect("parser mutex poisoned");

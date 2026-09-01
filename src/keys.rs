@@ -54,6 +54,8 @@ pub fn key_to_bytes(code: KeyCode, mods: KeyModifiers) -> Option<Vec<u8>> {
         KeyCode::Home => csi('H'),
         KeyCode::End => csi('F'),
         KeyCode::Delete => tilde(3),
+        KeyCode::PageUp => tilde(5),
+        KeyCode::PageDown => tilde(6),
         _ => return None,
     })
 }
@@ -85,5 +87,11 @@ mod tests {
             vec![0x1b, b'a']
         );
         assert_eq!(key_to_bytes(KeyCode::BackTab, M::SHIFT).unwrap(), b"\x1b[Z");
+        // PageUp/PageDown forward to the alt-screen child for its own scroll.
+        assert_eq!(key_to_bytes(KeyCode::PageUp, M::NONE).unwrap(), b"\x1b[5~");
+        assert_eq!(
+            key_to_bytes(KeyCode::PageDown, M::NONE).unwrap(),
+            b"\x1b[6~"
+        );
     }
 }

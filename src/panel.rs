@@ -153,6 +153,17 @@ impl Panel {
         }
     }
 
+    /// Rows to scroll off the top so the cursor line's *last* wrapped row stays on-screen (its
+    /// continuations don't clip). Shared by render and copy so both read the same viewport.
+    pub fn scroll_offset(&self, layout: &PanelLayout, view_h: usize) -> usize {
+        let cursor_end = layout
+            .starts
+            .get(self.cursor + 1)
+            .map(|n| n - 1)
+            .unwrap_or(layout.rows.len().saturating_sub(1));
+        cursor_end.saturating_sub(view_h.saturating_sub(1))
+    }
+
     /// Re-read `content` when the source's `(mtime, len)` changed; returns whether it reloaded. Errors surface as text but still update `sig`, so a missing file doesn't respin.
     ///
     /// ponytail: same-length edit within one mtime tick is missed — content hash or `notify` if it bites.
@@ -307,11 +318,13 @@ fn coalesce_spans(row: Vec<(char, Style)>) -> Vec<Span<'static>> {
     spans
 }
 
-/// Wrap `text` in bracketed paste (`ESC[200~ … ESC[201~`) for PTY injection: newlines stay inside the markers so a line-reading REPL doesn't submit early; one trailing `\r` outside submits once.
+/// Wrap `text` in bracketed paste (`ESC[200~ … ESC[201~`) for PTY injection: newlines stay inside the
+/// markers so a line-reading REPL doesn't submit early. `submit` appends one trailing `\r` (outside the
+/// markers) to submit once — review injection wants it, keyboard paste doesn't.
 ///
 /// ponytail: paste-honoring only holds against a real REPL; a bare shell ignores the markers.
-pub fn bracketed_paste(text: &str) -> Vec<u8> {
-    format!("\x1b[200~{text}\x1b[201~\r").into_bytes()
+pub fn bracketed_paste(text: &str, submit: bool) -> Vec<u8> {
+    format!("\x1b[200~{text}\x1b[201~{}", if submit { "\r" } else { "" }).into_bytes()
 }
 
 /// A file's `(mtime, len)` change signature, or `None` if it can't be stat'd.

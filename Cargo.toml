@@ -1,8 +1,8 @@
 [package]
 name = "laura"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-description = "*LOW-rah* — a tui workspace your agent builds with you while you work."
+description = "*LOW-rah* — a tui workspace your agent builds with you while you pair-program."
 license = "MIT"
 repository = "https://github.com/thomaseleff/laura-tui"
 readme = "README.md"
