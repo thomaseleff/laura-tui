@@ -8,7 +8,7 @@
         {
             "name": "laura",
             "source": "./plugins/laura",
-            "description": "*LOW-rah* - a tui workspace your agent builds with you while you work.",
+            "description": "*LOW-rah* - a tui workspace your agent builds with you while you pair-program.",
             "version": "0.1.0"
         }
     ]

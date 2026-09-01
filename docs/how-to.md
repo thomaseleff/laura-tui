@@ -35,6 +35,8 @@ Run once per tab before commenting or submitting a review. Fails closed: no `rea
 
 `Ctrl+P` opens the panes popup; press a pane's **digit** to focus it (or run `laura focus <id>` from the shell). `↑`/`↓` move the line cursor; the mouse wheel scrolls too. `Esc` leaves focus and returns keys to the shell.
 
+Over the shell, the wheel and `PageUp`/`PageDown` scroll Laura's own history — *except* while the child is on the alternate screen (claude, vim, less), where they forward to the child so it scrolls its own buffer (Laura keeps no scrollback there).
+
 ## Comment on a line
 
 With the panel focused, put the cursor on a line, press `c`, type the comment, `Enter` to save (`Esc` to cancel). Multiple comments per line are fine. The title shows `[review: n]`.

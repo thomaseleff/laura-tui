@@ -55,7 +55,7 @@ fn empty_overall_omits_the_overall_line() -> Result<()> {
 #[test]
 fn bracketed_paste_keeps_newlines_inside_the_markers() {
     let text = "line a\nline b\nline c";
-    let wrapped = bracketed_paste(text);
+    let wrapped = bracketed_paste(text, true);
     let s = String::from_utf8(wrapped).unwrap();
 
     assert!(
@@ -78,4 +78,13 @@ fn bracketed_paste_keeps_newlines_inside_the_markers() {
             );
         }
     }
+}
+
+#[test]
+fn keyboard_paste_wraps_without_submitting() {
+    // Keyboard paste (submit=false) keeps an interior newline inside the markers and adds no trailing CR,
+    // so a multi-line block arrives as one unit instead of one submit per line.
+    assert_eq!(bracketed_paste("a\nb", false), b"\x1b[200~a\nb\x1b[201~");
+    // The review path (submit=true) still submits once.
+    assert!(bracketed_paste("a", true).ends_with(b"\r"));
 }

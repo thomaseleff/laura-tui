@@ -60,7 +60,7 @@ You're not limited to one. Each `laura open` splits a pane, so you (or the agent
 
 ## 4. Comment on a line
 
-Open the panes popup with `Ctrl+P`, then type the panel's **id** (the shell is `0`) to focus it — a single-digit id focuses on keypress; for `10`+ type the digits and press `Enter`. Move the line cursor with `↑`/`↓` (the mouse wheel scrolls too). On the line you want, press `c`, type your comment, and press `Enter` to pin it (`Esc` cancels). The panel title shows `[review: n]` as comments accumulate.
+Open the panes popup with `Ctrl+P`, then type the panel's **id** (the shell is `0`) to focus it — a single-digit id focuses on keypress; for `10`+ type the digits and press `Enter`. Move the line cursor with `↑`/`↓` (the mouse wheel scrolls too; over the shell, wheel and `PageUp`/`PageDown` scroll Laura's history, but on the alternate screen they drive the child's own scroll). On the line you want, press `c`, type your comment, and press `Enter` to pin it (`Esc` cancels). The panel title shows `[review: n]` as comments accumulate.
 
 ## 5. Submit the review
 

@@ -30,7 +30,7 @@ Keep `$JOURNAL` and `$D` for later beats.
 
 **Say:**
 
-> **Laura** — *LOW-rah* — is a TUI workspace your agent builds while you work.
+> **Laura** — *LOW-rah* — is a TUI workspace your agent builds while you pair-program.
 >
 > Laura started as an experiment, to allow developers to give feedback on files directly in the terminal. No browser, no leaving the shell.
 >
