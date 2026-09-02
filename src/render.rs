@@ -14,6 +14,8 @@ pub(crate) struct Rendered {
     pub(crate) content: String,
     pub(crate) styled: Vec<Line<'static>>,
     pub(crate) indent: Vec<usize>,
+    /// Per-line: pre-formatted (clip + h-scroll) vs prose (word-wrap), 1:1 with `styled`.
+    pub(crate) nowrap: Vec<bool>,
     /// Terse read error (stderr-bound), set only when the file couldn't be read. `None` on success.
     pub(crate) error: Option<String>,
 }
@@ -51,10 +53,12 @@ fn plain(content: String) -> Rendered {
         .map(|l| Line::from(Span::raw(l.to_string())))
         .collect::<Vec<_>>();
     let indent = vec![0; styled.len()];
+    let nowrap = vec![false; styled.len()];
     Rendered {
         content,
         styled,
         indent,
+        nowrap,
         error: None,
     }
 }
@@ -88,10 +92,12 @@ fn render_diff(raw: &str) -> Rendered {
         })
         .collect::<Vec<_>>();
     let indent = vec![0; styled.len()];
+    let nowrap = vec![true; styled.len()]; // diffs are pre-formatted
     Rendered {
         content: raw.to_string(),
         styled,
         indent,
+        nowrap,
         error: None,
     }
 }
@@ -112,10 +118,12 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
     match styled {
         Ok(Some(styled)) => {
             let indent = vec![0; styled.len()];
+            let nowrap = vec![true; styled.len()]; // recognized code is pre-formatted
             Rendered {
                 content: raw.to_string(),
                 styled,
                 indent,
+                nowrap,
                 error: None,
             }
         }
@@ -179,12 +187,47 @@ fn render_markdown(md: &str) -> Rendered {
     let styled: Vec<Line<'static>> = text.lines.iter().map(owned_line).map(refine_line).collect();
     let content = styled.iter().map(line_text).collect::<Vec<_>>().join("\n");
     let indent = heading_indents(&styled);
+    let nowrap = classify_nowrap(&styled);
     Rendered {
         content,
         styled,
         indent,
+        nowrap,
         error: None,
     }
+}
+
+/// Classify each markdown line as pre-formatted (clip + h-scroll) vs prose (word-wrap).
+///
+/// Signals, structural → cosmetic: a **table** row starts with a box-drawing border (tui-markdown
+/// draws them, independent of Laura's palette); a **code block** line has *every* non-blank span
+/// backgrounded (`code()` is the only backgrounded element — heading/link/blockquote/alert are
+/// fg-only); an **HTML block** line is *every*-span `DIM`. "All non-blank spans" (not "any") keeps a
+/// prose line with an inline `code`/`<tag>` span wrapping. Blank lines have no spans → wrap.
+///
+/// ponytail: code/HTML signals track `tui-markdown =0.3.9`'s style *shape*, like `refine_line`; the
+/// has-bg / DIM switches avoid coupling to exact colour values. HTML-via-DIM is the weakest link —
+/// if `html()` is restyled off dim, drop HTML auto-nowrap or give `html()` a bg and fold it in.
+fn classify_nowrap(styled: &[Line]) -> Vec<bool> {
+    styled
+        .iter()
+        .map(|line| {
+            let nonblank = || line.spans.iter().filter(|s| !s.content.trim().is_empty());
+            if nonblank().next().is_none() {
+                return false;
+            }
+            // Table: first visible char is a box-drawing border.
+            let is_table = line_text(line)
+                .trim_start()
+                .chars()
+                .next()
+                .is_some_and(|c| "┌┬┐├┼┤└┴┘│─".contains(c));
+            // Code block: every non-blank span has a background. HTML block: every one is DIM.
+            is_table
+                || nonblank().all(|s| s.style.bg.is_some())
+                || nonblank().all(|s| s.style.add_modifier.contains(Modifier::DIM))
+        })
+        .collect()
 }
 
 /// Clone a line into `'static`, folding line-level style into each span so wrapping preserves colour.
