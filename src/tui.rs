@@ -405,6 +405,16 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     p.move_cursor(1)
                                 }
                             }
+                            KeyCode::Left => {
+                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                    p.scroll_h(-1)
+                                }
+                            }
+                            KeyCode::Right => {
+                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                    p.scroll_h(1)
+                                }
+                            }
                             KeyCode::Char('c') if tabs[active].agent => {
                                 draft = Some(Draft::Comment(String::new()))
                             }
