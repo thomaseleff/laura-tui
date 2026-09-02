@@ -57,6 +57,23 @@ fn build_report(layout: &Layout, panels: &HashMap<PaneId, &Panel>, area: Rect) -
     }
 }
 
+/// Terse open-time warning for a just-opened pane, or `None` if it fits vertically.
+pub fn overflow_warning(p: &PaneReport) -> Option<String> {
+    if p.overflow_rows > 0 {
+        Some(format!(
+            "pane #{} overflows: {} row(s) below the fold — scroll, or grow the pane",
+            p.id, p.overflow_rows
+        ))
+    } else if p.clipped {
+        Some(format!(
+            "pane #{} too small to render — lower --ratio or change --dir",
+            p.id
+        ))
+    } else {
+        None
+    }
+}
+
 /// Per-tab counter for unique socket names; no clock/rng needed.
 static TAB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -213,6 +230,18 @@ impl Tab {
                                 "panel shown, but run `laura ready` to enable review submission"
                                     .into(),
                             );
+                        }
+                        if let Some(e) = &self.panels[&new].read_error {
+                            warnings.push(e.clone());
+                        }
+                        let report = self.report(area);
+                        if let Some(w) = report
+                            .panes
+                            .iter()
+                            .find(|p| p.id == new)
+                            .and_then(overflow_warning)
+                        {
+                            warnings.push(w);
                         }
                         Response::Opened {
                             pane: new,

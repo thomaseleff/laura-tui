@@ -45,7 +45,25 @@ fn open_renders_file_into_panel() -> Result<()> {
     Ok(())
 }
 
-/// #22: a relative path is absolutized against the *caller's* cwd before it hits the socket —
+/// A panel over an unreadable path carries the read error as a signal (not just panel text),
+/// so `Tab::apply` can warn on it; a readable file leaves it `None`.
+#[test]
+fn open_records_read_error_for_missing_file() -> Result<()> {
+    let missing = std::env::temp_dir().join("laura-no-such-file-xyz.md");
+    let panel = Panel::open(missing.to_string_lossy().into_owned());
+    let e = panel.read_error.expect("missing file sets read_error");
+    assert!(e.contains("cannot read"), "terse error, got: {e}");
+
+    let file = tempfile::NamedTempFile::new()?;
+    let panel = Panel::open(file.path().to_str().unwrap().to_string());
+    assert!(
+        panel.read_error.is_none(),
+        "readable file leaves read_error None"
+    );
+    Ok(())
+}
+
+/// A relative path is absolutized against the *caller's* cwd before it hits the socket —
 /// so the server never resolves it against its own cwd. State (the decoded message), not pixels.
 #[test]
 fn open_absolutizes_relative_path_against_caller_cwd() -> Result<()> {

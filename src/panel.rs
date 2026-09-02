@@ -2,7 +2,7 @@
 
 use std::time::SystemTime;
 
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::render::{RULE_SENTINEL, Rendered, render};
@@ -16,6 +16,10 @@ pub struct Panel {
     styled: Vec<Line<'static>>,
     /// Display-only left indent per line (heading depth); never touches `content`, so reviews stay flush-left.
     indent: Vec<usize>,
+    /// Per-line: pre-formatted lines clip + h-scroll instead of wrapping. 1:1 with `styled`.
+    nowrap: Vec<bool>,
+    /// Horizontal scroll offset (chars) applied to nowrap lines; clamped in `scroll_h`.
+    pub h_offset: usize,
     /// Selected line, 0-based; where a new comment pins.
     pub cursor: usize,
     /// `(line, text)` comments; multiple allowed, even several per line.
@@ -24,6 +28,8 @@ pub struct Panel {
     pub follow: bool,
     /// Last-seen source signature (mtime, byte len); drives `reload_if_changed`.
     sig: Option<(SystemTime, u64)>,
+    /// Terse read error from the last render, or `None` if the file read cleanly. Drives the open-time stderr warning.
+    pub read_error: Option<String>,
 }
 
 impl Panel {
@@ -33,6 +39,8 @@ impl Panel {
             content,
             styled,
             indent,
+            nowrap,
+            error,
         } = render(&path);
         let sig = stat_sig(&path);
         Panel {
@@ -40,10 +48,13 @@ impl Panel {
             content,
             styled,
             indent,
+            nowrap,
+            h_offset: 0,
             cursor: 0,
             comments: vec![],
             follow: false,
             sig,
+            read_error: error,
         }
     }
 
@@ -64,6 +75,26 @@ impl Panel {
     pub fn move_cursor(&mut self, delta: isize) {
         let last = self.line_count() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
+    }
+
+    /// Scroll pre-formatted lines horizontally by `delta` chars, clamped to `[0, max_width-1]`.
+    ///
+    /// ponytail: avail-independent clamp — a short nowrap line in a wide panel can over-scroll into
+    /// its blank tail, but content can never scroll fully off. Make it avail-aware if the tail annoys.
+    pub fn scroll_h(&mut self, delta: isize) {
+        let max = self.max_nowrap_width().saturating_sub(1) as isize;
+        self.h_offset = (self.h_offset as isize + delta).clamp(0, max) as usize;
+    }
+
+    /// Widest nowrap line in chars (0 if none), the horizontal-scroll extent.
+    fn max_nowrap_width(&self) -> usize {
+        self.styled
+            .iter()
+            .zip(&self.nowrap)
+            .filter(|(_, nw)| **nw)
+            .map(|(line, _)| line.spans.iter().map(|s| s.content.chars().count()).sum())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Pin a comment to the current cursor line.
@@ -121,6 +152,9 @@ impl Panel {
             let chunks = if line.spans.len() == 1 && line.spans[0].content.as_ref() == RULE_SENTINEL
             {
                 vec![vec![Span::styled("─".repeat(avail), line.spans[0].style)]]
+            } else if self.nowrap.get(i).copied().unwrap_or(false) {
+                // Pre-formatted: clip to the horizontal window instead of wrapping.
+                vec![clip_spans(&line.spans, self.h_offset, avail)]
             } else {
                 wrap_spans(&line.spans, avail)
             };
@@ -177,11 +211,17 @@ impl Panel {
             content,
             styled,
             indent,
+            nowrap,
+            error,
         } = render(&self.path);
         self.content = content;
         self.styled = styled;
         self.indent = indent;
+        self.nowrap = nowrap;
         self.sig = sig;
+        self.read_error = error;
+        // Keep the scroll offset unless the new content is now too narrow to reach it.
+        self.h_offset = self.h_offset.min(self.max_nowrap_width().saturating_sub(1));
         self.cursor = if self.follow {
             self.line_count() - 1 // autoscroll: newest line stays selected, so it renders at the bottom
         } else {
@@ -304,6 +344,24 @@ pub fn wrap_spans(spans: &[Span<'static>], width: usize) -> Vec<Vec<Span<'static
     }
 
     rows.into_iter().map(coalesce_spans).collect()
+}
+
+/// Clip `spans` to the char window `[h_offset, h_offset+width)` as one row. A right-clip (content
+/// past the window) replaces the last visible column with a dim `›`. Reuses the flatten + coalesce
+/// machinery of `wrap_spans`; no wrapping.
+pub fn clip_spans(spans: &[Span<'static>], h_offset: usize, width: usize) -> Vec<Span<'static>> {
+    let chars: Vec<(char, Style)> = spans
+        .iter()
+        .flat_map(|s| s.content.chars().map(|c| (c, s.style)))
+        .collect();
+    let total = chars.len();
+    let mut window: Vec<(char, Style)> = chars.into_iter().skip(h_offset).take(width).collect();
+    if total > h_offset + width
+        && let Some(last) = window.last_mut()
+    {
+        *last = ('›', Style::default().fg(Color::Rgb(90, 90, 90)));
+    }
+    coalesce_spans(window)
 }
 
 /// Merge adjacent equal-style chars back into `Span`s.

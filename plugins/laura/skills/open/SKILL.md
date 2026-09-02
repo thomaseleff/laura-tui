@@ -11,11 +11,11 @@ argument-hint: [path]
 You are running inside a Laura tab (`$LAURA_TAB` is set). Prefer **showing** a file in a pane over pasting its contents into the chat. The panel is live — as you edit the file, it re-renders.
 
 ```bash
-laura ready         # run once at session start — enables the user's review submission
-laura open <path>   # split a pane, show <path> in the new panel. Prints the new pane id.
+laura ready --session "$YOUR_SESSION_ID" --agent claude   # once at start — pass your own session id so the journal maps to this conversation
+laura open <path>                                         # split a pane, show <path> in the new panel. Prints the new pane id.
 ```
 
-Relative paths resolve against your (the agent's) current working directory, so `laura open ./plan.md` works after a `cd` — no need to pass an absolute path.
+Use your **own** session/conversation id as `--session` (Claude Code: your session id), so a Laura journal lines up 1:1 with this conversation — that's what makes the user's feedback joinable back to what produced it. `--agent` is your agent name. If you truly have no session id, omit `--session` (it defaults to `laura-<pid>-<n>`) — but prefer yours.
 
 Run `laura ready` once so the user can comment and submit, then `laura open <path>` whenever you want them to look at a file.
 
@@ -38,11 +38,20 @@ laura close --all                              # back to shell-only
 
 ## Fitting before you commit
 
-`laura layout` (and `laura open <path> --dry-run`) print JSON with each pane's rect and overflow. If a panel's `overflow_rows > 0` (or `clipped` is true), it's taller than its pane — lower `--ratio`, change `--dir`, or split a different pane until it fits. `--dry-run` reports without opening anything.
+After `laura open`, read its **stderr** — it warns when the panel doesn't fit, so you don't need a follow-up `laura layout`:
+
+- **`overflows:`** — the doc is taller than the pane. Fine for reading (the user scrolls). Only grow it (`--dir v` for full width, or raise `--ratio`) if they need the whole thing at once.
+- **`too small`** — the pane can't render at all; raise `--ratio` or change `--dir`.
+- **`cannot read <path>: …`** — the file didn't open; fix the path (the panel shows the error too).
+- **no warning** — it fits; move on.
+
+Suspect a long doc up front? `laura open <path> --dry-run` (or `laura layout`) prints JSON with each pane's rect and overflow (`overflow_rows`/`clipped`) without opening anything — pick the geometry, then open once.
+
+Width is a non-issue for **pre-formatted** content: code, diffs, and markdown tables / code fences / HTML blocks no longer wrap — they clip to the panel and scroll sideways (a `›` marks a clipped line). Don't pre-widen the pane or pipe `git diff --stat` just to keep columns aligned; open it narrow and tell the user to press **←/→** in the focused panel to scroll. Prose still wraps normally. (`overflows:` above is about height only.)
 
 ## Reading a review
 
-The user marks up the panel and submits a review, which arrives in your input as a block:
+The user can mark up any panel with an in-line review, which arrives in your input as a block:
 
 ```
 [laura review · docs/spec.md]

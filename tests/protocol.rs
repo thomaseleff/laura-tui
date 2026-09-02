@@ -34,7 +34,7 @@ fn open_round_trips_across_processes() -> Result<()> {
     let Message::Open { path, .. } = got else {
         panic!("expected Open");
     };
-    // The client absolutizes relative paths against its cwd (#22) before framing; the round-trip
+    // The client absolutizes relative paths against its cwd before framing; the round-trip
     // still carries the same path, now absolute against the test process's cwd.
     let expected = std::path::absolute("docs/spec.md")?;
     assert_eq!(std::path::Path::new(&path), expected);
