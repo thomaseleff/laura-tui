@@ -24,6 +24,8 @@ pub struct Panel {
     pub follow: bool,
     /// Last-seen source signature (mtime, byte len); drives `reload_if_changed`.
     sig: Option<(SystemTime, u64)>,
+    /// Terse read error from the last render, or `None` if the file read cleanly. Drives the open-time stderr warning.
+    pub read_error: Option<String>,
 }
 
 impl Panel {
@@ -33,6 +35,7 @@ impl Panel {
             content,
             styled,
             indent,
+            error,
         } = render(&path);
         let sig = stat_sig(&path);
         Panel {
@@ -44,6 +47,7 @@ impl Panel {
             comments: vec![],
             follow: false,
             sig,
+            read_error: error,
         }
     }
 
@@ -177,11 +181,13 @@ impl Panel {
             content,
             styled,
             indent,
+            error,
         } = render(&self.path);
         self.content = content;
         self.styled = styled;
         self.indent = indent;
         self.sig = sig;
+        self.read_error = error;
         self.cursor = if self.follow {
             self.line_count() - 1 // autoscroll: newest line stays selected, so it renders at the bottom
         } else {

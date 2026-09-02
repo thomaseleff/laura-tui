@@ -14,6 +14,8 @@ pub(crate) struct Rendered {
     pub(crate) content: String,
     pub(crate) styled: Vec<Line<'static>>,
     pub(crate) indent: Vec<usize>,
+    /// Terse read error (stderr-bound), set only when the file couldn't be read. `None` on success.
+    pub(crate) error: Option<String>,
 }
 
 /// Read and render a file: `.md` → styled lines, a known code ext → Nord fg colours, else raw. Errors surface as text, never a panic.
@@ -22,7 +24,12 @@ pub(crate) struct Rendered {
 pub(crate) fn render(path: &str) -> Rendered {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(e) => return plain(format!("cannot read {path}: {e}")),
+        Err(e) => {
+            let msg = format!("cannot read {path}: {e}");
+            let mut r = plain(format!("Couldn't read this file — {e}. Check the path."));
+            r.error = Some(msg);
+            return r;
+        }
     };
     match path
         .rsplit('.')
@@ -48,6 +55,7 @@ fn plain(content: String) -> Rendered {
         content,
         styled,
         indent,
+        error: None,
     }
 }
 
@@ -84,6 +92,7 @@ fn render_diff(raw: &str) -> Rendered {
         content: raw.to_string(),
         styled,
         indent,
+        error: None,
     }
 }
 
@@ -107,6 +116,7 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
                 content: raw.to_string(),
                 styled,
                 indent,
+                error: None,
             }
         }
         _ => plain(raw.to_string()),
@@ -173,6 +183,7 @@ fn render_markdown(md: &str) -> Rendered {
         content,
         styled,
         indent,
+        error: None,
     }
 }
 

@@ -93,6 +93,51 @@ fn socket_name_embeds_process_nonce() -> Result<()> {
     Ok(())
 }
 
+/// #12: `overflow_warning` maps a just-opened pane's report to a terse stderr string —
+/// vertical overflow, too-small, or nothing when it fits.
+#[test]
+fn overflow_warning_covers_overflow_too_small_and_fit() {
+    use laura::protocol::{PaneKind, RectDto};
+    use laura::tab::overflow_warning;
+
+    let base = laura::PaneReport {
+        id: 3,
+        kind: PaneKind::Panel,
+        path: Some("x.md".into()),
+        rect: RectDto {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 10,
+        },
+        content_rows: Some(0),
+        visible_rows: 0,
+        overflow_rows: 0,
+        clipped: false,
+    };
+
+    let over = laura::PaneReport {
+        overflow_rows: 3,
+        clipped: true,
+        ..base.clone()
+    };
+    let w = overflow_warning(&over).expect("overflow warns");
+    assert!(w.contains("overflows") && w.contains('3'), "got: {w}");
+
+    let small = laura::PaneReport {
+        overflow_rows: 0,
+        clipped: true,
+        ..base.clone()
+    };
+    let w = overflow_warning(&small).expect("too-small warns");
+    assert!(w.contains("too small"), "got: {w}");
+
+    assert!(
+        overflow_warning(&base).is_none(),
+        "a pane that fits is silent"
+    );
+}
+
 /// #8: a stale `LAURA_TAB` (a name this process never served — e.g. inherited across PID reuse)
 /// fails to connect rather than silently routing into a live tab.
 #[test]
