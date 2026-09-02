@@ -45,7 +45,7 @@ fn open_renders_file_into_panel() -> Result<()> {
     Ok(())
 }
 
-/// #23: a panel over an unreadable path carries the read error as a signal (not just panel text),
+/// A panel over an unreadable path carries the read error as a signal (not just panel text),
 /// so `Tab::apply` can warn on it; a readable file leaves it `None`.
 #[test]
 fn open_records_read_error_for_missing_file() -> Result<()> {
@@ -63,7 +63,7 @@ fn open_records_read_error_for_missing_file() -> Result<()> {
     Ok(())
 }
 
-/// #22: a relative path is absolutized against the *caller's* cwd before it hits the socket —
+/// A relative path is absolutized against the *caller's* cwd before it hits the socket —
 /// so the server never resolves it against its own cwd. State (the decoded message), not pixels.
 #[test]
 fn open_absolutizes_relative_path_against_caller_cwd() -> Result<()> {

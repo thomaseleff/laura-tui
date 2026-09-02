@@ -129,10 +129,8 @@ fn main() -> Result<()> {
             follow,
             dry_run,
         }) => {
-            // Absolutize against the caller's cwd, not the server's: `cd` inside the PTY then
-            // `laura open ./x` must resolve where the caller stands. `absolute` (not
-            // `canonicalize`) touches no filesystem, so a missing file still yields a clean path
-            // and the "not found" error still surfaces from Panel::open.
+            // Absolutize against the caller's cwd, not the server's. `absolute` (not
+            // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
             let path = std::path::absolute(&path)?.to_string_lossy().into_owned();
             client_request(Message::Open {
                 path,

@@ -1,4 +1,4 @@
-//! Best-effort git short-hash for journal provenance (#11). Empty off a tarball build.
+//! Best-effort git short-hash for journal provenance. Empty off a tarball build.
 fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     let hash = std::process::Command::new("git")

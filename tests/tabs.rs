@@ -78,7 +78,7 @@ fn tabs_get_distinct_socket_names() -> Result<()> {
     Ok(())
 }
 
-/// #8: the minted name embeds the per-process nonce, so equal `pid+counter` across two
+/// The minted name embeds the per-process nonce, so equal `pid+counter` across two
 /// processes (PID reuse) can't collide. Cross-process reuse itself isn't CI-reproducible;
 /// we assert the format invariant that makes it impossible.
 #[test]
@@ -93,7 +93,7 @@ fn socket_name_embeds_process_nonce() -> Result<()> {
     Ok(())
 }
 
-/// #12: `overflow_warning` maps a just-opened pane's report to a terse stderr string —
+/// `overflow_warning` maps a just-opened pane's report to a terse stderr string —
 /// vertical overflow, too-small, or nothing when it fits.
 #[test]
 fn overflow_warning_covers_overflow_too_small_and_fit() {
@@ -138,7 +138,7 @@ fn overflow_warning_covers_overflow_too_small_and_fit() {
     );
 }
 
-/// #8: a stale `LAURA_TAB` (a name this process never served — e.g. inherited across PID reuse)
+/// A stale `LAURA_TAB` (a name this process never served — e.g. inherited across PID reuse)
 /// fails to connect rather than silently routing into a live tab.
 #[test]
 fn stale_address_errors_rather_than_misroutes() {
