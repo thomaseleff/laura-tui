@@ -77,3 +77,72 @@ fn tabs_get_distinct_socket_names() -> Result<()> {
     assert_ne!(a.socket, b.socket);
     Ok(())
 }
+
+/// The minted name embeds the per-process nonce, so equal `pid+counter` across two
+/// processes (PID reuse) can't collide. Cross-process reuse itself isn't CI-reproducible;
+/// we assert the format invariant that makes it impossible.
+#[test]
+fn socket_name_embeds_process_nonce() -> Result<()> {
+    let a = spawn_tab()?;
+    let seg = format!("-{:x}-", laura::tab::process_nonce());
+    assert!(
+        a.socket.contains(&seg),
+        "socket {} must embed nonce segment {seg}",
+        a.socket
+    );
+    Ok(())
+}
+
+/// `overflow_warning` maps a just-opened pane's report to a terse stderr string —
+/// vertical overflow, too-small, or nothing when it fits.
+#[test]
+fn overflow_warning_covers_overflow_too_small_and_fit() {
+    use laura::protocol::{PaneKind, RectDto};
+    use laura::tab::overflow_warning;
+
+    let base = laura::PaneReport {
+        id: 3,
+        kind: PaneKind::Panel,
+        path: Some("x.md".into()),
+        rect: RectDto {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 10,
+        },
+        content_rows: Some(0),
+        visible_rows: 0,
+        overflow_rows: 0,
+        clipped: false,
+    };
+
+    let over = laura::PaneReport {
+        overflow_rows: 3,
+        clipped: true,
+        ..base.clone()
+    };
+    let w = overflow_warning(&over).expect("overflow warns");
+    assert!(w.contains("overflows") && w.contains('3'), "got: {w}");
+
+    let small = laura::PaneReport {
+        overflow_rows: 0,
+        clipped: true,
+        ..base.clone()
+    };
+    let w = overflow_warning(&small).expect("too-small warns");
+    assert!(w.contains("too small"), "got: {w}");
+
+    assert!(
+        overflow_warning(&base).is_none(),
+        "a pane that fits is silent"
+    );
+}
+
+/// A stale `LAURA_TAB` (a name this process never served — e.g. inherited across PID reuse)
+/// fails to connect rather than silently routing into a live tab.
+#[test]
+fn stale_address_errors_rather_than_misroutes() {
+    let bogus = format!("laura-{}-deadbeef-0.sock", std::process::id());
+    let r = laura::protocol::request(&bogus, &laura::Message::Layout);
+    assert!(r.is_err(), "connecting to an unserved name must Err");
+}

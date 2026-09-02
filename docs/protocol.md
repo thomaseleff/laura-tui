@@ -45,7 +45,7 @@ A tab is a recursive binary split tree; each leaf is a pane with a per-tab monot
 
 ## Addressing
 
-`LAURA_TAB` holds the tab's **namespaced** socket name (Windows named pipe / Unix namespaced). One socket per tab. A producer reaches a tab by connecting to that name and writing one frame.
+`LAURA_TAB` holds the tab's **namespaced** socket name (Windows named pipe / Unix namespaced). One socket per tab. A producer reaches a tab by connecting to that name and writing one frame. The name carries per-process entropy (`laura-<pid>-<nonce>-<n>`) so a reused PID can't re-mint a dead tab's name: a stale inherited `LAURA_TAB` fails to connect rather than routing into a live tab.
 
 > Scoping is a consequence of addressing, not a security boundary — anything that can read `LAURA_TAB` can write the tab.
 

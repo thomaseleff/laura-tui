@@ -128,16 +128,21 @@ fn main() -> Result<()> {
             no_focus,
             follow,
             dry_run,
-        }) => client_request(Message::Open {
-            path,
-            split,
-            dir,
-            ratio,
-            side,
-            focus: !no_focus,
-            follow,
-            dry_run,
-        }),
+        }) => {
+            // Absolutize against the caller's cwd, not the server's. `absolute` (not
+            // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
+            let path = std::path::absolute(&path)?.to_string_lossy().into_owned();
+            client_request(Message::Open {
+                path,
+                split,
+                dir,
+                ratio,
+                side,
+                focus: !no_focus,
+                follow,
+                dry_run,
+            })
+        }
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
         Some(Cmd::Focus { id }) => client_request(Message::Focus { pane: id }),
         Some(Cmd::Layout) => client_request(Message::Layout),
