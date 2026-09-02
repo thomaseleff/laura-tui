@@ -1,6 +1,7 @@
 //! One workspace tab: a PTY, its panels, the split tree, and the socket that ties them together.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 
@@ -59,6 +60,20 @@ fn build_report(layout: &Layout, panels: &HashMap<PaneId, &Panel>, area: Rect) -
 /// Per-tab counter for unique socket names; no clock/rng needed.
 static TAB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Per-process nonce so a reused PID can't re-mint a prior process's socket names.
+/// ponytail: SystemTime-nanos nonce, no rng dep. A new process always starts *after* the old
+/// one exited (that's what frees the PID), so its nonce differs. Upgrade to OS rng only if
+/// same-nanosecond process starts ever prove real.
+pub fn process_nonce() -> u64 {
+    static NONCE: OnceLock<u64> = OnceLock::new();
+    *NONCE.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+    })
+}
+
 /// Delete a panel's backing file if it's a Laura-owned runtime temp (e.g. a `laura tail` spool).
 fn remove_if_temp(path: &str) {
     if is_runtime_temp(path) {
@@ -96,7 +111,12 @@ impl Tab {
     /// Mint a unique socket, serve it, point `cmd`'s `LAURA_TAB` at it, spawn the PTY.
     pub fn spawn(mut cmd: CommandBuilder, rows: u16, cols: u16) -> Result<Tab> {
         let n = TAB_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let socket = format!("laura-{}-{}.sock", std::process::id(), n);
+        let socket = format!(
+            "laura-{}-{:x}-{}.sock",
+            std::process::id(),
+            process_nonce(),
+            n
+        );
         let rx = protocol::serve(&socket)?;
         cmd.env("LAURA_TAB", &socket);
         let pty = PtyTab::spawn(cmd, rows, cols)?;

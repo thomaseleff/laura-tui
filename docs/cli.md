@@ -15,6 +15,8 @@ A tab's panes form a split tree; the shell is pane `0` and can't be closed. Each
 
 ```
 laura open <path>       Split a pane and render <path> in the new panel. Prints the new pane id.
+                        Relative paths resolve against the *calling* process's cwd, so `cd`
+                        inside the PTY then `laura open ./x` works.
       --split <id>      Pane to split (default: the focused pane).
       --dir <h|v>       Split orientation: h side-by-side, v stacked (default h).
       --ratio <1..99>   Percent of the split given to the first pane (default 50).
@@ -58,7 +60,7 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 
 ## Journal
 
-`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/review/`feedback` event is teed to it, so a session is auditable after it ends. Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`) at `laura/sessions/<session>.ndjson`, overridable with `LAURA_DATA_DIR`. It's just files: `cat "$(ls -t <dir>/laura/sessions/*.ndjson | head -1)" | jq .`.
+`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/review/`feedback` event is teed to it, so a session is auditable after it ends. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball, so events are attributable to a build across machines. Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`) at `laura/sessions/<session>.ndjson`, overridable with `LAURA_DATA_DIR`. It's just files: `cat "$(ls -t <dir>/laura/sessions/*.ndjson | head -1)" | jq .`.
 
 ## Global
 

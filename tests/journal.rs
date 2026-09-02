@@ -70,5 +70,11 @@ fn ready_names_a_session_and_open_is_journaled() -> Result<()> {
         body.contains(r#""session":"audit-test""#),
         "session id not stamped: {body}"
     );
+    // #11: every event carries a build version; commit hash may be appended (X.Y.Z+abc1234)
+    // off a checkout, so assert the CARGO_PKG_VERSION prefix rather than the full string.
+    assert!(
+        body.contains(&format!(r#""version":"{}"#, env!("CARGO_PKG_VERSION"))),
+        "version not stamped: {body}"
+    );
     Ok(())
 }

@@ -15,6 +15,8 @@ laura ready         # run once at session start — enables the user's review su
 laura open <path>   # split a pane, show <path> in the new panel. Prints the new pane id.
 ```
 
+Relative paths resolve against your (the agent's) current working directory, so `laura open ./plan.md` works after a `cd` — no need to pass an absolute path.
+
 Run `laura ready` once so the user can comment and submit, then `laura open <path>` whenever you want them to look at a file.
 
 Docs: https://thomaseleff.github.io/laura-tui/llms.txt

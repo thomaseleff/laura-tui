@@ -77,3 +77,27 @@ fn tabs_get_distinct_socket_names() -> Result<()> {
     assert_ne!(a.socket, b.socket);
     Ok(())
 }
+
+/// #8: the minted name embeds the per-process nonce, so equal `pid+counter` across two
+/// processes (PID reuse) can't collide. Cross-process reuse itself isn't CI-reproducible;
+/// we assert the format invariant that makes it impossible.
+#[test]
+fn socket_name_embeds_process_nonce() -> Result<()> {
+    let a = spawn_tab()?;
+    let seg = format!("-{:x}-", laura::tab::process_nonce());
+    assert!(
+        a.socket.contains(&seg),
+        "socket {} must embed nonce segment {seg}",
+        a.socket
+    );
+    Ok(())
+}
+
+/// #8: a stale `LAURA_TAB` (a name this process never served — e.g. inherited across PID reuse)
+/// fails to connect rather than silently routing into a live tab.
+#[test]
+fn stale_address_errors_rather_than_misroutes() {
+    let bogus = format!("laura-{}-deadbeef-0.sock", std::process::id());
+    let r = laura::protocol::request(&bogus, &laura::Message::Layout);
+    assert!(r.is_err(), "connecting to an unserved name must Err");
+}

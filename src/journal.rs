@@ -101,6 +101,7 @@ impl Journal {
             return;
         };
         stamp(&mut obj, "ts", Value::from(now_ms()));
+        stamp(&mut obj, "version", Value::from(build_version()));
         stamp(&mut obj, "session", Value::from(self.session.clone()));
         if let Some(a) = &self.agent {
             stamp(&mut obj, "agent", Value::from(a.clone()));
@@ -120,6 +121,16 @@ impl Journal {
             use std::io::Write;
             let _ = f.write_all(line.as_bytes());
         }
+    }
+}
+
+/// `X.Y.Z+abc1234` off a git checkout (commit set by build.rs), bare `X.Y.Z` off a tarball.
+fn build_version() -> String {
+    let commit = env!("LAURA_COMMIT");
+    if commit.is_empty() {
+        env!("CARGO_PKG_VERSION").to_string()
+    } else {
+        format!("{}+{}", env!("CARGO_PKG_VERSION"), commit)
     }
 }
 
