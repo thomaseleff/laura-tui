@@ -63,6 +63,9 @@ enum Cmd {
         /// Print the would-be overflow report without opening anything.
         #[arg(long)]
         dry_run: bool,
+        /// Highlight a line range once open, e.g. `--highlight 40 52` (end defaults to start).
+        #[arg(long, num_args = 1..=2, value_names = ["START", "END"])]
+        highlight: Option<Vec<u32>>,
     },
     /// Close a panel (default: the focused one). `--all` returns to PTY-only.
     Close {
@@ -73,6 +76,16 @@ enum Cmd {
     },
     /// Focus a pane by id.
     Focus { id: PaneId },
+    /// Highlight a line range in a panel and scroll it into view.
+    Highlight {
+        /// First line to highlight (1-based).
+        start: u32,
+        /// Last line (default: same as start).
+        end: Option<u32>,
+        /// Pane to highlight (default: the focused panel).
+        #[arg(long)]
+        pane: Option<PaneId>,
+    },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
     /// Mark this tab as hosting an agent (enables review submission). Prints the journal path.
@@ -128,10 +141,13 @@ fn main() -> Result<()> {
             no_focus,
             follow,
             dry_run,
+            highlight,
         }) => {
             // Absolutize against the caller's cwd, not the server's. `absolute` (not
             // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
             let path = std::path::absolute(&path)?.to_string_lossy().into_owned();
+            // clap enforces 1..=2 values; `[start]` → single line, `[start, end]` → range.
+            let highlight = highlight.map(|v| (v[0], *v.get(1).unwrap_or(&v[0])));
             client_request(Message::Open {
                 path,
                 split,
@@ -141,10 +157,14 @@ fn main() -> Result<()> {
                 focus: !no_focus,
                 follow,
                 dry_run,
+                highlight,
             })
         }
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
         Some(Cmd::Focus { id }) => client_request(Message::Focus { pane: id }),
+        Some(Cmd::Highlight { start, end, pane }) => {
+            client_request(Message::Highlight { pane, start, end })
+        }
         Some(Cmd::Layout) => client_request(Message::Layout),
         Some(Cmd::Ready { session, agent }) => client_request(Message::Ready { session, agent }),
         Some(Cmd::Feedback {
@@ -248,6 +268,7 @@ fn tail(
             focus: false,
             follow,
             dry_run: false,
+            highlight: None,
         },
     )? {
         Response::Opened { pane, warnings } => {

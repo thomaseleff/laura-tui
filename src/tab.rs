@@ -208,6 +208,7 @@ impl Tab {
                 focus,
                 follow,
                 dry_run,
+                highlight,
             } => {
                 let target = split.unwrap_or(self.focus);
                 if dry_run {
@@ -219,8 +220,18 @@ impl Tab {
                         self.next_pane += 1;
                         let mut panel = Panel::open(path.clone());
                         panel.set_follow(follow);
+                        // `set_highlight` after `set_follow` so an explicit point-here range
+                        // wins the viewport anchor over tail-follow when both are set.
+                        if let Some((start, end)) = highlight {
+                            panel.set_highlight(start, end);
+                        }
                         self.panels.insert(new, panel);
                         self.log_event(json!({"type": "open", "pane": new, "path": path}));
+                        if let Some((start, end)) = highlight {
+                            self.log_event(
+                                json!({"type": "highlight", "pane": new, "start": start, "end": end}),
+                            );
+                        }
                         if focus {
                             self.pending_focus = Some(new);
                         }
@@ -292,6 +303,23 @@ impl Tab {
                         message: format!("no pane #{pane}"),
                     }
                 }
+            }
+            Message::Highlight { pane, start, end } => {
+                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
+                let Some(target) = target else {
+                    return Response::Error {
+                        message: "no panel focused to highlight".into(),
+                    };
+                };
+                let Some(panel) = self.panels.get_mut(&target) else {
+                    return Response::Error {
+                        message: format!("no pane #{target}"),
+                    };
+                };
+                let end = end.unwrap_or(start);
+                panel.set_highlight(start, end);
+                self.log_event(json!({"type":"highlight","pane":target,"start":start,"end":end}));
+                Response::Ok
             }
             Message::Layout => Response::Report(self.report(area)),
             Message::Ready { session, agent } => {

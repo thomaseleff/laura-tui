@@ -15,6 +15,16 @@ laura open <path> --dry-run           # print the would-be overflow report; open
 
 Every `open` splits a pane, so panels accumulate — a tab holds as many as you arrange. Capture the printed id to target that pane later. Check fit before (or without) committing with `laura layout` or `--dry-run`: both print per-pane rects and overflow as JSON.
 
+## Point the reader at a section
+
+```bash
+laura open src/x.rs --highlight 40 52   # open a file already scrolled to and pointing at lines 40–52
+laura highlight 40 52                    # point at an already-open panel (1-based, inclusive)
+laura highlight 40 --pane <id>           # single line, in a specific (possibly unfocused) panel
+```
+
+The common gesture is "show me where": nothing's on screen (or a stale doc is), so `open --highlight` opens the file *and* points at the lines in one call — the panel paints already at the span, no line-1 flash. Once a file's open, `laura highlight` re-points it (this is what the `#17` stepper composes). Either way the highlight stays until you re-set it.
+
 ## Close a panel
 
 ```bash

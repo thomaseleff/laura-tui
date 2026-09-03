@@ -35,6 +35,7 @@ laura close --all                              # back to shell-only
 
 - `--dir h` splits side-by-side, `--dir v` stacks. `--ratio <1..99>` is the new panel's percent (default 50). `--side first|second` picks which side the new panel lands on.
 - Assemble the frame for the task — plan right, logs bottom — instead of one panel at a time.
+- `--highlight <start> [end]` opens the panel already scrolled to and reverse-highlighting a 1-based line range — the "show me where lines 40–52 are" gesture in one call (`laura open src/x.rs --highlight 40 52`). To point at a file that's *already* open, use the standalone `highlight` skill instead.
 
 ## Fitting before you commit
 

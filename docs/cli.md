@@ -26,9 +26,18 @@ laura open <path>       Split a pane and render <path> in the new panel. Prints 
       --no-focus        Don't move focus into the panel.
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
+      --highlight <start> [end]  Point at a line range once open (1-based, inclusive); end
+                        defaults to start. Opens the panel already scrolled to and reverse-videoing
+                        the range — the one-call "show me where" gesture. e.g. `laura open x.rs
+                        --highlight 40 52`. (See `laura highlight` to point at an already-open panel.)
 laura close [<id>]      Close a panel (default: the focused one).
       --all             Close every panel, back to shell-only.
 laura focus <id>        Focus a pane by id.
+laura highlight <start> [end]
+                        Reverse-video lines start..=end (1-based, inclusive) in a panel and
+                        scroll them into view. end defaults to start (single line). e.g.
+                        `laura highlight 40 52`.
+      --pane <id>       Pane to highlight (default: the focused panel).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the tab as hosting an agent (enables review submission). Prints the journal path.
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
