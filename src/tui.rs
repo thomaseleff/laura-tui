@@ -1,7 +1,7 @@
 //! The draw loop and its widgets: hosts the tabs, renders panes, and routes input to the engine.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
 use tui_term::widget::PseudoTerminal;
 
 use laura::protocol::PTY_PANE;
-use laura::{Panel, Tab, bracketed_paste, wrap_line};
+use laura::{ChangeKind, Panel, Tab, bracketed_paste, wrap_line};
 use serde_json::json;
 
 use crate::keys::key_to_bytes;
@@ -100,12 +100,27 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut help = false;
     // An in-progress left-drag selection; local because a drag can't span a tab switch.
     let mut selection: Option<Selection> = None;
+    // A transient bottom-right toast (message + expiry); armed once if `git` is missing.
+    let mut toast: Option<(String, Instant)> = None;
+    let mut toast_git_shown = false;
 
     loop {
         // Content rect sits below the 1-line tab bar; sockets deliver while unfocused, so drain every tab.
         let content = content_rect(terminal.get_frame().area());
         for tab in tabs.iter_mut() {
             tab.drain(content);
+        }
+        // git-presence is a machine-global fact: arm the "install git" toast once,
+        // the first time any diff attempt (open or reload) found no `git` binary.
+        if !toast_git_shown && laura::gitdiff::git_missing() {
+            toast_git_shown = true;
+            toast = Some((
+                "diff views not available — install `git`".into(),
+                Instant::now() + Duration::from_secs(10),
+            ));
+        }
+        if toast.as_ref().is_some_and(|(_, e)| Instant::now() >= *e) {
+            toast = None;
         }
         // A just-drained `open` requests focus; keep focus valid if a pane vanished.
         let a = &mut tabs[active];
@@ -222,6 +237,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             }
             if help {
                 render_help(f);
+            }
+            if let Some((msg, _)) = &toast {
+                render_toast(f, msg);
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
             if let Some(sel) = &selection
@@ -668,16 +686,33 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
         .rows
         .iter()
         .map(|r| {
-            let gutter = match r.gutter {
-                Some(n) => format!("{n:>gw$} "),
-                None => format!("{:>gw$} ", ""),
+            let number = match r.gutter {
+                Some(n) => format!("{n:>gw$}"),
+                None => format!("{:>gw$}", ""),
             };
+            // The gutter's separator cell doubles as a git-diff change bar on a
+            // changed source line's first row; blank otherwise. It stays one cell,
+            // so `gutter_width` and the copy math below are unshifted.
+            let bar = r
+                .gutter
+                .and_then(|_| panel.changes.get(r.line).copied().flatten())
+                .map(|k| {
+                    Span::styled(
+                        "▏",
+                        Style::default().fg(match k {
+                            ChangeKind::Added => Color::Rgb(163, 190, 140), // nord green
+                            ChangeKind::Modified => Color::Rgb(129, 161, 193), // nord blue
+                            ChangeKind::Removed(_) => Color::Rgb(191, 97, 106), // nord red
+                        }),
+                    )
+                })
+                .unwrap_or_else(|| Span::raw(" "));
             if r.comment {
-                let mut spans = vec![Span::raw(gutter)];
+                let mut spans = vec![Span::raw(number), bar];
                 spans.extend(r.spans.iter().cloned());
                 Line::from(spans).dim()
             } else {
-                let mut spans = vec![Span::raw(gutter).dim()];
+                let mut spans = vec![Span::raw(number).dim(), bar];
                 spans.extend(r.spans.iter().cloned());
                 let line = Line::from(spans);
                 let hot = panel
@@ -831,6 +866,23 @@ fn render_panes(f: &mut Frame, tab: &Tab, buf: &str) {
 /// A path's file name (last `/`- or `\`-separated segment).
 fn base_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
+}
+
+/// Draw a one-line transient toast in the bottom-right corner (nord yellow), just above the hint line.
+fn render_toast(f: &mut Frame, msg: &str) {
+    let area = f.area();
+    let w = (msg.chars().count() as u16 + 2).min(area.width);
+    let rect = Rect {
+        x: area.width.saturating_sub(w + 1),
+        y: area.height.saturating_sub(2),
+        width: w,
+        height: 1,
+    };
+    f.render_widget(Clear, rect);
+    f.render_widget(
+        Paragraph::new(format!(" {msg} ")).style(Style::default().fg(Color::Rgb(235, 203, 139))),
+        rect,
+    );
 }
 
 /// Draw the global help popup: a centered, bordered list of key bindings, mirroring the contextual hints.

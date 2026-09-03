@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+use crate::gitdiff::{self, ChangeKind, DiffOutcome};
 use crate::render::{RULE_SENTINEL, Rendered, render};
 
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
@@ -33,6 +34,12 @@ pub struct Panel {
     sig: Option<(SystemTime, u64)>,
     /// Terse read error from the last render, or `None` if the file read cleanly. Drives the open-time stderr warning.
     pub read_error: Option<String>,
+    /// Per-source-line git-diff marker vs HEAD, 1:1 with `content.lines()`.
+    /// Empty when off (markdown, non-repo, clean). Recomputed on open + reload.
+    pub changes: Vec<Option<ChangeKind>>,
+    /// Latched once when a diff attempt found no `git` binary; drives the open-time
+    /// agent warning. (The user-facing toast reads `gitdiff::git_missing`.)
+    pub git_missing: bool,
 }
 
 impl Panel {
@@ -46,7 +53,7 @@ impl Panel {
             error,
         } = render(&path);
         let sig = stat_sig(&path);
-        Panel {
+        let mut panel = Panel {
             path,
             content,
             styled,
@@ -59,6 +66,29 @@ impl Panel {
             follow: false,
             sig,
             read_error: error,
+            changes: vec![],
+            git_missing: false,
+        };
+        panel.refresh_diff();
+        panel
+    }
+
+    /// Recompute the per-line git-diff markers vs HEAD. Skipped for markdown (its
+    /// `content` is a rendered projection, so source line numbers don't map). A
+    /// missing `git` binary latches `git_missing`; any other failure clears markers.
+    fn refresh_diff(&mut self) {
+        let ext = self.path.rsplit('.').next().map(str::to_ascii_lowercase);
+        if matches!(ext.as_deref(), Some("md" | "markdown")) {
+            self.changes = vec![];
+            return;
+        }
+        match gitdiff::hunks(&self.path) {
+            DiffOutcome::Ok(h) => self.changes = gitdiff::line_changes(&h, self.line_count()),
+            DiffOutcome::NoGit => {
+                self.git_missing = true;
+                self.changes = vec![];
+            }
+            DiffOutcome::Unavailable => self.changes = vec![],
         }
     }
 
@@ -156,6 +186,24 @@ impl Panel {
         let mut rows = vec![];
         let mut starts = vec![];
         for (i, line) in self.styled.iter().enumerate() {
+            // A deletion has no surviving line to bar, so emit a dim-red gap row
+            // *above* line `i`. Pushed before `starts[i]` so the row sits outside
+            // line `i`'s selectable span and the `starts` invariant holds.
+            if let Some(ChangeKind::Removed(n)) = self.changes.get(i).copied().flatten() {
+                let word = if n == 1 { "line" } else { "lines" };
+                let mut label = format!("── {n} {word} removed ");
+                let dashes = tw.saturating_sub(label.chars().count());
+                label.push_str(&"─".repeat(dashes));
+                rows.push(PanelRow {
+                    line: i,
+                    gutter: None,
+                    spans: vec![Span::styled(
+                        label,
+                        Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
+                    )],
+                    comment: true,
+                });
+            }
             starts.push(rows.len());
             // Indent is display-only; it eats text width but never `content`.
             let ind = self.indent.get(i).copied().unwrap_or(0).min(tw - 1);
@@ -263,6 +311,7 @@ impl Panel {
             let last = self.line_count() - 1;
             self.highlight = Some((lo.min(last), hi.min(last)));
         }
+        self.refresh_diff();
         true
     }
 }

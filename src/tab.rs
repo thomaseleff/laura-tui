@@ -245,6 +245,12 @@ impl Tab {
                         if let Some(e) = &self.panels[&new].read_error {
                             warnings.push(e.clone());
                         }
+                        if self.panels[&new].git_missing {
+                            warnings.push(
+                                "diff markers unavailable — install `git` to see changes in the gutter"
+                                    .into(),
+                            );
+                        }
                         let report = self.report(area);
                         if let Some(w) = report
                             .panes

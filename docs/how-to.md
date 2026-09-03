@@ -25,6 +25,20 @@ laura highlight 40 --pane <id>           # single line, in a specific (possibly 
 
 The common gesture is "show me where": nothing's on screen (or a stale doc is), so `open --highlight` opens the file *and* points at the lines in one call — the panel paints already at the span, no line-1 flash. Once a file's open, `laura highlight` re-points it (this is what the `#17` stepper composes). Either way the highlight stays until you re-set it.
 
+## See what changed (gutter markers)
+
+An open panel marks each line changed since git `HEAD` in the gutter, VSCode-style:
+a **green** bar on added lines, **blue** on modified, and a dim-**red** `── N lines
+removed ──` row where lines were deleted. Markers refresh on reload, so they track
+your edits as you save.
+
+Nothing to run — it's automatic for tracked code/text files. Notes:
+
+- Needs `git` on `PATH`. Without it, `laura open` warns on stderr and shows a brief
+  toast; markers stay off.
+- Markdown panels show no markers (they render a projection, not raw source), and
+  an untracked file has none until it's committed.
+
 ## Close a panel
 
 ```bash
