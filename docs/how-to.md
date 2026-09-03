@@ -39,6 +39,22 @@ Nothing to run — it's automatic for tracked code/text files. Notes:
 - Markdown panels show no markers (they render a projection, not raw source), and
   an untracked file has none until it's committed.
 
+## See the full diff inline (diff view)
+
+The gutter marks *where* lines changed; the diff view shows *what* changed — the
+panel body becomes an interleaved `+`/`-` diff vs git `HEAD`, deleted lines visible
+as red `-` rows with their old text.
+
+```bash
+laura open src/x.rs --diff       # open straight into the diff view
+laura diff --pane <id>           # toggle the diff view on an open panel
+laura diff --pane <id> --off     # back to the normal file view
+```
+
+With the panel focused, press **`d`** to toggle it. Toggling on a clean or
+untracked file (or one with no `git`) is a no-op with a warning — there's nothing
+to diff. Markdown renders a projection, so its diff view shows the file plain.
+
 ## Close a panel
 
 ```bash

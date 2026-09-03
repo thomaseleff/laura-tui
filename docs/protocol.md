@@ -11,19 +11,21 @@ One connection carries **one request and one response**: the producer connects, 
 Typed messages, one JSON object per line (NDJSON), internally tagged by `type`. Fields have defaults, so older/shorter frames still parse:
 
 ```json
-{"type":"open","path":"spec.md","split":null,"dir":"horizontal","ratio":50,"side":"second","focus":true,"dry_run":false,"highlight":null}
+{"type":"open","path":"spec.md","split":null,"dir":"horizontal","ratio":50,"side":"second","focus":true,"dry_run":false,"highlight":null,"diff":false}
 {"type":"close","pane":null,"all":false}
 {"type":"focus","pane":1}
 {"type":"highlight","pane":null,"start":40,"end":52}
+{"type":"diffview","pane":null,"on":null}
 {"type":"layout"}
 {"type":"ready"}
 {"type":"update","path":"spec.md"}
 ```
 
-- **`open`** splits a pane (`split`, default: the focused pane) into a new panel rendering `path`. `dir` is `horizontal`/`vertical`, `ratio` (1..99) is the new panel's percent, `side` (`first`/`second`) is where the new panel lands, `focus` moves focus into it (default `true`), `dry_run` reports the would-be layout without mutating. `highlight` is an optional `[start, end]` pair (1-based inclusive, `null` = none) that points the new panel at a line range on open — the same treatment as the `highlight` message, applied as the panel first paints (see below).
+- **`open`** splits a pane (`split`, default: the focused pane) into a new panel rendering `path`. `dir` is `horizontal`/`vertical`, `ratio` (1..99) is the new panel's percent, `side` (`first`/`second`) is where the new panel lands, `focus` moves focus into it (default `true`), `dry_run` reports the would-be layout without mutating. `highlight` is an optional `[start, end]` pair (1-based inclusive, `null` = none) that points the new panel at a line range on open — the same treatment as the `highlight` message, applied as the panel first paints (see below). `diff` (default `false`) opens straight into the inline diff view.
 - **`close`** removes pane `pane` (default: the focused panel); `all` returns the tab to shell-only. The shell (pane `0`) can't be closed.
 - **`focus`** focuses a pane by id.
 - **`highlight`** reverse-videos lines `start..=end` in a panel (`pane`, default: the focused panel) and scrolls the range into view. Line numbers are **1-based inclusive**, matching the gutter and review `L<n>`; `end` defaults to `start` (single line). The highlight is independent of focus (direct attention to an unfocused panel) and of the cursor, and persists until re-set or the file reloads shorter. Out-of-range values clamp to the file.
+- **`diffview`** toggles a panel's inline diff view vs git `HEAD` (`pane`, default: the focused panel). `on` is `null` to toggle, `true`/`false` to set. It's refused (an `error` response, a no-op) when there's nothing to diff — no `git` binary, or a clean/untracked file — since a diff view with no diff is a lie. The `diff` field on **`open`** opens straight into the view (same refusal, surfaced as an `opened` warning rather than an error).
 - **`layout`** asks for the current layout report (no mutation).
 - **`ready`** marks the tab as hosting an agent, which gates review injection (see below).
 - **`update`** is a reserved re-render nudge, not yet emitted.
@@ -61,6 +63,7 @@ Client verbs read `$LAURA_TAB`, send one message, and exit:
 - `laura close [<id>] [--all]` — close a panel (default: focused; `--all` for shell-only).
 - `laura focus <id>` — focus a pane.
 - `laura highlight <start> [end] [--pane <id>]` — reverse-video a 1-based line range in a panel and scroll it into view.
+- `laura diff [--pane <id>] [--off]` — toggle a panel's inline diff view vs `HEAD` (`--off` turns it off).
 - `laura layout` — print the layout report (JSON).
 - `laura ready` — mark the tab as hosting an agent (enables review submission).
 

@@ -110,6 +110,24 @@ pub fn line_changes(hunks: &[Hunk], line_count: usize) -> Vec<Option<ChangeKind>
     out
 }
 
+/// Fold hunks → deleted-line text keyed by the 0-based source line the gap sits
+/// *before* (mirrors `line_changes`' deletion-vs-modified split). #18 renders these
+/// as red `-` rows above that line; an EOF deletion keys to `line_count` (trailing).
+pub fn removed_lines(hunks: &[Hunk], line_count: usize) -> Vec<(usize, Vec<String>)> {
+    hunks
+        .iter()
+        .filter(|h| !h.removed.is_empty())
+        .map(|h| {
+            let idx = if h.added.is_empty() {
+                h.new_start // surviving line below the gap is 0-based `new_start`; gap sits before it
+            } else {
+                h.new_start.saturating_sub(1) // removed pair above the first added (0-based) line
+            };
+            (idx.min(line_count), h.removed.clone())
+        })
+        .collect()
+}
+
 /// Parse `git diff --unified=0` output into hunks. Header math is trusted over
 /// re-counting bodies — git's contract.
 fn parse(text: &str) -> Vec<Hunk> {

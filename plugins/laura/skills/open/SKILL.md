@@ -48,7 +48,7 @@ After `laura open`, read its **stderr** — it warns when the panel doesn't fit,
 
 Suspect a long doc up front? `laura open <path> --dry-run` (or `laura layout`) prints JSON with each pane's rect and overflow (`overflow_rows`/`clipped`) without opening anything — pick the geometry, then open once.
 
-Changed lines are marked in the gutter vs git `HEAD` (green added / blue modified / red "N removed" row), auto-updating as you edit — no action needed. If `laura open`'s stderr says **`diff markers unavailable`**, tell the user to install `git` to get them.
+Changed lines are marked in the gutter vs git `HEAD` (green added / blue modified / red "N removed" row), auto-updating as you edit — no action needed. If `laura open`'s stderr says **`diff markers unavailable`**, tell the user to install `git` to get them. To show the full change (interleaved `+`/`-` lines), open with `--diff` or toggle `laura diff` — see the `diff` skill.
 
 Width is a non-issue for **pre-formatted** content: code, diffs, and markdown tables / code fences / HTML blocks no longer wrap — they clip to the panel and scroll sideways (a `›` marks a clipped line). Don't pre-widen the pane or pipe `git diff --stat` just to keep columns aligned; open it narrow and tell the user to press **←/→** in the focused panel to scroll. Prose still wraps normally. (`overflows:` above is about height only.)
 

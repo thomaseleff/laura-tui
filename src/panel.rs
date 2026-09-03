@@ -40,6 +40,12 @@ pub struct Panel {
     /// Latched once when a diff attempt found no `git` binary; drives the open-time
     /// agent warning. (The user-facing toast reads `gitdiff::git_missing`.)
     pub git_missing: bool,
+    /// Deleted-line text keyed by the 0-based source line its gap sits *before*.
+    /// Populated with `changes` (same git call); consumed only by the diff view.
+    removed: Vec<(usize, Vec<String>)>,
+    /// #18: render the panel as an inline `+`/`-` diff vs HEAD instead of the file.
+    /// Toggled via `set_diff_view`; recomputed data comes from `refresh_diff`.
+    pub diff_view: bool,
 }
 
 impl Panel {
@@ -68,6 +74,8 @@ impl Panel {
             read_error: error,
             changes: vec![],
             git_missing: false,
+            removed: vec![],
+            diff_view: false,
         };
         panel.refresh_diff();
         panel
@@ -80,16 +88,43 @@ impl Panel {
         let ext = self.path.rsplit('.').next().map(str::to_ascii_lowercase);
         if matches!(ext.as_deref(), Some("md" | "markdown")) {
             self.changes = vec![];
+            self.removed = vec![];
             return;
         }
         match gitdiff::hunks(&self.path) {
-            DiffOutcome::Ok(h) => self.changes = gitdiff::line_changes(&h, self.line_count()),
+            DiffOutcome::Ok(h) => {
+                let n = self.line_count();
+                self.changes = gitdiff::line_changes(&h, n);
+                self.removed = gitdiff::removed_lines(&h, n);
+            }
             DiffOutcome::NoGit => {
                 self.git_missing = true;
                 self.changes = vec![];
+                self.removed = vec![];
             }
-            DiffOutcome::Unavailable => self.changes = vec![],
+            DiffOutcome::Unavailable => {
+                self.changes = vec![];
+                self.removed = vec![];
+            }
         }
+    }
+
+    /// Enable/disable the inline diff view. Enabling is refused (with a warning to
+    /// surface) when there's no diff to show — no `git` binary, or the file is clean
+    /// / untracked — because a diff view with no diff is a lie. Returns the warning.
+    pub fn set_diff_view(&mut self, on: bool) -> Result<(), String> {
+        if !on {
+            self.diff_view = false;
+            return Ok(());
+        }
+        if self.git_missing {
+            return Err("diff view unavailable — install `git`".into());
+        }
+        if !self.changes.iter().any(Option::is_some) && self.removed.is_empty() {
+            return Err("no changes vs HEAD — nothing to diff".into());
+        }
+        self.diff_view = true;
+        Ok(())
     }
 
     /// Enable/disable autoscroll; enabling snaps the cursor to the last line now.
@@ -180,6 +215,9 @@ impl Panel {
 
     /// Lay the panel into visual rows for an `inner_w`-wide area. Wrapping here (not the widget) keeps rows 1:1 so scroll, scrollbar, and `L<n>` stay exact.
     pub fn layout(&self, inner_w: usize) -> PanelLayout {
+        if self.diff_view {
+            return self.diff_layout(inner_w);
+        }
         let total = self.styled.len().max(1);
         let gutter_width = total.to_string().len();
         let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
@@ -245,6 +283,67 @@ impl Panel {
                 }
             }
         }
+        PanelLayout {
+            rows,
+            starts,
+            gutter_width,
+        }
+    }
+
+    /// #18: lay the panel out as an inline diff vs HEAD — deleted lines as red `-`
+    /// rows above green `+` added/modified lines, unchanged lines plain. Keyed to
+    /// current line numbers, so `starts`/gutter numbers stay 1:1 with the source and
+    /// scroll/cursor math is unchanged. Data comes from `refresh_diff` (no git here).
+    fn diff_layout(&self, inner_w: usize) -> PanelLayout {
+        let total = self.styled.len().max(1);
+        let gutter_width = total.to_string().len();
+        let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
+        let green = Style::default().fg(Color::Rgb(163, 190, 140)); // nord green
+        let red = Style::default().fg(Color::Rgb(191, 97, 106)); // nord red
+        let line_count = self.line_count();
+        let lines: Vec<&str> = self.content.lines().collect();
+        let mut rows = vec![];
+        let mut starts = vec![];
+        // Emit the red `-` rows queued *before* source line `at` (deletions key here).
+        let removed_at = |rows: &mut Vec<PanelRow>, at: usize| {
+            for (idx, texts) in self.removed.iter().filter(|(i, _)| *i == at) {
+                for t in texts {
+                    for chunk in wrap_line(&format!("-{t}"), tw) {
+                        rows.push(PanelRow {
+                            line: (*idx).min(line_count - 1),
+                            gutter: None,
+                            spans: vec![Span::styled(chunk, red)],
+                            comment: false,
+                        });
+                    }
+                }
+            }
+        };
+        for i in 0..line_count {
+            removed_at(&mut rows, i);
+            starts.push(rows.len());
+            let (prefix, style) = match self.changes.get(i).copied().flatten() {
+                Some(ChangeKind::Added | ChangeKind::Modified) => ('+', Some(green)),
+                _ => (' ', None), // context, incl. the surviving line below a deletion gap
+            };
+            let text = lines.get(i).copied().unwrap_or("");
+            for (k, chunk) in wrap_line(&format!("{prefix}{text}"), tw)
+                .into_iter()
+                .enumerate()
+            {
+                let span = match style {
+                    Some(s) => Span::styled(chunk, s),
+                    None => Span::raw(chunk),
+                };
+                rows.push(PanelRow {
+                    line: i,
+                    gutter: (k == 0).then_some(i + 1),
+                    spans: vec![span],
+                    comment: false,
+                });
+            }
+        }
+        removed_at(&mut rows, line_count); // trailing EOF deletion
         PanelLayout {
             rows,
             starts,

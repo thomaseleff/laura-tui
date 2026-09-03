@@ -212,9 +212,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
             } else if tab.focus != PTY_PANE {
                 if tab.agent {
-                    "  ↑/↓ move · c comment · S submit · Esc leave focus"
+                    "  ↑/↓ move · c comment · S submit · d diff · Esc leave focus"
                 } else {
-                    "  ↑/↓ move · Esc leave focus · review: run `laura ready`"
+                    "  ↑/↓ move · d diff · Esc leave focus · review: run `laura ready`"
                 }
             } else {
                 "  ^p panes · ^t tabs · ^h help · ^q quit"
@@ -431,6 +431,14 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Right => {
                                 if let Some(p) = tabs[active].focused_panel_mut() {
                                     p.scroll_h(1)
+                                }
+                            }
+                            KeyCode::Char('d') => {
+                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                    let want = !p.diff_view;
+                                    if let Err(w) = p.set_diff_view(want) {
+                                        toast = Some((w, Instant::now() + Duration::from_secs(5)));
+                                    }
                                 }
                             }
                             KeyCode::Char('c') if tabs[active].agent => {
@@ -692,9 +700,11 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
             };
             // The gutter's separator cell doubles as a git-diff change bar on a
             // changed source line's first row; blank otherwise. It stays one cell,
-            // so `gutter_width` and the copy math below are unshifted.
+            // so `gutter_width` and the copy math below are unshifted. The diff view
+            // carries its own `+`/`-` markers in the content, so the bar stays blank.
             let bar = r
                 .gutter
+                .filter(|_| !panel.diff_view)
                 .and_then(|_| panel.changes.get(r.line).copied().flatten())
                 .map(|k| {
                     Span::styled(
@@ -918,6 +928,7 @@ fn render_help(f: &mut Frame) {
         Line::raw(""),
         group("Panel focus"),
         key("↑/↓", "move cursor"),
+        key("d", "toggle inline diff vs HEAD"),
         key("c", "comment on line (needs `laura ready`)"),
         key("S", "submit review (needs `laura ready`)"),
         key("Esc", "leave focus"),

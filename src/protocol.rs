@@ -75,6 +75,10 @@ pub enum Message {
         /// `None` = open with no highlight; the second value defaults to the first.
         #[serde(default)]
         highlight: Option<(u32, u32)>,
+        /// Open straight into the inline diff view (vs HEAD). Ignored (with a warning)
+        /// if there's nothing to diff — no `git`, or a clean/untracked file.
+        #[serde(default)]
+        diff: bool,
     },
     /// Close a pane. `None` = the focused panel; `all` returns to PTY-only. The PTY can't close.
     Close {
@@ -93,6 +97,15 @@ pub enum Message {
         start: u32,
         #[serde(default)]
         end: Option<u32>,
+    },
+    /// Toggle (or set) the inline diff view on a panel. `pane` defaults to the
+    /// focused panel; `on` = `None` toggles, `Some(b)` sets. Refused (error) when
+    /// there's nothing to diff — no `git`, or a clean/untracked file.
+    DiffView {
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        on: Option<bool>,
     },
     /// Query the current layout + per-pane geometry/overflow.
     Layout,
