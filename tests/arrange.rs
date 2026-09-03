@@ -55,6 +55,42 @@ fn pane_count(json: &str) -> usize {
     v["panes"].as_array().unwrap().len()
 }
 
+/// Width of the pane with `id` from a layout report.
+fn pane_width(json: &str, id: u64) -> u16 {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap();
+    let pane = v["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"].as_u64() == Some(id))
+        .unwrap();
+    pane["rect"]["width"].as_u64().unwrap() as u16
+}
+
+/// #13: `--ratio N` sizes the NEW panel to N%, independent of `--side`.
+#[test]
+fn ratio_targets_the_new_panel() -> Result<()> {
+    let mut f = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    writeln!(f, "hello")?;
+    let p = f.path().to_str().unwrap().to_string();
+
+    // Tab is 120 wide (see `area`); a horizontal --ratio 75 → new panel ~90 cols.
+    for side in ["second", "first"] {
+        let mut tab = spawn_tab()?;
+        let id: u64 = drive(
+            &mut tab,
+            &["open", &p, "--dir", "h", "--ratio", "75", "--side", side],
+        )
+        .parse()?;
+        let w = pane_width(&drive(&mut tab, &["layout"]), id);
+        assert!(
+            (85..=95).contains(&w),
+            "--side {side}: new panel should be ~75% of 120 (~90), got {w}"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn compose_introspect_and_close() -> Result<()> {
     let mut f1 = tempfile::Builder::new().suffix(".txt").tempfile()?;

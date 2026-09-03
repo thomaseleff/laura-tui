@@ -19,7 +19,7 @@ Typed messages, one JSON object per line (NDJSON), internally tagged by `type`. 
 {"type":"update","path":"spec.md"}
 ```
 
-- **`open`** splits a pane (`split`, default: the focused pane) into a new panel rendering `path`. `dir` is `horizontal`/`vertical`, `ratio` (1..99) is the first pane's percent, `side` (`first`/`second`) is where the new panel lands, `focus` moves focus into it (default `true`), `dry_run` reports the would-be layout without mutating.
+- **`open`** splits a pane (`split`, default: the focused pane) into a new panel rendering `path`. `dir` is `horizontal`/`vertical`, `ratio` (1..99) is the new panel's percent, `side` (`first`/`second`) is where the new panel lands, `focus` moves focus into it (default `true`), `dry_run` reports the would-be layout without mutating.
 - **`close`** removes pane `pane` (default: the focused panel); `all` returns the tab to shell-only. The shell (pane `0`) can't be closed.
 - **`focus`** focuses a pane by id.
 - **`layout`** asks for the current layout report (no mutation).

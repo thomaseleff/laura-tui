@@ -21,7 +21,7 @@ laura open <path>       Split a pane and render <path> in the new panel. Prints 
                         fit (`overflows:` / `too small`), so `laura layout` is confirmatory, not required.
       --split <id>      Pane to split (default: the focused pane).
       --dir <h|v>       Split orientation: h side-by-side, v stacked (default h).
-      --ratio <1..99>   Percent of the split given to the first pane (default 50).
+      --ratio <1..99>   Percent of the split given to the new panel (default 50).
       --side <first|second>  Which side the new panel lands on (default second).
       --no-focus        Don't move focus into the panel.
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.

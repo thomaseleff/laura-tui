@@ -28,12 +28,12 @@ A tab is a split tree. The shell is pane `0`; every `laura open` splits a pane a
 ```bash
 id=$(laura open plan.md)                       # plan beside the shell (default: split focused, side-by-side)
 laura open logs.txt --split "$id" --dir v      # stack logs under the plan
-laura open notes.md --ratio 30                 # give the first pane only 30% of the split
+laura open notes.md --ratio 30                 # give the new panel only 30% of the split
 laura close "$id"                              # close one pane by id
 laura close --all                              # back to shell-only
 ```
 
-- `--dir h` splits side-by-side, `--dir v` stacks. `--ratio <1..99>` is the first pane's percent (default 50). `--side first|second` picks which side the new panel lands on.
+- `--dir h` splits side-by-side, `--dir v` stacks. `--ratio <1..99>` is the new panel's percent (default 50). `--side first|second` picks which side the new panel lands on.
 - Assemble the frame for the task — plan right, logs bottom — instead of one panel at a time.
 
 ## Fitting before you commit

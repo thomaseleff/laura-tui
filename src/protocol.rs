@@ -57,7 +57,7 @@ pub enum Message {
         split: Option<PaneId>,
         #[serde(default)]
         dir: Dir,
-        /// Percent of the split given to `first`, 1..=99.
+        /// Percent of the split given to the new panel, 1..=99.
         #[serde(default = "default_ratio")]
         ratio: u16,
         #[serde(default)]

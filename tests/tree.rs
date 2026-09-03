@@ -25,15 +25,16 @@ fn rects_geometry_is_exact() {
     let area = Rect::new(0, 0, 100, 40);
     let map = rects(&l, area);
 
-    assert_eq!(map[&0], Rect::new(0, 0, 40, 40), "first = 40%");
-    assert_eq!(map[&1], Rect::new(40, 0, 60, 40), "second = remainder");
+    // `--ratio 40` sizes the new pane (1, on `second`); existing pane 0 keeps the rest.
+    assert_eq!(map[&0], Rect::new(0, 0, 60, 40), "existing = remainder");
+    assert_eq!(map[&1], Rect::new(60, 0, 40, 40), "new pane = 40%");
 
-    // Nest a vertical split into pane 1; it partitions pane 1's rect only.
+    // Nest a vertical split into pane 1; new pane 2 gets 25% of pane 1's rect.
     l.split(1, Dir::Vertical, 25, Side::Second, 2).unwrap();
     let map = rects(&l, area);
-    assert_eq!(map[&0], Rect::new(0, 0, 40, 40));
-    assert_eq!(map[&1], Rect::new(40, 0, 60, 10), "top 25% of pane 1");
-    assert_eq!(map[&2], Rect::new(40, 10, 60, 30), "bottom remainder");
+    assert_eq!(map[&0], Rect::new(0, 0, 60, 40));
+    assert_eq!(map[&1], Rect::new(60, 0, 40, 30), "pane 1 keeps 75%");
+    assert_eq!(map[&2], Rect::new(60, 30, 40, 10), "new pane = bottom 25%");
 }
 
 #[test]
