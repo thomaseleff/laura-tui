@@ -209,6 +209,7 @@ impl Tab {
                 follow,
                 dry_run,
                 highlight,
+                diff,
             } => {
                 let target = split.unwrap_or(self.focus);
                 if dry_run {
@@ -225,6 +226,8 @@ impl Tab {
                         if let Some((start, end)) = highlight {
                             panel.set_highlight(start, end);
                         }
+                        // Open-into-diff: refusal (no git / nothing to diff) becomes a warning.
+                        let diff_warning = diff.then(|| panel.set_diff_view(true).err()).flatten();
                         self.panels.insert(new, panel);
                         self.log_event(json!({"type": "open", "pane": new, "path": path}));
                         if let Some((start, end)) = highlight {
@@ -244,6 +247,15 @@ impl Tab {
                         }
                         if let Some(e) = &self.panels[&new].read_error {
                             warnings.push(e.clone());
+                        }
+                        if self.panels[&new].git_missing {
+                            warnings.push(
+                                "diff markers unavailable — install `git` to see changes in the gutter"
+                                    .into(),
+                            );
+                        }
+                        if let Some(w) = diff_warning {
+                            warnings.push(w);
                         }
                         let report = self.report(area);
                         if let Some(w) = report
@@ -320,6 +332,28 @@ impl Tab {
                 panel.set_highlight(start, end);
                 self.log_event(json!({"type":"highlight","pane":target,"start":start,"end":end}));
                 Response::Ok
+            }
+            Message::DiffView { pane, on } => {
+                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
+                let Some(target) = target else {
+                    return Response::Error {
+                        message: "no panel focused for diff view".into(),
+                    };
+                };
+                let Some(panel) = self.panels.get_mut(&target) else {
+                    return Response::Error {
+                        message: format!("no pane #{target}"),
+                    };
+                };
+                let want = on.unwrap_or(!panel.diff_view);
+                match panel.set_diff_view(want) {
+                    Ok(()) => {
+                        self.log_event(json!({"type":"diff","pane":target,"on":want}));
+                        Response::Ok
+                    }
+                    // Refusal is a no-op with a warning surfaced as an error (CLI → stderr).
+                    Err(message) => Response::Error { message },
+                }
             }
             Message::Layout => Response::Report(self.report(area)),
             Message::Ready { session, agent } => {

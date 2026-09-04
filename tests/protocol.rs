@@ -53,11 +53,12 @@ fn open_wire_shape_is_stable() {
         follow: false,
         dry_run: false,
         highlight: None,
+        diff: false,
     })
     .unwrap();
     assert_eq!(
         json,
-        r#"{"type":"open","path":"docs/spec.md","split":null,"dir":"horizontal","ratio":40,"side":"second","focus":true,"follow":false,"dry_run":false,"highlight":null}"#
+        r#"{"type":"open","path":"docs/spec.md","split":null,"dir":"horizontal","ratio":40,"side":"second","focus":true,"follow":false,"dry_run":false,"highlight":null,"diff":false}"#
     );
 }
 
@@ -77,6 +78,7 @@ fn open_back_compat_defaults() {
             follow: false,
             dry_run: false,
             highlight: None,
+            diff: false,
         }
     );
 }

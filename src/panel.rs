@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+use crate::gitdiff::{self, ChangeKind, DiffOutcome};
 use crate::render::{RULE_SENTINEL, Rendered, render};
 
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
@@ -33,6 +34,18 @@ pub struct Panel {
     sig: Option<(SystemTime, u64)>,
     /// Terse read error from the last render, or `None` if the file read cleanly. Drives the open-time stderr warning.
     pub read_error: Option<String>,
+    /// Per-source-line git-diff marker vs HEAD, 1:1 with `content.lines()`.
+    /// Empty when off (markdown, non-repo, clean). Recomputed on open + reload.
+    pub changes: Vec<Option<ChangeKind>>,
+    /// Latched once when a diff attempt found no `git` binary; drives the open-time
+    /// agent warning. (The user-facing toast reads `gitdiff::git_missing`.)
+    pub git_missing: bool,
+    /// Deleted-line text keyed by the 0-based source line its gap sits *before*.
+    /// Populated with `changes` (same git call); consumed only by the diff view.
+    removed: Vec<(usize, Vec<String>)>,
+    /// #18: render the panel as an inline `+`/`-` diff vs HEAD instead of the file.
+    /// Toggled via `set_diff_view`; recomputed data comes from `refresh_diff`.
+    pub diff_view: bool,
 }
 
 impl Panel {
@@ -46,7 +59,7 @@ impl Panel {
             error,
         } = render(&path);
         let sig = stat_sig(&path);
-        Panel {
+        let mut panel = Panel {
             path,
             content,
             styled,
@@ -59,7 +72,59 @@ impl Panel {
             follow: false,
             sig,
             read_error: error,
+            changes: vec![],
+            git_missing: false,
+            removed: vec![],
+            diff_view: false,
+        };
+        panel.refresh_diff();
+        panel
+    }
+
+    /// Recompute the per-line git-diff markers vs HEAD. Skipped for markdown (its
+    /// `content` is a rendered projection, so source line numbers don't map). A
+    /// missing `git` binary latches `git_missing`; any other failure clears markers.
+    fn refresh_diff(&mut self) {
+        let ext = self.path.rsplit('.').next().map(str::to_ascii_lowercase);
+        if matches!(ext.as_deref(), Some("md" | "markdown")) {
+            self.changes = vec![];
+            self.removed = vec![];
+            return;
         }
+        match gitdiff::hunks(&self.path) {
+            DiffOutcome::Ok(h) => {
+                let n = self.line_count();
+                self.changes = gitdiff::line_changes(&h, n);
+                self.removed = gitdiff::removed_lines(&h, n);
+            }
+            DiffOutcome::NoGit => {
+                self.git_missing = true;
+                self.changes = vec![];
+                self.removed = vec![];
+            }
+            DiffOutcome::Unavailable => {
+                self.changes = vec![];
+                self.removed = vec![];
+            }
+        }
+    }
+
+    /// Enable/disable the inline diff view. Enabling is refused (with a warning to
+    /// surface) when there's no diff to show — no `git` binary, or the file is clean
+    /// / untracked — because a diff view with no diff is a lie. Returns the warning.
+    pub fn set_diff_view(&mut self, on: bool) -> Result<(), String> {
+        if !on {
+            self.diff_view = false;
+            return Ok(());
+        }
+        if self.git_missing {
+            return Err("diff view unavailable — install `git`".into());
+        }
+        if !self.changes.iter().any(Option::is_some) && self.removed.is_empty() {
+            return Err("no changes vs HEAD — nothing to diff".into());
+        }
+        self.diff_view = true;
+        Ok(())
     }
 
     /// Enable/disable autoscroll; enabling snaps the cursor to the last line now.
@@ -150,12 +215,33 @@ impl Panel {
 
     /// Lay the panel into visual rows for an `inner_w`-wide area. Wrapping here (not the widget) keeps rows 1:1 so scroll, scrollbar, and `L<n>` stay exact.
     pub fn layout(&self, inner_w: usize) -> PanelLayout {
+        if self.diff_view {
+            return self.diff_layout(inner_w);
+        }
         let total = self.styled.len().max(1);
         let gutter_width = total.to_string().len();
         let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
         for (i, line) in self.styled.iter().enumerate() {
+            // A deletion has no surviving line to bar, so emit a dim-red gap row
+            // *above* line `i`. Pushed before `starts[i]` so the row sits outside
+            // line `i`'s selectable span and the `starts` invariant holds.
+            if let Some(ChangeKind::Removed(n)) = self.changes.get(i).copied().flatten() {
+                let word = if n == 1 { "line" } else { "lines" };
+                let mut label = format!("── {n} {word} removed ");
+                let dashes = tw.saturating_sub(label.chars().count());
+                label.push_str(&"─".repeat(dashes));
+                rows.push(PanelRow {
+                    line: i,
+                    gutter: None,
+                    spans: vec![Span::styled(
+                        label,
+                        Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
+                    )],
+                    comment: true,
+                });
+            }
             starts.push(rows.len());
             // Indent is display-only; it eats text width but never `content`.
             let ind = self.indent.get(i).copied().unwrap_or(0).min(tw - 1);
@@ -204,6 +290,67 @@ impl Panel {
         }
     }
 
+    /// #18: lay the panel out as an inline diff vs HEAD — deleted lines as red `-`
+    /// rows above green `+` added/modified lines, unchanged lines plain. Keyed to
+    /// current line numbers, so `starts`/gutter numbers stay 1:1 with the source and
+    /// scroll/cursor math is unchanged. Data comes from `refresh_diff` (no git here).
+    fn diff_layout(&self, inner_w: usize) -> PanelLayout {
+        let total = self.styled.len().max(1);
+        let gutter_width = total.to_string().len();
+        let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
+        let green = Style::default().fg(Color::Rgb(163, 190, 140)); // nord green
+        let red = Style::default().fg(Color::Rgb(191, 97, 106)); // nord red
+        let line_count = self.line_count();
+        let lines: Vec<&str> = self.content.lines().collect();
+        let mut rows = vec![];
+        let mut starts = vec![];
+        // Emit the red `-` rows queued *before* source line `at` (deletions key here).
+        let removed_at = |rows: &mut Vec<PanelRow>, at: usize| {
+            for (idx, texts) in self.removed.iter().filter(|(i, _)| *i == at) {
+                for t in texts {
+                    for chunk in wrap_line(&format!("-{t}"), tw) {
+                        rows.push(PanelRow {
+                            line: (*idx).min(line_count - 1),
+                            gutter: None,
+                            spans: vec![Span::styled(chunk, red)],
+                            comment: false,
+                        });
+                    }
+                }
+            }
+        };
+        for i in 0..line_count {
+            removed_at(&mut rows, i);
+            starts.push(rows.len());
+            let (prefix, style) = match self.changes.get(i).copied().flatten() {
+                Some(ChangeKind::Added | ChangeKind::Modified) => ('+', Some(green)),
+                _ => (' ', None), // context, incl. the surviving line below a deletion gap
+            };
+            let text = lines.get(i).copied().unwrap_or("");
+            for (k, chunk) in wrap_line(&format!("{prefix}{text}"), tw)
+                .into_iter()
+                .enumerate()
+            {
+                let span = match style {
+                    Some(s) => Span::styled(chunk, s),
+                    None => Span::raw(chunk),
+                };
+                rows.push(PanelRow {
+                    line: i,
+                    gutter: (k == 0).then_some(i + 1),
+                    spans: vec![span],
+                    comment: false,
+                });
+            }
+        }
+        removed_at(&mut rows, line_count); // trailing EOF deletion
+        PanelLayout {
+            rows,
+            starts,
+            gutter_width,
+        }
+    }
+
     /// Rows to scroll off the top so the cursor line's *last* wrapped row stays on-screen (its
     /// continuations don't clip). Shared by render and copy so both read the same viewport.
     pub fn scroll_offset(&self, layout: &PanelLayout, view_h: usize) -> usize {
@@ -214,18 +361,14 @@ impl Panel {
             && self.cursor == hi
         {
             let start = layout.starts.get(lo).copied().unwrap_or(0);
-            let end = layout.starts.get(hi + 1).map(|n| n - 1).unwrap_or(last_row);
+            let end = line_end_row(layout, hi).unwrap_or(last_row);
             let span = end - start + 1;
             let margin = view_h.saturating_sub(span) / 2;
             return start
                 .saturating_sub(margin)
                 .min(last_row.saturating_sub(view_h.saturating_sub(1)));
         }
-        let cursor_end = layout
-            .starts
-            .get(self.cursor + 1)
-            .map(|n| n - 1)
-            .unwrap_or(last_row);
+        let cursor_end = line_end_row(layout, self.cursor).unwrap_or(last_row);
         cursor_end.saturating_sub(view_h.saturating_sub(1))
     }
 
@@ -263,6 +406,7 @@ impl Panel {
             let last = self.line_count() - 1;
             self.highlight = Some((lo.min(last), hi.min(last)));
         }
+        self.refresh_diff();
         true
     }
 }
@@ -288,6 +432,21 @@ pub struct PanelLayout {
     pub rows: Vec<PanelRow>,
     pub starts: Vec<usize>,
     pub gutter_width: usize,
+}
+
+/// The last row belonging to source `line`, scanning forward from its `starts` entry.
+///
+/// A git-diff gap/deletion row is tagged with the line it precedes but sits *before* that
+/// line's `starts` entry (deliberately outside its selectable span — see `layout`/`diff_layout`).
+/// So `starts[line + 1] - 1` is not reliably `line`'s own last row: it can land on a gap row
+/// queued for `line + 1` instead, off by however many rows that gap spans. Scanning forward from
+/// `starts[line]` while rows keep matching `line` sidesteps that regardless of gap size.
+fn line_end_row(layout: &PanelLayout, line: usize) -> Option<usize> {
+    let mut end = *layout.starts.get(line)?;
+    while layout.rows.get(end + 1).is_some_and(|r| r.line == line) {
+        end += 1;
+    }
+    Some(end)
 }
 
 /// Greedy word-wrap `text` to `width` columns, hard-splitting over-long words. Always returns at least one row.

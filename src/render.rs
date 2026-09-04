@@ -81,7 +81,7 @@ fn render_diff(raw: &str) -> Rendered {
             } else if l.starts_with('+') {
                 Some(Color::Rgb(163, 190, 140)) // nord green
             } else if l.starts_with('-') {
-                Some(Color::Rgb(191, 97, 106)) // nord red
+                Some(Color::Rgb(224, 108, 117)) // brighter red, more contrast on dark bg than nord11
             } else {
                 None
             };

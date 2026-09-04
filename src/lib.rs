@@ -10,6 +10,7 @@
 //!
 //! Nothing here depends on the binary; the binary depends on this.
 
+pub mod gitdiff;
 pub mod journal;
 pub mod layout;
 pub mod panel;
@@ -20,6 +21,7 @@ pub mod tab;
 
 pub use ratatui::layout::Rect;
 
+pub use gitdiff::ChangeKind;
 pub use journal::Journal;
 pub use layout::{Layout, rects};
 pub use panel::{Panel, PanelLayout, PanelRow, bracketed_paste, wrap_line, wrap_spans};

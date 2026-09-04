@@ -66,6 +66,9 @@ enum Cmd {
         /// Highlight a line range once open, e.g. `--highlight 40 52` (end defaults to start).
         #[arg(long, num_args = 1..=2, value_names = ["START", "END"])]
         highlight: Option<Vec<u32>>,
+        /// Open straight into the inline diff view (vs git HEAD).
+        #[arg(long)]
+        diff: bool,
     },
     /// Close a panel (default: the focused one). `--all` returns to PTY-only.
     Close {
@@ -85,6 +88,15 @@ enum Cmd {
         /// Pane to highlight (default: the focused panel).
         #[arg(long)]
         pane: Option<PaneId>,
+    },
+    /// Toggle the inline diff view (vs git HEAD) on a panel; `--off` turns it off.
+    Diff {
+        /// Pane to toggle (default: the focused panel).
+        #[arg(long)]
+        pane: Option<PaneId>,
+        /// Turn the diff view off (default: toggle).
+        #[arg(long)]
+        off: bool,
     },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
@@ -142,6 +154,7 @@ fn main() -> Result<()> {
             follow,
             dry_run,
             highlight,
+            diff,
         }) => {
             // Absolutize against the caller's cwd, not the server's. `absolute` (not
             // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
@@ -158,6 +171,7 @@ fn main() -> Result<()> {
                 follow,
                 dry_run,
                 highlight,
+                diff,
             })
         }
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
@@ -165,6 +179,10 @@ fn main() -> Result<()> {
         Some(Cmd::Highlight { start, end, pane }) => {
             client_request(Message::Highlight { pane, start, end })
         }
+        Some(Cmd::Diff { pane, off }) => client_request(Message::DiffView {
+            pane,
+            on: off.then_some(false), // --off sets off; otherwise toggle
+        }),
         Some(Cmd::Layout) => client_request(Message::Layout),
         Some(Cmd::Ready { session, agent }) => client_request(Message::Ready { session, agent }),
         Some(Cmd::Feedback {
@@ -269,6 +287,7 @@ fn tail(
             follow,
             dry_run: false,
             highlight: None,
+            diff: false,
         },
     )? {
         Response::Opened { pane, warnings } => {

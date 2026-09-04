@@ -30,6 +30,7 @@ laura open <path>       Split a pane and render <path> in the new panel. Prints 
                         defaults to start. Opens the panel already scrolled to and reverse-videoing
                         the range — the one-call "show me where" gesture. e.g. `laura open x.rs
                         --highlight 40 52`. (See `laura highlight` to point at an already-open panel.)
+      --diff            Open straight into the inline diff view (vs git HEAD).
 laura close [<id>]      Close a panel (default: the focused one).
       --all             Close every panel, back to shell-only.
 laura focus <id>        Focus a pane by id.
@@ -38,6 +39,9 @@ laura highlight <start> [end]
                         scroll them into view. end defaults to start (single line). e.g.
                         `laura highlight 40 52`.
       --pane <id>       Pane to highlight (default: the focused panel).
+laura diff              Toggle a panel's inline diff view vs git HEAD (interleaved +/- lines).
+      --pane <id>       Pane to toggle (default: the focused panel).
+      --off             Turn the diff view off (default: toggle).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the tab as hosting an agent (enables review submission). Prints the journal path.
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
