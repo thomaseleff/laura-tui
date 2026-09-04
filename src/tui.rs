@@ -708,11 +708,11 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 .and_then(|_| panel.changes.get(r.line).copied().flatten())
                 .map(|k| {
                     Span::styled(
-                        "▏",
+                        "█",
                         Style::default().fg(match k {
                             ChangeKind::Added => Color::Rgb(163, 190, 140), // nord green
                             ChangeKind::Modified => Color::Rgb(129, 161, 193), // nord blue
-                            ChangeKind::Removed(_) => Color::Rgb(191, 97, 106), // nord red
+                            ChangeKind::Removed(_) => Color::Rgb(224, 108, 117), // brighter red, more contrast on dark bg than nord11
                         }),
                     )
                 })

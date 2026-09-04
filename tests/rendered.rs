@@ -130,7 +130,7 @@ fn diff_projection_is_verbatim_and_colored() -> Result<()> {
     );
     assert_eq!(
         color("old = 1"),
-        Some(Color::Rgb(191, 97, 106)),
+        Some(Color::Rgb(224, 108, 117)),
         "removal is red"
     );
     Ok(())

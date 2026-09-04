@@ -361,18 +361,14 @@ impl Panel {
             && self.cursor == hi
         {
             let start = layout.starts.get(lo).copied().unwrap_or(0);
-            let end = layout.starts.get(hi + 1).map(|n| n - 1).unwrap_or(last_row);
+            let end = line_end_row(layout, hi).unwrap_or(last_row);
             let span = end - start + 1;
             let margin = view_h.saturating_sub(span) / 2;
             return start
                 .saturating_sub(margin)
                 .min(last_row.saturating_sub(view_h.saturating_sub(1)));
         }
-        let cursor_end = layout
-            .starts
-            .get(self.cursor + 1)
-            .map(|n| n - 1)
-            .unwrap_or(last_row);
+        let cursor_end = line_end_row(layout, self.cursor).unwrap_or(last_row);
         cursor_end.saturating_sub(view_h.saturating_sub(1))
     }
 
@@ -436,6 +432,21 @@ pub struct PanelLayout {
     pub rows: Vec<PanelRow>,
     pub starts: Vec<usize>,
     pub gutter_width: usize,
+}
+
+/// The last row belonging to source `line`, scanning forward from its `starts` entry.
+///
+/// A git-diff gap/deletion row is tagged with the line it precedes but sits *before* that
+/// line's `starts` entry (deliberately outside its selectable span — see `layout`/`diff_layout`).
+/// So `starts[line + 1] - 1` is not reliably `line`'s own last row: it can land on a gap row
+/// queued for `line + 1` instead, off by however many rows that gap spans. Scanning forward from
+/// `starts[line]` while rows keep matching `line` sidesteps that regardless of gap size.
+fn line_end_row(layout: &PanelLayout, line: usize) -> Option<usize> {
+    let mut end = *layout.starts.get(line)?;
+    while layout.rows.get(end + 1).is_some_and(|r| r.line == line) {
+        end += 1;
+    }
+    Some(end)
 }
 
 /// Greedy word-wrap `text` to `width` columns, hard-splitting over-long words. Always returns at least one row.

@@ -155,6 +155,38 @@ fn markdown_is_out_of_scope() -> Result<()> {
 }
 
 #[test]
+fn scroll_offset_ignores_neighbor_deletion_gap() -> Result<()> {
+    // 30-line file; delete a 16-line block (11..=26) in one hunk.
+    let committed: String = (1..=30).map(|i| format!("line {i}\n")).collect();
+    let (_dir, path) = repo_with("f.txt", &committed)?;
+    let edited: String = (1..=10)
+        .chain(27..=30)
+        .map(|i| format!("line {i}\n"))
+        .collect();
+    std::fs::write(&path, &edited)?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let panel = tab.panels.get_mut(&id).unwrap();
+    panel.set_diff_view(true).expect("edits vs HEAD exist");
+
+    // Park the cursor on line 10 (0-based 9), the surviving line right above the
+    // 16-row deletion block. It has no wraps/comments, so its correct viewport
+    // anchor is its own single row — not dragged 16 rows further by the deletion
+    // rows queued for the line below it.
+    panel.move_cursor(9);
+    let layout = panel.layout(80);
+    let view_h = 5;
+    let expected = layout.starts[9].saturating_sub(view_h - 1);
+    assert_eq!(
+        panel.scroll_offset(&layout, view_h),
+        expected,
+        "the neighboring 16-line deletion gap must not shift the cursor's own viewport anchor"
+    );
+    Ok(())
+}
+
+#[test]
 fn untracked_file_has_no_markers() -> Result<()> {
     let dir = tempfile::tempdir()?;
     git(dir.path(), &["init", "-q"]);
