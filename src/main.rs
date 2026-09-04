@@ -48,7 +48,7 @@ enum Cmd {
         /// Split orientation: `h` side-by-side, `v` stacked.
         #[arg(long, value_enum, default_value_t = Dir::Horizontal)]
         dir: Dir,
-        /// Percent of the split given to the first pane (1..=99).
+        /// Percent of the split given to the new panel (1..=99).
         #[arg(long, default_value_t = 50)]
         ratio: u16,
         /// Which side the new panel lands on.
@@ -110,7 +110,7 @@ enum Cmd {
         /// Split orientation: `h` side-by-side, `v` stacked.
         #[arg(long, value_enum, default_value_t = Dir::Horizontal)]
         dir: Dir,
-        /// Percent of the split given to the first pane (1..=99).
+        /// Percent of the split given to the new panel (1..=99).
         #[arg(long, default_value_t = 50)]
         ratio: u16,
     },

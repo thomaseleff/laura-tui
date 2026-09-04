@@ -36,9 +36,14 @@ impl Layout {
                     Side::First => (added, existing),
                     Side::Second => (existing, added),
                 };
+                // `ratio` describes the NEW pane; the tree stores first's share.
+                let first_ratio = match side {
+                    Side::First => ratio,        // new pane is first
+                    Side::Second => 100 - ratio, // new pane is second → first gets the rest
+                };
                 *self = Layout::Split {
                     dir,
-                    ratio: ratio.clamp(1, 99),
+                    ratio: first_ratio.clamp(1, 99),
                     first: Box::new(first),
                     second: Box::new(second),
                 };
