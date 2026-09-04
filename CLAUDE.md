@@ -12,6 +12,11 @@ Standard Rust. No house style on top of it.
 - **Errors:** `anyhow` at binary boundaries, `thiserror` for typed library errors. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
 - **Naming/layout:** stock Rust conventions (snake_case, `mod`s per concern). Don't invent abstractions ahead of the second caller.
 
+## Commits & PRs
+
+- **Commits** reference the issue by number in the subject: `Horizontal scroll for pre-formatted content (#25)`. This links the commit to the issue without closing it — a commit is a step, not the resolution.
+- **PRs** close the issue with a keyword in the body: `Closes #25` (or `Fixes` / `Resolves`). GitHub auto-closes the issue on merge, so don't close it by hand.
+
 ## Testing
 
 **Integration tests only — exercise Laura as a user (or the agent) actually would.** No per-function unit test suites.

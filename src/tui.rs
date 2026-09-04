@@ -680,11 +680,11 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 let mut spans = vec![Span::raw(gutter).dim()];
                 spans.extend(r.spans.iter().cloned());
                 let line = Line::from(spans);
-                if focused && r.line == panel.cursor {
-                    line.reversed()
-                } else {
-                    line
-                }
+                let hot = panel
+                    .highlight
+                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line))
+                    || (focused && r.line == panel.cursor);
+                if hot { line.reversed() } else { line }
             }
         })
         .collect();

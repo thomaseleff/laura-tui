@@ -22,6 +22,9 @@ pub struct Panel {
     pub h_offset: usize,
     /// Selected line, 0-based; where a new comment pins.
     pub cursor: usize,
+    /// Agent-directed highlight: 0-based inclusive line range to reverse-video and
+    /// anchor the viewport on; `None` = no highlight.
+    pub highlight: Option<(usize, usize)>,
     /// `(line, text)` comments; multiple allowed, even several per line.
     pub comments: Vec<(usize, String)>,
     /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
@@ -51,6 +54,7 @@ impl Panel {
             nowrap,
             h_offset: 0,
             cursor: 0,
+            highlight: None,
             comments: vec![],
             follow: false,
             sig,
@@ -64,6 +68,19 @@ impl Panel {
         if on {
             self.cursor = self.line_count() - 1;
         }
+    }
+
+    /// Highlight lines `start..=end` (1-based) and scroll them into view. Clamps to
+    /// the file and orders the pair; a fully out-of-range request pins to the last line.
+    pub fn set_highlight(&mut self, start: u32, end: u32) {
+        let last = self.line_count() - 1;
+        let a = (start.saturating_sub(1) as usize).min(last);
+        let b = (end.saturating_sub(1) as usize).min(last);
+        let (lo, hi) = (a.min(b), a.max(b));
+        self.highlight = Some((lo, hi));
+        // Park the cursor at `hi`: `scroll_offset` reads `cursor == hi` as "fresh highlight" and
+        // centers the span. A manual Up/Down moves the cursor off `hi` → plain cursor-follow.
+        self.cursor = hi;
     }
 
     /// Line count, floored at 1 so the cursor always has a valid slot.
@@ -190,11 +207,25 @@ impl Panel {
     /// Rows to scroll off the top so the cursor line's *last* wrapped row stays on-screen (its
     /// continuations don't clip). Shared by render and copy so both read the same viewport.
     pub fn scroll_offset(&self, layout: &PanelLayout, view_h: usize) -> usize {
+        let last_row = layout.rows.len().saturating_sub(1);
+        // Fresh agent highlight (cursor still parked at `hi`): center the span, or top-anchor it
+        // when it's taller than the pane (margin saturates to 0) so the reader starts at its top.
+        if let Some((lo, hi)) = self.highlight
+            && self.cursor == hi
+        {
+            let start = layout.starts.get(lo).copied().unwrap_or(0);
+            let end = layout.starts.get(hi + 1).map(|n| n - 1).unwrap_or(last_row);
+            let span = end - start + 1;
+            let margin = view_h.saturating_sub(span) / 2;
+            return start
+                .saturating_sub(margin)
+                .min(last_row.saturating_sub(view_h.saturating_sub(1)));
+        }
         let cursor_end = layout
             .starts
             .get(self.cursor + 1)
             .map(|n| n - 1)
-            .unwrap_or(layout.rows.len().saturating_sub(1));
+            .unwrap_or(last_row);
         cursor_end.saturating_sub(view_h.saturating_sub(1))
     }
 
@@ -227,6 +258,11 @@ impl Panel {
         } else {
             self.cursor.min(self.line_count() - 1)
         };
+        // Clamp a stored highlight so a shrunk file doesn't strand it past EOF.
+        if let Some((lo, hi)) = self.highlight {
+            let last = self.line_count() - 1;
+            self.highlight = Some((lo.min(last), hi.min(last)));
+        }
         true
     }
 }

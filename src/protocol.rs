@@ -71,6 +71,10 @@ pub enum Message {
         /// Report the would-be layout without committing.
         #[serde(default)]
         dry_run: bool,
+        /// Highlight this line range (1-based, inclusive) once the panel is open.
+        /// `None` = open with no highlight; the second value defaults to the first.
+        #[serde(default)]
+        highlight: Option<(u32, u32)>,
     },
     /// Close a pane. `None` = the focused panel; `all` returns to PTY-only. The PTY can't close.
     Close {
@@ -81,6 +85,15 @@ pub enum Message {
     },
     /// Focus a pane by stable id.
     Focus { pane: PaneId },
+    /// Highlight lines `start..=end` (1-based, inclusive) in a panel and scroll
+    /// them into view. `pane` defaults to the focused panel; `end` defaults to `start`.
+    Highlight {
+        #[serde(default)]
+        pane: Option<PaneId>,
+        start: u32,
+        #[serde(default)]
+        end: Option<u32>,
+    },
     /// Query the current layout + per-pane geometry/overflow.
     Layout,
     /// Mark the tab as hosting an agent; enables review submission. Optionally names the
