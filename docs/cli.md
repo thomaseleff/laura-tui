@@ -36,8 +36,10 @@ laura close [<id>]      Close a panel (default: the focused one).
 laura focus <id>        Focus a pane by id.
 laura highlight <start> [end]
                         Reverse-video lines start..=end (1-based, inclusive) in a panel and
-                        scroll them into view. end defaults to start (single line). e.g.
-                        `laura highlight 40 52`.
+                        scroll them into view. end defaults to start (single line). Line numbers
+                        are the file's real source lines (an editor / wc -l / git blame), for
+                        markdown too — a source line inside a hand-wrapped paragraph points at
+                        that whole block. e.g. `laura highlight 40 52`.
       --pane <id>       Pane to highlight (default: the focused panel).
 laura diff              Toggle a panel's inline diff view vs git HEAD (interleaved +/- lines).
       --pane <id>       Pane to toggle (default: the focused panel).

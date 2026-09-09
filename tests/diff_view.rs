@@ -143,6 +143,50 @@ fn open_diff_shows_removed_text_then_toggles_off() -> Result<()> {
 }
 
 #[test]
+fn markdown_diff_shows_the_raw_source_patch() -> Result<()> {
+    // #32: the block-map unblocks markdown diff. Rendered view lights a change bar on the row whose
+    // source range covers the edit; diff-view drops the reflowed prose for a raw-source `+`/`-` patch.
+    use laura::ChangeKind;
+
+    let (_dir, path) = repo_with("doc.md", "# Title\n\nalpha\nbeta\n")?;
+    std::fs::write(&path, "# Title\n\nalpha\nbeta CHANGED\n")?; // source line 4 modified
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+
+    // Rendered view: the collapsed "alpha beta" paragraph row carries a Modified bar.
+    let para = tab.panels[&id]
+        .layout(78)
+        .rows
+        .into_iter()
+        .find(|r| r.text().contains("alpha"))
+        .expect("paragraph row");
+    assert_eq!(
+        para.change,
+        Some(ChangeKind::Modified),
+        "rendered row bar folds the edited source line"
+    );
+
+    // Toggle diff-view: raw source as a patch, keyed to source lines (not the joined projection).
+    drive(&mut tab, &["diff", "--pane", &id.to_string()]);
+    assert!(tab.panels[&id].diff_view, "markdown diff-view turns on");
+    let text = rows_text(&tab, id);
+    assert!(
+        text.contains("-beta"),
+        "old source line as a `-` row:\n{text}"
+    );
+    assert!(
+        text.contains("+beta CHANGED"),
+        "new source line as a `+` row:\n{text}"
+    );
+    assert!(
+        !text.contains("alpha beta"),
+        "diff-view shows raw source, not the reflowed join:\n{text}"
+    );
+    Ok(())
+}
+
+#[test]
 fn diff_on_clean_file_is_refused() -> Result<()> {
     // Committed and unmodified → nothing to diff.
     let (_dir, path) = repo_with("clean.txt", "line 1\nline 2\n")?;

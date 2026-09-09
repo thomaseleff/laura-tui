@@ -699,13 +699,10 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 None => format!("{:>gw$}", ""),
             };
             // The gutter's separator cell doubles as a git-diff change bar on a
-            // changed source line's first row; blank otherwise. It stays one cell,
-            // so `gutter_width` and the copy math below are unshifted. The diff view
-            // carries its own `+`/`-` markers in the content, so the bar stays blank.
+            // changed line's first row; blank otherwise. It stays one cell, so
+            // `gutter_width` and the copy math below are unshifted.
             let bar = r
-                .gutter
-                .filter(|_| !panel.diff_view)
-                .and_then(|_| panel.changes.get(r.line).copied().flatten())
+                .change
                 .map(|k| {
                     Span::styled(
                         "█",
