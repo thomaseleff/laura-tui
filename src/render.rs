@@ -2,6 +2,7 @@
 
 use std::sync::OnceLock;
 
+use pulldown_cmark::{Event, Options, Parser, Tag};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
@@ -16,13 +17,24 @@ pub(crate) struct Rendered {
     pub(crate) indent: Vec<usize>,
     /// Per-line: pre-formatted (clip + h-scroll) vs prose (word-wrap), 1:1 with `styled`.
     pub(crate) nowrap: Vec<bool>,
+    /// 0-based inclusive source-line range each `styled` row came from. Identity `(i, i)` except
+    /// markdown, where a collapsed block's range makes gutter/highlight/`L<n>` match the file (#32).
+    pub(crate) source: Vec<(usize, usize)>,
+    /// Raw file split into lines — diff-view's `+`/`-` source. `== content.lines()` bar markdown.
+    pub(crate) source_lines: Vec<String>,
     /// Terse read error (stderr-bound), set only when the file couldn't be read. `None` on success.
     pub(crate) error: Option<String>,
 }
 
+/// Identity map for a verbatim file: row `i` is source line `i`, `source_lines` = `content.lines()`.
+fn identity_source(content: &str, n: usize) -> (Vec<(usize, usize)>, Vec<String>) {
+    (
+        (0..n).map(|i| (i, i)).collect(),
+        content.lines().map(str::to_string).collect(),
+    )
+}
+
 /// Read and render a file: `.md` → styled lines, a known code ext → Nord fg colours, else raw. Errors surface as text, never a panic.
-///
-/// ponytail: `.md` `L<n>` indexes rendered, not source, lines — the payload carries line text so the agent locates by content.
 pub(crate) fn render(path: &str) -> Rendered {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -54,11 +66,14 @@ fn plain(content: String) -> Rendered {
         .collect::<Vec<_>>();
     let indent = vec![0; styled.len()];
     let nowrap = vec![false; styled.len()];
+    let (source, source_lines) = identity_source(&content, styled.len());
     Rendered {
         content,
         styled,
         indent,
         nowrap,
+        source,
+        source_lines,
         error: None,
     }
 }
@@ -93,11 +108,14 @@ fn render_diff(raw: &str) -> Rendered {
         .collect::<Vec<_>>();
     let indent = vec![0; styled.len()];
     let nowrap = vec![true; styled.len()]; // diffs are pre-formatted
+    let (source, source_lines) = identity_source(raw, styled.len());
     Rendered {
         content: raw.to_string(),
         styled,
         indent,
         nowrap,
+        source,
+        source_lines,
         error: None,
     }
 }
@@ -119,11 +137,14 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
         Ok(Some(styled)) => {
             let indent = vec![0; styled.len()];
             let nowrap = vec![true; styled.len()]; // recognized code is pre-formatted
+            let (source, source_lines) = identity_source(raw, styled.len());
             Rendered {
                 content: raw.to_string(),
                 styled,
                 indent,
                 nowrap,
+                source,
+                source_lines,
                 error: None,
             }
         }
@@ -173,18 +194,26 @@ fn nord_theme() -> &'static Theme {
     })
 }
 
-/// Render markdown to styled lines via `tui-markdown`, deriving indent from heading depth. `content` is the styling-stripped projection.
+/// Render markdown per top-level block, tagging each rendered line with its block's source-line
+/// range so gutter/highlight/`L<n>` match the file, not the reflowed projection (#32).
 ///
-/// ponytail: `tui-markdown` `=0.3.9` is a pre-1.0 PoC — `catch_unwind` degrades a pathological doc to raw text; pinned because its line/style shape isn't semver-stable and gutter math keys off it.
+/// ponytail: `tui-markdown =0.3.9` is a pre-1.0 PoC — `catch_unwind` degrades a pathological doc to
+/// raw text (identity ranges, so numbering stays honest); pinned because gutter math keys off its shape.
+/// ponytail: a ref-def used across blocks won't resolve after slicing, and a 2+ blank-line gap keeps
+/// its blank rows rather than collapsing to one — both accepted for the block-map.
 fn render_markdown(md: &str) -> Rendered {
-    let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let opts = tui_markdown::Options::new(LauraStyleSheet);
-        tui_markdown::from_str_with_options(md, &opts)
-    }));
-    let Ok(text) = rendered else {
-        return plain(md.to_string());
-    };
-    let styled: Vec<Line<'static>> = text.lines.iter().map(owned_line).map(refine_line).collect();
+    let source_lines: Vec<String> = md.lines().map(str::to_string).collect();
+    let assembled =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assemble_markdown(md)));
+    let (styled, source) = assembled.unwrap_or_else(|_| {
+        // Degrade to raw text with identity ranges: rendered row i == source line i.
+        let styled: Vec<Line<'static>> = md
+            .lines()
+            .map(|l| Line::from(Span::raw(l.to_string())))
+            .collect();
+        let source = (0..styled.len()).map(|i| (i, i)).collect();
+        (styled, source)
+    });
     let content = styled.iter().map(line_text).collect::<Vec<_>>().join("\n");
     let indent = heading_indents(&styled);
     let nowrap = classify_nowrap(&styled);
@@ -193,8 +222,125 @@ fn render_markdown(md: &str) -> Rendered {
         styled,
         indent,
         nowrap,
+        source,
+        source_lines,
         error: None,
     }
+}
+
+/// Slice markdown into top-level blocks, render each through `tui-markdown`, and tag every resulting
+/// line with its block's 0-based source range. Blank source lines gap-fill to blank rows, so every
+/// source line has a row.
+fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
+    let defs = ref_defs(md); // appended to each slice so reference links still resolve
+    let line_of = line_indexer(md);
+    let total_lines = md.lines().count();
+    let opts = tui_markdown::Options::new(LauraStyleSheet);
+    let mut styled: Vec<Line<'static>> = vec![];
+    let mut source: Vec<(usize, usize)> = vec![];
+    let mut cursor = 0usize; // next source line still needing a row
+    for (b0, b1, kind) in blocks(md) {
+        let l0 = line_of(b0);
+        let l1 = line_of(b1.saturating_sub(1)).max(l0);
+        while cursor < l0 {
+            styled.push(Line::default());
+            source.push((cursor, cursor));
+            cursor += 1;
+        }
+        let slice = format!("{}{defs}", &md[b0..b1]);
+        let text = tui_markdown::from_str_with_options(&slice, &opts);
+        for (k, line) in text
+            .lines
+            .iter()
+            .map(owned_line)
+            .map(refine_line)
+            .enumerate()
+        {
+            // Verbatim blocks render one row per source line, so each row owns a single real line;
+            // prose reflows, so its whole range stays honest (#34).
+            let range = match kind {
+                BlockKind::Prose => (l0, l1),
+                BlockKind::Code => {
+                    let s = (l0 + 1 + k).min(l1); // +1 skips the hidden opening fence
+                    (s, s)
+                }
+                BlockKind::Html => {
+                    let s = (l0 + k).min(l1); // no fence, offset 0
+                    (s, s)
+                }
+            };
+            styled.push(line);
+            source.push(range);
+        }
+        cursor = cursor.max(l1 + 1);
+    }
+    while cursor < total_lines {
+        styled.push(Line::default());
+        source.push((cursor, cursor));
+        cursor += 1;
+    }
+    (styled, source)
+}
+
+/// How a top-level block maps source lines to rendered rows: `Prose` reflows (whole range per row);
+/// `Code` (fenced only) and `Html` render 1:1, one row per source line.
+#[derive(Clone, Copy)]
+enum BlockKind {
+    Prose,
+    Code,
+    Html,
+}
+
+/// Top-level block byte ranges + kind: a depth-0→0 Start/End span (nesting via +1/−1), plus any
+/// depth-0 rule. Ref-defs emit no events, so they land in the gaps and get gap-filled.
+fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
+    let mut out = vec![];
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    let mut kind = BlockKind::Prose;
+    for (ev, range) in Parser::new_ext(md, Options::all()).into_offset_iter() {
+        match ev {
+            Event::Start(tag) => {
+                if depth == 0 {
+                    start = range.start;
+                    kind = match tag {
+                        Tag::CodeBlock(k) if k.is_fenced() => BlockKind::Code,
+                        Tag::HtmlBlock => BlockKind::Html,
+                        _ => BlockKind::Prose,
+                    };
+                }
+                depth += 1;
+            }
+            Event::End(_) => {
+                depth -= 1;
+                if depth == 0 {
+                    out.push((start, range.end, kind));
+                }
+            }
+            Event::Rule if depth == 0 => out.push((range.start, range.end, BlockKind::Prose)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Reference definitions as blank-line-separated `[label]: dest` lines, appended to each block slice
+/// so a ref link still resolves. `\n\n` because a single `\n` folds the def into the prior paragraph.
+fn ref_defs(md: &str) -> String {
+    let parser = Parser::new_ext(md, Options::all());
+    let mut out = String::new();
+    for (label, def) in parser.reference_definitions().iter() {
+        out.push_str(&format!("\n\n[{label}]: {}", def.dest));
+    }
+    out
+}
+
+/// Byte offset → 0-based source line via a newline prefix-sum.
+fn line_indexer(md: &str) -> impl Fn(usize) -> usize {
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(md.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    move |byte| starts.partition_point(|&s| s <= byte).saturating_sub(1)
 }
 
 /// Classify each markdown line as pre-formatted (clip + h-scroll) vs prose (word-wrap).

@@ -19,6 +19,13 @@ pub struct Panel {
     indent: Vec<usize>,
     /// Per-line: pre-formatted lines clip + h-scroll instead of wrapping. 1:1 with `styled`.
     nowrap: Vec<bool>,
+    /// 0-based inclusive SOURCE line range each rendered row came from, 1:1 with `styled`.
+    /// Identity `(i, i)` for code/diff/plain; a block's range for a collapsed markdown paragraph.
+    /// Gutter/highlight/`L<n>` key off this so they match the file's real line numbers (#32).
+    source: Vec<(usize, usize)>,
+    /// The raw file split into lines — what diff-view renders as a `+`/`-` patch.
+    /// `== content.lines()` for non-markdown; the un-joined source for markdown.
+    source_lines: Vec<String>,
     /// Horizontal scroll offset (chars) applied to nowrap lines; clamped in `scroll_h`.
     pub h_offset: usize,
     /// Selected line, 0-based; where a new comment pins.
@@ -56,6 +63,8 @@ impl Panel {
             styled,
             indent,
             nowrap,
+            source,
+            source_lines,
             error,
         } = render(&path);
         let sig = stat_sig(&path);
@@ -65,6 +74,8 @@ impl Panel {
             styled,
             indent,
             nowrap,
+            source,
+            source_lines,
             h_offset: 0,
             cursor: 0,
             highlight: None,
@@ -81,19 +92,13 @@ impl Panel {
         panel
     }
 
-    /// Recompute the per-line git-diff markers vs HEAD. Skipped for markdown (its
-    /// `content` is a rendered projection, so source line numbers don't map). A
-    /// missing `git` binary latches `git_missing`; any other failure clears markers.
+    /// Recompute per-source-line git-diff markers vs HEAD, in source-line space (what `line_changes`
+    /// gives); `layout` maps them through `source` to rendered rows (#32). Missing `git` latches
+    /// `git_missing`; any other failure clears markers.
     fn refresh_diff(&mut self) {
-        let ext = self.path.rsplit('.').next().map(str::to_ascii_lowercase);
-        if matches!(ext.as_deref(), Some("md" | "markdown")) {
-            self.changes = vec![];
-            self.removed = vec![];
-            return;
-        }
         match gitdiff::hunks(&self.path) {
             DiffOutcome::Ok(h) => {
-                let n = self.line_count();
+                let n = self.source_lines.len();
                 self.changes = gitdiff::line_changes(&h, n);
                 self.removed = gitdiff::removed_lines(&h, n);
             }
@@ -135,17 +140,54 @@ impl Panel {
         }
     }
 
-    /// Highlight lines `start..=end` (1-based) and scroll them into view. Clamps to
-    /// the file and orders the pair; a fully out-of-range request pins to the last line.
+    /// Highlight the rows covering source lines `start..=end` (1-based) and scroll them into view.
+    /// Each maps through its rendered row's source range; a fully out-of-range request pins to the last.
     pub fn set_highlight(&mut self, start: u32, end: u32) {
-        let last = self.line_count() - 1;
-        let a = (start.saturating_sub(1) as usize).min(last);
-        let b = (end.saturating_sub(1) as usize).min(last);
+        let a = self.row_of_source(start);
+        let b = self.row_of_source(end);
         let (lo, hi) = (a.min(b), a.max(b));
         self.highlight = Some((lo, hi));
         // Park the cursor at `hi`: `scroll_offset` reads `cursor == hi` as "fresh highlight" and
         // centers the span. A manual Up/Down moves the cursor off `hi` → plain cursor-follow.
         self.cursor = hi;
+    }
+
+    /// Rendered row whose source range holds 1-based source line `src1`; past-EOF clamps to the last.
+    fn row_of_source(&self, src1: u32) -> usize {
+        let s = src1.saturating_sub(1) as usize;
+        self.source
+            .iter()
+            .position(|&(a, b)| a <= s && s <= b)
+            .unwrap_or(self.source.len().saturating_sub(1))
+    }
+
+    /// Row `i`'s gutter change: the highest-ranked change over its source range (Modified > Added >
+    /// Removed, so a mixed markdown block reads as edited). Folds to `changes[i]` for identity files.
+    fn row_change(&self, i: usize) -> Option<ChangeKind> {
+        let (a, b) = *self.source.get(i)?;
+        (a..=b)
+            .filter_map(|s| self.changes.get(s).copied().flatten())
+            .max_by_key(|k| match k {
+                ChangeKind::Modified => 2,
+                ChangeKind::Added => 1,
+                ChangeKind::Removed(_) => 0,
+            })
+    }
+
+    /// Deleted-line count surfacing above row `i`: deletions in its source range, counted on the
+    /// range's first row only so a collapsed block shows one gap.
+    fn removed_in_row(&self, i: usize) -> Option<usize> {
+        let (a, b) = *self.source.get(i)?;
+        if i > 0 && self.source.get(i - 1) == Some(&(a, b)) {
+            return None; // a continuation row of the same block — gap already emitted
+        }
+        let n: usize = (a..=b)
+            .filter_map(|s| match self.changes.get(s).copied().flatten() {
+                Some(ChangeKind::Removed(k)) => Some(k),
+                _ => None,
+            })
+            .sum();
+        (n > 0).then_some(n)
     }
 
     /// Line count, floored at 1 so the cursor always has a valid slot.
@@ -184,7 +226,7 @@ impl Panel {
         self.comments.push((self.cursor, text));
     }
 
-    /// Assemble a PR-style review for PTY injection: comments grouped under one 1-based `L<n>` header per line, `overall` omitted when empty.
+    /// Assemble a PR-style review for PTY injection: comments grouped under one 1-based source-line header per row (`L<n>`, or `L<a>-<b>` for a collapsed markdown block), `overall` omitted when empty.
     pub fn assemble_review(&self, overall: &str) -> String {
         let mut out = format!("[laura review · {}]\n", self.path);
         if !overall.is_empty() {
@@ -202,9 +244,16 @@ impl Panel {
         }
         for (line, comments) in by_line {
             out.push('\n');
+            // Header is the row's source range: `L<n>` for a 1:1 line, `L<a>-<b>` for a block (#32).
+            let (a, b) = self.source.get(line).copied().unwrap_or((line, line));
+            let hdr = if a == b {
+                format!("L{}", a + 1)
+            } else {
+                format!("L{}-{}", a + 1, b + 1)
+            };
             match self.content.lines().nth(line) {
-                Some(text) => out.push_str(&format!("L{}  {text}\n", line + 1)),
-                None => out.push_str(&format!("L{}\n", line + 1)),
+                Some(text) => out.push_str(&format!("{hdr}  {text}\n")),
+                None => out.push_str(&format!("{hdr}\n")),
             }
             for c in comments {
                 out.push_str(&format!("      > {c}\n"));
@@ -218,7 +267,9 @@ impl Panel {
         if self.diff_view {
             return self.diff_layout(inner_w);
         }
-        let total = self.styled.len().max(1);
+        // Gutter is sized off the largest *source* line number: a collapsed block makes the top
+        // number exceed `styled.len()`.
+        let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
         let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
         let mut rows = vec![];
@@ -227,7 +278,7 @@ impl Panel {
             // A deletion has no surviving line to bar, so emit a dim-red gap row
             // *above* line `i`. Pushed before `starts[i]` so the row sits outside
             // line `i`'s selectable span and the `starts` invariant holds.
-            if let Some(ChangeKind::Removed(n)) = self.changes.get(i).copied().flatten() {
+            if let Some(n) = self.removed_in_row(i) {
                 let word = if n == 1 { "line" } else { "lines" };
                 let mut label = format!("── {n} {word} removed ");
                 let dashes = tw.saturating_sub(label.chars().count());
@@ -240,6 +291,7 @@ impl Panel {
                         Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
                     )],
                     comment: true,
+                    change: None,
                 });
             }
             starts.push(rows.len());
@@ -265,9 +317,12 @@ impl Panel {
                 pad(&mut chunk);
                 rows.push(PanelRow {
                     line: i,
-                    gutter: (k == 0).then_some(i + 1),
+                    // Gutter shows the block's *first* source line, not the rendered index.
+                    gutter: (k == 0).then_some(self.source[i].0 + 1),
                     spans: chunk,
                     comment: false,
+                    // Bar only on the row's first line; folds the block's source range.
+                    change: if k == 0 { self.row_change(i) } else { None },
                 });
             }
             for (_, c) in self.comments.iter().filter(|(l, _)| *l == i) {
@@ -279,6 +334,7 @@ impl Panel {
                         gutter: None,
                         spans,
                         comment: true,
+                        change: None,
                     });
                 }
             }
@@ -290,18 +346,20 @@ impl Panel {
         }
     }
 
-    /// #18: lay the panel out as an inline diff vs HEAD — deleted lines as red `-`
-    /// rows above green `+` added/modified lines, unchanged lines plain. Keyed to
-    /// current line numbers, so `starts`/gutter numbers stay 1:1 with the source and
-    /// scroll/cursor math is unchanged. Data comes from `refresh_diff` (no git here).
+    /// #18: lay the panel out as an inline diff vs HEAD — deleted lines as red `-` rows above green
+    /// `+` added/modified lines, unchanged plain. Iterates the raw `source_lines`, so `changes`/
+    /// `removed` index straight in and markdown shows a readable patch, not an overlay on prose (#32).
+    ///
+    /// ponytail: markdown's cursor is rendered-row space while these rows key to source lines, so the
+    /// diff-view cursor anchor is approximate — a read mode, block-close.
     fn diff_layout(&self, inner_w: usize) -> PanelLayout {
-        let total = self.styled.len().max(1);
+        let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
         let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
         let green = Style::default().fg(Color::Rgb(163, 190, 140)); // nord green
         let red = Style::default().fg(Color::Rgb(191, 97, 106)); // nord red
-        let line_count = self.line_count();
-        let lines: Vec<&str> = self.content.lines().collect();
+        let line_count = self.source_lines.len().max(1);
+        let lines: Vec<&str> = self.source_lines.iter().map(String::as_str).collect();
         let mut rows = vec![];
         let mut starts = vec![];
         // Emit the red `-` rows queued *before* source line `at` (deletions key here).
@@ -314,6 +372,7 @@ impl Panel {
                             gutter: None,
                             spans: vec![Span::styled(chunk, red)],
                             comment: false,
+                            change: None,
                         });
                     }
                 }
@@ -340,6 +399,7 @@ impl Panel {
                     gutter: (k == 0).then_some(i + 1),
                     spans: vec![span],
                     comment: false,
+                    change: None,
                 });
             }
         }
@@ -386,12 +446,16 @@ impl Panel {
             styled,
             indent,
             nowrap,
+            source,
+            source_lines,
             error,
         } = render(&self.path);
         self.content = content;
         self.styled = styled;
         self.indent = indent;
         self.nowrap = nowrap;
+        self.source = source;
+        self.source_lines = source_lines;
         self.sig = sig;
         self.read_error = error;
         // Keep the scroll offset unless the new content is now too narrow to reach it.
@@ -418,6 +482,9 @@ pub struct PanelRow {
     /// Styled, width-fit spans for this visual row (leading indent included).
     pub spans: Vec<Span<'static>>,
     pub comment: bool,
+    /// Gutter-bar change, folded from the row's source range; `None` on continuation/comment/gap
+    /// rows and in diff-view. The renderer keys the bar off this (#32).
+    pub change: Option<ChangeKind>,
 }
 
 impl PanelRow {

@@ -140,16 +140,32 @@ line 10
 }
 
 #[test]
-fn markdown_is_out_of_scope() -> Result<()> {
+fn markdown_markers_key_off_source_lines() -> Result<()> {
+    // #32: the block-map makes markdown diff work — `changes` is source-line-keyed.
     let (_dir, path) = repo_with("doc.md", "# title\n\nbody\n")?;
-    // Modify it so a diff exists — markers must still be empty (rendered projection).
-    std::fs::write(&path, "# title\n\nbody changed\n")?;
+    std::fs::write(&path, "# title\n\nbody changed\n")?; // source line 3 modified
 
     let mut tab = spawn_tab()?;
     let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
-    assert!(
-        tab.panels[&id].changes.is_empty(),
-        "markdown panels carry no gutter markers"
+    let changes = &tab.panels[&id].changes;
+    assert_eq!(
+        changes.get(2).copied().flatten(),
+        Some(ChangeKind::Modified),
+        "edited source line 3 is Modified, keyed by source line: {changes:?}"
+    );
+
+    // The paragraph's rendered row carries a change bar and its gutter shows source line 3.
+    let layout = tab.panels[&id].layout(78);
+    let body = layout
+        .rows
+        .iter()
+        .find(|r| r.text().contains("body"))
+        .expect("paragraph row");
+    assert_eq!(body.gutter, Some(3), "gutter shows the source line");
+    assert_eq!(
+        body.change,
+        Some(ChangeKind::Modified),
+        "the rendered row's bar folds the edited source line"
     );
     Ok(())
 }

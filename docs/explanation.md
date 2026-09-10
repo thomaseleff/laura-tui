@@ -30,6 +30,10 @@ Laura owns the screen and organizes work into **tabs**. Each tab hosts a **shell
 - **Elegant and bare.** Calm, minimal, screenshot-worthy. Nothing on screen you didn't ask for.
 - **Local, private, fast.** Runs on your machine; the shell never stutters.
 
+## How markdown numbering works
+
+Markdown panels render **per top-level block** (heading, paragraph, list, table), and each rendered row is tagged with the *source* line range it came from. `tui-markdown` reflows a hand-wrapped paragraph — several source lines — onto one row, but the gutter still shows the paragraph's real source line, and `highlight`/review `L<n>` resolve through the same map. So a line number taken off disk (`wc -l`, an editor, `git blame`) always points at the right content, with no per-file caveat. The mid-paragraph line an agent happens to wrap at carries no meaning, so the whole paragraph is the addressable unit — a comment there emits the block's `L<a>-<b>` range. Verbatim blocks (fenced code, HTML) are the exception: they render one row per source line, so their gutter/`L<n>` is a single line, not a block range. The diff view for markdown drops the styled projection and shows the **raw-source** patch (`+`/`-` on the file's real lines), like any code file; the rendered view keeps the styling with gutter change-bars.
+
 ## Where Laura sits
 
 - **Agent multiplexers** run N agents in panes and watch status. Laura hosts shells.

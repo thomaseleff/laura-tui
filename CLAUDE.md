@@ -11,6 +11,7 @@ Standard Rust. No house style on top of it.
 - **Edition:** latest stable (2024). Toolchain pinned in `rust-toolchain.toml`.
 - **Errors:** `anyhow` at binary boundaries, `thiserror` for typed library errors. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
 - **Naming/layout:** stock Rust conventions (snake_case, `mod`s per concern). Don't invent abstractions ahead of the second caller.
+- **Comments/docstrings:** terse; explain *why*, not *what*. Match the surrounding file's density.
 
 ## Commits & PRs
 

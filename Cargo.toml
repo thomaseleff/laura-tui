@@ -1,6 +1,6 @@
 [package]
 name = "laura"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "*LOW-rah* — a tui workspace your agent builds with you while you pair-program."
 license = "MIT"
@@ -28,6 +28,9 @@ clap = { version = "=4.6.6", features = ["derive"] }
 interprocess = "=2.4.3"
 # syntect highlights standalone code files (Nord, fg-only); default-fancy = pure-Rust regex, no oniguruma C dep, Windows-friendly.
 tui-markdown = { version = "=0.3.9", default-features = false }
+# Already transitive via tui-markdown at this exact pin; promoted direct for the #32 block-map
+# (source-line ranges from `into_offset_iter`). Dependabot stays the update path.
+pulldown-cmark = { version = "=0.13.4", default-features = false }
 syntect = { version = "=5.3.0", default-features = false, features = [
     "default-fancy",
 ] }

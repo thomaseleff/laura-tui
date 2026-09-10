@@ -26,6 +26,6 @@ laura diff --pane "$id" --off    # back to the normal file view
 - `--pane <id>` targets a specific panel (default: the focused one). With the panel focused, the user can also press **`d`** to toggle it.
 - Toggling on a **clean or untracked** file — or one where `git` isn't installed — is a no-op: `laura diff` exits non-zero with a warning on stderr, and `laura open --diff` warns but opens the normal view. There's nothing to diff.
 - The diff is vs the working tree's `HEAD` and refreshes as the file reloads, so it tracks your edits.
-- Markdown renders a projection, not raw source, so its diff view shows the file plain — use the gutter markers or `git diff` for `.md`.
+- Markdown's diff view shows the **raw source** as a `+`/`-` patch, like any code file (the normal view keeps the styling).
 
 Docs: https://thomaseleff.github.io/laura-tui/llms.txt

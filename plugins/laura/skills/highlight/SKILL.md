@@ -22,7 +22,7 @@ laura open src/auth.rs --highlight 40 52   # open scrolled to and reverse-highli
 laura highlight 40 52 --pane "$id"   # reverse-highlight lines 40–52 in an open panel
 ```
 
-- Line numbers are **1-based inclusive**, matching the panel gutter and review `L<n>` refs. Both forms take the same `<start> [end]`.
+- Line numbers are **1-based inclusive** source-file lines, matching the panel gutter and review `L<n>` refs (markdown included — a number off disk points at the right content). A hand-wrapped markdown paragraph collapses onto one row so a number inside it snaps to the block, but fenced code and HTML blocks keep per-line numbers. Both forms take the same `<start> [end]`.
 - `end` is optional — `laura open x --highlight 40` / `laura highlight 40` highlights a single line.
 - `--pane <id>` (on `highlight`) targets a specific panel (default: the focused one). Highlighting works on an **unfocused** panel too — that's the point, direct attention to a pane the user isn't in.
 - The highlight persists until you re-set it (or the file reloads shorter). Out-of-range numbers clamp to the file.

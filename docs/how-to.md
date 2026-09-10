@@ -23,7 +23,7 @@ laura highlight 40 52                    # point at an already-open panel (1-bas
 laura highlight 40 --pane <id>           # single line, in a specific (possibly unfocused) panel
 ```
 
-The common gesture is "show me where": nothing's on screen (or a stale doc is), so `open --highlight` opens the file *and* points at the lines in one call — the panel paints already at the span, no line-1 flash. Once a file's open, `laura highlight` re-points it (this is what the `#17` stepper composes). Either way the highlight stays until you re-set it.
+The common gesture is "show me where": nothing's on screen (or a stale doc is), so `open --highlight` opens the file *and* points at the lines in one call — the panel paints already at the span, no line-1 flash. Once a file's open, `laura highlight` re-points it (this is what the `#17` stepper composes). Either way the highlight stays until you re-set it. In markdown, a hand-wrapped paragraph collapses onto one row so a number inside it snaps to the block, but fenced code and HTML blocks keep per-line numbers.
 
 ## See what changed (gutter markers)
 
@@ -36,8 +36,9 @@ Nothing to run — it's automatic for tracked code/text files. Notes:
 
 - Needs `git` on `PATH`. Without it, `laura open` warns on stderr and shows a brief
   toast; markers stay off.
-- Markdown panels show no markers (they render a projection, not raw source), and
-  an untracked file has none until it's committed.
+- Markdown gets markers too: they key off the source line, so a bar lights on the
+  rendered row whose paragraph/block covers a changed line. An untracked file has
+  none until it's committed.
 
 ## See the full diff inline (diff view)
 
@@ -53,7 +54,8 @@ laura diff --pane <id> --off     # back to the normal file view
 
 With the panel focused, press **`d`** to toggle it. Toggling on a clean or
 untracked file (or one with no `git`) is a no-op with a warning — there's nothing
-to diff. Markdown renders a projection, so its diff view shows the file plain.
+to diff. For markdown the diff view drops the styled prose and shows the **raw
+source** as a `+`/`-` patch (the rendered view keeps the styling, with gutter bars).
 
 ## Close a panel
 

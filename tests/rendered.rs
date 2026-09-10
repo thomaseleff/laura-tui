@@ -70,6 +70,41 @@ fn markdown_headings_are_indented() -> Result<()> {
 }
 
 #[test]
+fn hand_wrapped_paragraph_collapses_but_keeps_its_source_line() -> Result<()> {
+    // #32: a paragraph split across source lines renders as one row (soft-wrap reflow), and its
+    // gutter still shows the paragraph's real source line — not the collapsed rendered index.
+    let panel = open(".md", "# Title\n\npara one\npara two\n\n## Next\n")?;
+    let rows = panel.layout(80).rows;
+
+    let para = rows
+        .iter()
+        .find(|r| r.text().contains("para one"))
+        .expect("paragraph row");
+    assert!(
+        para.text().contains("para two"),
+        "the two source lines collapse onto one rendered row: {:?}",
+        para.text()
+    );
+    assert_eq!(
+        para.gutter,
+        Some(3),
+        "gutter is the paragraph's source line, not the rendered index"
+    );
+
+    // The following heading keeps its own source line (6), proving the collapse doesn't shift it.
+    let next = rows
+        .iter()
+        .find(|r| r.text().contains("Next"))
+        .expect("H2 row");
+    assert_eq!(
+        next.gutter,
+        Some(6),
+        "later lines keep their true source numbers"
+    );
+    Ok(())
+}
+
+#[test]
 fn plain_text_stays_raw() -> Result<()> {
     let content = open(".txt", "# not a heading\n**not bold**")?.content;
     assert_eq!(content, "# not a heading\n**not bold**");
