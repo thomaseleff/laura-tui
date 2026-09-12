@@ -321,8 +321,9 @@ impl Panel {
                     gutter: (k == 0).then_some(self.source[i].0 + 1),
                     spans: chunk,
                     comment: false,
-                    // Bar only on the row's first line; folds the block's source range.
-                    change: if k == 0 { self.row_change(i) } else { None },
+                    // Bar runs every wrapped row of the changed paragraph; row_change folds
+                    // the block's source range, identical for each row of line i (#35).
+                    change: self.row_change(i),
                 });
             }
             for (_, c) in self.comments.iter().filter(|(l, _)| *l == i) {

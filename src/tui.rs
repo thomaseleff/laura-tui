@@ -719,14 +719,34 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 spans.extend(r.spans.iter().cloned());
                 Line::from(spans).dim()
             } else {
-                let mut spans = vec![Span::raw(number).dim(), bar];
-                spans.extend(r.spans.iter().cloned());
-                let line = Line::from(spans);
                 let hot = panel
                     .highlight
                     .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line))
                     || (focused && r.line == panel.cursor);
-                if hot { line.reversed() } else { line }
+                if hot {
+                    // Reverse the number (selection marker) and body, but leave the change
+                    // bar untouched, then pad the row's background to the panel edge (#35).
+                    let mut spans = vec![Span::raw(number).reversed(), bar];
+                    let body: Vec<Span> = r.spans.iter().cloned().map(|s| s.reversed()).collect();
+                    let used = gw
+                        + 1
+                        + body
+                            .iter()
+                            .map(|s| s.content.chars().count())
+                            .sum::<usize>();
+                    spans.extend(body);
+                    if inner_w > used {
+                        spans.push(Span::styled(
+                            " ".repeat(inner_w - used),
+                            Style::new().reversed(),
+                        ));
+                    }
+                    Line::from(spans)
+                } else {
+                    let mut spans = vec![Span::raw(number).dim(), bar];
+                    spans.extend(r.spans.iter().cloned());
+                    Line::from(spans)
+                }
             }
         })
         .collect();

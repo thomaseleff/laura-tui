@@ -171,6 +171,40 @@ fn markdown_markers_key_off_source_lines() -> Result<()> {
 }
 
 #[test]
+fn change_bar_runs_every_wrapped_row() -> Result<()> {
+    // #35: the change bar paints every visual row of a changed wrapped paragraph, while
+    // the gutter number stays on the first row only.
+    let long = "word ".repeat(40); // wraps into many rows at a narrow width
+    let (_dir, path) = repo_with("doc.md", &format!("# t\n\n{long}\n"))?;
+    std::fs::write(&path, format!("# t\n\n{long}edited\n"))?; // paragraph modified vs HEAD
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let layout = tab.panels[&id].layout(30);
+    let para: Vec<_> = layout
+        .rows
+        .iter()
+        .filter(|r| r.text().contains("word"))
+        .collect();
+    assert!(
+        para.len() >= 2,
+        "paragraph wraps to multiple rows: {}",
+        para.len()
+    );
+    assert!(
+        para.iter().all(|r| r.change == Some(ChangeKind::Modified)),
+        "the change bar paints every wrapped row: {:?}",
+        para.iter().map(|r| r.change).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        para.iter().filter(|r| r.gutter.is_some()).count(),
+        1,
+        "the gutter number stays on the first wrapped row only"
+    );
+    Ok(())
+}
+
+#[test]
 fn scroll_offset_ignores_neighbor_deletion_gap() -> Result<()> {
     // 30-line file; delete a 16-line block (11..=26) in one hunk.
     let committed: String = (1..=30).map(|i| format!("line {i}\n")).collect();
