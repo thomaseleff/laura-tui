@@ -1,0 +1,22 @@
+/* Full-width, balanced two-column property/example tables in the protocol
+   reference. The class opts these tables out of Material's content-width
+   `table:not([class])` rule; GitHub strips the class and falls back to
+   content width. */
+.md-typeset table.proto {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border: 0.05rem solid var(--md-typeset-table-color);
+  border-radius: 0.1rem;
+}
+
+.md-typeset table.proto td {
+  width: 50%;
+  vertical-align: top;
+  padding: 1rem 1rem 0.6rem;
+  border-top: 0.05rem solid var(--md-typeset-table-color);
+}
+
+.md-typeset table.proto td pre {
+  overflow-x: auto;
+}

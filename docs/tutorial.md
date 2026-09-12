@@ -1,69 +1,73 @@
 # Tutorial
 
-This walks through one full loop: start Laura, open a file, comment on it, and submit a review back to your agent. It assumes `laura` is installed (see the [README](../README.md)).
+By the end of this tutorial you will have run one full loop in Laura with your coding agent.
 
-> [!TIP]
-> **Prefer a guided version?** If you're running a coding agent inside Laura and have the skills installed, ask your agent to run `/laura:demo` for a live, hands-on tour of this same loop — plus panels, tailing, and feedback.
+This tutorial assumes you have `laura` installed along with the skills — see the [Quickstart](index.md#quickstart) to install.
 
-## 1. Start Laura
+## 1. Start your agent inside Laura
 
-From your terminal:
+Run your coding agent inside the laura TUI:
 
 ```bash
-laura
+laura -- claude
 ```
 
-Laura opens with a single tab running your shell:
+Laura opens with your agent running inside its PTY:
 
 ```
 +- Laura ----------------------------------------------------+
 | [ 1 ]                                                      |
 +------------------------------------------------------------+
-| $ _                                                        |
+| > _                                                        |
+|                                                            |
+|                                                            |
+|                                                            |
+|                                                            |
+|                                                            |
+|                                                            |
 +------------------------------------------------------------+
 ```
 
-Type into the shell as usual — Laura hosts it, it doesn't wrap it. The bottom line shows the current key hints; press `Ctrl+H` any time for the full list, `Ctrl+Q` to quit.
+## 2. Ask to see a file
 
-## 2. Run your agent and mark the tab ready
+Ask your agent to *show* you something in the panel:
 
-Run your coding agent in the shell. Laura has already set `LAURA_TAB` in this PTY, so the agent's `laura` calls land in this tab. Once, at the start, enable review submission:
+> *"Show me the protocol doc."*
 
-```bash
-laura ready
-```
+Or, invoke the skill directly:
 
-Until a tab is `ready`, commenting and review submission stay inert — there's no consumer to read a review. An agent that has the [skill](../plugins/laura/skills/open/SKILL.md) runs this itself.
+> *"/laura:open docs/protocol.md"*
 
-## 3. Open a file in the panel
-
-Show a file beside the shell:
-
-```bash
-laura open docs/protocol.md
-```
-
-The agent runs `laura open --split`, and the tab splits: your shell stays live on the left, the file renders on the right with a line-number gutter.
+Your agent will load and run the **open** skill, splitting the TUI with the protocol markdown doc rendered in a second panel via the `laura` cli.
 
 ```
-+- Laura -----------------------------------------------------+
-| shell (pty)                | docs/protocol.md               |
-| $ ...                      | 1  # Protocol                  |
-|                            | 2                              |
-|                            | 3  An agent mutates a tab's ...|
-+----------------------------+--------------------------------+
++- Laura ----------------------------------------------------+
+| [ 1 ]                                                      |
++------------------------------------------------------------+
+| agent (pty)               | docs/protocol.md               |
+| > ...                     | 1  # Protocol                  |
+|                           | 2                              |
+|                           | 3  An agent mutates a tab's ...|
+|                           |                                |
+|                           |                                |
+|                           |                                |
++---------------------------+--------------------------------+
 ```
 
-The panel is live-watched: if the source file changes on disk, it re-renders on its own — no re-invoke.
+The panel is live so the file re-renders when your agent edits the file.
 
-You're not limited to one. Each `laura open` splits a pane, so you (or the agent) can stack a plan, logs, and a diff in the same tab — see the [how-to](how-to.md) and [CLI reference](cli.md) for `--split`/`--dir`/`--ratio`.
+## 3. Mark up a line
 
-## 4. Comment on a line
+Panels are auto-focused when opened. To switch into a panel press `Ctrl+P` and type the panel's number to jump into it. Move up and down with `↑` and `↓` and place the cursor on a line worth a note.
 
-Open the panes popup with `Ctrl+P`, then type the panel's **id** (the shell is `0`) to focus it — a single-digit id focuses on keypress; for `10`+ type the digits and press `Enter`. Move the line cursor with `↑`/`↓` (the mouse wheel scrolls too; over the shell, wheel and `PageUp`/`PageDown` scroll Laura's history, but on the alternate screen they drive the child's own scroll). On the line you want, press `c`, type your comment, and press `Enter` to pin it (`Esc` cancels). The panel title shows `[review: n]` as comments accumulate.
+Press `c`, type your comment — *"tighten this"* — and press `Enter`. In-line comments accumulate within a review, comment on as many lines as you like.
 
-## 5. Submit the review
+## 4. Submit the review
 
-Press `Shift+S`, type an overall note, and press `Enter`. Laura assembles a PR-style review — each comment bound to its line number with the line's text — and injects it straight into the agent's shell as a `[laura review · …]` block. The agent reads it from its own input and gets to work; as it edits the file, the panel re-renders live.
+Still within the file panel, press `Shift+S` once you are done adding comments, then type an overall note, and press `Enter`.
 
-That's the loop: *show → mark up → submit → revise*, without leaving the terminal. Task recipes are in the [how-to](how-to.md); the exact review format is in the [protocol](protocol.md).
+Your review is automatically injected into your agent chat with a review body and per-line summary of each comment, just like a PR review. Your agent will automatically pick up the review and start working on your feedback.
+
+## Next
+
+Run the `/laura:demo` skill to task your agent with showing you the rest - stacking a plan and logs beside your work, tailing a running service, pointing you at a range of lines.

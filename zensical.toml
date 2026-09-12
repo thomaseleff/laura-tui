@@ -3,13 +3,30 @@ site_name = "Laura"
 site_url = "https://thomaseleff.github.io/laura-tui/"
 repo_url = "https://github.com/thomaseleff/laura-tui"
 repo_name = "thomaseleff/laura-tui"
+extra_css = ["stylesheets/extra.css"]
 
 nav = [
   { "Home" = "index.md" },
   { "Tutorial" = "tutorial.md" },
-  { "How-to" = "how-to.md" },
-  { "CLI reference" = "cli.md" },
-  { "Protocol" = "protocol.md" },
-  { "Explanation" = "explanation.md" },
-  { "Technical vision" = "technical-vision.md" },
+  { "Reference" = [
+    { "Navigating the TUI" = "navigation.md" },
+    { "Agent reference" = "agent-reference.md" },
+    { "CLI reference" = "cli.md" },
+    { "Protocol reference" = "protocol.md" },
+  ] },
 ]
+
+[project.theme]
+features = ["navigation.expand"]
+
+[project.markdown_extensions.pymdownx.quotes]
+callouts = true
+
+# markdown_extensions replaces zensical's defaults rather than merging, so the
+# fenced-code extensions have to be re-declared or ```code``` blocks render inline.
+[project.markdown_extensions.pymdownx.superfences]
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true

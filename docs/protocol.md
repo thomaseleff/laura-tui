@@ -1,90 +1,358 @@
 # Protocol
 
-An agent mutates a tab's panel by running `laura open <file>` — a **separate process** from the TUI host. This is the seam it crosses.
+The protocol is NDJSON communication over a socket, either a Windows named pipe or a Unix namespaced socket, that allows for external processes to dynamically tile panels or interact with a Laura workspace. Whether through the `laura` CLI or an MCP service, all external interactions flow through the protocol.
 
-## Request / response
-
-One connection carries **one request and one response**: the producer connects, writes a single request frame, and reads a single response frame before the socket closes. The TUI run loop answers, because it holds the live layout state a reply reports on. A client that reads EOF with no frame treats it as `ok`.
-
-## Request shapes
-
-Typed messages, one JSON object per line (NDJSON), internally tagged by `type`. Fields have defaults, so older/shorter frames still parse:
-
-```json
-{"type":"open","path":"spec.md","split":null,"dir":"horizontal","ratio":50,"side":"second","focus":true,"dry_run":false,"highlight":null,"diff":false}
-{"type":"close","pane":null,"all":false}
-{"type":"focus","pane":1}
-{"type":"highlight","pane":null,"start":40,"end":52}
-{"type":"diffview","pane":null,"on":null}
-{"type":"layout"}
-{"type":"ready"}
-{"type":"update","path":"spec.md"}
-```
-
-- **`open`** splits a pane (`split`, default: the focused pane) into a new panel rendering `path`. `dir` is `horizontal`/`vertical`, `ratio` (1..99) is the new panel's percent, `side` (`first`/`second`) is where the new panel lands, `focus` moves focus into it (default `true`), `dry_run` reports the would-be layout without mutating. `highlight` is an optional `[start, end]` pair (1-based inclusive, `null` = none) that points the new panel at a line range on open — the same treatment as the `highlight` message, applied as the panel first paints (see below). `diff` (default `false`) opens straight into the inline diff view.
-- **`close`** removes pane `pane` (default: the focused panel); `all` returns the tab to shell-only. The shell (pane `0`) can't be closed.
-- **`focus`** focuses a pane by id.
-- **`highlight`** reverse-videos lines `start..=end` in a panel (`pane`, default: the focused panel) and scrolls the range into view. Line numbers are **1-based inclusive source-file lines** (what `wc -l`/an editor/`git blame` show), matching the gutter and review `L<n>` — for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines points at that whole block; `end` defaults to `start` (single line). The highlight is independent of focus (direct attention to an unfocused panel) and of the cursor, and persists until re-set or the file reloads shorter. Out-of-range values clamp to the file.
-- **`diffview`** toggles a panel's inline diff view vs git `HEAD` (`pane`, default: the focused panel). `on` is `null` to toggle, `true`/`false` to set. It's refused (an `error` response, a no-op) when there's nothing to diff — no `git` binary, or a clean/untracked file — since a diff view with no diff is a lie. The `diff` field on **`open`** opens straight into the view (same refusal, surfaced as an `opened` warning rather than an error).
-- **`layout`** asks for the current layout report (no mutation).
-- **`ready`** marks the tab as hosting an agent, which gates review injection (see below).
-- **`update`** is a reserved re-render nudge, not yet emitted.
-
-## Response shapes
-
-One response per request, tagged by `type`:
-
-```json
-{"type":"ok"}
-{"type":"opened","pane":1,"warnings":["panel shown, but run `laura ready` to enable review submission"]}
-{"type":"report","area":{...},"panes":[{"id":0,"kind":"pty","rect":{...},"overflow_rows":0,"clipped":false}, ...]}
-{"type":"error","message":"no pane #7"}
-```
-
-`opened` carries the new pane id (which `laura open` prints) and any non-fatal warnings. `report` answers `layout` and `open --dry-run`: one `PaneReport` per pane with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a producer can measure fit. `error` is a typed failure (`laura` prints the message and exits non-zero).
-
-## Pane identity
-
-A tab is a recursive binary split tree; each leaf is a pane with a per-tab monotonic `u64` id. The shell is always pane `0`. Ids are stable and never reused within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id; the `^p` panes popup maps a 1-based positional label to the current id.
+> [!TIP]
+> A tab has only two kinds of interaction: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, submitting a review, do not communicate via the protocol (see [In-process interactions](#in-process-interactions)).
 
 ## Addressing
 
-`LAURA_TAB` holds the tab's **namespaced** socket name (Windows named pipe / Unix namespaced). One socket per tab. A producer reaches a tab by connecting to that name and writing one frame. The name carries per-process entropy (`laura-<pid>-<nonce>-<n>`) so a reused PID can't re-mint a dead tab's name: a stale inherited `LAURA_TAB` fails to connect rather than routing into a live tab.
+The `LAURA_TAB` environment variable holds the Laura workspace socket name, one socket per tab. A client reaches a tab by connecting to that name and sending a request.
 
-> Scoping is a consequence of addressing, not a security boundary — anything that can read `LAURA_TAB` can write the tab.
+The name includes per-process entropy (`laura-<pid>-<nonce>-<n>`) so a reused PID cannot recreate a dead tab's name. A stale `LAURA_TAB` inherited by a later process fails to connect rather than routing into a live tab.
 
-## CLI
+### Panes
 
-Client verbs read `$LAURA_TAB`, send one message, and exit:
+A Laura workspace is a recursive binary split tree; each leaf is a panel with a per-tab monotonic `u64` id. The shell is always pane `0`. Ids are stable and never reused within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
 
-- `laura` — run the TUI, hosting your default shell in tab 1.
-- `laura -- <cmd>` — run the TUI, hosting `<cmd>` in tab 1 (new tabs still get the shell).
-- `laura open <file> [--split <id>] [--dir h|v] [--ratio n] [--side first|second] [--no-focus] [--dry-run] [--highlight <start> [end]]` — split a pane and open a panel; prints the new pane id. `--highlight` points it at a line range on open.
-- `laura close [<id>] [--all]` — close a panel (default: focused; `--all` for shell-only).
-- `laura focus <id>` — focus a pane.
-- `laura highlight <start> [end] [--pane <id>]` — reverse-video a 1-based line range in a panel and scroll it into view.
-- `laura diff [--pane <id>] [--off]` — toggle a panel's inline diff view vs `HEAD` (`--off` turns it off).
-- `laura layout` — print the layout report (JSON).
-- `laura ready` — mark the tab as hosting an agent (enables review submission).
+## Messages
 
-See the [CLI reference](cli.md) for flag defaults and the report shape.
+Each connection carries one request and one response: the client connects, sends a single request frame, reads a single response frame, and the socket closes. A *frame* is one JSON object on a single line, e.g. NDJSON. The response comes from the TUI process, which holds the live layout state. Messages are internally tagged by `type` with fields and default values. A client that reads EOF with no response frame treats the result as `ok`.
 
-`--help`, `--version`, and per-subcommand `--help` are provided by clap.
+### `open`
 
-## Review payload
+Splits a pane into a new panel rendering a file.
 
-Submitting a review (`S` on a commented panel) doesn't send a protocol message — it **injects text straight into the tab's agent PTY**, so the agent reads its own review from its input stream. Injection is **gated on `ready`** and fails closed: until the tab has received a `ready` message, both `c` (comment) and `S` (submit) are inert — no point building comments there's no consumer to read. This is the [injection boundary](technical-vision.md#the-injection-boundary) — anything laura *shows* is unconditional; anything it *writes into a PTY* needs a declared consumer. The assembled block:
+<table class="proto">
+<tr>
+<td valign="top">
 
-```
-[laura review · <path>]
+<dl>
+<dt><code>path</code> · string · <strong>required</strong></dt>
+<dd>File to render.</dd>
+<dt><code>split</code> · integer · <em>default: focused pane</em></dt>
+<dd>Pane to split.</dd>
+<dt><code>dir</code> · string · <em>default: <code>horizontal</code></em></dt>
+<dd><code>horizontal</code> or <code>vertical</code>.</dd>
+<dt><code>ratio</code> · integer · <em>default: <code>50</code></em></dt>
+<dd>New panel's percent, <code>1..99</code>.</dd>
+<dt><code>side</code> · string · <em>default: <code>second</code></em></dt>
+<dd><code>first</code>/<code>second</code> — where the new panel lands.</dd>
+<dt><code>focus</code> · boolean · <em>default: <code>true</code></em></dt>
+<dd>Move focus into the new panel.</dd>
+<dt><code>dry_run</code> · boolean · <em>default: <code>false</code></em></dt>
+<dd>Report the resulting layout without changing anything.</dd>
+<dt><code>highlight</code> · [int, int] · <em>default: <code>null</code></em></dt>
+<dd><code>[start, end]</code>, applied as the panel first paints.</dd>
+<dt><code>diff</code> · boolean · <em>default: <code>false</code></em></dt>
+<dd>Open straight into the inline diff view.</dd>
+</dl>
 
-<overall body>            ← line omitted when overall is empty
+</td>
+<td valign="top">
 
-L<n>  <line n text>
-      > <comment>
-      > <second comment on the same line>
-```
+<strong>Request</strong>
+<pre>
+{
+  "type": "open",
+  "path": "spec.md",
+  "split": null,
+  "dir": "horizontal",
+  "ratio": 50,
+  "side": "second",
+  "focus": true,
+  "dry_run": false,
+  "highlight": null,
+  "diff": false
+}
+</pre>
 
-`L<n>` is a 1-based **source-file** line (matching the gutter and comment UI); comments on one line group under a single header. A comment on a collapsed markdown block emits its source range as `L<a>-<b>` instead of a single `L<n>`. If the file shrank past a commented line, the header is emitted without body text. Surrounding-context lines aren't included — bare `L<n>`/`L<a>-<b>` refs only.
+<strong>Response</strong> · <code>opened</code>
+<pre>
+{
+  "type": "opened",
+  "pane": 1,
+  "warnings": []
+}
+</pre>
 
-The block is wrapped in **bracketed paste** (`ESC[200~ … ESC[201~`) with a single trailing `\r` outside the close marker: embedded newlines stay inside the markers so a line-reading REPL doesn't submit each line early, and the block submits once. Paste-honoring is REPL-specific — confirm it against the target agent's REPL; a bare shell ignores the markers. Per-tab messaging will reuse this injection path.
+</td>
+</tr>
+</table>
+
+`opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error. With `dry_run`, the response is `report` instead.
+
+### `close`
+
+Removes a pane, or returns the tab to shell-only.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
+<dd>Pane to remove.</dd>
+<dt><code>all</code> · boolean · <em>default: <code>false</code></em></dt>
+<dd>Return the tab to shell-only.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "close",
+  "pane": null,
+  "all": false
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code>
+<pre>
+{
+  "type": "ok"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+The shell (pane `0`) cannot be closed.
+
+### `focus`
+
+Focuses a pane by id.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>pane</code> · integer · <strong>required</strong></dt>
+<dd>Pane to focus.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "focus",
+  "pane": 1
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code>
+<pre>
+{
+  "type": "ok"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+### `highlight`
+
+Reverse-videos a range of lines in a panel and scrolls it into view.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
+<dd>Panel to highlight.</dd>
+<dt><code>start</code> · integer · <strong>required</strong></dt>
+<dd>First line, 1-based inclusive.</dd>
+<dt><code>end</code> · integer · <em>default: <code>start</code></em></dt>
+<dd>Last line, 1-based inclusive.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "highlight",
+  "pane": null,
+  "start": 40,
+  "end": 52
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code>
+<pre>
+{
+  "type": "ok"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+Line numbers are source-file lines, matching the gutter and review `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines points at that block. The highlight is independent of focus and of the cursor, and persists until re-set or the file reloads shorter. Out-of-range values clamp to the file.
+
+### `diffview`
+
+Toggles a panel's inline diff view against git `HEAD`.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
+<dd>Panel to toggle.</dd>
+<dt><code>on</code> · boolean | null · <em>default: <code>null</code></em></dt>
+<dd><code>null</code> to toggle, <code>true</code>/<code>false</code> to set.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "diffview",
+  "pane": null,
+  "on": null
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code> | <code>error</code>
+<pre>
+{
+  "type": "ok"
+}
+{
+  "type": "error",
+  "message": "nothing to diff"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+Returns `error` when there is nothing to diff — no `git` binary, or a clean or untracked file.
+
+### `layout`
+
+Requests the current layout without changing anything.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<em>No parameters.</em>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "layout"
+}
+</pre>
+
+<strong>Response</strong> · <code>report</code>
+<pre>
+{
+  "type": "report",
+  "area": {},
+  "panes": [
+    {
+      "id": 0,
+      "kind": "pty",
+      "rect": {},
+      "overflow_rows": 0,
+      "clipped": false
+    }
+  ]
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+One `PaneReport` per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can measure fit.
+
+### `ready`
+
+Marks the tab as hosting an agent, which gates interactivity (see [In-process interactions](#in-process-interactions)).
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<em>No parameters.</em>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "ready"
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code>
+<pre>
+{
+  "type": "ok"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+### `update`
+
+Reserved for a re-render nudge; not yet emitted.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>path</code> · string · <strong>required</strong></dt>
+<dd>File whose panel to re-render.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "update",
+  "path": "spec.md"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+## In-process interactions
+
+Interactions inside the TUI run in-process and do not cross a process boundary, so they skip the socket entirely. A keypress handler holds the live layout state directly and calls the relevant code path instead of serializing a message to itself:
+
+- review comment (`c`) and submit (`Shift+s`)
+- focus (`^p`), scrolling, and diff toggle (`d`)
+
+See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
+
+Interactivity is gated on `ready` and fails closed: until the tab has received a `ready` message declaring an agent, in-process interactions are unavailable.
