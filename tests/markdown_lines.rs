@@ -291,6 +291,29 @@ fn table_stays_whole_block() -> Result<()> {
 }
 
 #[test]
+fn blank_line_before_heading_survives() -> Result<()> {
+    // #39: a list block's byte range swallows its trailing blank line, which used to
+    // consume the row for the blank before the next heading. It must get its own row.
+    let (_f, p) = write_doc("- a\n- b\n\n## H\n")?;
+    let panel = Panel::open(p);
+    let rows = panel.layout(80).rows;
+    let b = rows
+        .iter()
+        .position(|r| r.text().contains('b'))
+        .expect("list row b");
+    let h = rows
+        .iter()
+        .position(|r| r.text().contains('H'))
+        .expect("heading row");
+    assert!(
+        rows[b + 1..h].iter().any(|r| r.text().trim().is_empty()),
+        "a blank row sits between the list and the heading: {:?}",
+        rows.iter().map(|r| r.text()).collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
 fn code_files_keep_identity_line_mapping() -> Result<()> {
     // A .rs file has no collapsing: highlight 4 → rendered row 3, gutter 4. Non-markdown untouched.
     let mut f = tempfile::Builder::new().suffix(".rs").tempfile()?;

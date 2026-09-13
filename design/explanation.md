@@ -15,7 +15,7 @@ Laura owns the screen and organizes work into **tabs**. Each tab hosts a **shell
 - **Tab** — the top-level unit. Each tab owns one shell/PTY and its own set of panels.
 - **Shell** — an agent (or you) runs in the tab's PTY. Laura never wraps or reinterprets it.
 - **Panel** — a view you or the agent opens within its tab (code, rendered doc), markable with in-line comments. File-backed panels are **live**: they track their source and re-render as it changes.
-- **Protocol** — the interface a producer uses to open/update panels, collect comments, and submit reviews. Transport is a per-tab local socket named from `LAURA_TAB`; scoping is a consequence of addressing, not a security boundary — every client is local and spawned by you. See [protocol.md](protocol.md).
+- **Protocol** — the interface a producer uses to open/update panels, collect comments, and submit reviews. Transport is a per-tab local socket named from `LAURA_TAB`; scoping is a consequence of addressing, not a security boundary — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
 
 ## The core loop
 

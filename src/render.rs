@@ -234,14 +234,20 @@ fn render_markdown(md: &str) -> Rendered {
 fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
     let defs = ref_defs(md); // appended to each slice so reference links still resolve
     let line_of = line_indexer(md);
-    let total_lines = md.lines().count();
+    let lines: Vec<&str> = md.lines().collect();
+    let total_lines = lines.len();
     let opts = tui_markdown::Options::new(LauraStyleSheet);
     let mut styled: Vec<Line<'static>> = vec![];
     let mut source: Vec<(usize, usize)> = vec![];
     let mut cursor = 0usize; // next source line still needing a row
     for (b0, b1, kind) in blocks(md) {
         let l0 = line_of(b0);
-        let l1 = line_of(b1.saturating_sub(1)).max(l0);
+        let mut l1 = line_of(b1.saturating_sub(1)).max(l0);
+        // A block's byte range swallows its trailing blank line; drop it off l1 so the
+        // gap-fill loop emits a blank row for it (e.g. the blank before a heading, #39).
+        while l1 > l0 && lines.get(l1).is_some_and(|s| s.trim().is_empty()) {
+            l1 -= 1;
+        }
         while cursor < l0 {
             styled.push(Line::default());
             source.push((cursor, cursor));

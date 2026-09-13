@@ -1,14 +1,25 @@
 # Laura
 
-<p align="center"><em>LOW-rah</em> — a tui workspace your agent builds with you while you pair-program.</p>
-
----
-
-Every coding agent UI in a terminal is a **stream you scroll**, another chat interface. Laura makes it a **surface you and your agent compose** — an **API over the TUI**. Your agent procedurally assembles the workspace — which panels, laid out where, refreshed by what — for the task in front of you, instead of every session getting the same fixed layout.
-
-_Currently_, Laura hosts your agent's shell in a PTY, and you or the agent open files into live panels — splitting the tab into a composable tree of panes (plan here, logs there, a diff below). Mark a file up in place and your review is injected straight back into the agent's chat. The *show → react → revise* loop never leaves the terminal; the protocol is the general form.
+Laura provides your agent with an **API over the TUI**, allowing your agent to dynamically tile panels while you pair-program.
 
 <p align="center"><img src="docs/assets/laura-demo.gif" alt="Laura demo" width="100%"></p>
+
+Your agent can open the file you're discussing, the plan you're following, the diff you just made, or tail logs of your running service. Laura supports every coding agent CLI and agents learn how to use the CLI through agent skills.
+
+> [!NOTE]
+> Laura is focused on making collaboration more enjoyable, celebrating the riffing, the live review and problem solving, and the improvisation between you and your coding agent, without ever leaving the terminal.
+
+**Laura lets you:**
+
+- **Stay in the flow** - view a file, a plan, a diff, or a log right in the TUI, without switching windows between the terminal, IDE, and browser.
+- **Compose the TUI** - your agent tiles the workspace from your natural-language conversation through the `laura` CLI and skills.
+- **Pick your coding agent CLI** - Laura hosts a shell your agent runs inside without abstraction, so every CLI and model is compatible.
+- **Interact in every panel** - mark up any panel in place and inject the review straight into your conversation.
+- **Learn while staying focused** - your agent shows and explains concepts live, step by step.
+
+## How it works
+
+Laura runs your agent CLI in a PTY and provides a set of agent skills you or your agent invoke. The skills instruct the agent on how to use the `laura` CLI, which drives the TUI over a small line-based protocol on a per-agent socket. See the [protocol reference](docs/protocol.md) to learn more.
 
 ## Quickstart
 
@@ -27,27 +38,17 @@ Or from a clone: `cargo build --release --locked` → `target/release/laura`.
 /plugin install laura@laura-tui
 ```
 
-**3. Start Laura** — it hosts your default shell in a tab:
+**3. Start Laura** and run the interactive demo:
 
 ```bash
 laura -- claude "/laura:demo"
 ```
 
-**4. Chat with your agent** in that shell. With the skill installed, the agent drives the `laura` CLI itself — splitting panes and opening files into them while your shell stays live alongside. You comment on a line in place and submit; your review is injected straight back into the agent's chat and it revises. The *show → react → revise* loop never leaves the terminal.
+**4. Work with your agent.** Chat as you normally would. Ask it to show you a file, a plan, or a diff. Your agent will leverage the skills to tile panels alongside your chat. Comment on a line in place and submit; your review goes straight back into the agent's chat.
 
-The panel is **live-watched** — edit the source and it re-renders on changes. `.md`/`.markdown` render with terminal styling (headings, bold, code); every other file shows its raw bytes, with Nord syntax colours for recognized code files. Rendering is display-only — comments and reviews always quote the plain line text. Lines changed since git `HEAD` are marked in the gutter (green added / blue modified / red "N removed" row), refreshing as you edit; it needs `git` on `PATH`. Markdown numbering follows the source file — the gutter, `highlight`, and review `L<n>` all key off real source lines, and a changed line lights the bar on its paragraph's row. Press `d` (or open with `--diff`) to swap the panel for a full inline `+`/`-` diff vs `HEAD` (markdown shows the raw-source patch). To review by hand: `laura ready` once to enable submission, focus the panel (`Ctrl+P` then its **digit**), press `c` to comment a line and `S` to submit.
+Panels are live-watched: edit the source and they re-render. Markdown renders with terminal styling; other files show their content with syntax colours, and lines changed since git `HEAD` are marked in the gutter.
 
-See the [tutorial](docs/tutorial.md) for a first session, [how-to](docs/how-to.md) for task recipes, the [CLI reference](docs/cli.md) for the verb set, the [protocol](docs/protocol.md) for the wire format, and the [explanation](docs/explanation.md) / [technical vision](docs/technical-vision.md) for why Laura exists.
-
-## Keys
-
-`Ctrl+P` panes popup (type a pane **id** then `Enter` to focus; single-digit ids focus on keypress) · `Ctrl+T` tab nav (`←/→` browse · `n` new tab · `x` close tab) · `Ctrl+H` help · `Ctrl+Q` quit (then `y`) · `F12` lock all input to the shell. In a focused panel: `↑/↓` move · `←/→` scroll pre-formatted lines sideways (code, diffs, markdown tables/fences/HTML don't wrap; a `›` marks a clipped line) · `c` comment · `S` submit · `d` toggle inline diff · `Esc` leave. Otherwise every key reaches the shell untouched (Shift/Ctrl/Alt combos included).
-
-`PageUp/PageDown` and the mouse wheel scroll Laura's history on the main screen; on the alternate screen (claude, vim, less) they forward to the child, which owns its own scrollback (no scrollbar then). A pasted multi-line block arrives as one unit, not a submit per line. A plain left **drag** selects within a pane and copies to the system clipboard on release (via OSC 52); from a file panel the copy is clean source — no line-number gutter, wrapped lines rejoined — while the PTY copies its glyphs verbatim.
-
-## Windows / ConPTY
-
-The PTY reader runs on its own thread for two ConPTY reasons: it answers the DSR handshake (ConPTY withholds all child output until the host replies to `ESC[6n` with `ESC[<row>;<col>R`), and it detects child exit via `child.wait()` (the master reader never returns EOF on exit).
+See the [tutorial](docs/tutorial.md) for a first session and [navigating the TUI](docs/navigation.md) for the keys. Reference lives in the [CLI reference](docs/cli.md) for the verb set, the [protocol reference](docs/protocol.md) for the wire format, and the [agent reference](docs/agent-reference.md) for the recipes your agent drives on your behalf.
 
 ## License
 
