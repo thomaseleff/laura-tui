@@ -1,19 +1,21 @@
 ---
 name: demo
-description: Run a guided, live walkthrough of Laura. Use when someone wants to see what Laura does or get a feel for the review loop, panels, tailing, workspaces, and feedback. Requires running inside a Laura tab (LAURA_TAB is set).
+description: Run a guided, live walkthrough of Laura. Use when someone wants to see what Laura does or get a feel for the review loop, panes, tailing, workspaces, and feedback.
 when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and the developer wants a hands-on tour of Laura — "show me what this does", "demo laura", "how does this work".
 user-invocable: true
 ---
 
 # laura demo
 
-You are running inside a Laura tab (`$LAURA_TAB` is set). Run a **live walkthrough** of Laura: you drive the panes with the `laura` CLI, the developer interacts inside the panels to guide you.
+Run a **live walkthrough** of Laura: you drive the panes with the `laura` CLI, the developer interacts inside the panes to guide you.
 
-This file is an exact script. The narration under **Say** is copy to send the developer in chat, near-verbatim. The commands under **Do** are yours to run. After each numbered beat, **stop and wait** — the developer advances by sending `Next` in chat (beat 2 also advances when their review arrives). Don't run ahead.
+This file is an exact script. The narration under **Say** is copy to send the developer in chat, near-verbatim. The commands under **Do** are yours to run.
 
-Run `laura --help` (and `laura <cmd> --help`) to see the current CLI.
-
-Docs: https://thomaseleff.github.io/laura-tui/llms.txt
+**Rules**
+- Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
+- After each numbered beat, **stop and wait** — the developer advances by sending `Next` (beat 2 also advances when their review arrives). Don't run ahead.
+- See the `laura` skill for the full CLI or run `laura --help`.
+- Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
 
 ## Setup (run once, silently)
 
@@ -34,7 +36,7 @@ Keep `$JOURNAL` and `$D` for later beats.
 >
 > Laura started as an experiment, to allow developers to give feedback on files directly in the terminal. No browser, no leaving the shell.
 >
-> A few skills drive it, and you can run them from your chat any time: `/laura:open <file>` shows a file in a panel, `/laura:close` dismisses one, and `/laura:demo` runs this walkthrough.
+> A few skills drive it, and you can run them from your chat any time: `/laura:laura <file>` shows a file in a pane (or `/laura:laura <prompt>` to tile a whole workspace), and `/laura:demo` runs this walkthrough. There's also `/laura:explain <target>` to step you through a PR or a flow, `/laura:learn <prompt>` to teach a concept hands-on, and `/laura:retro` to look back at your logged feedback.
 >
 > In the demo, I'll guide you through the core review workflow and show how you can build up a workspace with your agent as you go. To move between sections, just send me `Next` in the chat.
 >
@@ -73,7 +75,7 @@ DOC=$(laura open "$D/tokens.md" --ratio 55)
 >
 > This is the loop Laura was built for — reviewing a file in place. The spec is open on the right. Try marking it up:
 >
-> 1. Panels are auto-focused by default. Press `Ctrl+P`, then type an id to focus a different panel. Or, press `Esc` from any panel to return here to the chat.
+> 1. Panes are auto-focused by default. Press `Ctrl+P`, then type an id to focus a different pane. Or, press `Esc` from any pane to return here to the chat.
 > 2. Move the line cursor with `↑`/`↓` to the **"expires 24 hours"** line, press `c`, type `make this 1 hour`, and press `Enter`.
 > 3. Move to the **"stored in local storage"** line, press `c`, type `use an httpOnly cookie instead`, `Enter`.
 > 4. Press `Shift+S`, type an overall note like `tighten token lifetimes before we ship`, and press `Enter` to submit.
@@ -82,18 +84,18 @@ DOC=$(laura open "$D/tokens.md" --ratio 55)
 >
 > **Suggested prompts**
 >
-> - `/laura:open README.md`
-> - `/laura:open Write up a plan and open it in a panel so I can mark it up`
+> - `/laura:laura README.md`
+> - `/laura:laura Write up a plan and open it in a pane so I can mark it up`
 >
 > Send `Next` when you're done to see how a whole workspace comes together.
 
 Then **wait.** Advance when the `[laura review · …]` block arrives **or** the developer sends `Next`.
 
-When the review arrives: read it back in one line, then **edit `$D/tokens.md` to address each comment** — the panel re-renders live so they see it change. Then tell them to send `Next`.
+When the review arrives: read it back in one line, then **edit `$D/tokens.md` to address each comment** — the pane re-renders live so they see it change. Then tell them to send `Next`.
 
 ---
 
-## Beat 3 — The workspace is just panels
+## Beat 3 — The workspace is just panes
 
 **Do:**
 
@@ -114,14 +116,14 @@ done
 
 **Say:**
 
-> **[2 / 5] The workspace is just panels**
+> **[2 / 5] The workspace is just panes**
 >
-> Laura's workspace is just panels in a split tree — the agent composes them based on the task. Laura was designed to expose general-purpose tooling, so it can lay out pretty much anything... so here's a Fibonacci sequence.
+> Laura's workspace is just panes in a split tree — the agent composes them based on the task. Laura was designed to expose general-purpose tooling, so it can lay out pretty much anything... so here's a Fibonacci sequence.
 >
 > **Suggested prompts**
 >
-> - `/laura:open Stack the plan, the code, and the logs in one view`
-> - `/laura:open Put the spec on the right and my notes below it`
+> - `/laura:laura Stack the plan, the code, and the logs in one view`
+> - `/laura:laura Put the spec on the right and my notes below it`
 >
 > Send `Next` for your first workspace: reviewing a diff.
 
@@ -157,8 +159,8 @@ DIFF=$(laura open "$D/tokens.diff" --ratio 55)
 >
 > **Suggested prompts**
 >
-> - `/laura:open Show me the diff of my last commit so I can review it`
-> - `/laura:open Open the staged changes in a pane for review`
+> - `/laura:laura Show me the diff of my last commit so I can review it`
+> - `/laura:laura Open the staged changes in a pane for review`
 >
 > Send `Next` for the debug dashboard workspace.
 
@@ -180,12 +182,12 @@ def process(job):
     return tries
 EOF
 CODE=$(laura open "$D/worker.py" --ratio 40)   # shell left, code right
-# Split the code pane vertically: code on top (78%), a thin log panel below where autoscroll is visible.
+# Split the code pane vertically: code on top (78%), a thin log pane below where autoscroll is visible.
 ( for i in {1..30}; do echo "[$i] retry job=42 backoff=$((i*i))s"; sleep 0.3; done ) \
   | laura tail --title worker.log --follow --split "$CODE" --dir v --ratio 78 &
 ```
 
-Check the fit with `laura layout`; if a panel reports `overflow_rows > 0`, lower a `--ratio` and re-open.
+Check the fit with `laura layout`; if a pane reports `overflow_rows > 0`, lower a `--ratio` and re-open.
 
 **Say:**
 
@@ -195,8 +197,8 @@ Check the fit with `laura layout`; if a panel reports `overflow_rows > 0`, lower
 >
 > **Suggested prompts**
 >
-> - `/laura:open Open worker.py and tail the test run beside it`
-> - `/laura:open Run the build and tail its output next to the failing file`
+> - `/laura:laura Open worker.py and tail the test run beside it`
+> - `/laura:laura Run the build and tail its output next to the failing file`
 >
 > Send `Next` to learn how to record feedback.
 

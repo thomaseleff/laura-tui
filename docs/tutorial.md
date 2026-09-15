@@ -30,15 +30,15 @@ Laura opens with your agent running inside its PTY:
 
 ## 2. Ask to see a file
 
-Ask your agent to *show* you something in the panel:
+Ask your agent to *show* you something in the pane:
 
 > *"Show me the protocol doc."*
 
 Or, invoke the skill directly:
 
-> *"/laura:open docs/protocol.md"*
+> *"/laura:laura docs/protocol.md"*
 
-Your agent will load and run the **open** skill, splitting the TUI with the protocol markdown doc rendered in a second panel via the `laura` cli.
+Your agent will load and run the **laura** skill, splitting the TUI with the protocol markdown doc rendered in a second pane via the `laura` cli.
 
 ```
 +- Laura ----------------------------------------------------+
@@ -54,17 +54,17 @@ Your agent will load and run the **open** skill, splitting the TUI with the prot
 +---------------------------+--------------------------------+
 ```
 
-The panel is live so the file re-renders when your agent edits the file.
+The pane is live so the file re-renders when your agent edits the file.
 
 ## 3. Mark up a line
 
-Panels are auto-focused when opened. To switch into a panel press `Ctrl+P` and type the panel's number to jump into it. Move up and down with `↑` and `↓` and place the cursor on a line worth a note.
+Panes are auto-focused when opened. To switch into a pane press `Ctrl+P` and type the pane's number to jump into it. Move up and down with `↑` and `↓` and place the cursor on a line worth a note.
 
 Press `c`, type your comment — *"tighten this"* — and press `Enter`. In-line comments accumulate within a review, comment on as many lines as you like.
 
 ## 4. Submit the review
 
-Still within the file panel, press `Shift+S` once you are done adding comments, then type an overall note, and press `Enter`.
+Still within the file pane, press `Shift+S` once you are done adding comments, then type an overall note, and press `Enter`.
 
 Your review is automatically injected into your agent chat with a review body and per-line summary of each comment, just like a PR review. Your agent will automatically pick up the review and start working on your feedback.
 

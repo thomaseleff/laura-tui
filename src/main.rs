@@ -21,7 +21,7 @@ use ratatui::crossterm::execute;
 
 use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
 
-/// Laura hosts your coding agent's shell in a PTY with a live side-panel for showing files and
+/// Laura hosts your coding agent's shell in a PTY with a live side-pane for showing files and
 /// receiving in-place review.
 ///
 /// Agents: install the skill — `claude plugin marketplace add thomaseleff/laura-tui`.
@@ -39,7 +39,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Open a file in a new panel, splitting a pane. Prints the new pane id.
+    /// Open a file in a new pane, splitting a pane. Prints the new pane id.
     Open {
         path: String,
         /// Pane to split (default: the focused pane).
@@ -48,13 +48,13 @@ enum Cmd {
         /// Split orientation: `h` side-by-side, `v` stacked.
         #[arg(long, value_enum, default_value_t = Dir::Horizontal)]
         dir: Dir,
-        /// Percent of the split given to the new panel (1..=99).
+        /// Percent of the split given to the new pane (1..=99).
         #[arg(long, default_value_t = 50)]
         ratio: u16,
-        /// Which side the new panel lands on.
+        /// Which side the new pane lands on.
         #[arg(long, value_enum, default_value_t = Side::Second)]
         side: Side,
-        /// Don't move focus into the panel.
+        /// Don't move focus into the pane.
         #[arg(long)]
         no_focus: bool,
         /// Autoscroll: keep the newest line in view as the file grows.
@@ -70,28 +70,28 @@ enum Cmd {
         #[arg(long)]
         diff: bool,
     },
-    /// Close a panel (default: the focused one). `--all` returns to PTY-only.
+    /// Close a pane (default: the focused one). `--all` returns to PTY-only.
     Close {
-        /// Pane id to close (default: the focused panel).
+        /// Pane id to close (default: the focused pane).
         id: Option<PaneId>,
         #[arg(long)]
         all: bool,
     },
     /// Focus a pane by id.
     Focus { id: PaneId },
-    /// Highlight a line range in a panel and scroll it into view.
+    /// Highlight a line range in a pane and scroll it into view.
     Highlight {
         /// First line to highlight (1-based).
         start: u32,
         /// Last line (default: same as start).
         end: Option<u32>,
-        /// Pane to highlight (default: the focused panel).
+        /// Pane to highlight (default: the focused pane).
         #[arg(long)]
         pane: Option<PaneId>,
     },
-    /// Toggle the inline diff view (vs git HEAD) on a panel; `--off` turns it off.
+    /// Toggle the inline diff view (vs git HEAD) on a pane; `--off` turns it off.
     Diff {
-        /// Pane to toggle (default: the focused panel).
+        /// Pane to toggle (default: the focused pane).
         #[arg(long)]
         pane: Option<PaneId>,
         /// Turn the diff view off (default: toggle).
@@ -120,10 +120,10 @@ enum Cmd {
         /// Free-text note.
         body: Option<String>,
     },
-    /// Spool piped stdin to an internal file and show it in a live, autoscrolling panel.
+    /// Spool piped stdin to an internal file and show it in a live, autoscrolling pane.
     /// Usage: `some-cmd | laura tail --follow`.
     Tail {
-        /// Panel title (also names the spool file).
+        /// Pane title (also names the spool file).
         #[arg(long)]
         title: Option<String>,
         /// Autoscroll to the newest line as output arrives.
@@ -135,7 +135,7 @@ enum Cmd {
         /// Split orientation: `h` side-by-side, `v` stacked.
         #[arg(long, value_enum, default_value_t = Dir::Horizontal)]
         dir: Dir,
-        /// Percent of the split given to the new panel (1..=99).
+        /// Percent of the split given to the new pane (1..=99).
         #[arg(long, default_value_t = 50)]
         ratio: u16,
     },
@@ -209,7 +209,7 @@ fn main() -> Result<()> {
         }) => tail(title, follow, split, dir, ratio),
         None => {
             let mut terminal = ratatui::init();
-            // Capture the wheel so panels scroll and drags select; bracketed paste keeps a pasted
+            // Capture the wheel so panes scroll and drags select; bracketed paste keeps a pasted
             // multi-line block one unit instead of a submit per newline.
             let _ = execute!(std::io::stdout(), EnableMouseCapture);
             #[cfg(not(windows))]
@@ -247,9 +247,9 @@ fn client_request(msg: Message) -> Result<()> {
     Ok(())
 }
 
-/// `some-cmd | laura tail`: spool stdin to an internal file, show it as a live follow-panel,
+/// `some-cmd | laura tail`: spool stdin to an internal file, show it as a live follow-pane,
 /// then keep copying stdin → file until EOF. The file lives under Laura's runtime dir and is
-/// auto-removed when the panel closes.
+/// auto-removed when the pane closes.
 ///
 /// ponytail: file-backed, not socket-streamed — deferred. One temp file per invocation.
 fn tail(
@@ -274,7 +274,7 @@ fn tail(
     let path = runtime.join(format!("{stem}-{}.txt", std::process::id()));
     let mut file = std::fs::File::create(&path)?;
 
-    // Open the panel first (empty file is fine) so it appears immediately, then stream into it.
+    // Open the pane first (empty file is fine) so it appears immediately, then stream into it.
     match protocol::request(
         &tab,
         &Message::Open {

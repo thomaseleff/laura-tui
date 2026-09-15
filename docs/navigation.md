@@ -14,7 +14,7 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 | `Ctrl+Q` | Quit (then `y` to confirm) |
 | `F12` | Lock all input to the shell |
 
-## In a focused panel
+## In a focused pane
 
 | Key | Action |
 |-----|--------|
@@ -23,7 +23,7 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 | `c` | Comment on a line |
 | `Shift+s` | Submit the review |
 | `d` | Toggle inline diff vs git `HEAD` |
-| `Esc` | Leave the panel |
+| `Esc` | Leave the pane |
 
 ## Scrolling
 
@@ -31,4 +31,4 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 
 ## Selection
 
-A plain left **drag** selects within a pane and copies to the system clipboard on release (via OSC 52). From a file panel the copy is clean source — no line-number gutter, wrapped lines rejoined — while the shell copies its glyphs verbatim.
+A plain left **drag** selects within a pane and copies to the system clipboard on release (via OSC 52). From a file pane the copy is clean source — no line-number gutter, wrapped lines rejoined — while the shell copies its glyphs verbatim.
