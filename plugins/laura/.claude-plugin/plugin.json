@@ -1,7 +1,7 @@
 {
     "name": "laura",
-    "description": "*LOW-rah* - a tui workspace your agents build with you in the terminal.",
-    "version": "0.5.2",
+    "description": "Laura is a TUI workspace that provides your agent with an **API over the TUI**, allowing your agent to dynamically tile panes while you pair-program.",
+    "version": "0.6.0",
     "repository": "https://github.com/thomaseleff/laura-tui",
     "license": "MIT"
 }
