@@ -6,33 +6,33 @@ Coding agents live in the terminal, but the terminal is a firehose, not a worksp
 
 ## The idea
 
-Terminals treat agent output as a **stream you scroll**. Laura treats it as a **surface you and your agent compose** — an **API over the TUI**. The agent **procedurally assembles** the UI for your prompt: it decides what to show, where, and how it refreshes, rather than handing you the same fixed layout every session. One rendered panel today is the proof-of-concept slice of that; the protocol is the general form.
+Terminals treat agent output as a **stream you scroll**. Laura treats it as a **surface you and your agent compose** — an **API over the TUI**. The agent **procedurally assembles** the UI for your prompt: it decides what to show, where, and how it refreshes, rather than handing you the same fixed layout every session. One rendered pane today is the proof-of-concept slice of that; the protocol is the general form.
 
-Laura owns the screen and organizes work into **tabs**. Each tab hosts a **shell (PTY)** where an agent runs, plus **panels** the agent opens *within its tab*. Drawing and updating panels happens through **one mutation protocol** anything can speak: the agent is a client, and so is any future producer — a statusline, a status panel, an extension — all the same protocol.
+Laura owns the screen and organizes work into **tabs**. Each tab hosts a **shell (PTY)** where an agent runs, plus **panes** the agent opens *within its tab*. Drawing and updating panes happens through **one mutation protocol** anything can speak: the agent is a client, and so is any future producer — a statusline, a status pane, an extension — all the same protocol.
 
 ## The model
 
-- **Tab** — the top-level unit. Each tab owns one shell/PTY and its own set of panels.
+- **Tab** — the top-level unit. Each tab owns one shell/PTY and its own set of panes.
 - **Shell** — an agent (or you) runs in the tab's PTY. Laura never wraps or reinterprets it.
-- **Panel** — a view you or the agent opens within its tab (code, rendered doc), markable with in-line comments. File-backed panels are **live**: they track their source and re-render as it changes.
-- **Protocol** — the interface a producer uses to open/update panels, collect comments, and submit reviews. Transport is a per-tab local socket named from `LAURA_TAB`; scoping is a consequence of addressing, not a security boundary — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
+- **Pane** — a view you or the agent opens within its tab (code, rendered doc), markable with in-line comments. File-backed panes are **live**: they track their source and re-render as it changes.
+- **Protocol** — the interface a producer uses to open/update panes, collect comments, and submit reviews. Transport is a per-tab local socket named from `LAURA_TAB`; scoping is a consequence of addressing, not a security boundary — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
 
 ## The core loop
 
-*Agent runs in a tab's shell → agent opens a panel in that tab → you see it → you comment in place → your feedback flows back → agent revises.* Never leave the terminal.
+*Agent runs in a tab's shell → agent opens a pane in that tab → you see it → you comment in place → your feedback flows back → agent revises.* Never leave the terminal.
 
 ## Design principles
 
 - **The shell is sacred.** Laura never intercepts, wraps, or reinterprets what you run. A plain-terminal workflow works unchanged.
 - **One protocol, no special cases.** The agent has no privileged path an extension couldn't use.
 - **Show, don't tell.** Every capability exists to let the agent show work and let you react in place.
-- **Live by default.** File-backed panels are watched and re-render on disk change.
+- **Live by default.** File-backed panes are watched and re-render on disk change.
 - **Elegant and bare.** Calm, minimal, screenshot-worthy. Nothing on screen you didn't ask for.
 - **Local, private, fast.** Runs on your machine; the shell never stutters.
 
 ## How markdown numbering works
 
-Markdown panels render **per top-level block** (heading, paragraph, list, table), and each rendered row is tagged with the *source* line range it came from. `tui-markdown` reflows a hand-wrapped paragraph — several source lines — onto one row, but the gutter still shows the paragraph's real source line, and `highlight`/review `L<n>` resolve through the same map. So a line number taken off disk (`wc -l`, an editor, `git blame`) always points at the right content, with no per-file caveat. The mid-paragraph line an agent happens to wrap at carries no meaning, so the whole paragraph is the addressable unit — a comment there emits the block's `L<a>-<b>` range. Verbatim blocks (fenced code, HTML) are the exception: they render one row per source line, so their gutter/`L<n>` is a single line, not a block range. The diff view for markdown drops the styled projection and shows the **raw-source** patch (`+`/`-` on the file's real lines), like any code file; the rendered view keeps the styling with gutter change-bars.
+Markdown panes render **per top-level block** (heading, paragraph, list, table), and each rendered row is tagged with the *source* line range it came from. `tui-markdown` reflows a hand-wrapped paragraph — several source lines — onto one row, but the gutter still shows the paragraph's real source line, and `highlight`/review `L<n>` resolve through the same map. So a line number taken off disk (`wc -l`, an editor, `git blame`) always points at the right content, with no per-file caveat. The mid-paragraph line an agent happens to wrap at carries no meaning, so the whole paragraph is the addressable unit — a comment there emits the block's `L<a>-<b>` range. Verbatim blocks (fenced code, HTML) are the exception: they render one row per source line, so their gutter/`L<n>` is a single line, not a block range. The diff view for markdown drops the styled projection and shows the **raw-source** patch (`+`/`-` on the file's real lines), like any code file; the rendered view keeps the styling with gutter change-bars.
 
 ## Where Laura sits
 

@@ -14,52 +14,52 @@ laura -- <cmd> [args]   Run the TUI, hosting <cmd> in tab 1. New tabs still get 
 A tab's panes form a split tree; the shell is pane `0` and can't be closed. Each `open` splits a pane and prints the **new pane id** on stdout — capture it to address that pane later.
 
 ```
-laura open <path>       Split a pane and render <path> in the new panel. Prints the new pane id.
+laura open <path>       Split a pane and render <path> in the new pane. Prints the new pane id.
                         Relative paths resolve against the *calling* process's cwd, so `cd`
                         inside the PTY then `laura open ./x` works. Warns on stderr (still exit 0)
-                        when the file can't be read (`cannot read <path>: …`) or the panel doesn't
+                        when the file can't be read (`cannot read <path>: …`) or the pane doesn't
                         fit (`overflows:` / `too small`), so `laura layout` is confirmatory, not required.
-      --split <id>      Pane to split (default: the focused pane).
+      --split <id>      pane to split (default: the focused pane).
       --dir <h|v>       Split orientation: h side-by-side, v stacked (default h).
-      --ratio <1..99>   Percent of the split given to the new panel (default 50).
-      --side <first|second>  Which side the new panel lands on (default second).
-      --no-focus        Don't move focus into the panel.
+      --ratio <1..99>   Percent of the split given to the new pane (default 50).
+      --side <first|second>  Which side the new pane lands on (default second).
+      --no-focus        Don't move focus into the pane.
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
       --highlight <start> [end]  Point at a line range once open (1-based, inclusive); end
-                        defaults to start. Opens the panel already scrolled to and reverse-videoing
+                        defaults to start. Opens the pane already scrolled to and reverse-videoing
                         the range — the one-call "show me where" gesture. e.g. `laura open x.rs
-                        --highlight 40 52`. (See `laura highlight` to point at an already-open panel.)
+                        --highlight 40 52`. (See `laura highlight` to point at an already-open pane.)
       --diff            Open straight into the inline diff view (vs git HEAD).
-laura close [<id>]      Close a panel (default: the focused one).
-      --all             Close every panel, back to shell-only.
+laura close [<id>]      Close a pane (default: the focused one).
+      --all             Close every pane, back to shell-only.
 laura focus <id>        Focus a pane by id.
 laura highlight <start> [end]
-                        Reverse-video lines start..=end (1-based, inclusive) in a panel and
+                        Reverse-video lines start..=end (1-based, inclusive) in a pane and
                         scroll them into view. end defaults to start (single line). Line numbers
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph points at
                         that whole block. e.g. `laura highlight 40 52`.
-      --pane <id>       Pane to highlight (default: the focused panel).
-laura diff              Toggle a panel's inline diff view vs git HEAD (interleaved +/- lines).
-      --pane <id>       Pane to toggle (default: the focused panel).
+      --pane <id>       pane to highlight (default: the focused pane).
+laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
+      --pane <id>       pane to toggle (default: the focused pane).
       --off             Turn the diff view off (default: toggle).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
-laura ready             Mark the tab as hosting an agent (enables review submission). Prints the journal path.
+laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path.
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
       --positive        Positive signal.        (one of --positive/--negative is required)
       --negative        Negative signal.
       [<body>]          Optional free-text note.
-some-cmd | laura tail   Spool piped stdin to an internal file and show it in a live panel.
-      --title <t>       Panel title (also names the spool file).
+some-cmd | laura tail   Spool piped stdin to an internal file and show it in a live pane.
+      --title <t>       Pane title (also names the spool file).
       --follow          Autoscroll to the newest line as output arrives.
 ```
 
 Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-hosted shell. Outside a tab they error with `not inside a Laura tab (LAURA_TAB unset)`.
 
-`layout` and `open --dry-run` both emit a JSON report — one entry per pane with its rect and overflow, so the agent can size a panel before (or without) committing:
+`layout` and `open --dry-run` both emit a JSON report — one entry per pane with its rect and overflow, so the agent can size a pane before (or without) committing:
 
 ```json
 {
@@ -73,7 +73,7 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 }
 ```
 
-`overflow_rows > 0` (or `clipped`) means the panel is taller than its pane — widen/reshape the split or lower `--ratio` until it fits. A real `open` (not just `--dry-run`) surfaces the same condition as a terse `overflows:` / `too small` line on stderr, so you rarely need to call `layout` after opening.
+`overflow_rows > 0` (or `clipped`) means the pane is taller than its pane — widen/reshape the split or lower `--ratio` until it fits. A real `open` (not just `--dry-run`) surfaces the same condition as a terse `overflows:` / `too small` line on stderr, so you rarely need to call `layout` after opening.
 
 ## Journal
 

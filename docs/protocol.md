@@ -1,6 +1,6 @@
 # Protocol
 
-The protocol is NDJSON communication over a socket, either a Windows named pipe or a Unix namespaced socket, that allows for external processes to dynamically tile panels or interact with a Laura workspace. Whether through the `laura` CLI or an MCP service, all external interactions flow through the protocol.
+The protocol is NDJSON communication over a socket, either a Windows named pipe or a Unix namespaced socket, that allows for external processes to dynamically tile panes or interact with a Laura workspace. Whether through the `laura` CLI or an MCP service, all external interactions flow through the protocol.
 
 > [!TIP]
 > A tab has only two kinds of interaction: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, submitting a review, do not communicate via the protocol (see [In-process interactions](#in-process-interactions)).
@@ -13,7 +13,7 @@ The name includes per-process entropy (`laura-<pid>-<nonce>-<n>`) so a reused PI
 
 ### Panes
 
-A Laura workspace is a recursive binary split tree; each leaf is a panel with a per-tab monotonic `u64` id. The shell is always pane `0`. Ids are stable and never reused within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
+A Laura workspace is a recursive binary split tree; each leaf is a pane with a per-tab monotonic `u64` id. The shell is always pane `0`. Ids are stable and never reused within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
 
 ## Messages
 
@@ -21,7 +21,7 @@ Each connection carries one request and one response: the client connects, sends
 
 ### `open`
 
-Splits a pane into a new panel rendering a file.
+Splits a pane into a new pane rendering a file.
 
 <table class="proto">
 <tr>
@@ -35,15 +35,15 @@ Splits a pane into a new panel rendering a file.
 <dt><code>dir</code> · string · <em>default: <code>horizontal</code></em></dt>
 <dd><code>horizontal</code> or <code>vertical</code>.</dd>
 <dt><code>ratio</code> · integer · <em>default: <code>50</code></em></dt>
-<dd>New panel's percent, <code>1..99</code>.</dd>
+<dd>New pane's percent, <code>1..99</code>.</dd>
 <dt><code>side</code> · string · <em>default: <code>second</code></em></dt>
-<dd><code>first</code>/<code>second</code> — where the new panel lands.</dd>
+<dd><code>first</code>/<code>second</code> — where the new pane lands.</dd>
 <dt><code>focus</code> · boolean · <em>default: <code>true</code></em></dt>
-<dd>Move focus into the new panel.</dd>
+<dd>Move focus into the new pane.</dd>
 <dt><code>dry_run</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Report the resulting layout without changing anything.</dd>
 <dt><code>highlight</code> · [int, int] · <em>default: <code>null</code></em></dt>
-<dd><code>[start, end]</code>, applied as the panel first paints.</dd>
+<dd><code>[start, end]</code>, applied as the pane first paints.</dd>
 <dt><code>diff</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Open straight into the inline diff view.</dd>
 </dl>
@@ -159,7 +159,7 @@ Focuses a pane by id.
 
 ### `highlight`
 
-Reverse-videos a range of lines in a panel and scrolls it into view.
+Reverse-videos a range of lines in a pane and scrolls it into view.
 
 <table class="proto">
 <tr>
@@ -167,7 +167,7 @@ Reverse-videos a range of lines in a panel and scrolls it into view.
 
 <dl>
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
-<dd>Panel to highlight.</dd>
+<dd>Pane to highlight.</dd>
 <dt><code>start</code> · integer · <strong>required</strong></dt>
 <dd>First line, 1-based inclusive.</dd>
 <dt><code>end</code> · integer · <em>default: <code>start</code></em></dt>
@@ -202,7 +202,7 @@ Line numbers are source-file lines, matching the gutter and review `L<n>`; for m
 
 ### `diffview`
 
-Toggles a panel's inline diff view against git `HEAD`.
+Toggles a pane's inline diff view against git `HEAD`.
 
 <table class="proto">
 <tr>
@@ -210,7 +210,7 @@ Toggles a panel's inline diff view against git `HEAD`.
 
 <dl>
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
-<dd>Panel to toggle.</dd>
+<dd>Pane to toggle.</dd>
 <dt><code>on</code> · boolean | null · <em>default: <code>null</code></em></dt>
 <dd><code>null</code> to toggle, <code>true</code>/<code>false</code> to set.</dd>
 </dl>
@@ -328,7 +328,7 @@ Reserved for a re-render nudge; not yet emitted.
 
 <dl>
 <dt><code>path</code> · string · <strong>required</strong></dt>
-<dd>File whose panel to re-render.</dd>
+<dd>File whose pane to re-render.</dd>
 </dl>
 
 </td>
