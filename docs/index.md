@@ -26,10 +26,11 @@ Laura runs your agent CLI in a PTY and provides a set of agent skills you or you
 **1. Install Laura.** Requires Rust (stable); installs a `laura` binary:
 
 ```bash
-cargo install --git https://github.com/thomaseleff/laura-tui laura --locked
+cargo install laura-tui --locked   # Rust
+uv tool install laura-tui          # uv/pip
 ```
 
-Or from a clone: `cargo build --release --locked` → `target/release/laura`.
+Both drop a `laura` binary on PATH. Or from a clone: `cargo build --release --locked` → `target/release/laura`.
 
 **2. Install the skill** so your agent knows how to drive `laura`. In Claude Code:
 
