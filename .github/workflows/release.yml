@@ -62,7 +62,7 @@ jobs:
           - { os: ubuntu-latest, target: x86_64 }
           - { os: ubuntu-latest, target: aarch64 } # ARM64 Linux: Raspberry Pi (64-bit), AWS Graviton/Ampere — cross-built via QEMU
           - { os: macos-latest, target: aarch64 } # Apple Silicon
-          - { os: macos-13, target: x86_64 } # Intel Mac
+          - { os: macos-15-intel, target: x86_64 } # Intel Mac (macos-13 retired Dec 2025)
           - { os: windows-latest, target: x64 }
     runs-on: ${{ matrix.os }}
     steps:
