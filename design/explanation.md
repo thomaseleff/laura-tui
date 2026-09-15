@@ -2,53 +2,47 @@
 
 ## The problem
 
-Coding agents live in the terminal, but the terminal is a firehose, not a workspace. When an agent wants to show you something richer than text — a rendered doc, a diff worth discussing, a running demo — it can't. So you leave to a browser, a diff tool, a PR, an IDE. Context shatters across surfaces and the tight loop of *show me → let me react → try again* breaks.
+Coding agents run in the terminal, but the terminal is a stream you scroll, not a workspace you compose. When an agent wants to show you something richer than text — a rendered doc, a diff worth discussing, a running demo — it can't. So you leave for a browser, a diff tool, a PR, an IDE, and the show-me, react, retry loop breaks across surfaces.
 
-## The idea
+## What Laura is
 
-Terminals treat agent output as a **stream you scroll**. Laura treats it as a **surface you and your agent compose** — an **API over the TUI**. The agent **procedurally assembles** the UI for your prompt: it decides what to show, where, and how it refreshes, rather than handing you the same fixed layout every session. One rendered pane today is the proof-of-concept slice of that; the protocol is the general form.
+Laura is an **API over the TUI**. The agent assembles the screen for the task at hand — what to show, where, how it refreshes — instead of handing you the same fixed layout every session. One rendered pane is the proof of concept; the protocol is the general form for external processes to interact with the TUI.
 
-Laura owns the screen and organizes work into **tabs**. Each tab hosts a **shell (PTY)** where an agent runs, plus **panes** the agent opens *within its tab*. Drawing and updating panes happens through **one mutation protocol** anything can speak: the agent is a client, and so is any future producer — a statusline, a status pane, an extension — all the same protocol.
+Laura owns the screen and organizes work into tabs. Each tab holds one shell — a PTY where an agent or you runs — and the panes the agent opens within that tab. Every draw and update goes through one mutation protocol: the agent is a client, and so is any future producer — a statusline, a status pane, an extension — over the same protocol.
 
 ## The model
 
-- **Tab** — the top-level unit. Each tab owns one shell/PTY and its own set of panes.
-- **Shell** — an agent (or you) runs in the tab's PTY. Laura never wraps or reinterprets it.
-- **Pane** — a view you or the agent opens within its tab (code, rendered doc), markable with in-line comments. File-backed panes are **live**: they track their source and re-render as it changes.
-- **Protocol** — the interface a producer uses to open/update panes, collect comments, and submit reviews. Transport is a per-tab local socket named from `LAURA_TAB`; scoping is a consequence of addressing, not a security boundary — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
+- **Tab** — the top-level unit. Owns one shell/PTY and its own panes.
+- **Shell** — an agent, or you, runs in the tab's PTY. Laura never wraps or reinterprets it.
+- **Pane** — a view opened within a tab (code, a rendered doc), markable with inline comments. File-backed panes are live: they track their source and re-render when it changes.
+- **Protocol** — how a producer opens and updates panes, collects comments, and submits reviews. Transport is a per-tab local socket named from `LAURA_TAB`. Scoping falls out of addressing, not security — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
 
 ## The core loop
 
-*Agent runs in a tab's shell → agent opens a pane in that tab → you see it → you comment in place → your feedback flows back → agent revises.* Never leave the terminal.
+The agent runs in a tab's shell, opens a pane, you see it, you comment on a line, your feedback flows back, the agent revises. You never leave the terminal.
 
 ## Design principles
 
 - **The shell is sacred.** Laura never intercepts, wraps, or reinterprets what you run. A plain-terminal workflow works unchanged.
-- **One protocol, no special cases.** The agent has no privileged path an extension couldn't use.
+- **One protocol, no special cases.** The agent has no path an extension couldn't use.
 - **Show, don't tell.** Every capability exists to let the agent show work and let you react in place.
-- **Live by default.** File-backed panes are watched and re-render on disk change.
-- **Elegant and bare.** Calm, minimal, screenshot-worthy. Nothing on screen you didn't ask for.
-- **Local, private, fast.** Runs on your machine; the shell never stutters.
-
-## How markdown numbering works
-
-Markdown panes render **per top-level block** (heading, paragraph, list, table), and each rendered row is tagged with the *source* line range it came from. `tui-markdown` reflows a hand-wrapped paragraph — several source lines — onto one row, but the gutter still shows the paragraph's real source line, and `highlight`/review `L<n>` resolve through the same map. So a line number taken off disk (`wc -l`, an editor, `git blame`) always points at the right content, with no per-file caveat. The mid-paragraph line an agent happens to wrap at carries no meaning, so the whole paragraph is the addressable unit — a comment there emits the block's `L<a>-<b>` range. Verbatim blocks (fenced code, HTML) are the exception: they render one row per source line, so their gutter/`L<n>` is a single line, not a block range. The diff view for markdown drops the styled projection and shows the **raw-source** patch (`+`/`-` on the file's real lines), like any code file; the rendered view keeps the styling with gutter change-bars.
+- **Live by default.** File-backed panes re-render on disk change.
+- **Elegant and bare.** Nothing on screen you didn't ask for.
+- **Local and fast.** Runs on your machine; the shell never stutters.
 
 ## Where Laura sits
 
-- **Agent multiplexers** run N agents in panes and watch status. Laura hosts shells.
-- **Diff-review tools** bolt review onto a diff. Laura makes review-as-canvas the center.
-- **The space Laura takes:** the terminal as a shared, programmable canvas you and the agent both draw on and mark up.
-
-*Others let you watch your agents. Laura lets your agent show you — and you show it back.*
+- **Agent multiplexers** run N agents in panes and watch status. Laura hosts one shell and gives the agent the screen.
+- **Diff-review tools** bolt review onto a diff. Laura puts review in the pane where you're already working.
+- **The space Laura takes** — the terminal as a canvas you and the agent both draw on and mark up.
 
 ## Non-goals
 
 - Not a coding agent (no model, prompts, or harness — bring your own).
-- Not a multiplexer/orchestrator (the shell is substrate, not the pitch).
+- Not a multiplexer or orchestrator (the shell is substrate, not the pitch).
 - Not an IDE (no LSP, build system, or project model).
 - Not a cloud product (single machine, local-first).
 
-Rule of thumb: features that make Laura a better *worker* or *orchestrator* are out; features that make it a better *canvas and workspace* are in.
+Rule of thumb: a feature that makes Laura a better worker or orchestrator is out; one that makes it a better canvas is in.
 
 The engineering invariants behind the protocol seam are in [technical-vision.md](technical-vision.md).
