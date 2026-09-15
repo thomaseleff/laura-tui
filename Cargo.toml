@@ -1,5 +1,5 @@
 [package]
-name = "laura"
+name = "laura-tui"
 version = "0.6.0"
 edition = "2024"
 description = "Laura is a TUI workspace that provides your agent with an API over the TUI, allowing your agent to dynamically tile panes while you pair-program."
@@ -9,6 +9,13 @@ readme = "README.md"
 keywords = ["tui", "terminal", "pty", "coding-agent", "ratatui"]
 categories = ["command-line-utilities", "development-tools"]
 authors = ["Tom Eleff <eleffthomas@gmail.com>"]
+# Package is laura-tui (laura is taken on PyPI; match across registries); binary stays `laura`.
+# assets/nord.tmTheme is include_str!'d by src/render.rs — needed at compile time.
+include = ["src/**", "build.rs", "assets/nord.tmTheme", "Cargo.toml", "Cargo.lock", "README.md", "/LICENSE", "pyproject.toml"]
+
+[[bin]]
+name = "laura"
+path = "src/main.rs"
 
 [profile.release]
 strip = true

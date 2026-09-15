@@ -1,0 +1,110 @@
+# Releasing: dispatch this workflow with a version (Actions → Release, or
+# `gh workflow run release.yml -f version=0.7.0`). CI injects that version into
+# every versioned file, commits `Bump to vX.Y.Z` to main, tags that commit,
+# publishes to crates.io + PyPI, then cuts the GitHub release. No manual bump.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, no leading v (e.g. 0.7.0)"
+        required: true
+
+permissions:
+  contents: write # push the bump commit + tag + create the release
+
+jobs:
+  prepare: # inject version, commit the bump, tag that commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Inject version, commit bump, tag it
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad version: $V"; exit 1; }
+          sed -i 's/^version = ".*"/version = "'"$V"'"/'                          Cargo.toml
+          sed -i '/^name = "laura-tui"$/{n;s/^version = .*/version = "'"$V"'"/;}'  Cargo.lock
+          sed -i 's/"version": "[^"]*"/"version": "'"$V"'"/'  plugins/laura/.claude-plugin/plugin.json
+          sed -i 's/"version": "[^"]*"/"version": "'"$V"'"/'  .claude-plugin/marketplace.json
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump to v${V}"
+          git tag "v${V}"                 # tag lands ON the bump commit
+          git push origin main "v${V}"    # branch + tag together
+
+  crates: # publish to crates.io (self-verifying build)
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: release # scopes CARGO_REGISTRY_TOKEN to this job
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main # the bump commit
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
+
+  wheels: # build one wheel per OS/arch
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64 }
+          - { os: ubuntu-latest, target: aarch64 } # ARM64 Linux: Raspberry Pi (64-bit), AWS Graviton/Ampere — cross-built via QEMU
+          - { os: macos-latest, target: aarch64 } # Apple Silicon
+          - { os: macos-13, target: x86_64 } # Intel Mac
+          - { os: windows-latest, target: x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: build
+          args: --release --locked --out dist
+          target: ${{ matrix.target }}
+          maturin-version: v1.9.4 # match the pyproject build-system pin
+          sccache: "true"
+          manylinux: auto # linux only; ignored elsewhere
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
+
+  pypi: # publish all wheels via Trusted Publishing (OIDC, no token)
+    needs: wheels
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+
+  release: # GitHub release once both registries are done
+    needs: [crates, pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v${{ inputs.version }}" --generate-notes

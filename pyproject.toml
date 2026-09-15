@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin==1.9.4"]
+build-backend = "maturin"
+
+[project]
+name = "laura-tui"
+description = "Laura is a TUI workspace that provides your agent with an API over the TUI, allowing your agent to dynamically tile panes while you pair-program."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dynamic = ["version"]
+
+[tool.maturin]
+bindings = "bin"
