@@ -313,6 +313,41 @@ fn blank_line_before_heading_survives() -> Result<()> {
     Ok(())
 }
 
+/// #47: highlight into a fenced block must reverse-video the code rows, not a rendered row well
+/// below. The distinct-from-#32 case is *reflow before the block* — prose that collapses several
+/// source lines into fewer rendered rows, so rendered-row-index ≠ source-line at the fence.
+/// L1 `# Title`, L2 blank, L3-8 one long paragraph (reflows), L9 blank,
+/// L10 ```` ```rust ````, L11 `let a = 1;`, L12 `let b = 2;`, L13 ```` ``` ````.
+const REFLOW_CODE_DOC: &str = "# Title\n\nword word word word word word word word word word word\nword word word word word word word word word word word\nword word word word word word word word word word word\nword word word word word word word word word word word\nword word word word word word word word word word word\nword word word word word word word word word word word\n\n```rust\nlet a = 1;\nlet b = 2;\n```\n";
+
+#[test]
+fn highlight_fenced_block_lands_on_code_rows_after_reflow() -> Result<()> {
+    let (_f, p) = write_doc(REFLOW_CODE_DOC)?;
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
+    let id_s = id.to_string();
+
+    // Highlight source lines 11..=12 (the two `let …;` lines).
+    drive(&mut tab, &["highlight", "11", "12", "--pane", &id_s]);
+    let panel = &tab.panels[&id];
+    let (lo, hi) = panel.highlight.expect("highlight set");
+
+    // The highlighted styled-lines are the code rows — by text, not by index.
+    let layout = panel.layout(80);
+    let text = |line: usize| layout.rows.iter().find(|r| r.line == line).unwrap().text();
+    assert!(
+        text(lo).contains("let a = 1;"),
+        "highlight lo row is the first code line, got {:?}",
+        text(lo)
+    );
+    assert!(
+        text(hi).contains("let b = 2;"),
+        "highlight hi row is the second code line, got {:?}",
+        text(hi)
+    );
+    Ok(())
+}
+
 #[test]
 fn code_files_keep_identity_line_mapping() -> Result<()> {
     // A .rs file has no collapsing: highlight 4 → rendered row 3, gutter 4. Non-markdown untouched.
