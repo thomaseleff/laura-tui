@@ -113,6 +113,31 @@ fn highlight_centers_then_top_anchors() -> Result<()> {
     Ok(())
 }
 
+/// `highlight --off` clears a set highlight through the CLI seam; a second `--off` is a harmless no-op.
+#[test]
+fn highlight_off_clears() -> Result<()> {
+    let mut f = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    for i in 1..=10 {
+        writeln!(f, "line {i}")?;
+    }
+    let p = f.path().to_str().unwrap().to_string();
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
+    let id_s = id.to_string();
+
+    drive(&mut tab, &["highlight", "3", "5", "--pane", &id_s]);
+    assert_eq!(tab.panels[&id].highlight, Some((2, 4)));
+
+    drive(&mut tab, &["highlight", "--off", "--pane", &id_s]);
+    assert_eq!(tab.panels[&id].highlight, None);
+
+    // Idempotent: clearing an already-clear pane stays cleared.
+    drive(&mut tab, &["highlight", "--off", "--pane", &id_s]);
+    assert_eq!(tab.panels[&id].highlight, None);
+    Ok(())
+}
+
 /// `open --highlight <start> <end>` paints the new panel already pointed-at: same panel state as the
 /// standalone verb, proving the shared `set_highlight` fires on open (open-and-point in one call).
 #[test]

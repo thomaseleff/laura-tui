@@ -34,12 +34,14 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
 laura close [<id>]      Close a pane (default: the focused one).
       --all             Close every pane, back to shell-only.
 laura focus <id>        Focus a pane by id.
-laura highlight <start> [end]
+laura highlight [start] [end]
                         Highlight lines start..=end (1-based, inclusive) in a pane and
                         scroll them into view. end defaults to start (single line). Line numbers
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph maps to
                         that whole block. e.g. `laura highlight 40 52`.
+      --off             Clear the pane's highlight (start is then optional). The user can
+                        also press `h` on the focused pane.
       --pane <id>       pane to highlight (default: the focused pane).
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
       --pane <id>       pane to toggle (default: the focused pane).

@@ -213,9 +213,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
             } else if tab.focus != PTY_PANE {
                 if tab.agent {
-                    "  ↑/↓ move · c comment · S submit · d diff · x close · Esc leave focus"
+                    "  ↑/↓ move · c comment · S submit · d diff · x close · h clear · Esc leave focus"
                 } else {
-                    "  ↑/↓ move · d diff · x close · Esc leave focus · review: run `laura ready`"
+                    "  ↑/↓ move · d diff · x close · h clear · Esc leave focus · review: run `laura ready`"
                 }
             } else {
                 "  ^p panes · ^t tabs · ^h help · ^q quit"
@@ -455,6 +455,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             }
                             KeyCode::Char('x') => {
                                 tabs[active].close_pane(None);
+                            }
+                            KeyCode::Char('h') => {
+                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                    p.clear_highlight();
+                                }
                             }
                             KeyCode::Esc => tabs[active].focus = PTY_PANE,
                             _ => {}
@@ -1057,6 +1062,7 @@ fn render_help(f: &mut Frame) {
         key("c", "comment on line (needs `laura ready`)"),
         key("S", "submit review (needs `laura ready`)"),
         key("x", "close pane"),
+        key("h", "clear highlight"),
         key("Esc", "leave focus"),
         Line::raw(""),
         group("Draft"),

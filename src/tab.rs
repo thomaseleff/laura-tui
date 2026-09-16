@@ -321,7 +321,7 @@ impl Tab {
                     }
                 }
             }
-            Message::Highlight { pane, start, end } => {
+            Message::Highlight { pane, range } => {
                 let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
                 let Some(target) = target else {
                     return Response::Error {
@@ -333,9 +333,18 @@ impl Tab {
                         message: format!("no pane #{target}"),
                     };
                 };
-                let end = end.unwrap_or(start);
-                panel.set_highlight(start, end);
-                self.log_event(json!({"type":"highlight","pane":target,"start":start,"end":end}));
+                match range {
+                    Some((start, end)) => {
+                        panel.set_highlight(start, end);
+                        self.log_event(
+                            json!({"type":"highlight","pane":target,"start":start,"end":end}),
+                        );
+                    }
+                    None => {
+                        panel.clear_highlight();
+                        self.log_event(json!({"type":"highlight","pane":target,"cleared":true}));
+                    }
+                }
                 Response::Ok
             }
             Message::DiffView { pane, on } => {

@@ -79,12 +79,16 @@ enum Cmd {
     },
     /// Focus a pane by id.
     Focus { id: PaneId },
-    /// Highlight a line range in a pane and scroll it into view.
+    /// Highlight a line range in a pane and scroll it into view; `--off` clears it.
     Highlight {
         /// First line to highlight (1-based).
-        start: u32,
+        #[arg(required_unless_present = "off")]
+        start: Option<u32>,
         /// Last line (default: same as start).
         end: Option<u32>,
+        /// Clear the pane's highlight (default: set).
+        #[arg(long)]
+        off: bool,
         /// Pane to highlight (default: the focused pane).
         #[arg(long)]
         pane: Option<PaneId>,
@@ -176,8 +180,21 @@ fn main() -> Result<()> {
         }
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
         Some(Cmd::Focus { id }) => client_request(Message::Focus { pane: id }),
-        Some(Cmd::Highlight { start, end, pane }) => {
-            client_request(Message::Highlight { pane, start, end })
+        Some(Cmd::Highlight {
+            start,
+            end,
+            off,
+            pane,
+        }) => {
+            let range = if off {
+                None
+            } else {
+                // `required_unless_present = "off"` makes bare `highlight` a clap error, so a
+                // missing `start` here is an unreachable invariant, not runtime input.
+                let s = start.expect("clap requires start unless --off");
+                Some((s, end.unwrap_or(s)))
+            };
+            client_request(Message::Highlight { pane, range })
         }
         Some(Cmd::Diff { pane, off }) => client_request(Message::DiffView {
             pane,

@@ -24,6 +24,7 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 | `Shift+s` | Submit the review |
 | `d` | Toggle inline diff vs git `HEAD` |
 | `x` | Close the pane |
+| `h` | Clear the pane's highlight |
 | `Esc` | Leave the pane |
 
 ## Scrolling

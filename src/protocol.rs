@@ -89,14 +89,14 @@ pub enum Message {
     },
     /// Focus a pane by stable id.
     Focus { pane: PaneId },
-    /// Highlight lines `start..=end` (1-based, inclusive) in a panel and scroll
-    /// them into view. `pane` defaults to the focused panel; `end` defaults to `start`.
+    /// Highlight a line range (1-based, inclusive) in a panel and scroll it into
+    /// view. `pane` defaults to the focused panel; `range: None` clears the highlight.
     Highlight {
         #[serde(default)]
         pane: Option<PaneId>,
-        start: u32,
+        /// `Some((start, end))` highlights; `None` clears.
         #[serde(default)]
-        end: Option<u32>,
+        range: Option<(u32, u32)>,
     },
     /// Toggle (or set) the inline diff view on a panel. `pane` defaults to the
     /// focused panel; `on` = `None` toggles, `Some(b)` sets. Refused (error) when
