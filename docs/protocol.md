@@ -159,7 +159,7 @@ Focuses a pane by id.
 
 ### `highlight`
 
-Reverse-videos a range of lines in a pane and scrolls it into view.
+Highlights a range of lines in a pane and scrolls it into view.
 
 <table class="proto">
 <tr>
@@ -198,7 +198,7 @@ Reverse-videos a range of lines in a pane and scrolls it into view.
 </tr>
 </table>
 
-Line numbers are source-file lines, matching the gutter and review `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines points at that block. The highlight is independent of focus and of the cursor, and persists until re-set or the file reloads shorter. Out-of-range values clamp to the file.
+Line numbers are source-file lines, matching the gutter and review `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. The highlight is independent of focus and of the cursor, and persists until re-set or the file reloads shorter. Out-of-range values clamp to the file.
 
 ### `diffview`
 

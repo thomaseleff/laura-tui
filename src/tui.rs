@@ -10,12 +10,13 @@ use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use tui_term::widget::PseudoTerminal;
 
 use laura::protocol::PTY_PANE;
+use laura::render::CODE_BG;
 use laura::{ChangeKind, Panel, Tab, bracketed_paste, wrap_line};
 use serde_json::json;
 
@@ -684,12 +685,87 @@ fn pane_block(title: Option<String>, focused: bool) -> Block<'static> {
     block
 }
 
-/// Draw one file panel: pre-wrapped rows, gutter, cursor highlight (when focused), and an overflow scrollbar.
+/// The cursor row's gray band (nord3) and the slightly-lighter gray code chips read on top of it.
+const BAND: Color = Color::Rgb(67, 76, 94);
+const CODE_ON_BAND: Color = Color::Rgb(82, 92, 110);
+
+/// A highlighted row's gutter number: soft white (nord4), brighter than the dimmed rest, so the
+/// gutter itself marks which rows the spotlight is on — regardless of the row's content.
+const HL_NUMBER: Color = Color::Rgb(216, 222, 233);
+
+/// Blend an RGB colour toward white by `t` (0..1). Non-RGB colours (rare in our styles) pass through.
+fn brighten(c: Color, t: f32) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => {
+            let up = |v: u8| (f32::from(v) + (255.0 - f32::from(v)) * t).round() as u8;
+            Color::Rgb(up(r), up(g), up(b))
+        }
+        other => other,
+    }
+}
+
+/// Brighten a highlighted row's span so lit rows read *above* the full-colour-but-unlit rest without
+/// a background band. A span with no explicit fg (default prose) is pinned to a bright near-white first.
+fn bright_span(mut s: Span<'static>) -> Span<'static> {
+    // Inline-code caps (fg = CODE_BG, no box) must keep matching the chip's dark bg, which brighten
+    // leaves alone — lifting their fg would make the caps read lighter than the box they edge.
+    if s.style.fg == Some(CODE_BG) {
+        return s;
+    }
+    // HTML-block spans carry DIM (render.rs uses it to detect them) — leaving it on cancels the
+    // brighten, so the row looks untouched. Drop it before lifting fg.
+    s.style.add_modifier.remove(Modifier::DIM);
+    let base = s.style.fg.unwrap_or(Color::Rgb(200, 200, 200));
+    s.style.fg = Some(brighten(base, 0.3));
+    s
+}
+
+/// Color-emoji glyphs ignore SGR DIM (the terminal paints them from the emoji font), so a dimmed
+/// callout glyph would still pop. Replace each with two spaces (not delete) so the following text
+/// keeps its columns: deleting slid it left and left the wide glyph's cells as a repaint ghost the
+/// terminal never cleared (the stray "e" after "Note"). The `Note`/`Warning` word carries the callout.
+///
+/// ponytail: callout emoji render 2 cells wide (VS16 presentation); the fixed 2-space swap matches
+/// that. A rare width-1 emoji would over-pad by one — widen this if a non-callout glyph shows up.
+fn strip_emoji(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        let u = c as u32;
+        if u == 0xFE0F {
+            // variation selector — width 0, the base glyph's spaces already cover it
+        } else if u == 0x2139 || (0x2600..=0x27BF).contains(&u) || (0x1F000..=0x1FAFF).contains(&u)
+        {
+            out.push_str("  "); // color emoji → 2 spaces, same columns as the width-2 glyph
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Spotlight dim for a non-highlighted row: strip BOLD (else it beats DIM), drop the code bg box
+/// (it ignores DIM), drop color emoji (DIM can't touch them), then add DIM.
+fn dim_span(mut s: Span<'static>) -> Span<'static> {
+    // Inline-code caps (fg = CODE_BG, no box) would dim to a stray dark block once the chip's bg
+    // is stripped, so drop the glyph — the run then reads as plain dimmed prose.
+    if s.style.fg == Some(CODE_BG) {
+        s.content = "".into();
+    }
+    s.style.add_modifier.remove(Modifier::BOLD);
+    s.style.bg = None;
+    s.style = s.style.add_modifier(Modifier::DIM);
+    s.content = strip_emoji(&s.content).into();
+    s
+}
+
+/// Draw one file panel: pre-wrapped rows, gutter, agent-highlight spotlight + cursor band, and an overflow scrollbar.
 fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
     // `Panel::layout` pre-wraps into 1:1 rows; we only style them here.
     let inner_w = area.width.saturating_sub(2) as usize; // minus borders
     let layout = panel.layout(inner_w);
     let gw = layout.gutter_width;
+    // Whole-pane decision: an active highlight spotlights its rows and dims every other row.
+    let spotlight = panel.highlight.is_some();
     let rows: Vec<Line> = layout
         .rows
         .iter()
@@ -719,32 +795,61 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 spans.extend(r.spans.iter().cloned());
                 Line::from(spans).dim()
             } else {
-                let hot = panel
+                let highlighted = panel
                     .highlight
-                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line))
-                    || (focused && r.line == panel.cursor);
-                if hot {
-                    // Reverse the number (selection marker) and body, but leave the change
-                    // bar untouched, then pad the row's background to the panel edge (#35).
-                    let mut spans = vec![Span::raw(number).reversed(), bar];
-                    let body: Vec<Span> = r.spans.iter().cloned().map(|s| s.reversed()).collect();
-                    let used = gw
-                        + 1
-                        + body
-                            .iter()
-                            .map(|s| s.content.chars().count())
-                            .sum::<usize>();
-                    spans.extend(body);
-                    if inner_w > used {
-                        spans.push(Span::styled(
-                            " ".repeat(inner_w - used),
-                            Style::new().reversed(),
-                        ));
-                    }
-                    Line::from(spans)
+                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line));
+                let on_cursor = focused && r.line == panel.cursor;
+
+                // A highlighted row's number reads in soft white; every other row's dims.
+                let number_span = if highlighted {
+                    Span::styled(number, Style::default().fg(HL_NUMBER))
                 } else {
-                    let mut spans = vec![Span::raw(number).dim(), bar];
-                    spans.extend(r.spans.iter().cloned());
+                    Span::raw(number).dim()
+                };
+                let mut spans = vec![number_span, bar];
+                let mut body: Vec<Span> = r.spans.to_vec();
+                // Three readable states off the cursor row: a highlighted row brightens (reads above
+                // the rest, no band), the rest dim under an active spotlight, plain otherwise. On the
+                // cursor row the gray band wins over both.
+                if !on_cursor {
+                    if highlighted {
+                        body = body.into_iter().map(bright_span).collect();
+                    } else if spotlight {
+                        body = body.into_iter().map(dim_span).collect();
+                    }
+                }
+
+                // Pad every row's trailing width to the pane edge (the #35 width-pad — a Line's
+                // style doesn't fill it). Without this, a row that shrinks between frames — dim
+                // strips the callout emoji / blanks inline caps — leaves the wider prior frame's
+                // last cells unpainted (a stray "e" after "Note"). The band also needs it for its bg.
+                let used = gw
+                    + 1
+                    + body
+                        .iter()
+                        .map(|s| s.content.chars().count())
+                        .sum::<usize>();
+                let pad = inner_w.saturating_sub(used);
+                if on_cursor {
+                    // Gray band under the cursor. Repaint code chips + inline caps a shade lighter
+                    // so they read as raised chips on the band, not holes.
+                    spans.extend(body);
+                    for s in spans.iter_mut() {
+                        if s.style.bg.is_some() {
+                            s.style.bg = Some(CODE_ON_BAND); // code box → chip on the band
+                        } else if s.style.fg == Some(CODE_BG) {
+                            s.style.fg = Some(CODE_ON_BAND); // inline cap → chip edge on the band
+                        }
+                    }
+                    if pad > 0 {
+                        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
+                    }
+                    Line::from(spans).bg(BAND)
+                } else {
+                    spans.extend(body);
+                    if pad > 0 {
+                        spans.push(Span::raw(" ".repeat(pad)));
+                    }
                     Line::from(spans)
                 }
             }

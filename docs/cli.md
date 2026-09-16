@@ -26,19 +26,19 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
       --no-focus        Don't move focus into the pane.
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
-      --highlight <start> [end]  Point at a line range once open (1-based, inclusive); end
-                        defaults to start. Opens the pane already scrolled to and reverse-videoing
+      --highlight <start> [end]  Highlight a line range once open (1-based, inclusive); end
+                        defaults to start. Opens the pane already scrolled to and spotlighting
                         the range — the one-call "show me where" gesture. e.g. `laura open x.rs
-                        --highlight 40 52`. (See `laura highlight` to point at an already-open pane.)
+                        --highlight 40 52`. (See `laura highlight` to highlight an already-open pane.)
       --diff            Open straight into the inline diff view (vs git HEAD).
 laura close [<id>]      Close a pane (default: the focused one).
       --all             Close every pane, back to shell-only.
 laura focus <id>        Focus a pane by id.
 laura highlight <start> [end]
-                        Reverse-video lines start..=end (1-based, inclusive) in a pane and
+                        Highlight lines start..=end (1-based, inclusive) in a pane and
                         scroll them into view. end defaults to start (single line). Line numbers
                         are the file's real source lines (an editor / wc -l / git blame), for
-                        markdown too — a source line inside a hand-wrapped paragraph points at
+                        markdown too — a source line inside a hand-wrapped paragraph maps to
                         that whole block. e.g. `laura highlight 40 52`.
       --pane <id>       pane to highlight (default: the focused pane).
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).

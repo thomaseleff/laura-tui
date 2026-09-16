@@ -70,4 +70,4 @@ Your review is automatically injected into your agent chat with a review body an
 
 ## Next
 
-Run the `/laura:demo` skill to task your agent with showing you the rest - stacking a plan and logs beside your work, tailing a running service, pointing you at a range of lines.
+Run the `/laura:demo` skill to task your agent with showing you the rest - stacking a plan and logs beside your work, tailing a running service, highlighting a range of lines.

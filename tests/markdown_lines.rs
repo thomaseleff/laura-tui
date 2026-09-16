@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use assert_cmd::Command;
-use laura::{Panel, Rect, Tab};
+use laura::render::CODE_BG;
+use laura::{Panel, PanelRow, Rect, Tab};
 
 fn spawn_tab() -> Result<Tab> {
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
@@ -378,5 +379,190 @@ fn code_files_keep_identity_line_mapping() -> Result<()> {
         Some(4),
         "gutter equals the source line for code"
     );
+    Ok(())
+}
+
+/// The row's total content width (chars across all spans).
+fn row_width(r: &PanelRow) -> usize {
+    r.spans.iter().map(|s| s.content.chars().count()).sum()
+}
+
+/// A row whose non-blank spans all carry the code bg box (post-boxing, a fenced-code row).
+fn is_code_row(r: &PanelRow) -> bool {
+    let mut nb = r.spans.iter().filter(|s| !s.content.trim().is_empty());
+    nb.clone().next().is_some() && nb.all(|s| s.style.bg.is_some())
+}
+
+/// #51: a ragged fenced block is padded into a uniform rectangle — every code row shares one width
+/// and is flanked by code-bg inner-pad spaces. Tested through the public `panel.layout(w)` surface.
+#[test]
+fn fenced_block_renders_as_uniform_rectangle() -> Result<()> {
+    // Ragged widths: 10, 12, and 1 chars between the fences.
+    let (_f, p) = write_doc("# T\n\n```rust\nlet a = 1;\nlet bb = 22;\nx\n```\n")?;
+    let panel = Panel::open(p);
+    let layout = panel.layout(80);
+    let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| is_code_row(r)).collect();
+    assert_eq!(code.len(), 3, "the three code lines between the fences");
+
+    let w0 = row_width(code[0]);
+    for r in &code {
+        assert_eq!(
+            row_width(r),
+            w0,
+            "every code row padded to one width: {:?}",
+            r.text()
+        );
+        let first = r.spans.first().unwrap();
+        assert_eq!(first.content.as_ref(), " ", "leading inner-pad space");
+        assert!(first.style.bg.is_some(), "leading pad carries the code bg");
+        let last = r.spans.last().unwrap();
+        assert!(
+            last.content.chars().all(|c| c == ' '),
+            "trailing inner-pad is spaces: {:?}",
+            last.content
+        );
+        assert!(last.style.bg.is_some(), "trailing pad carries the code bg");
+    }
+    Ok(())
+}
+
+/// #51: an inline `code` run is bracketed by full-cell caps (`█`) colored with the code bg.
+#[test]
+fn inline_code_gets_half_cell_caps() -> Result<()> {
+    let (_f, p) = write_doc("Text with `code` here.\n")?;
+    let panel = Panel::open(p);
+    let layout = panel.layout(80);
+    let row = layout
+        .rows
+        .iter()
+        .find(|r| r.text().contains("code"))
+        .expect("the prose row with inline code");
+
+    let left = row
+        .spans
+        .iter()
+        .position(|s| s.content.as_ref() == "\u{2588}")
+        .expect("left cap █");
+    let right = row
+        .spans
+        .iter()
+        .rposition(|s| s.content.as_ref() == "\u{2588}")
+        .expect("right cap █");
+    assert!(left < right, "left cap precedes right cap");
+    assert_eq!(
+        row.spans[left].style.fg,
+        Some(CODE_BG),
+        "left cap fg is the code bg"
+    );
+    assert_eq!(
+        row.spans[right].style.fg,
+        Some(CODE_BG),
+        "right cap fg is the code bg"
+    );
+    assert!(
+        row.spans[left + 1..right]
+            .iter()
+            .any(|s| s.style.bg.is_some()),
+        "a bg code chip sits between the caps"
+    );
+    Ok(())
+}
+
+/// #51 bug: a fenced block under a heading keeps its indent *outside* the code box — the code bg's
+/// left inner-pad must not render at column 0 with the heading indent gapping it from the block.
+#[test]
+fn fenced_block_indent_stays_outside_the_box() -> Result<()> {
+    // `## H` indents its body by 2 (heading depth); the fenced block inherits that indent.
+    let (_f, p) = write_doc("## H\n\n```rust\nlet a = 1;\n```\n")?;
+    let panel = Panel::open(p);
+    let layout = panel.layout(80);
+    let code = layout
+        .rows
+        .iter()
+        .find(|r| is_code_row(r))
+        .expect("code row");
+
+    let first = code.spans.first().unwrap();
+    assert!(
+        first.style.bg.is_none()
+            && first.content.chars().all(|c| c == ' ')
+            && !first.content.is_empty(),
+        "row leads with the plain heading-indent span, not the code box: {:?}",
+        code.spans
+    );
+    assert!(
+        code.spans[1].style.bg.is_some(),
+        "the code box (with its bg left-pad) starts right after the indent, no gap"
+    );
+    Ok(())
+}
+
+/// #51 bug: a multi-word inline `code` chip renders one contiguous bg run — the spaces between words
+/// keep the code bg (not reset to plain by word-wrap), so it's a single chip with only outer caps.
+#[test]
+fn inline_code_chip_bg_is_contiguous_across_spaces() -> Result<()> {
+    let (_f, p) = write_doc("Run `laura open x` now.\n")?;
+    let panel = Panel::open(p);
+    let layout = panel.layout(80);
+    let row = layout
+        .rows
+        .iter()
+        .find(|r| r.text().contains("laura open x"))
+        .expect("prose row with the multi-word chip");
+
+    let caps: Vec<usize> = row
+        .spans
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.content.as_ref() == "\u{2588}")
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(
+        caps.len(),
+        2,
+        "only the two outer caps, not one per word: {:?}",
+        row.spans
+    );
+    for s in &row.spans[caps[0] + 1..caps[1]] {
+        assert!(
+            s.style.bg.is_some(),
+            "every span inside the chip (spaces included) carries the code bg: {:?}",
+            s.content
+        );
+    }
+    Ok(())
+}
+
+/// #54: highlighting a source range that lands in a collapsed multi-row block (table, list, alert)
+/// lights the *whole* block, not just its first rendered row. tui-markdown renders a table as
+/// several rows sharing one source range, so a per-bound single lookup used to collapse both the
+/// start and end onto the block's first row.
+#[test]
+fn highlight_collapsed_block_covers_all_its_rows() -> Result<()> {
+    let doc = "# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\n## Next\n";
+    let (_f, p) = write_doc(doc)?;
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
+    let id_s = id.to_string();
+
+    // The table occupies source lines 3..=6; highlighting them must light every table row.
+    drive(&mut tab, &["highlight", "3", "6", "--pane", &id_s]);
+    let panel = &tab.panels[&id];
+    let (lo, hi) = panel.highlight.expect("highlight set");
+    assert!(
+        hi > lo,
+        "collapsed table spans multiple lit rows, not one: ({lo}, {hi})"
+    );
+
+    // Every lit row belongs to the table block — each carries the block's first source line (L3).
+    let layout = panel.layout(80);
+    for i in lo..=hi {
+        assert_eq!(
+            layout.rows[i].gutter,
+            Some(3),
+            "row {i} is part of the highlighted table block: {:?}",
+            layout.rows[i].text()
+        );
+    }
     Ok(())
 }

@@ -221,7 +221,7 @@ impl Tab {
                         self.next_pane += 1;
                         let mut panel = Panel::open(path.clone());
                         panel.set_follow(follow);
-                        // `set_highlight` after `set_follow` so an explicit point-here range
+                        // `set_highlight` after `set_follow` so an explicit highlight range
                         // wins the viewport anchor over tail-follow when both are set.
                         if let Some((start, end)) = highlight {
                             panel.set_highlight(start, end);

@@ -401,6 +401,10 @@ fn line_text(line: &Line) -> String {
 /// Marks a thematic break; `layout` stretches it full-width so `---` renders as a rule.
 pub(crate) const RULE_SENTINEL: &str = "\u{2500}";
 
+/// Inline/fenced code background. One source shared by `code()`, the panel's spotlight/band
+/// styling, and the fenced-block rectangle so the chip colour never forks.
+pub const CODE_BG: Color = Color::Rgb(45, 45, 45);
+
 /// Heading colour ramp: one blurple hue dimming by level, so headings read as a set. `heading_level` sniffs a heading by this colour + bold.
 const HEADING_RAMP: [Color; 4] = [
     Color::Rgb(96, 130, 246), // H1
@@ -484,9 +488,7 @@ impl tui_markdown::StyleSheet for LauraStyleSheet {
     }
 
     fn code(&self) -> Style {
-        Style::default()
-            .fg(Color::Rgb(180, 180, 180))
-            .bg(Color::Rgb(45, 45, 45))
+        Style::default().fg(Color::Rgb(180, 180, 180)).bg(CODE_BG)
     }
 
     // ponytail: color-only — Ratatui has no dotted underline, so the soft blue carries the link.

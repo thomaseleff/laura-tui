@@ -6,7 +6,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::gitdiff::{self, ChangeKind, DiffOutcome};
-use crate::render::{RULE_SENTINEL, Rendered, render};
+use crate::render::{CODE_BG, RULE_SENTINEL, Rendered, render};
 
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
 pub struct Panel {
@@ -30,8 +30,8 @@ pub struct Panel {
     pub h_offset: usize,
     /// Selected line, 0-based; where a new comment pins.
     pub cursor: usize,
-    /// Agent-directed highlight: 0-based inclusive line range to reverse-video and
-    /// anchor the viewport on; `None` = no highlight.
+    /// Agent-directed highlight: 0-based inclusive line range to spotlight (its rows stay
+    /// full-color, the rest of the pane dims) and anchor the viewport on; `None` = no highlight.
     pub highlight: Option<(usize, usize)>,
     /// `(line, text)` comments; multiple allowed, even several per line.
     pub comments: Vec<(usize, String)>,
@@ -141,24 +141,30 @@ impl Panel {
     }
 
     /// Highlight the rows covering source lines `start..=end` (1-based) and scroll them into view.
-    /// Each maps through its rendered row's source range; a fully out-of-range request pins to the last.
+    /// Lights *every* rendered row whose source range intersects the request, so a collapsed block
+    /// (table/list/alert — many rows sharing one range) lights whole, not just its first row.
+    /// A fully out-of-range request pins to the last row.
     pub fn set_highlight(&mut self, start: u32, end: u32) {
-        let a = self.row_of_source(start);
-        let b = self.row_of_source(end);
-        let (lo, hi) = (a.min(b), a.max(b));
+        let s0 = start.min(end).saturating_sub(1) as usize;
+        let s1 = start.max(end).saturating_sub(1) as usize;
+        // First and last rows intersecting [s0, s1]. `position`/`rposition` (not a single lookup per
+        // bound) is what keeps a multi-row block whole: both its bounds would otherwise collapse to
+        // the block's first row, since every row of it carries the same source range.
+        let hit = |&(a, b): &(usize, usize)| a <= s1 && b >= s0;
+        let (lo, hi) = match (
+            self.source.iter().position(hit),
+            self.source.iter().rposition(hit),
+        ) {
+            (Some(lo), Some(hi)) => (lo, hi),
+            _ => {
+                let last = self.source.len().saturating_sub(1);
+                (last, last)
+            }
+        };
         self.highlight = Some((lo, hi));
         // Park the cursor at `hi`: `scroll_offset` reads `cursor == hi` as "fresh highlight" and
         // centers the span. A manual Up/Down moves the cursor off `hi` → plain cursor-follow.
         self.cursor = hi;
-    }
-
-    /// Rendered row whose source range holds 1-based source line `src1`; past-EOF clamps to the last.
-    fn row_of_source(&self, src1: u32) -> usize {
-        let s = src1.saturating_sub(1) as usize;
-        self.source
-            .iter()
-            .position(|&(a, b)| a <= s && s <= b)
-            .unwrap_or(self.source.len().saturating_sub(1))
     }
 
     /// Row `i`'s gutter change: the highest-ranked change over its source range (Modified > Added >
@@ -340,6 +346,11 @@ impl Panel {
                 }
             }
         }
+        // Source-independent cosmetics, applied once to the finished rows (both testable through
+        // `layout`): box fenced code into a rectangle, then half-cap inline code. Neither adds or
+        // removes rows, so `starts` stays valid.
+        box_fenced(&mut rows);
+        cap_inline(&mut rows);
         PanelLayout {
             rows,
             starts,
@@ -517,6 +528,103 @@ fn line_end_row(layout: &PanelLayout, line: usize) -> Option<usize> {
     Some(end)
 }
 
+/// A fenced-code row: ≥1 non-blank span, every non-blank one carrying the `code()` bg box. Mirrors
+/// `render::classify_nowrap`'s code-block rule — plain code *files* are fg-only, so they don't match.
+fn is_fenced_row(spans: &[Span<'static>]) -> bool {
+    let mut any = false;
+    for s in spans.iter().filter(|s| !s.content.trim().is_empty()) {
+        any = true;
+        if s.style.bg.is_none() {
+            return false;
+        }
+    }
+    any
+}
+
+/// Box each contiguous run of fenced-code rows into a uniform rectangle: pad every row's code bg to
+/// the run's widest content plus a 1-cell inner space on each side. Hugs the code, not the pane edge.
+///
+/// ponytail: padding runs after nowrap rows are clipped to `avail`, so a boxed run can overflow
+/// `avail` by ~2 cells; the Paragraph clips it. h-scroll extent reads source width, so it's unaffected.
+fn box_fenced(rows: &mut [PanelRow]) {
+    let width = |r: &PanelRow| {
+        r.spans
+            .iter()
+            .map(|s| s.content.chars().count())
+            .sum::<usize>()
+    };
+    let mut i = 0;
+    while i < rows.len() {
+        if !is_fenced_row(&rows[i].spans) {
+            i += 1;
+            continue;
+        }
+        let end = i + rows[i..]
+            .iter()
+            .take_while(|r| is_fenced_row(&r.spans))
+            .count();
+        let w = rows[i..end].iter().map(width).max().unwrap_or(0);
+        for r in &mut rows[i..end] {
+            // Pad cells carry the row's own code style, so they dim/band exactly like the block.
+            let style = r
+                .spans
+                .iter()
+                .find(|s| !s.content.trim().is_empty())
+                .map_or_else(Style::default, |s| s.style);
+            let used = width(r);
+            // A leading heading-indent span (blank, no bg) stays *outside* the box, else the code
+            // bg's left pad renders at column 0 with the indent gap between it and the block.
+            let indent = r
+                .spans
+                .first()
+                .is_some_and(|s| s.style.bg.is_none() && s.content.trim().is_empty())
+                .then(|| r.spans.remove(0));
+            let mut boxed = indent.into_iter().collect::<Vec<_>>();
+            boxed.push(Span::styled(" ", style));
+            boxed.append(&mut r.spans);
+            boxed.push(Span::styled(" ".repeat(w - used + 1), style));
+            r.spans = boxed;
+        }
+        i = end;
+    }
+}
+
+/// Wrap each maximal run of inline-code (bg) spans on a non-fenced row with full-cell end caps
+/// (`█`, fg = code bg on the default bg) so the chip carries a solid cell of colour before and after
+/// its glyphs — reads as padding, not the blank half-cell a half-block cap leaves on its outer side.
+/// Plain Unicode block element — no Nerd font needed.
+///
+/// ponytail: a cap can push a fully-wrapped prose row up to 2 cells past `avail` and the last right
+/// cap may clip at the pane edge — rare (inline code exactly at a wrap boundary); the Paragraph clips.
+fn cap_inline(rows: &mut [PanelRow]) {
+    let cap = Style::default().fg(CODE_BG);
+    for r in rows.iter_mut() {
+        if is_fenced_row(&r.spans) || !r.spans.iter().any(|s| s.style.bg.is_some()) {
+            continue;
+        }
+        let mut out: Vec<Span<'static>> = vec![];
+        let mut in_run = false;
+        for s in r.spans.drain(..) {
+            match (s.style.bg.is_some(), in_run) {
+                (true, false) => {
+                    out.push(Span::styled("\u{2588}", cap)); // █ left cap (full-cell chip edge)
+                    in_run = true;
+                }
+                (false, true) => {
+                    out.push(Span::styled("\u{2588}", cap)); // █ right cap
+                    in_run = false;
+                }
+                _ => {}
+            }
+            out.push(s);
+        }
+        if in_run {
+            out.push(Span::styled("\u{2588}", cap));
+        }
+        r.spans = out;
+    }
+}
+
 /// Greedy word-wrap `text` to `width` columns, hard-splitting over-long words. Always returns at least one row.
 ///
 /// ponytail: counts `char`s, not display width — `unicode-width` if CJK glyphs bite.
@@ -564,22 +672,25 @@ pub fn wrap_spans(spans: &[Span<'static>], width: usize) -> Vec<Vec<Span<'static
     let lead = chars.iter().take_while(|(c, _)| *c == ' ').count();
     let (indent, body) = chars.split_at(lead);
 
-    // Split on ' ' (dropping the spaces) into style-carrying words.
-    let mut words: Vec<Vec<(char, Style)>> = vec![vec![]];
+    // Split on ' ' into style-carrying words, remembering each separator space's own style so an
+    // intra-chip space keeps the code bg (contiguous chip) while a prose space between two chips
+    // stays plain. `sep` is the style of the space that *precedes* the word (unused on word 0).
+    let mut words: Vec<(Style, Vec<(char, Style)>)> = vec![(Style::default(), vec![])];
     for &(c, st) in body {
         if c == ' ' {
-            words.push(vec![]);
+            words.push((st, vec![]));
         } else {
             words
                 .last_mut()
                 .expect("words is seeded with one bucket")
+                .1
                 .push((c, st));
         }
     }
 
     let mut rows: Vec<Vec<(char, Style)>> = vec![];
     let mut cur: Vec<(char, Style)> = vec![];
-    for mut word in words {
+    for (sep_style, mut word) in words {
         while word.len() > width {
             if !cur.is_empty() {
                 rows.push(std::mem::take(&mut cur));
@@ -593,7 +704,7 @@ pub fn wrap_spans(spans: &[Span<'static>], width: usize) -> Vec<Vec<Span<'static
             rows.push(std::mem::take(&mut cur));
         }
         if !cur.is_empty() {
-            cur.push((' ', Style::default()));
+            cur.push((' ', sep_style)); // keep the source space's style (code bg stays contiguous)
         }
         cur.extend(word);
     }
