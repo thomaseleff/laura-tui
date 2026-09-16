@@ -106,7 +106,7 @@ Common workflows with the `laura` CLI to improve interactions between you and yo
 
 **Motion**
 1. Run `laura open <path>` so your pair-programmer can mark up the file in place
-   - Your partner uses `↑`/`↓` to move to a line, `c` to comment, `Shift+S` to submit the review, and `Esc` to switch back to chat.
+   - Your partner uses `↑`/`↓` to move to a line, `c` to comment, `Shift+S` to submit the review, `x` to close the pane, and `Esc` to switch back to chat.
 2. Once submitted, their review lands in your input as a `[laura review · …]` chat message.
 3. Resolve any open questions with your partner first, then act on the review.
 

@@ -23,6 +23,7 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 | `c` | Comment on a line |
 | `Shift+s` | Submit the review |
 | `d` | Toggle inline diff vs git `HEAD` |
+| `x` | Close the pane |
 | `Esc` | Leave the pane |
 
 ## Scrolling
