@@ -147,6 +147,56 @@ fn split_rect(area: Rect, dir: Dir, ratio: u16) -> (Rect, Rect) {
     }
 }
 
+/// Smallest rect that can render a bordered pane: 3×3 (1 content cell inside a 1-cell border).
+pub const MIN_PANE: (u16, u16) = (3, 3);
+
+/// True if every pane in `layout` at `area` clears `MIN_PANE`.
+pub fn all_panes_fit(layout: &Layout, area: Rect) -> bool {
+    rects(layout, area)
+        .values()
+        .all(|r| r.width >= MIN_PANE.0 && r.height >= MIN_PANE.1)
+}
+
+/// Choose (target, dir, ratio, side) for an unspecified `open` — a dwindle: split the
+/// newest pane (highest live id; the shell/PTY if none yet), alternating orientation by its
+/// tree depth so repeated opens split off the newest pane. Deterministic, topology-only.
+/// `new` is the id the caller will assign; the probe measures the real post-split geometry.
+/// Returns None if the newest pane can't be split without collapsing (caller then errors via the gate).
+///
+/// ponytail: dwindle only ever targets the newest pane, so a full spiral corner errors even when
+/// a larger pane exists elsewhere — the upgrade path is the later relayout feature, not a target-hunt.
+pub fn infer_split(layout: &Layout, area: Rect, new: PaneId) -> Option<(PaneId, Dir, u16, Side)> {
+    // Newest live pane = highest non-PTY id (ids mint monotonically, never reused); PTY if none.
+    let target = layout
+        .order()
+        .into_iter()
+        .filter(|&id| id != PTY_PANE)
+        .max()
+        .unwrap_or(PTY_PANE);
+    // Alternate H/V by the target leaf's depth: root leaf (depth 0) → H, then V, H, … as the
+    // spiral deepens. Measuring real depth (not a stored toggle) stays correct across closes.
+    let dir = if depth_of(layout, target).unwrap_or(0).is_multiple_of(2) {
+        Dir::Horizontal
+    } else {
+        Dir::Vertical
+    };
+    let (ratio, side) = (50, Side::Second); // new pane goes down/right; flat 50% (content-ratio: later feature)
+    // Only return a split Part A's gate accepts.
+    let mut probe = layout.clone();
+    probe.split(target, dir, ratio, side, new).ok()?;
+    all_panes_fit(&probe, area).then_some((target, dir, ratio, side))
+}
+
+/// Depth of `target`'s leaf (root leaf = 0); None if absent.
+fn depth_of(layout: &Layout, target: PaneId) -> Option<u16> {
+    match layout {
+        Layout::Pane(id) => (*id == target).then_some(0),
+        Layout::Split { first, second, .. } => depth_of(first, target)
+            .or_else(|| depth_of(second, target))
+            .map(|d| d + 1),
+    }
+}
+
 /// Geometry for every pane. The single source both render and the overflow check read, so "what `check` measures" is "what gets drawn".
 pub fn rects(layout: &Layout, area: Rect) -> HashMap<PaneId, Rect> {
     let mut map = HashMap::new();

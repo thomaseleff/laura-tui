@@ -12,7 +12,7 @@ use ratatui::layout::Rect;
 use serde_json::json;
 
 use crate::journal::{Journal, is_runtime_temp};
-use crate::layout::{Layout, rects};
+use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
 use crate::panel::Panel;
 use crate::protocol::{
     self, Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,
@@ -219,6 +219,76 @@ impl Tab {
         }
     }
 
+    /// Build a panel for `path` (follow → highlight → diff, order preserved), insert it at `id`,
+    /// and collect the standard open warnings (ready / read-error / git / diff-refusal / overflow).
+    /// Returns the warnings; logging stays with the caller (open-event differs per path).
+    fn install_panel(
+        &mut self,
+        id: PaneId,
+        path: &str,
+        follow: bool,
+        highlight: Option<(u32, u32)>,
+        diff: bool,
+        area: Rect,
+    ) -> Vec<String> {
+        let mut panel = Panel::open(path.to_string());
+        panel.set_follow(follow);
+        // `set_highlight` after `set_follow` so an explicit highlight range
+        // wins the viewport anchor over tail-follow when both are set.
+        if let Some((start, end)) = highlight {
+            panel.set_highlight(start, end);
+        }
+        // Open-into-diff: refusal (no git / nothing to diff) becomes a warning.
+        let diff_warning = diff.then(|| panel.set_diff_view(true).err()).flatten();
+        self.panels.insert(id, panel);
+        let mut warnings = vec![];
+        if !self.agent {
+            warnings.push("panel shown, but run `laura ready` to enable review submission".into());
+        }
+        if let Some(e) = &self.panels[&id].read_error {
+            warnings.push(e.clone());
+        }
+        if self.panels[&id].git_missing {
+            warnings.push(
+                "diff markers unavailable — install `git` to see changes in the gutter".into(),
+            );
+        }
+        if let Some(w) = diff_warning {
+            warnings.push(w);
+        }
+        let report = self.report(area);
+        if let Some(w) = report
+            .panes
+            .iter()
+            .find(|p| p.id == id)
+            .and_then(overflow_warning)
+        {
+            warnings.push(w);
+        }
+        warnings
+    }
+
+    /// Replace pane `id`'s content in place: same id, rect, and focus, no new split.
+    fn replace_panel(
+        &mut self,
+        id: PaneId,
+        path: String,
+        follow: bool,
+        highlight: Option<(u32, u32)>,
+        diff: bool,
+        area: Rect,
+    ) -> Response {
+        if id == PTY_PANE || !self.panels.contains_key(&id) {
+            return Response::Error {
+                message: format!("no pane #{id} to replace"),
+            };
+        }
+        remove_if_temp(&self.panels[&id].path); // clean an old tail spool, same as the close path
+        let warnings = self.install_panel(id, &path, follow, highlight, diff, area);
+        self.log_event(json!({"type":"open","pane":id,"path":path,"replaced":true}));
+        Response::Opened { pane: id, warnings }
+    }
+
     /// Apply one request to layout/panel state and produce its response.
     fn apply(&mut self, msg: Message, area: Rect) -> Response {
         match msg {
@@ -233,25 +303,48 @@ impl Tab {
                 dry_run,
                 highlight,
                 diff,
+                panel,
             } => {
-                let target = split.unwrap_or(self.focus);
+                // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
+                // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
+                // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
+                if let Some(id) = panel {
+                    return self.replace_panel(id, path, follow, highlight, diff, area);
+                }
+                let new = self.next_pane;
+                let inferred =
+                    (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
+                        .then(|| infer_split(&self.layout, area, new))
+                        .flatten();
+                let (target, dir, ratio, side) = match inferred {
+                    Some(t) => t,
+                    None => (
+                        split.unwrap_or(self.focus),
+                        dir.unwrap_or_default(),
+                        ratio.unwrap_or(50),
+                        side.unwrap_or_default(),
+                    ),
+                };
                 if dry_run {
                     return self.dry_run_open(&path, target, dir, ratio, side, area);
                 }
-                let new = self.next_pane;
+                let mut probe = self.layout.clone();
+                if probe.split(target, dir, ratio, side, new).is_ok()
+                    && !all_panes_fit(&probe, area)
+                {
+                    return Response::Error {
+                        message: format!(
+                            "split would shrink a pane below {}×{} — too small to render; \
+                             close a pane or lower --ratio",
+                            MIN_PANE.0, MIN_PANE.1
+                        ),
+                    };
+                }
                 match self.layout.split(target, dir, ratio, side, new) {
                     Ok(()) => {
                         self.next_pane += 1;
-                        let mut panel = Panel::open(path.clone());
-                        panel.set_follow(follow);
-                        // `set_highlight` after `set_follow` so an explicit highlight range
-                        // wins the viewport anchor over tail-follow when both are set.
-                        if let Some((start, end)) = highlight {
-                            panel.set_highlight(start, end);
-                        }
-                        // Open-into-diff: refusal (no git / nothing to diff) becomes a warning.
-                        let diff_warning = diff.then(|| panel.set_diff_view(true).err()).flatten();
-                        self.panels.insert(new, panel);
+                        let warnings =
+                            self.install_panel(new, &path, follow, highlight, diff, area);
                         self.log_event(json!({"type": "open", "pane": new, "path": path}));
                         if let Some((start, end)) = highlight {
                             self.log_event(
@@ -260,34 +353,6 @@ impl Tab {
                         }
                         if focus {
                             self.pending_focus = Some(new);
-                        }
-                        let mut warnings = vec![];
-                        if !self.agent {
-                            warnings.push(
-                                "panel shown, but run `laura ready` to enable review submission"
-                                    .into(),
-                            );
-                        }
-                        if let Some(e) = &self.panels[&new].read_error {
-                            warnings.push(e.clone());
-                        }
-                        if self.panels[&new].git_missing {
-                            warnings.push(
-                                "diff markers unavailable — install `git` to see changes in the gutter"
-                                    .into(),
-                            );
-                        }
-                        if let Some(w) = diff_warning {
-                            warnings.push(w);
-                        }
-                        let report = self.report(area);
-                        if let Some(w) = report
-                            .panes
-                            .iter()
-                            .find(|p| p.id == new)
-                            .and_then(overflow_warning)
-                        {
-                            warnings.push(w);
                         }
                         Response::Opened {
                             pane: new,

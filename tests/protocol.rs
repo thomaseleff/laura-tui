@@ -46,23 +46,25 @@ fn open_wire_shape_is_stable() {
     let json = serde_json::to_string(&Message::Open {
         path: "docs/spec.md".into(),
         split: None,
-        dir: Dir::Horizontal,
-        ratio: 40,
-        side: Side::Second,
+        dir: Some(Dir::Horizontal),
+        ratio: Some(40),
+        side: Some(Side::Second),
         focus: true,
         follow: false,
         dry_run: false,
         highlight: None,
         diff: false,
+        panel: None,
     })
     .unwrap();
     assert_eq!(
         json,
-        r#"{"type":"open","path":"docs/spec.md","split":null,"dir":"horizontal","ratio":40,"side":"second","focus":true,"follow":false,"dry_run":false,"highlight":null,"diff":false}"#
+        r#"{"type":"open","path":"docs/spec.md","split":null,"dir":"horizontal","ratio":40,"side":"second","focus":true,"follow":false,"dry_run":false,"highlight":null,"diff":false,"panel":null}"#
     );
 }
 
-/// An older `{"type":"open","path":"x"}` (no split/dir/ratio/side/focus/dry_run) still decodes with sane defaults.
+/// An older `{"type":"open","path":"x"}` (no split/dir/ratio/side/focus/dry_run) still decodes;
+/// the split fields fill `None` so the server infers the layout.
 #[test]
 fn open_back_compat_defaults() {
     let msg: Message = serde_json::from_str(r#"{"type":"open","path":"x"}"#).unwrap();
@@ -71,14 +73,15 @@ fn open_back_compat_defaults() {
         Message::Open {
             path: "x".into(),
             split: None,
-            dir: Dir::Horizontal,
-            ratio: 50,
-            side: Side::Second,
+            dir: None,
+            ratio: None,
+            side: None,
             focus: true,
             follow: false,
             dry_run: false,
             highlight: None,
             diff: false,
+            panel: None,
         }
     );
 }

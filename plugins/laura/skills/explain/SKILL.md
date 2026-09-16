@@ -15,7 +15,7 @@ Run a guided walkthrough: open the relevant files in panes, step through them on
 - Run `laura ready --session "$YOUR_SESSION_ID" --agent claude` once at the start. Use your **own** conversation/session id so the journal lines up 1:1 with this chat.
 - After each step, **wait for `Next`**. If the user asks a question mid-step, answer it, stay on the step, and advance on `Next`.
 - End with `laura close --all`.
-- **Tile in a downward spiral to the right.** Every `laura open`/`tail` prints the new pane id — capture it and pass it as `--split <id>` for the *next* open, so each pane cascades off the newest one. The first open splits the shell (pane `0`); after that split the last pane you opened, **never pane `0` again**.
+- **Just `laura open <path>` — Laura dwindles for you** (splits the newest pane, alternates orientation); no manual `--split` threading.
 - See the `laura` skill for the full CLI or run `laura --help`.
 - Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
 

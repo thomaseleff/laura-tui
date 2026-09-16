@@ -17,7 +17,7 @@ Args are positional and all optional: an optional leading **style** (`socratic` 
 - Run `laura ready --session "$YOUR_SESSION_ID" --agent claude` once at the start — **mandatory**, so `retro` can measure this session. Use your **own** conversation/session id so the journal lines up 1:1 with this chat.
 - The learner sets the pace: after each step **wait for `Next`**. If they ask a question, answer it, stay put, and resume on `Next`.
 - Journal a closing sentiment at the end (see below).
-- **Tile in a downward spiral to the right.** Every `laura open`/`tail` prints the new pane id — capture it and pass it as `--split <id>` for the *next* open, so each pane cascades off the newest one. The first open splits the shell (pane `0`); after that split the last pane you opened, **never pane `0` again**.
+- **Just `laura open <path>` — Laura dwindles for you** (splits the newest pane, alternates orientation); no manual `--split` threading.
 - See the `laura` skill for the full CLI or run `laura --help`.
 - Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
 

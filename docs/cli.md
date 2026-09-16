@@ -15,14 +15,17 @@ A tab's panes form a split tree; the shell is pane `0` and can't be closed. Each
 
 ```
 laura open <path>       Split a pane and render <path> in the new pane. Prints the new pane id.
+                        With no split flags, auto-tiles: splits the newest pane, alternating
+                        orientation by depth (a dwindle), so each bare open splits off the newest.
+                        A split that would collapse a pane below the minimum errors instead.
                         Relative paths resolve against the *calling* process's cwd, so `cd`
                         inside the PTY then `laura open ./x` works. Warns on stderr (still exit 0)
                         when the file can't be read (`cannot read <path>: …`) or the pane doesn't
                         fit (`overflows:` / `too small`), so `laura layout` is confirmatory, not required.
       --split <id>      pane to split (default: the focused pane).
-      --dir <h|v>       Split orientation: h side-by-side, v stacked (default h).
-      --ratio <1..99>   Percent of the split given to the new pane (default 50).
-      --side <first|second>  Which side the new pane lands on (default second).
+      --dir <h|v>       Split orientation: h side-by-side, v stacked (default: inferred).
+      --ratio <1..99>   Percent of the split given to the new pane (default: inferred).
+      --side <first|second>  Which side the new pane lands on (default: inferred).
       --no-focus        Don't move focus into the pane.
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
@@ -31,6 +34,7 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         the range — the one-call "show me where" gesture. e.g. `laura open x.rs
                         --highlight 40 52`. (See `laura highlight` to highlight an already-open pane.)
       --diff            Open straight into the inline diff view (vs git HEAD).
+      --panel <id>      Replace a pane's content in place (no new split; ignores --split/--dir/--ratio/--side).
 laura close [<id>]      Close a pane (default: the focused one).
       --all             Close every pane, back to shell-only.
 laura focus <id>        Focus a pane by id.
