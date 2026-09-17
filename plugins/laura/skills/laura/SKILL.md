@@ -10,12 +10,23 @@ argument-hint: [path | prompt]
 
 Laura is a TUI workspace that provides you with an **API over the TUI**, allowing you to dynamically tile panes while pair-programming. This skill gives you the CLI reference, the common motions, and a skills reference for longer-running workflows.
 
+Pair-programming is two people at one workstation: a **driver** writing code while a **navigator** reviews iteratively and guides the strategic direction — edge cases, conventions, future problems — freeing the driver to focus on the tactical task. In pair-programming you and your partner collaborate, learn, riff, and improvise continuously.
+
+Who drives during pair-programming determines which `laura` motions you reach for:
+
+- **Agent drives** (default) — you are the driver, producing and editing the codebase, while your partner navigates and reviews. The `explain` skill defaults to this mode.
+- **Agent navigates** — your partner is the driver, producing and editing, while you navigate and review. The `learn` skill defaults to this mode.
+
+Regardless of either mode, you compose the TUI workspace, run interactions within panes, and run code, tests, and builds. 
+
 **Rules**
-- Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
-- Proactively show a file, diff, or logs in a pane over pasting or referring to the content in the chat.
-- Run `laura ready --session <id> --agent <name>` first so pane interactions like review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat.
-- **Just `laura open <path>` — Laura auto-tiles.** A bare open splits the newest pane and alternates orientation — a dwindle — for you; no need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override. Prefer *fewer* panes to maximize content and minimize clutter. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place (same id, rect, focus, no new split) rather than opening another pane.
-- Read the docs at https://thomaseleff.github.io/laura-tui/llms.txt.
+- **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
+- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat.
+- **Run `laura layout`** before opening or closing panes, see what's open and `laura close` anything stale.
+- **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
+- **Proactively show a file, diff, or logs** in a pane over pasting or referring to the content in the chat.
+- **Laura auto-tiles** A bare `laura open <path>` open splits the newest pane and alternates orientation — a dwindle. No need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override to create a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place (same id, rect, focus, no new split) rather than opening another pane.
+- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
 
 ## Reference
 
@@ -26,7 +37,8 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         Relative paths resolve against the *calling* process's cwd, so `cd`
                         inside the PTY then `laura open ./x` works. Warns on stderr (still exit 0)
                         when the file can't be read (`cannot read <path>: …`) or the pane doesn't
-                        fit (`overflows:` / `too small`), so `laura layout` is confirmatory, not required.
+                        fit (`overflows:` / `too small`) — so `laura layout` isn't required just to
+                        check fit, but still run it first to see what's open (see Rules).
       --split <id>      pane to split (default: the focused pane).
       --dir <h|v>       Split orientation: h side-by-side, v stacked (inferred).
       --ratio <1..99>   Percent of the split given to the new pane (inferred).

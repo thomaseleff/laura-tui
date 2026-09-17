@@ -10,14 +10,16 @@ argument-hint: [target]
 
 Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, run `laura highlight` to highlight the span you are describing, and explain it in chat.
 
+An explanation is **agent-driven**: you are the driver — opening, highlighting, narrating — while your partner navigates, reviewing and reacting as you go.
+
 **Rules**
-- Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
-- Run `laura ready --session "$YOUR_SESSION_ID" --agent claude` once at the start. Use your **own** conversation/session id so the journal lines up 1:1 with this chat.
-- After each step, **wait for `Next`**. If the user asks a question mid-step, answer it, stay on the step, and advance on `Next`.
-- End with `laura close --all`.
-- **Just `laura open <path>` — Laura dwindles for you** (splits the newest pane, alternates orientation); no manual `--split` threading.
-- See the `laura` skill for the full CLI or run `laura --help`.
-- Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
+- **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
+- **After each step, wait for `Next`.** If the user asks a question mid-step, answer it, stay on the step, and advance on `Next`.
+- **End with `laura close --all`.**
+- **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.
+- **See the `laura` skill** for the full CLI or run `laura --help`.
+- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
 
 ## Understand the target first, then plan
 
