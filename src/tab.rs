@@ -196,6 +196,29 @@ impl Tab {
         }
     }
 
+    /// Close a pane (default: the focused panel). Shared by the `close` verb and the `x` key.
+    pub fn close_pane(&mut self, pane: Option<PaneId>) -> Response {
+        let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
+        let Some(target) = target else {
+            return Response::Error {
+                message: "no panel focused to close".into(),
+            };
+        };
+        match self.layout.remove(target) {
+            Ok(()) => {
+                if let Some(p) = self.panels.remove(&target) {
+                    remove_if_temp(&p.path);
+                }
+                if self.focus == target {
+                    self.focus = PTY_PANE;
+                }
+                self.log_event(json!({"type": "close", "pane": target}));
+                Response::Ok
+            }
+            Err(message) => Response::Error { message },
+        }
+    }
+
     /// Apply one request to layout/panel state and produce its response.
     fn apply(&mut self, msg: Message, area: Rect) -> Response {
         match msg {
@@ -285,25 +308,7 @@ impl Tab {
                     self.log_event(json!({"type": "close", "all": true}));
                     return Response::Ok;
                 }
-                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
-                let Some(target) = target else {
-                    return Response::Error {
-                        message: "no panel focused to close".into(),
-                    };
-                };
-                match self.layout.remove(target) {
-                    Ok(()) => {
-                        if let Some(p) = self.panels.remove(&target) {
-                            remove_if_temp(&p.path);
-                        }
-                        if self.focus == target {
-                            self.focus = PTY_PANE;
-                        }
-                        self.log_event(json!({"type": "close", "pane": target}));
-                        Response::Ok
-                    }
-                    Err(message) => Response::Error { message },
-                }
+                self.close_pane(pane)
             }
             Message::Focus { pane } => {
                 if pane == PTY_PANE || self.panels.contains_key(&pane) {
