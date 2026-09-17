@@ -14,7 +14,7 @@ Laura is a TUI workspace that provides you with an **API over the TUI**, allowin
 - Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
 - Proactively show a file, diff, or logs in a pane over pasting or referring to the content in the chat.
 - Run `laura ready --session <id> --agent <name>` first so pane interactions like review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat.
-- **Tile in a downward spiral to the right.** Every `laura open`/`tail` prints the new pane id — capture it and pass it as `--split <id>` for the *next* open, so each pane cascades off the newest one. The first open splits the shell (pane `0`); after that split the last pane you opened, **never pane `0` again**. Prefer *fewer* panes to maximize content and minimize clutter.
+- **Just `laura open <path>` — Laura auto-tiles.** A bare open splits the newest pane and alternates orientation — a dwindle — for you; no need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override. Prefer *fewer* panes to maximize content and minimize clutter. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place (same id, rect, focus, no new split) rather than opening another pane.
 - Read the docs at https://thomaseleff.github.io/laura-tui/llms.txt.
 
 ## Reference
@@ -28,9 +28,9 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         when the file can't be read (`cannot read <path>: …`) or the pane doesn't
                         fit (`overflows:` / `too small`), so `laura layout` is confirmatory, not required.
       --split <id>      pane to split (default: the focused pane).
-      --dir <h|v>       Split orientation: h side-by-side, v stacked (default h).
-      --ratio <1..99>   Percent of the split given to the new pane (default 50).
-      --side <first|second>  Which side the new pane lands on (default second).
+      --dir <h|v>       Split orientation: h side-by-side, v stacked (inferred).
+      --ratio <1..99>   Percent of the split given to the new pane (inferred).
+      --side <first|second>  Which side the new pane lands on (inferred).
       --no-focus        Don't move focus into the pane.
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
@@ -39,6 +39,8 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         the range — the one-call "show me where" gesture. e.g. `laura open x.rs
                         --highlight 40 52`.
       --diff            Open straight into the inline diff view (vs git HEAD).
+      --panel <id>      Swap a pane's file in place, no new split — same id, rect, focus.
+                        Ignores --split/--dir/--ratio/--side.
 laura close [<id>]      Close a pane (default: the focused one).
       --all             Close every pane, back to shell-only.
 laura focus <id>        Focus a pane by id.

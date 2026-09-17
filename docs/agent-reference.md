@@ -14,15 +14,16 @@ Run once per tab before opening a pane. Fails closed: no `ready`, no review inje
 ## Open a pane
 
 ```bash
-laura open <path>                     # split the focused pane, render <path>; prints the new pane id
-laura open <path> --split <id>        # split a specific pane instead of the focused one
-laura open <path> --dir v --ratio 30  # v stacks / h side-by-side; new pane gets 30%
-laura open <path> --side first        # new pane lands on the first side of the split
+laura open <path>                     # auto-tile: split the newest pane, alternating orientation (dwindle); prints the new pane id
+laura open <path> --split <id>        # override: split a specific pane instead
+laura open <path> --dir v --ratio 30  # override: v stacks / h side-by-side; new pane gets 30%
+laura open <path> --side first        # override: new pane lands on the first side of the split
 laura open <path> --no-focus          # open without moving focus into the pane
 laura open <path> --dry-run           # print the would-be overflow report; open nothing
+laura open <path> --panel <id>        # swap a pane's file in place — same id, rect, focus
 ```
 
-Every `open` splits a pane, so panes accumulate — a tab holds as many as you arrange. Capture the printed id to target that pane later. Check fit before (or without) committing with `laura layout` or `--dry-run`: both print per-pane rects and overflow as JSON.
+A bare `laura open <path>` auto-tiles: Laura splits the newest pane, alternating orientation by depth — a dwindle — so repeated opens split off the newest pane, no need to capture ids and thread `--split` by hand. Pass any split flag to override. A split that would collapse a pane errors instead of committing. Capture the printed id to target that pane later; check fit before (or without) committing with `laura layout` or `--dry-run`: both print per-pane rects and overflow as JSON.
 
 ## Highlight a section for the reader
 

@@ -157,6 +157,27 @@ DIFF=$(laura open "$D/tokens.diff" --ratio 55)
 >
 > Here's the diff that implements the changes from the spec earlier — a shorter token TTL and an httpOnly cookie instead of local storage. Additions and removals are colored just like your editor. It opens focused, so review it just like the doc: `↑`/`↓` to a line, `c` to comment, `Shift+S` to submit (`Esc` returns to chat). A diff is just a file to Laura, so the whole review loop works on changes too.
 >
+> Send `Next` once more and I'll swap this pane to the applied file — same pane, no new split.
+
+Then **wait for `Next`** (or a review — address it if it comes).
+
+**Do (swap in place):**
+
+```bash
+cat > "$D/tokens.py" <<'EOF'
+def issue(user):
+    ttl = 3600
+    token = sign(user, ttl)
+    set_httponly_cookie(token)
+    return token
+EOF
+laura open "$D/tokens.py" --panel "$DIFF"   # replace the diff pane in place — same id, rect, focus
+```
+
+**Say:**
+
+> Same pane id, same rect, focus untouched — `--panel <id>` reloads a pane's content in place instead of splitting a new one. Use it to step a single pane through a sequence: spec → diff → applied file.
+>
 > **Suggested prompts**
 >
 > - `/laura:laura Show me the diff of my last commit so I can review it`
@@ -164,7 +185,7 @@ DIFF=$(laura open "$D/tokens.diff" --ratio 55)
 >
 > Send `Next` for the debug dashboard workspace.
 
-Then **wait for `Next`** (or a review — address it if it comes), and `laura close --all`.
+Then **wait for `Next`**, and `laura close --all`.
 
 ---
 

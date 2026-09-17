@@ -12,7 +12,7 @@ Your agent can open the file you're discussing, the plan you're following, the d
 **Laura lets you:**
 
 - **Stay in the flow** - view a file, a plan, a diff, or a log right in the TUI, without switching windows between the terminal, IDE, and browser.
-- **Compose the TUI** - your agent tiles the workspace from your natural-language conversation through the `laura` CLI and skills.
+- **Compose the TUI** - your agent tiles the workspace from your natural-language conversation through the `laura` CLI and skills — panes dwindle automatically, each open splitting off the newest.
 - **Pick your coding agent CLI** - Laura hosts a shell your agent runs inside without abstraction, so every CLI and model is compatible.
 - **Interact in every pane** - mark up any pane in place and inject the review straight into your conversation.
 - **Learn while staying focused** - your agent shows and explains concepts live, step by step.

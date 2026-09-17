@@ -45,15 +45,15 @@ enum Cmd {
         /// Pane to split (default: the focused pane).
         #[arg(long)]
         split: Option<PaneId>,
-        /// Split orientation: `h` side-by-side, `v` stacked.
-        #[arg(long, value_enum, default_value_t = Dir::Horizontal)]
-        dir: Dir,
-        /// Percent of the split given to the new pane (1..=99).
-        #[arg(long, default_value_t = 50)]
-        ratio: u16,
-        /// Which side the new pane lands on.
-        #[arg(long, value_enum, default_value_t = Side::Second)]
-        side: Side,
+        /// Split orientation: `h` side-by-side, `v` stacked (default: inferred).
+        #[arg(long, value_enum)]
+        dir: Option<Dir>,
+        /// Percent of the split given to the new pane, 1..=99 (default: inferred).
+        #[arg(long)]
+        ratio: Option<u16>,
+        /// Which side the new pane lands on (default: inferred).
+        #[arg(long, value_enum)]
+        side: Option<Side>,
         /// Don't move focus into the pane.
         #[arg(long)]
         no_focus: bool,
@@ -69,6 +69,9 @@ enum Cmd {
         /// Open straight into the inline diff view (vs git HEAD).
         #[arg(long)]
         diff: bool,
+        /// Replace this pane's content in place (no new split). Ignores --split/--dir/--ratio/--side.
+        #[arg(long, conflicts_with_all = ["split", "dir", "ratio", "side"])]
+        panel: Option<PaneId>,
     },
     /// Close a pane (default: the focused one). `--all` returns to PTY-only.
     Close {
@@ -159,6 +162,7 @@ fn main() -> Result<()> {
             dry_run,
             highlight,
             diff,
+            panel,
         }) => {
             // Absolutize against the caller's cwd, not the server's. `absolute` (not
             // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
@@ -176,6 +180,7 @@ fn main() -> Result<()> {
                 dry_run,
                 highlight,
                 diff,
+                panel,
             })
         }
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
@@ -297,14 +302,15 @@ fn tail(
         &Message::Open {
             path: path.to_string_lossy().into_owned(),
             split,
-            dir,
-            ratio,
-            side: Side::default(),
+            dir: Some(dir),
+            ratio: Some(ratio),
+            side: None,
             focus: false,
             follow,
             dry_run: false,
             highlight: None,
             diff: false,
+            panel: None,
         },
     )? {
         Response::Opened { pane, warnings } => {

@@ -32,11 +32,11 @@ Splits a pane into a new pane rendering a file.
 <dd>File to render.</dd>
 <dt><code>split</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to split.</dd>
-<dt><code>dir</code> · string · <em>default: <code>horizontal</code></em></dt>
+<dt><code>dir</code> · string · <em>optional — absent → inferred</em></dt>
 <dd><code>horizontal</code> or <code>vertical</code>.</dd>
-<dt><code>ratio</code> · integer · <em>default: <code>50</code></em></dt>
+<dt><code>ratio</code> · integer · <em>optional — absent → inferred</em></dt>
 <dd>New pane's percent, <code>1..99</code>.</dd>
-<dt><code>side</code> · string · <em>default: <code>second</code></em></dt>
+<dt><code>side</code> · string · <em>optional — absent → inferred</em></dt>
 <dd><code>first</code>/<code>second</code> — where the new pane lands.</dd>
 <dt><code>focus</code> · boolean · <em>default: <code>true</code></em></dt>
 <dd>Move focus into the new pane.</dd>
@@ -46,6 +46,8 @@ Splits a pane into a new pane rendering a file.
 <dd><code>[start, end]</code>, applied as the pane first paints.</dd>
 <dt><code>diff</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Open straight into the inline diff view.</dd>
+<dt><code>panel</code> · integer · <em>default: <code>null</code></em></dt>
+<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting; the PTY and absent ids error, and <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> are ignored when set.</dd>
 </dl>
 
 </td>
@@ -57,9 +59,9 @@ Splits a pane into a new pane rendering a file.
   "type": "open",
   "path": "spec.md",
   "split": null,
-  "dir": "horizontal",
-  "ratio": 50,
-  "side": "second",
+  "dir": null,
+  "ratio": null,
+  "side": null,
   "focus": true,
   "dry_run": false,
   "highlight": null,
@@ -81,6 +83,8 @@ Splits a pane into a new pane rendering a file.
 </table>
 
 `opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error. With `dry_run`, the response is `report` instead.
+
+**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, the server picks the split: it splits the newest pane, alternating orientation by depth — a dwindle — so repeated bare opens split off the newest pane, at a flat 50%. Any one of those fields present bypasses inference. A split that would collapse a pane below the renderable minimum is refused with an `error`.
 
 ### `close`
 

@@ -56,12 +56,12 @@ pub enum Message {
         #[serde(default)]
         split: Option<PaneId>,
         #[serde(default)]
-        dir: Dir,
-        /// Percent of the split given to the new panel, 1..=99.
-        #[serde(default = "default_ratio")]
-        ratio: u16,
+        dir: Option<Dir>,
+        /// Percent given to the new panel, 1..=99. `None` → inferred.
         #[serde(default)]
-        side: Side,
+        ratio: Option<u16>,
+        #[serde(default)]
+        side: Option<Side>,
         /// Move focus into the new panel. Defaults true so an older `{"type":"open"}` still focuses.
         #[serde(default = "default_true")]
         focus: bool,
@@ -79,6 +79,10 @@ pub enum Message {
         /// if there's nothing to diff — no `git`, or a clean/untracked file.
         #[serde(default)]
         diff: bool,
+        /// Replace this pane's content in place (same id, rect, focus) instead of splitting.
+        /// The PTY and absent ids error; split/dir/ratio/side are ignored when set.
+        #[serde(default)]
+        panel: Option<PaneId>,
     },
     /// Close a pane. `None` = the focused panel; `all` returns to PTY-only. The PTY can't close.
     Close {
@@ -194,10 +198,6 @@ impl From<ratatui::layout::Rect> for RectDto {
 
 fn default_true() -> bool {
     true
-}
-
-fn default_ratio() -> u16 {
-    50
 }
 
 /// Client: connect to `tab`, write one request, read the one response line. A clean EOF (reply dropped unsent) reads as `Ok`.

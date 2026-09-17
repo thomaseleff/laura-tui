@@ -57,14 +57,164 @@ fn pane_count(json: &str) -> usize {
 
 /// Width of the pane with `id` from a layout report.
 fn pane_width(json: &str, id: u64) -> u16 {
+    pane_rect(json, id).2
+}
+
+/// `(x, y, width, height)` of the pane with `id` from a layout report.
+fn pane_rect(json: &str, id: u64) -> (u16, u16, u16, u16) {
     let v: serde_json::Value = serde_json::from_str(json).unwrap();
-    let pane = v["panes"]
+    let r = &v["panes"]
         .as_array()
         .unwrap()
         .iter()
         .find(|p| p["id"].as_u64() == Some(id))
-        .unwrap();
-    pane["rect"]["width"].as_u64().unwrap() as u16
+        .unwrap()["rect"];
+    let f = |k| r[k].as_u64().unwrap() as u16;
+    (f("x"), f("y"), f("width"), f("height"))
+}
+
+/// `path` of the pane with `id` from a layout report.
+fn pane_path(json: &str, id: u64) -> String {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap();
+    v["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"].as_u64() == Some(id))
+        .unwrap()["path"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// `true` if pane `id` reports `clipped`.
+fn pane_clipped(json: &str, id: u64) -> bool {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap();
+    v["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"].as_u64() == Some(id))
+        .unwrap()["clipped"]
+        .as_bool()
+        .unwrap()
+}
+
+/// Like `drive`, but returns whether the client exited zero (for asserting errors).
+fn try_drive(tab: &mut Tab, args: &[&str]) -> bool {
+    let name = tab.socket.clone();
+    let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let (tx, rx) = mpsc::channel();
+    let h = thread::spawn(move || {
+        let out = Command::cargo_bin("laura")
+            .unwrap()
+            .args(&a)
+            .env("LAURA_TAB", &name)
+            .output()
+            .unwrap();
+        tx.send(out).unwrap();
+    });
+    let start = Instant::now();
+    let out = loop {
+        tab.drain(area());
+        if let Ok(out) = rx.try_recv() {
+            break out;
+        }
+        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        thread::sleep(Duration::from_millis(5));
+    };
+    h.join().unwrap();
+    out.status.success()
+}
+
+/// #36: `open <path> --panel <id>` swaps a pane's file in place — same id, rect, focus, no split.
+#[test]
+fn open_panel_replaces_in_place() -> Result<()> {
+    let mut a = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    writeln!(a, "alpha")?;
+    let mut b = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    writeln!(b, "beta")?;
+    let pa = a.path().to_str().unwrap().to_string();
+    let pb = b.path().to_str().unwrap().to_string();
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &pa]).parse()?;
+    let before = drive(&mut tab, &["layout"]);
+    let rect_before = pane_rect(&before, id);
+
+    // Replace in place: same id, no new split.
+    let replaced: u64 = drive(&mut tab, &["open", &pb, "--panel", &id.to_string()]).parse()?;
+    assert_eq!(replaced, id, "replace keeps the same pane id");
+
+    let after = drive(&mut tab, &["layout"]);
+    assert_eq!(pane_count(&after), pane_count(&before), "no new pane");
+    assert_eq!(pane_rect(&after, id), rect_before, "rect unchanged");
+    let expected = std::path::absolute(&pb)?.to_string_lossy().into_owned();
+    assert_eq!(pane_path(&after, id), expected, "content swapped to b");
+
+    // The PTY and absent ids can't be replaced.
+    assert!(
+        !try_drive(&mut tab, &["open", &pb, "--panel", "0"]),
+        "PTY errors"
+    );
+    assert!(
+        !try_drive(&mut tab, &["open", &pb, "--panel", "999"]),
+        "absent id errors"
+    );
+    Ok(())
+}
+
+/// #37: a bare `open` (no flags) dwindles — splits the *newest* pane, alternating orientation
+/// by depth, so pane 0 is split once then never re-targeted and no pane collapses.
+#[test]
+fn bare_open_dwindles() -> Result<()> {
+    let mut f = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    writeln!(f, "hello")?;
+    let p = f.path().to_str().unwrap().to_string();
+
+    let mut tab = spawn_tab()?;
+    let mut ids = vec![0u64]; // the PTY
+    ids.push(drive(&mut tab, &["open", &p]).parse()?);
+
+    // pane 0's rect after the first split — dwindle must never touch it again.
+    let pane0_after_first = pane_rect(&drive(&mut tab, &["layout"]), 0);
+
+    for _ in 0..2 {
+        ids.push(drive(&mut tab, &["open", &p]).parse()?);
+        assert_eq!(
+            pane_rect(&drive(&mut tab, &["layout"]), 0),
+            pane0_after_first,
+            "dwindle must split off the newest pane, never re-split pane 0"
+        );
+    }
+
+    let layout = drive(&mut tab, &["layout"]);
+    assert_eq!(pane_count(&layout), 4);
+    let rects: Vec<_> = ids.iter().map(|&id| pane_rect(&layout, id)).collect();
+
+    for &id in &ids {
+        assert!(!pane_clipped(&layout, id), "pane #{id} collapsed/clipped");
+    }
+    // Both orientations were used: rects vary in x AND in y.
+    let xs: std::collections::HashSet<u16> = rects.iter().map(|r| r.0).collect();
+    let ys: std::collections::HashSet<u16> = rects.iter().map(|r| r.1).collect();
+    assert!(
+        xs.len() > 1,
+        "expected varied x offsets (horizontal splits)"
+    );
+    assert!(ys.len() > 1, "expected varied y offsets (vertical splits)");
+
+    // Explicit flags bypass inference: a horizontal split preserves the target's height.
+    let target = ids[1];
+    let (_, _, _, h_before) = pane_rect(&layout, target);
+    let id: u64 = drive(
+        &mut tab,
+        &["open", &p, "--dir", "h", "--split", &target.to_string()],
+    )
+    .parse()?;
+    let (_, _, _, h_after) = pane_rect(&drive(&mut tab, &["layout"]), id);
+    assert_eq!(h_after, h_before, "horizontal split should preserve height");
+    Ok(())
 }
 
 /// #13: `--ratio N` sizes the NEW panel to N%, independent of `--side`.
