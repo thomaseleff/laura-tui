@@ -168,10 +168,8 @@ Highlights a range of lines in a pane and scrolls it into view.
 <dl>
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to highlight.</dd>
-<dt><code>start</code> · integer · <strong>required</strong></dt>
-<dd>First line, 1-based inclusive.</dd>
-<dt><code>end</code> · integer · <em>default: <code>start</code></em></dt>
-<dd>Last line, 1-based inclusive.</dd>
+<dt><code>range</code> · [int, int] · <em>default: <code>null</code></em></dt>
+<dd>Lines <code>[start, end]</code>, 1-based inclusive. <code>null</code> clears the pane's highlight.</dd>
 </dl>
 
 </td>
@@ -182,8 +180,16 @@ Highlights a range of lines in a pane and scrolls it into view.
 {
   "type": "highlight",
   "pane": null,
-  "start": 40,
-  "end": 52
+  "range": [40, 52]
+}
+</pre>
+
+<strong>Clear</strong> · <code>range: null</code>
+<pre>
+{
+  "type": "highlight",
+  "pane": null,
+  "range": null
 }
 </pre>
 
@@ -198,7 +204,7 @@ Highlights a range of lines in a pane and scrolls it into view.
 </tr>
 </table>
 
-Line numbers are source-file lines, matching the gutter and review `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. The highlight is independent of focus and of the cursor, and persists until re-set or the file reloads shorter. Out-of-range values clamp to the file.
+Line numbers are source-file lines, matching the gutter and review `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
 
 ### `diffview`
 

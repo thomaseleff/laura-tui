@@ -30,6 +30,7 @@ Every `open` splits a pane, so panes accumulate — a tab holds as many as you a
 laura open src/x.rs --highlight 40 52   # open a file already scrolled to and highlighting lines 40–52
 laura highlight 40 52                    # highlight in an already-open pane (1-based, inclusive)
 laura highlight 40 --pane <id>           # single line, in a specific (possibly unfocused) pane
+laura highlight --off                     # clear the highlight (the user can also press `h` on the pane)
 ```
 
 The common gesture is "show me where": nothing's on screen (or a stale doc is), so `open --highlight` opens the file *and* highlights the lines in one call — the pane paints already at the span, no line-1 flash. Once a file's open, `laura highlight` re-highlights it. Either way the highlight stays until you re-set it. In markdown, a hand-wrapped paragraph collapses onto one row so a number inside it snaps to the block, but fenced code and HTML blocks keep per-line numbers.

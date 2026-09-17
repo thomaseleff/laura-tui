@@ -42,12 +42,13 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
 laura close [<id>]      Close a pane (default: the focused one).
       --all             Close every pane, back to shell-only.
 laura focus <id>        Focus a pane by id.
-laura highlight <start> [end]
+laura highlight [start] [end]
                         Highlight lines start..=end (1-based, inclusive) in a pane and
                         scroll them into view. end defaults to start (single line). Line numbers
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph maps to
                         that whole block. e.g. `laura highlight 40 52`.
+      --off             Clear the pane's highlight (start optional; user can also press `h`).
       --pane <id>       pane to highlight (default: the focused pane).
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
       --pane <id>       pane to toggle (default: the focused pane).
@@ -118,6 +119,7 @@ Common workflows with the `laura` CLI to improve interactions between you and yo
 1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` opens *and* highlights in one call leaving your partners focus in chat.
 2. If the file is open, run `laura highlight <start> [end] --pane <id>` to highlight a different section.
 3. Re-call to move the highlight as the conversation moves.
+4. Run `laura highlight --off [--pane <id>]` to clear it (or the user presses `h` on the focused pane).
 
 **Use when** you want to show a reference while you hold a conversation in chat or when your partner asks for you to explain something step-by-step.
 

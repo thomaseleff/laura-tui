@@ -167,6 +167,12 @@ impl Panel {
         self.cursor = hi;
     }
 
+    /// Clear the agent-directed highlight; the pane returns to normal (undimmed) rendering.
+    /// No viewport change — cursor/scroll stay put.
+    pub fn clear_highlight(&mut self) {
+        self.highlight = None;
+    }
+
     /// Row `i`'s gutter change: the highest-ranked change over its source range (Modified > Added >
     /// Removed, so a mixed markdown block reads as edited). Folds to `changes[i]` for identity files.
     fn row_change(&self, i: usize) -> Option<ChangeKind> {
