@@ -8,7 +8,7 @@ argument-hint: [target]
 
 # laura explain
 
-Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, run `laura highlight` to point at the span you are describing, and explain it in chat.
+Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, run `laura highlight` to highlight the span you are describing, and explain it in chat.
 
 **Rules**
 - Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
@@ -32,11 +32,11 @@ Before beginning the guided explanation:
 Compose the walkthrough from these actions, in whatever order the explanation calls for:
 
 - `laura open <path>` opens a file in a pane and prints the new pane id. Capture the id to target that pane later, and open a pane per file when the walkthrough spans several.
-- `laura open <path> --highlight <a> <b>` opens a file already scrolled to and pointing at lines `a`–`b`.
-- `laura highlight <a> <b> --pane <id>` points at lines `a`–`b` in an already-open pane.
+- `laura open <path> --highlight <a> <b>` opens a file already scrolled to and highlighting lines `a`–`b`.
+- `laura highlight <a> <b> --pane <id>` highlights lines `a`–`b` in an already-open pane.
 - `<some-cmd> | laura tail --follow --split <id> --dir v --ratio 30` tiles a live log under a pane when the explanation needs runtime output beside the code.
 
-A step may point at one span, move across several spans of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the calls that set up what you want the user to see, then explain it in chat.
+A step may highlight one span, move across several spans of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the calls that set up what you want the user to see, then explain it in chat.
 
 ## Close the loop — journal the session (mandatory)
 

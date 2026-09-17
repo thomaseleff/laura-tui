@@ -30,9 +30,9 @@ Before composing a lesson:
 
 ## The four-phase loop
 
-- **Exposition** — teach in ordered steps: open a markdown pane, run `laura highlight` to point at the span you are narrating, `laura close` the prior pane as you `laura open` the next.
+- **Exposition** — teach in ordered steps: open a markdown pane, run `laura highlight` to highlight the span you are narrating, `laura close` the prior pane as you `laura open` the next.
 - **Produce** — write a scratch stub file and open it with `laura open`. The learner edits it in the shell (`vim`, `code .`); the pane reloads on save.
-- **Review** — deliver **one complete review in chat, referencing `file:line`**. As you walk each point, run `laura highlight <line> --pane <id>` to point at that line in the open pane.
+- **Review** — deliver **one complete review in chat, referencing `file:line`**. As you walk each point, run `laura highlight <line> --pane <id>` to highlight that line in the open pane.
 - **Revise** — the learner edits again, the pane reloads, and you loop back as needed.
 
 ## Teaching style

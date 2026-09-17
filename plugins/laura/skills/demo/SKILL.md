@@ -193,7 +193,7 @@ Check the fit with `laura layout`; if a pane reports `overflow_rows > 0`, lower 
 
 > **[4 / 5] Workspace: debug dashboard**
 >
-> Code on the right, a thin live log tailing right below it — the newest line pinned at the bottom as it streams. Watch the output while pointing at the suspect code.
+> Code on the right, a thin live log tailing right below it — the newest line pinned at the bottom as it streams. Watch the output while highlighting the suspect code.
 >
 > **Suggested prompts**
 >
