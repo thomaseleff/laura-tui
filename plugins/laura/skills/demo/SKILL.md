@@ -12,10 +12,10 @@ Run a **live walkthrough** of Laura: you drive the panes with the `laura` CLI, t
 This file is an exact script. The narration under **Say** is copy to send the developer in chat, near-verbatim. The commands under **Do** are yours to run.
 
 **Rules**
-- Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
-- After each numbered beat, **stop and wait** — the developer advances by sending `Next` (beat 2 also advances when their review arrives). Don't run ahead.
-- See the `laura` skill for the full CLI or run `laura --help`.
-- Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
+- **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
+- **After each numbered beat, stop and wait** — the developer advances by sending `Next` (beat 2 also advances when their review arrives). Don't run ahead.
+- **See the `laura` skill** for the full CLI or run `laura --help`.
+- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
 
 ## Setup (run once, silently)
 
