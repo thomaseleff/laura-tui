@@ -11,12 +11,18 @@ fn panel_with_comments() -> Result<Panel> {
     file.flush()?;
     let mut panel = Panel::open(file.path().to_str().unwrap().to_string());
 
-    // Two comments on line 2, one on line 0 — out of order to prove sorting.
+    // A user note + an agent reply on line 2, a user note on line 0 — line 2 authored
+    // first to prove the assemble sorts by line, not insertion order.
     panel.move_cursor(2);
-    panel.add_comment("tighten this".into());
-    panel.add_comment("and this".into());
+    panel.author_note("tighten this".into());
+    panel
+        .agent_note(3, Some("and this".into()), Some("agent".into()))
+        .unwrap();
     panel.move_cursor(-2);
-    panel.add_comment("first line note".into());
+    panel.author_note("first line note".into());
+    // A third thread on L2 — every thread submits now, nothing is filtered out.
+    panel.move_cursor(1);
+    panel.author_note("done already".into());
     // Keep the temp file alive past `open` — content is already read in.
     drop(file);
     Ok(panel)
@@ -31,13 +37,19 @@ fn assemble_review_locks_the_format() -> Result<()> {
          overall body\n\
          \n\
          L1  line 0\n\
-         \x20     > first line note\n\
+         \x20     > [user] first line note\n\
+         \n\
+         L2  line 1\n\
+         \x20     > [user] done already\n\
          \n\
          L3  line 2\n\
-         \x20     > tighten this\n\
-         \x20     > and this\n",
+         \x20     > [user] tighten this\n\
+         \x20     > [agent] and this\n",
         panel.path
     );
+    // Authors label each note, replies follow the root, threads sort by line — every thread submits.
+    assert_eq!(panel.assemble_review("overall body"), expected);
+    // `assemble_review` doesn't consume threads (only `submit_review` clears).
     assert_eq!(panel.assemble_review("overall body"), expected);
     Ok(())
 }

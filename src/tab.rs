@@ -434,6 +434,33 @@ impl Tab {
                     Err(message) => Response::Error { message },
                 }
             }
+            Message::Comment {
+                pane,
+                line,
+                body,
+                author,
+            } => {
+                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
+                let Some(target) = target else {
+                    return Response::Error {
+                        message: "no panel focused to comment on".into(),
+                    };
+                };
+                // Default to the session's agent name; `agent_note` falls back to `"agent"`.
+                let author = author.or_else(|| self.journal.as_ref().and_then(|j| j.agent()));
+                let Some(panel) = self.panels.get_mut(&target) else {
+                    return Response::Error {
+                        message: format!("no pane #{target}"),
+                    };
+                };
+                match panel.agent_note(line, body, author) {
+                    Ok(()) => {
+                        self.log_event(json!({"type":"comment","pane":target,"line":line}));
+                        Response::Ok
+                    }
+                    Err(message) => Response::Error { message },
+                }
+            }
             Message::Layout => Response::Report(self.report(area)),
             Message::Ready { session, agent } => {
                 self.agent = true;

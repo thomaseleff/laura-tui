@@ -51,6 +51,16 @@ laura highlight [start] [end]
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
       --pane <id>       pane to toggle (default: the focused pane).
       --off             Turn the diff view off (default: toggle).
+laura comment <line> <body>
+                        Write to a line's review thread: start a thread on that line or append
+                        a reply to the human's thread there; the note is attributed to the agent.
+                        <line> is a 1-based real source line (same mapping as `laura highlight`).
+                        e.g. `laura comment 42 "handled — see the retry loop"`. A <line> past
+                        the file's end errors (exit 1) and places no note — the pane may be
+                        mid-reload after an edit; retry once it reflects the file.
+      --author <name>   Attribute the note to <name> (default: the session's
+                        `ready --agent` name, else `agent`).
+      --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path.
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
@@ -60,6 +70,7 @@ laura feedback          Append a feedback signal (layout/render quality, a missi
       --negative        Negative signal.
       [<body>]          Optional free-text note.
 some-cmd | laura tail   Spool piped stdin to an internal file and show it in a live pane.
+                        Never steals focus — the tail pane opens unfocused.
       --title <t>       Pane title (also names the spool file).
       --follow          Autoscroll to the newest line as output arrives.
 ```
@@ -84,7 +95,7 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 
 ## Journal
 
-`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/review/`feedback` event is teed to it, so a session is auditable after it ends. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball, so events are attributable to a build across machines. Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`) at `laura/sessions/<session>.ndjson`, overridable with `LAURA_DATA_DIR`. It's just files: `cat "$(ls -t <dir>/laura/sessions/*.ndjson | head -1)" | jq .`.
+`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/`comment`/review/`feedback` event is teed to it, so a session is auditable after it ends. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball, so events are attributable to a build across machines. Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`) at `laura/sessions/<session>.ndjson`, overridable with `LAURA_DATA_DIR`. It's just files: `cat "$(ls -t <dir>/laura/sessions/*.ndjson | head -1)" | jq .`.
 
 ## Global
 

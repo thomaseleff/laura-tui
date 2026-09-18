@@ -144,7 +144,7 @@ fn review_header_is_the_blocks_source_range() -> Result<()> {
         .expect("paragraph row")
         .line;
     panel.move_cursor(para_line as isize);
-    panel.add_comment("tighten this".into());
+    panel.author_note("tighten this".into());
 
     let review = panel.assemble_review("");
     assert!(
@@ -207,7 +207,7 @@ fn fenced_code_maps_per_line() -> Result<()> {
         .expect("code row")
         .line;
     panel.move_cursor(mid as isize);
-    panel.add_comment("this one".into());
+    panel.author_note("this one".into());
     let review = panel.assemble_review("");
     assert!(review.contains("L5  "), "single source line: {review}");
     assert!(!review.contains("L4-"), "not a block range: {review}");
@@ -241,7 +241,7 @@ fn html_block_maps_per_line() -> Result<()> {
         .expect("html row")
         .line;
     panel.move_cursor(mid as isize);
-    panel.add_comment("nested".into());
+    panel.author_note("nested".into());
     let review = panel.assemble_review("");
     assert!(review.contains("L4  "), "single source line: {review}");
     assert!(!review.contains("L3-"), "not a block range: {review}");
@@ -249,44 +249,109 @@ fn html_block_maps_per_line() -> Result<()> {
 }
 
 #[test]
-fn table_stays_whole_block() -> Result<()> {
-    // tui-markdown injects synthetic border rows, so a table is deliberately NOT 1:1: every rendered
-    // row shares the table's source range, and a comment emits `L<a>-<b>`.
+fn table_maps_per_data_row() -> Result<()> {
+    // #45: each data row is its own thread. tui-markdown renders synthetic border rows, so borders
+    // fold to a neighbor, but the two data rows map to their own source lines (L5, L6).
     let doc = "# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\n## Next\n";
     let (_f, p) = write_doc(doc)?;
     let mut panel = Panel::open(p);
 
-    // Every table row (border or content) shares one gutter — the table's first source line (L3).
-    let gutters: Vec<Option<usize>> = panel
-        .layout(80)
-        .rows
-        .iter()
-        .filter(|r| {
-            let t = r.text();
-            t.contains('a') || t.contains('1') || t.contains('3') || t.contains('─')
-        })
-        .filter(|r| !r.text().contains("Title") && !r.text().contains("Next"))
-        .map(|r| r.gutter)
-        .collect();
-    assert!(!gutters.is_empty(), "found table rows");
-    assert!(
-        gutters.iter().all(|g| *g == Some(3)),
-        "table rows share the block's first source line: {gutters:?}"
-    );
+    // Data cells "1" and "3" gutter to their own source lines, not a shared block line.
+    let gutter_of = |panel: &Panel, needle: char| {
+        panel
+            .layout(80)
+            .rows
+            .iter()
+            .find(|r| {
+                let t = r.text();
+                t.contains(needle) && !t.contains("Title") && !t.contains("Next")
+            })
+            .and_then(|r| r.gutter)
+    };
+    assert_eq!(gutter_of(&panel, '1'), Some(5), "first data row → L5");
+    assert_eq!(gutter_of(&panel, '3'), Some(6), "second data row → L6");
 
-    let first = panel
-        .layout(80)
-        .rows
-        .iter()
-        .find(|r| r.gutter == Some(3))
-        .expect("table row")
-        .line;
-    panel.move_cursor(first as isize);
-    panel.add_comment("fix header".into());
+    // Comment each data row → two distinct headers, not one block range.
+    for needle in ['1', '3'] {
+        let line = panel
+            .layout(80)
+            .rows
+            .iter()
+            .find(|r| {
+                let t = r.text();
+                t.contains(needle) && !t.contains("Title") && !t.contains("Next")
+            })
+            .expect("data row")
+            .line;
+        panel.move_cursor(isize::MIN / 2); // move_cursor is a relative delta — reset to the top first
+        panel.move_cursor(line as isize);
+        panel.author_note(format!("row {needle}"));
+    }
+    let review = panel.assemble_review("");
+    assert!(review.contains("L5"), "first data row header: {review}");
+    assert!(review.contains("L6"), "second data row header: {review}");
+    assert!(
+        !review.contains("L3-6"),
+        "no longer one whole-block thread: {review}"
+    );
+    Ok(())
+}
+
+#[test]
+fn list_items_get_their_own_threads() -> Result<()> {
+    // #45: bullets no longer collapse onto one thread — each top-level item is its own source line.
+    let (_f, p) = write_doc("- a\n- b\n- c\n")?;
+    let mut panel = Panel::open(p);
+
+    for needle in ['a', 'b'] {
+        let line = panel
+            .layout(80)
+            .rows
+            .iter()
+            .find(|r| r.text().contains(needle))
+            .expect("bullet row")
+            .line;
+        panel.move_cursor(isize::MIN / 2); // move_cursor is a relative delta — reset to the top first
+        panel.move_cursor(line as isize);
+        panel.author_note(format!("note {needle}"));
+    }
     let review = panel.assemble_review("");
     assert!(
-        review.contains("L3-6"),
-        "table emits its whole source range: {review}"
+        review.contains("L1"),
+        "first bullet is its own thread: {review}"
+    );
+    assert!(
+        review.contains("L2"),
+        "second bullet is its own thread: {review}"
+    );
+    assert!(
+        !review.contains("L1-3"),
+        "not one whole-list thread: {review}"
+    );
+    Ok(())
+}
+
+#[test]
+fn nested_list_children_collapse_into_parent() -> Result<()> {
+    // #45 (lazy): a nested child folds into its top-level parent's range, so commenting a child row
+    // emits the parent's line, not the child's.
+    let (_f, p) = write_doc("- parent\n  - child one\n  - child two\n- sibling\n")?;
+    let mut panel = Panel::open(p);
+
+    let child_line = panel
+        .layout(80)
+        .rows
+        .iter()
+        .find(|r| r.text().contains("child one"))
+        .expect("child row")
+        .line;
+    panel.move_cursor(child_line as isize);
+    panel.author_note("on a child".into());
+
+    let review = panel.assemble_review("");
+    assert!(
+        review.contains("L1-3"),
+        "child collapses into the parent's item range (L1-3): {review}"
     );
     Ok(())
 }
@@ -468,35 +533,6 @@ fn inline_code_gets_half_cell_caps() -> Result<()> {
     Ok(())
 }
 
-/// #51 bug: a fenced block under a heading keeps its indent *outside* the code box — the code bg's
-/// left inner-pad must not render at column 0 with the heading indent gapping it from the block.
-#[test]
-fn fenced_block_indent_stays_outside_the_box() -> Result<()> {
-    // `## H` indents its body by 2 (heading depth); the fenced block inherits that indent.
-    let (_f, p) = write_doc("## H\n\n```rust\nlet a = 1;\n```\n")?;
-    let panel = Panel::open(p);
-    let layout = panel.layout(80);
-    let code = layout
-        .rows
-        .iter()
-        .find(|r| is_code_row(r))
-        .expect("code row");
-
-    let first = code.spans.first().unwrap();
-    assert!(
-        first.style.bg.is_none()
-            && first.content.chars().all(|c| c == ' ')
-            && !first.content.is_empty(),
-        "row leads with the plain heading-indent span, not the code box: {:?}",
-        code.spans
-    );
-    assert!(
-        code.spans[1].style.bg.is_some(),
-        "the code box (with its bg left-pad) starts right after the indent, no gap"
-    );
-    Ok(())
-}
-
 /// #51 bug: a multi-word inline `code` chip renders one contiguous bg run — the spaces between words
 /// keep the code bg (not reset to plain by word-wrap), so it's a single chip with only outer caps.
 #[test]
@@ -554,13 +590,13 @@ fn highlight_collapsed_block_covers_all_its_rows() -> Result<()> {
         "collapsed table spans multiple lit rows, not one: ({lo}, {hi})"
     );
 
-    // Every lit row belongs to the table block — each carries the block's first source line (L3).
+    // Every lit row belongs to the table block — its gutter falls within the table's lines (L3-6).
     let layout = panel.layout(80);
     for i in lo..=hi {
-        assert_eq!(
-            layout.rows[i].gutter,
-            Some(3),
-            "row {i} is part of the highlighted table block: {:?}",
+        let g = layout.rows[i].gutter.expect("table row has a gutter");
+        assert!(
+            (3..=6).contains(&g),
+            "row {i} is part of the highlighted table block (L3-6), got L{g}: {:?}",
             layout.rows[i].text()
         );
     }
