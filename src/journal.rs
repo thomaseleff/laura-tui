@@ -94,6 +94,11 @@ impl Journal {
         &self.path
     }
 
+    /// The agent name this session was `ready`'d with, if any.
+    pub fn agent(&self) -> Option<String> {
+        self.agent.clone()
+    }
+
     /// Append one event, stamping `ts` (unix ms), `session`, and `agent`. Best-effort:
     /// a write error is dropped — journaling must never crash the run loop.
     pub fn log(&self, event: Value) {

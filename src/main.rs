@@ -105,6 +105,19 @@ enum Cmd {
         #[arg(long)]
         off: bool,
     },
+    /// Write to a line's review thread: start a thread or reply on it.
+    Comment {
+        /// 1-based source line the thread hangs on.
+        line: u32,
+        /// Note body — starts a thread or appends a reply.
+        body: String,
+        /// Attribute the note to this author (default: the session's `ready --agent` name, else `agent`).
+        #[arg(long)]
+        author: Option<String>,
+        /// Pane to comment on (default: the focused pane).
+        #[arg(long)]
+        pane: Option<PaneId>,
+    },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
     /// Mark this tab as hosting an agent (enables review submission). Prints the journal path.
@@ -204,6 +217,17 @@ fn main() -> Result<()> {
         Some(Cmd::Diff { pane, off }) => client_request(Message::DiffView {
             pane,
             on: off.then_some(false), // --off sets off; otherwise toggle
+        }),
+        Some(Cmd::Comment {
+            line,
+            body,
+            author,
+            pane,
+        }) => client_request(Message::Comment {
+            pane,
+            line,
+            body: Some(body),
+            author,
         }),
         Some(Cmd::Layout) => client_request(Message::Layout),
         Some(Cmd::Ready { session, agent }) => client_request(Message::Ready { session, agent }),
