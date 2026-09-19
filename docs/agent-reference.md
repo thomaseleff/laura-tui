@@ -71,3 +71,15 @@ laura close --all      # close every pane, back to shell-only
 ## Read a review
 
 When a `[laura review · <path>]` block arrives in your conversation, treat it as feedback on that file: address each `L<n>` comment (line numbers are 1-based) and the overall note, then edit the file.
+
+Each `L<n>` is a thread, and the notes under it are labelled by author (`> [user] …`, `> [agent] …`). A comment is a **call and response**: the review block is the whole conversation on that file, and the user's `Shift+s` submit is the only time their comments reach you — you can't read them off the pane, so a submitted block is the message.
+
+## Reply to a review inline
+
+```bash
+laura comment 42 "handled — see the retry loop"   # reply on line 42's thread (starts one if none)
+laura comment 42 "…" --author reviewer             # attribute to a name (default: the session's ready --agent, else agent)
+laura comment 42 "…" --pane <id>                    # target a specific (possibly unfocused) pane
+```
+
+`<line>` is a 1-based real source line (same mapping as `laura highlight`). `<body>` is required. A `<line>` past the file's end errors (exit 1) and places no note — the pane may be mid-reload after an edit; retry once it reflects the file. If you edit a file while the user has comments open, its pane freezes on the reviewed snapshot until they submit or refresh — a submitted review from a changed file carries a `⚠ file changed` banner and each header's raw source line, so re-map your notes against that.

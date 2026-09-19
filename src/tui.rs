@@ -213,9 +213,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
             } else if tab.focus != PTY_PANE {
                 if tab.agent {
-                    "  ↑/↓ move · c comment · S submit · d diff · x close · h clear · Esc leave focus"
+                    "  ↑/↓ move · n/N next/prev comment · c comment · r reviews · S submit · ^r refresh · d diff · x close · h clear · Esc leave focus"
                 } else {
-                    "  ↑/↓ move · d diff · x close · h clear · Esc leave focus · review: run `laura ready`"
+                    "  ↑/↓ move · n/N next/prev comment · r reviews · d diff · x close · h clear · Esc leave focus · review: run `laura ready`"
                 }
             } else {
                 "  ^p panes · ^t tabs · ^h help · ^q quit"
@@ -239,7 +239,17 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if help {
                 render_help(f);
             }
-            if let Some((msg, _)) = &toast {
+            // A frozen pane (notes open, file changed on disk) shows a standing warning that wins
+            // the bottom-right slot over the transient toast until the freeze clears (submit / ^r).
+            // ponytail: only the *focused* pane's freeze warns; an unfocused (e.g. --follow tail)
+            // frozen pane gives no cue until focused. Widen to any frozen pane if that bites.
+            if tab.focused_panel().is_some_and(|p| p.source_changed) {
+                // Trailing space: ⚠ (U+26A0) renders width-2 under VS16, so pad or the box clips ~1 cell.
+                render_toast(
+                    f,
+                    "⚠ source changed — Shift+S submit review · Ctrl+R refresh (clears all comments) ",
+                );
+            } else if let Some((msg, _)) = &toast {
                 render_toast(f, msg);
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
@@ -317,20 +327,17 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Enter => match draft.take().unwrap() {
                                 Draft::Comment(text) => {
                                     if let Some(p) = tabs[active].focused_panel_mut() {
-                                        p.add_comment(text);
+                                        p.author_note(text);
                                     }
                                 }
                                 Draft::Review(body) => {
-                                    // Assemble + clear comments borrowing the panel, then inject (disjoint from `pty`).
+                                    // Read the count first: `submit_review` clears the threads.
                                     let logged = tabs[active]
                                         .focused_panel()
-                                        .map(|p| (p.path.clone(), p.comments.len()));
-                                    let payload = tabs[active].focused_panel_mut().map(|p| {
-                                        let bytes =
-                                            bracketed_paste(&p.assemble_review(&body), true);
-                                        p.comments.clear();
-                                        bytes
-                                    });
+                                        .map(|p| (p.path.clone(), p.thread_count()));
+                                    let payload = tabs[active]
+                                        .focused_panel_mut()
+                                        .map(|p| bracketed_paste(&p.submit_review(&body), true));
                                     if let Some(payload) = payload {
                                         tabs[active].pty.write(&payload);
                                     }
@@ -443,13 +450,42 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 }
                             }
                             KeyCode::Char('c') if tabs[active].agent => {
-                                draft = Some(Draft::Comment(String::new()))
+                                let seed = tabs[active]
+                                    .focused_panel_mut()
+                                    .map(Panel::begin_comment)
+                                    .unwrap_or_default();
+                                draft = Some(Draft::Comment(seed));
+                            }
+                            KeyCode::Char('r') if ctrl => {
+                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                    p.discard_and_reload();
+                                }
+                            }
+                            KeyCode::Char('r') => {
+                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                    // Toggle the cursor's thread if it has one, else collapse/expand all.
+                                    if p.cursor_thread().is_some() {
+                                        p.toggle_collapsed(p.cursor);
+                                    } else {
+                                        let any_open = p.threads.iter().any(|t| !t.collapsed);
+                                        p.set_all_collapsed(any_open);
+                                    }
+                                }
+                            }
+                            // Jump the cursor to the next (`n`) / previous (`N`) thread (#45).
+                            KeyCode::Char('n') | KeyCode::Char('N') => {
+                                if let Some(p) = tabs[active].focused_panel_mut()
+                                    && let Some(line) =
+                                        p.thread_jump(key.code == KeyCode::Char('n'))
+                                {
+                                    p.cursor = line;
+                                }
                             }
                             KeyCode::Char('S')
                                 if tabs[active].agent
                                     && tabs[active]
                                         .focused_panel()
-                                        .is_some_and(|p| !p.comments.is_empty()) =>
+                                        .is_some_and(|p| p.thread_count() > 0) =>
                             {
                                 draft = Some(Draft::Review(String::new()))
                             }
@@ -566,7 +602,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 let off = panel.scroll_offset(&layout, inner.height as usize);
                                 let line_at: Vec<usize> =
                                     layout.rows.iter().map(|r| r.line).collect();
-                                let gutter = layout.gutter_width as u16 + 1;
+                                let gutter = layout.gutter_width as u16 + 5;
                                 mouse::extract_panel(
                                     buf, inner, gutter, off, &line_at, sel.anchor, sel.head,
                                 )
@@ -782,26 +818,30 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 Some(n) => format!("{n:>gw$}"),
                 None => format!("{:>gw$}", ""),
             };
-            // The gutter's separator cell doubles as a git-diff change bar on a
-            // changed line's first row; blank otherwise. It stays one cell, so
-            // `gutter_width` and the copy math below are unshifted.
-            let bar = r
+            // 5-cell decoration: number · sep · change · sep · caret · sep · body. The change cell is
+            // a `▌` half-block in higher-contrast diff colours; the caret carries thread state.
+            let change_cell = r
                 .change
                 .map(|k| {
                     Span::styled(
-                        "█",
+                        "▌",
                         Style::default().fg(match k {
-                            ChangeKind::Added => Color::Rgb(163, 190, 140), // nord green
-                            ChangeKind::Modified => Color::Rgb(129, 161, 193), // nord blue
-                            ChangeKind::Removed(_) => Color::Rgb(224, 108, 117), // brighter red, more contrast on dark bg than nord11
+                            ChangeKind::Added => Color::Rgb(56, 166, 96), // #38a660
+                            ChangeKind::Modified => Color::Rgb(56, 150, 217), // #3896d9
+                            ChangeKind::Removed(_) => Color::Rgb(179, 89, 107), // #b3596b
                         }),
                     )
                 })
                 .unwrap_or_else(|| Span::raw(" "));
+            let caret_cell = match r.review {
+                Some(collapsed) => Span::raw(if collapsed { "▸" } else { "▾" }),
+                None => Span::raw(" "),
+            };
             if r.comment {
-                let mut spans = vec![Span::raw(number), bar];
+                // Card/gap rows emit at column 0; blank number + 3 lands the card border under the caret.
+                let mut spans = vec![Span::raw(number), Span::raw(" ".repeat(3))];
                 spans.extend(r.spans.iter().cloned());
-                Line::from(spans).dim()
+                Line::from(spans)
             } else {
                 let highlighted = panel
                     .highlight
@@ -814,7 +854,14 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 } else {
                     Span::raw(number).dim()
                 };
-                let mut spans = vec![number_span, bar];
+                let mut spans = vec![
+                    number_span,
+                    Span::raw(" "),
+                    change_cell,
+                    Span::raw(" "),
+                    caret_cell,
+                    Span::raw(" "),
+                ];
                 let mut body: Vec<Span> = r.spans.to_vec();
                 // Three readable states off the cursor row: a highlighted row brightens (reads above
                 // the rest, no band), the rest dim under an active spotlight, plain otherwise. On the
@@ -832,7 +879,7 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                 // strips the callout emoji / blanks inline caps — leaves the wider prior frame's
                 // last cells unpainted (a stray "e" after "Note"). The band also needs it for its bg.
                 let used = gw
-                    + 1
+                    + 5
                     + body
                         .iter()
                         .map(|s| s.content.chars().count())
@@ -863,10 +910,12 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
             }
         })
         .collect();
-    let title = if panel.comments.is_empty() {
+    let review = panel.thread_count();
+    let title = if review == 0 {
         panel.path.clone()
     } else {
-        format!("{}  [review: {}]", panel.path, panel.comments.len())
+        let (above, below) = panel.thread_split();
+        format!("{}  [review: {review} ↑{above} ↓{below}]", panel.path)
     };
     // Scroll off the cursor line's *last* wrapped row, so its continuations stay on-screen instead of clipped.
     let view = area.height.saturating_sub(2) as usize;
@@ -1058,9 +1107,12 @@ fn render_help(f: &mut Frame) {
         Line::raw(""),
         group("Panel focus"),
         key("↑/↓", "move cursor"),
+        key("n/N", "next/prev comment"),
         key("d", "toggle inline diff vs HEAD"),
         key("c", "comment on line (needs `laura ready`)"),
+        key("r", "collapse/expand review"),
         key("S", "submit review (needs `laura ready`)"),
+        key("^r", "refresh pane (discards pending comments)"),
         key("x", "close pane"),
         key("h", "clear highlight"),
         key("Esc", "leave focus"),

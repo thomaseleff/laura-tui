@@ -9,7 +9,7 @@ user-invocable: true
 
 Run a **live walkthrough** of Laura: you drive the panes with the `laura` CLI, the developer interacts inside the panes to guide you.
 
-This file is an exact script. The narration under **Say** is copy to send the developer in chat, near-verbatim. The commands under **Do** are yours to run.
+The narration under **Say** is the exact copy to send the developer in chat — deliver it word-for-word, don't rephrase it. The commands under **Do** are yours to run.
 
 **Rules**
 - **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
@@ -20,11 +20,17 @@ This file is an exact script. The narration under **Say** is copy to send the de
 ## Setup (run once, silently)
 
 ```bash
-JOURNAL=$(laura ready --session demo --agent demo)   # enables review submission; prints the journal path
-D=$(mktemp -d)                                        # scratch dir for demo files
+# Use your own agent name for --agent (e.g. claude) — it auto-labels the comments you leave below.
+JOURNAL=$(laura ready --session demo --agent claude)   # enables review submission; prints the journal path
+D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
 Keep `$JOURNAL` and `$D` for later beats.
+
+```bash
+# Close all open panes before beginning the demo
+laura close --all
+```
 
 ---
 
@@ -32,15 +38,21 @@ Keep `$JOURNAL` and `$D` for later beats.
 
 **Say:**
 
-> **Laura** — *LOW-rah* — is a TUI workspace your agent builds while you pair-program.
+> **Laura** is a TUI workspace that provides your agent with an **API over the TUI**, allowing your agent to dynamically tile panes while you pair-program.
 >
-> Laura started as an experiment, to allow developers to give feedback on files directly in the terminal. No browser, no leaving the shell.
+> Laura started as an experiment, to allow developers to give feedback on files directly in the terminal without leaving the shell.
 >
-> A few skills drive it, and you can run them from your chat any time: `/laura:laura <file>` shows a file in a pane (or `/laura:laura <prompt>` to tile a whole workspace), and `/laura:demo` runs this walkthrough. There's also `/laura:explain <target>` to step you through a PR or a flow, `/laura:learn <prompt>` to teach a concept hands-on, and `/laura:retro` to look back at your logged feedback.
+> Your agent learns how to use Laura through skills, and you can run them anytime in chat:
+> 
+> - `/laura:laura <file>` shows a file in a pane (or `/laura:laura <prompt>` to tile a whole workspace)
+> - `/laura:demo` runs this walkthrough
+> - `/laura:explain <target>` instructs your agent to explain code, a concept, or a PR
+> - `/laura:learn <prompt>` instructs your agent to teach you a concept, or guide you through a coding task
+> - `/laura:retro` allows you to browse feedback your agent has recorded on working with Laura
 >
 > In the demo, I'll guide you through the core review workflow and show how you can build up a workspace with your agent as you go. To move between sections, just send me `Next` in the chat.
 >
-> More at https://thomaseleff.github.io/laura-tui and https://github.com/thomaseleff/laura-tui.
+> Read the docs at https://thomaseleff.github.io/laura-tui.
 >
 > Send `Next` to try the review loop.
 
@@ -67,20 +79,25 @@ Review before we ship.
 Open question: should refresh tokens rotate on every use?
 EOF
 DOC=$(laura open "$D/tokens.md" --ratio 55)
+# Leave two inline suggestions on the spec for the developer to reply to. Line numbers are
+# 1-based *file* lines (count them in the heredoc, not the rendered view).
+laura comment 6 "suggest 1 hour — 24h is a long window for a bearer token" --pane "$DOC"
+laura comment 8 "suggest an httpOnly cookie — local storage is XSS-readable" --pane "$DOC"
 ```
 
 **Say:**
 
 > **[1 / 5] The review loop**
 >
-> This is the loop Laura was built for — reviewing a file in place. The spec is open on the right. Try marking it up:
+> Aside from composing panes, Laura allows you to interact with your agent in every pane within your workspace. In the right pane I pulled up a markdown spec and left two suggestions for you to address. Reply to them and add your own:
 >
 > 1. Panes are auto-focused by default. Press `Ctrl+P`, then type an id to focus a different pane. Or, press `Esc` from any pane to return here to the chat.
-> 2. Move the line cursor with `↑`/`↓` to the **"expires 24 hours"** line, press `c`, type `make this 1 hour`, and press `Enter`.
-> 3. Move to the **"stored in local storage"** line, press `c`, type `use an httpOnly cookie instead`, `Enter`.
-> 4. Press `Shift+S`, type an overall note like `tighten token lifetimes before we ship`, and press `Enter` to submit.
+> 2. Move the line cursor with `↑`/`↓` to the **"expires 24 hours"** line — you'll see my note as a card under it. Press `c`, type `Agreed`, and then `Enter`.
+> 3. Move to the **"Open question: should refresh tokens rotate…"** line, press `c`, and type `Sounds good`, and `Enter`. On a line with no thread, `c` opens a **new** thread instead of replying.
+> 4. From within a focused pane, press `r` on an inline thread to collapse/expand the thread. Pressing `r` off an inline thread toggles all threads within the pane.
+> 5. When you're ready, press `Shift+S`, type `Tightening looks good` and `Enter` to submit.
 >
-> Your review lands right back in my chat.
+> Your review, along with the inline comment threads, is submitted automatically back into the chat.
 >
 > **Suggested prompts**
 >
@@ -91,7 +108,20 @@ DOC=$(laura open "$D/tokens.md" --ratio 55)
 
 Then **wait.** Advance when the `[laura review · …]` block arrives **or** the developer sends `Next`.
 
-When the review arrives: read it back in one line, then **edit `$D/tokens.md` to address each comment** — the pane re-renders live so they see it change. Then tell them to send `Next`.
+The submit cleared their pane — a comment is a call and response, so their review block is the whole conversation and nothing is left on the file. When it arrives: read it back in one line, then reply and edit as **two separate steps** (not one bash block) so the pane's live reload settles in between — otherwise a comment can land while the file is mid-write and error as out-of-range:
+
+1. As you work each thread, **reply on it** with `laura comment <line> "done — <what you did>" --pane "$DOC"` — your note appears inline under the conversation (author-labelled).
+2. Then **edit `$D/tokens.md` to apply the agreed revisions** (`ttl` → 1 hour, httpOnly cookie) — the pane re-renders live so they see it change.
+
+Then deliver the **Say** below word-for-word, and wait for `Next`.
+
+**Say:**
+
+> A comment is a call and response: notes ride the pane while we work, and `Shift+S` ships them all as one review block and clears the pane. If I edit the file while you have comments open, the pane freezes on your snapshot — submit with `Shift+S` or refresh with `Ctrl+R` to catch up.
+>
+> Your agent can also task sub-agents to attach comments to threads as well for extra opinions.
+>
+> Send `Next` to see how panes are composed.
 
 ---
 
@@ -105,10 +135,10 @@ prev=""; i=0
 for n in 1 1 2 3 5 8; do
   printf '%s\n' "$n" > "$D/fib-$i.txt"
   if [ -z "$prev" ]; then
-    prev=$(laura open "$D/fib-$i.txt" --ratio 62)
+    prev=$(laura open "$D/fib-$i.txt" --ratio 62 --no-focus)
   else
     [ $((i % 2)) -eq 1 ] && dir=v || dir=h
-    prev=$(laura open "$D/fib-$i.txt" --split "$prev" --dir "$dir" --ratio 62)
+    prev=$(laura open "$D/fib-$i.txt" --split "$prev" --dir "$dir" --ratio 62 --no-focus)
   fi
   i=$((i+1))
 done
@@ -118,22 +148,65 @@ done
 
 > **[2 / 5] The workspace is just panes**
 >
-> Laura's workspace is just panes in a split tree — the agent composes them based on the task. Laura was designed to expose general-purpose tooling, so it can lay out pretty much anything... so here's a Fibonacci sequence.
+> Laura's workspace is just panes in a split tree. Laura was designed to expose general-purpose tooling, so it can lay out pretty much anything... so here's a Fibonacci sequence. By default, panes open in a downward spiral / dwindle pattern.
 >
 > **Suggested prompts**
 >
 > - `/laura:laura Stack the plan, the code, and the logs in one view`
 > - `/laura:laura Put the spec on the right and my notes below it`
 >
-> Send `Next` for your first workspace: reviewing a diff.
+> Send `Next` for code review.
 
 Then **wait for `Next`**, and `laura close --all`.
 
 ---
 
-## Beat 4 — Workspace: diff review
+## Beat 4 — Workspace: code review
 
-**Do:**
+Branch **once** on whether `git` is installed, then run *one* script and deliver its matching **Say** — not both.
+
+**Do (git available):**
+
+```bash
+R="$D/repo"; mkdir -p "$R"
+cat > "$R/tokens.py" <<'EOF'
+def issue(user):
+    ttl = 24 * 3600
+    token = sign(user, ttl)
+    store_local(token)
+    return token
+EOF
+git -C "$R" init -q
+git -C "$R" -c user.email=demo@laura -c user.name=laura add -A
+git -C "$R" -c user.email=demo@laura -c user.name=laura commit -qm base
+cat > "$R/tokens.py" <<'EOF'
+def issue(user):
+    ttl = 3600
+    token = sign(user, ttl)
+    set_httponly_cookie(token)
+    return token
+EOF
+laura open "$R/tokens.py" --diff --ratio 55   # focused, straight into the inline diff vs HEAD
+```
+
+**Say (git available):**
+
+> **[3 / 5] Code review**
+>
+> Here's the change that implements the spec from earlier — a shorter token TTL and an `httpOnly` cookie instead of local storage — opened as an inline diff against the last commit.
+>
+> Press `d` to toggle the inline diff **off**: the interleaved `+`/`-` view collapses back to the plain, rendered file, and the changed lines stay flagged by **markers in the line-number gutter**. Press `d` again to bring the full diff back.
+>
+> A diff is still just a view onto a file, so all the in-panel interactions work as well (`↑`/`↓` to a line, `c` to comment, `Shift+S` to submit, `Esc` back to chat).
+>
+> **Suggested prompts**
+>
+> - `/laura:laura Show me the diff of my last commit so I can review it`
+> - `/laura:laura Open the staged changes in a pane for review`
+>
+> Send `Next` to debug a service live.
+
+**Do (git unavailable):**
 
 ```bash
 cat > "$D/tokens.diff" <<'EOF'
@@ -148,48 +221,29 @@ diff --git a/auth/tokens.py b/auth/tokens.py
 +    set_httponly_cookie(token)
      return token
 EOF
-DIFF=$(laura open "$D/tokens.diff" --ratio 55)
+laura open "$D/tokens.diff" --ratio 55   # git absent — show the static patch instead
 ```
 
-**Say:**
+**Say (git unavailable):**
 
-> **[3 / 5] Workspace: diff review**
+> **[3 / 5] Code review**
 >
-> Here's the diff that implements the changes from the spec earlier — a shorter token TTL and an httpOnly cookie instead of local storage. Additions and removals are colored just like your editor. It opens focused, so review it just like the doc: `↑`/`↓` to a line, `c` to comment, `Shift+S` to submit (`Esc` returns to chat). A diff is just a file to Laura, so the whole review loop works on changes too.
+> Here's the change that implements the spec from earlier — a shorter token TTL and an `httpOnly` cookie instead of local storage — shown as a `.diff` file.
 >
-> Send `Next` once more and I'll swap this pane to the applied file — same pane, no new split.
-
-Then **wait for `Next`** (or a review — address it if it comes).
-
-**Do (swap in place):**
-
-```bash
-cat > "$D/tokens.py" <<'EOF'
-def issue(user):
-    ttl = 3600
-    token = sign(user, ttl)
-    set_httponly_cookie(token)
-    return token
-EOF
-laura open "$D/tokens.py" --panel "$DIFF"   # replace the diff pane in place — same id, rect, focus
-```
-
-**Say:**
-
-> Same pane id, same rect, focus untouched — `--panel <id>` reloads a pane's content in place instead of splitting a new one. Use it to step a single pane through a sequence: spec → diff → applied file.
+> A diff is still just a view onto a file, so all the in-panel interactions work as well (`↑`/`↓` to a line, `c` to comment, `Shift+S` to submit, `Esc` back to chat).
 >
 > **Suggested prompts**
 >
 > - `/laura:laura Show me the diff of my last commit so I can review it`
 > - `/laura:laura Open the staged changes in a pane for review`
 >
-> Send `Next` for the debug dashboard workspace.
+> Send `Next` to debug a service live.
 
-Then **wait for `Next`**, and `laura close --all`.
+Then **wait for `Next`** (or a review — address it if it comes), and `laura close --all`.
 
 ---
 
-## Beat 5 — Workspace: debug dashboard
+## Beat 5 — Workspace: debug
 
 **Do:**
 
@@ -202,19 +256,19 @@ def process(job):
         run(job)
     return tries
 EOF
-CODE=$(laura open "$D/worker.py" --ratio 40)   # shell left, code right
+CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code right
 # Split the code pane vertically: code on top (78%), a thin log pane below where autoscroll is visible.
 ( for i in {1..30}; do echo "[$i] retry job=42 backoff=$((i*i))s"; sleep 0.3; done ) \
-  | laura tail --title worker.log --follow --split "$CODE" --dir v --ratio 78 &
+  | laura tail --title worker.log --follow --split "$CODE" --dir v --ratio 33 &
 ```
 
 Check the fit with `laura layout`; if a pane reports `overflow_rows > 0`, lower a `--ratio` and re-open.
 
 **Say:**
 
-> **[4 / 5] Workspace: debug dashboard**
+> **[4 / 5] Debug**
 >
-> Code on the right, a thin live log tailing right below it — the newest line pinned at the bottom as it streams. Watch the output while highlighting the suspect code.
+> Here is a workspace showing a code file with logs tailed underneath. Panes all update automatically, allowing your agent to bring up logs for you and your agent to debug together.
 >
 > **Suggested prompts**
 >
@@ -243,7 +297,9 @@ tail -2 "$JOURNAL"
 >
 > - Laura is new so your agent may not have all the tools, or display content poorly, or you may find improvements to the UX.
 > - Laura was built to be as general-purpose as possible to allow developers and agents to figure out what works, or what tools are missing.
-> - You can ask your agent at any time to log positive or negative feedback. All feedback is stored locally so you can audit / review periodically and open as issues in GitHub (https://github.com/thomaseleff/laura-tui/issues) anytime.
+> - You can ask your agent at any time to log positive or negative feedback.
+>
+> All feedback is stored locally so you can audit / review periodically, task your agent to record memory based on your feedback, or open feedback as issues in GitHub (https://github.com/thomaseleff/laura-tui/issues) anytime.
 >
 > **Suggested prompts**
 >

@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
@@ -10,11 +10,10 @@ use syntect::highlighting::{Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-/// A rendered file: plain-text `content` plus styled lines and per-line indent, all 1:1 by line.
+/// A rendered file: plain-text `content` plus styled lines, all 1:1 by line.
 pub(crate) struct Rendered {
     pub(crate) content: String,
     pub(crate) styled: Vec<Line<'static>>,
-    pub(crate) indent: Vec<usize>,
     /// Per-line: pre-formatted (clip + h-scroll) vs prose (word-wrap), 1:1 with `styled`.
     pub(crate) nowrap: Vec<bool>,
     /// 0-based inclusive source-line range each `styled` row came from. Identity `(i, i)` except
@@ -64,13 +63,11 @@ fn plain(content: String) -> Rendered {
         .lines()
         .map(|l| Line::from(Span::raw(l.to_string())))
         .collect::<Vec<_>>();
-    let indent = vec![0; styled.len()];
     let nowrap = vec![false; styled.len()];
     let (source, source_lines) = identity_source(&content, styled.len());
     Rendered {
         content,
         styled,
-        indent,
         nowrap,
         source,
         source_lines,
@@ -106,13 +103,11 @@ fn render_diff(raw: &str) -> Rendered {
             }
         })
         .collect::<Vec<_>>();
-    let indent = vec![0; styled.len()];
     let nowrap = vec![true; styled.len()]; // diffs are pre-formatted
     let (source, source_lines) = identity_source(raw, styled.len());
     Rendered {
         content: raw.to_string(),
         styled,
-        indent,
         nowrap,
         source,
         source_lines,
@@ -135,13 +130,11 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
     }));
     match styled {
         Ok(Some(styled)) => {
-            let indent = vec![0; styled.len()];
             let nowrap = vec![true; styled.len()]; // recognized code is pre-formatted
             let (source, source_lines) = identity_source(raw, styled.len());
             Rendered {
                 content: raw.to_string(),
                 styled,
-                indent,
                 nowrap,
                 source,
                 source_lines,
@@ -215,12 +208,10 @@ fn render_markdown(md: &str) -> Rendered {
         (styled, source)
     });
     let content = styled.iter().map(line_text).collect::<Vec<_>>().join("\n");
-    let indent = heading_indents(&styled);
     let nowrap = classify_nowrap(&styled);
     Rendered {
         content,
         styled,
-        indent,
         nowrap,
         source,
         source_lines,
@@ -253,8 +244,28 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
             source.push((cursor, cursor));
             cursor += 1;
         }
+        // Each top-level list item is its own slice so every bullet gets its own thread; nested
+        // children fold into the parent's range (lazy) (#45).
+        if let BlockKind::List = kind {
+            let starts = top_item_lines(&md[b0..b1], l0);
+            if !starts.is_empty() {
+                for (idx, &s) in starts.iter().enumerate() {
+                    let end = starts.get(idx + 1).map_or(l1, |&next| next - 1);
+                    let slice = format!("{}{defs}", lines[s..=end].join("\n"));
+                    let text = tui_markdown::from_str_with_options(&slice, &opts);
+                    for line in text.lines.iter().map(owned_line).map(refine_line) {
+                        styled.push(line);
+                        source.push((s, end)); // whole item range → all its rows share one thread
+                    }
+                }
+                cursor = cursor.max(l1 + 1);
+                continue; // items rendered per-slice; skip the whole-block path below
+            }
+            // else: empty item scan → fall through, tagging the whole block (today's honest collapse).
+        }
         let slice = format!("{}{defs}", &md[b0..b1]);
         let text = tui_markdown::from_str_with_options(&slice, &opts);
+        let n = text.lines.len();
         for (k, line) in text
             .lines
             .iter()
@@ -265,7 +276,8 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
             // Verbatim blocks render one row per source line, so each row owns a single real line;
             // prose reflows, so its whole range stays honest (#34).
             let range = match kind {
-                BlockKind::Prose => (l0, l1),
+                // List reaches here only on the fallback: tag the whole block like prose.
+                BlockKind::Prose | BlockKind::List => (l0, l1),
                 BlockKind::Code => {
                     let s = (l0 + 1 + k).min(l1); // +1 skips the hidden opening fence
                     (s, s)
@@ -274,6 +286,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
                     let s = (l0 + k).min(l1); // no fence, offset 0
                     (s, s)
                 }
+                BlockKind::Table => table_range(k, n, l0, l1),
             };
             styled.push(line);
             source.push(range);
@@ -295,6 +308,8 @@ enum BlockKind {
     Prose,
     Code,
     Html,
+    List,
+    Table,
 }
 
 /// Top-level block byte ranges + kind: a depth-0→0 Start/End span (nesting via +1/−1), plus any
@@ -312,6 +327,8 @@ fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
                     kind = match tag {
                         Tag::CodeBlock(k) if k.is_fenced() => BlockKind::Code,
                         Tag::HtmlBlock => BlockKind::Html,
+                        Tag::List(_) => BlockKind::List,
+                        Tag::Table(_) => BlockKind::Table,
                         _ => BlockKind::Prose,
                     };
                 }
@@ -328,6 +345,38 @@ fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
         }
     }
     out
+}
+
+/// Source line (offset by `l0`) of each depth-1 item start in a list block — nested items fold into
+/// the parent. Empty on a degraded parse (caller then tags the whole block) (#45).
+fn top_item_lines(slice: &str, l0: usize) -> Vec<usize> {
+    let line_of = line_indexer(slice);
+    let mut out = vec![];
+    let mut depth = 0i32;
+    for (ev, range) in Parser::new_ext(slice, Options::all()).into_offset_iter() {
+        match ev {
+            Event::Start(Tag::List(_)) => depth += 1,
+            Event::End(TagEnd::List(_)) => depth -= 1,
+            Event::Start(Tag::Item) if depth == 1 => out.push(l0 + line_of(range.start)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Source range for rendered table row `k` of `n`. tui-markdown renders `[top-border, header,
+/// separator, data…, bottom-border]`; borders fold to a neighbor. Whole-block on shape mismatch (#45).
+fn table_range(k: usize, n: usize, l0: usize, l1: usize) -> (usize, usize) {
+    let data_rows = l1.saturating_sub(l0 + 1); // l0=header, l0+1=separator, l0+2..=l1=data
+    if n != data_rows + 4 {
+        return (l0, l1);
+    }
+    match k {
+        0 | 1 => (l0, l0),             // top border + header fold to the header line
+        2 => (l0 + 1, l0 + 1),         // separator (`---|---`)
+        k if k == n - 1 => (l1, l1),   // bottom border folds to the last data line
+        _ => (l0 + k - 1, l0 + k - 1), // data row i=k-3 → source line l0+2+i
+    }
 }
 
 /// Reference definitions as blank-line-separated `[label]: dest` lines, appended to each block slice
@@ -405,7 +454,7 @@ pub(crate) const RULE_SENTINEL: &str = "\u{2500}";
 /// styling, and the fenced-block rectangle so the chip colour never forks.
 pub const CODE_BG: Color = Color::Rgb(45, 45, 45);
 
-/// Heading colour ramp: one blurple hue dimming by level, so headings read as a set. `heading_level` sniffs a heading by this colour + bold.
+/// Heading colour ramp: one blurple hue dimming by level, so headings read as a set.
 const HEADING_RAMP: [Color; 4] = [
     Color::Rgb(96, 130, 246), // H1
     Color::Rgb(82, 111, 209), // H2
@@ -441,36 +490,6 @@ fn refine_line(line: Line<'static>) -> Line<'static> {
         }
     }
     Line::from(spans)
-}
-
-/// Per-line indent mirroring heading depth, until the next heading.
-///
-/// ponytail: capped at 3 levels so a deep `####` can't run a narrow panel out of width.
-fn heading_indents(lines: &[Line]) -> Vec<usize> {
-    const STEP: usize = 2;
-    const CAP: usize = 3;
-    let mut cur = 0usize;
-    lines
-        .iter()
-        .map(|line| {
-            if let Some(level) = heading_level(line) {
-                cur = (level.min(CAP) - 1) * STEP;
-            }
-            cur
-        })
-        .collect()
-}
-
-/// A heading line's level (1-based), else `None`. Detects a heading by style (bold + `HEADING_RAMP` colour), then counts leading `#`s.
-fn heading_level(line: &Line) -> Option<usize> {
-    let first = line.spans.first()?;
-    let is_heading = first.style.add_modifier.contains(Modifier::BOLD)
-        && first.style.fg.is_some_and(|c| HEADING_RAMP.contains(&c));
-    if !is_heading {
-        return None;
-    }
-    let hashes = line_text(line).chars().take_while(|c| *c == '#').count();
-    (hashes > 0).then_some(hashes)
 }
 
 /// Panel styling for `tui-markdown`: muted palette, monochrome heading ramp, gray code, soft-blue link, italic blockquote, hidden code fences.

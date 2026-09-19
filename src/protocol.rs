@@ -111,6 +111,18 @@ pub enum Message {
         #[serde(default)]
         on: Option<bool>,
     },
+    /// Write to a line's review thread (agent side). `body` starts a thread or appends a reply,
+    /// `author` labels it. An empty/absent `body` is a typed error.
+    Comment {
+        #[serde(default)]
+        pane: Option<PaneId>,
+        /// 1-based source line the thread hangs on.
+        line: u32,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        author: Option<String>,
+    },
     /// Query the current layout + per-pane geometry/overflow.
     Layout,
     /// Mark the tab as hosting an agent; enables review submission. Optionally names the

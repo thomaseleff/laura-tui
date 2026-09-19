@@ -254,6 +254,54 @@ Toggles a pane's inline diff view against git `HEAD`.
 
 Returns `error` when there is nothing to diff — no `git` binary, or a clean or untracked file.
 
+### `comment`
+
+Writes to a line's review thread from the agent side. `body` starts a thread on the line (or appends a reply to the human's thread there). A comment is a **call and response**: the human's `Shift+s` ships every thread as one review block and clears the pane, so nothing outlives a submit. An empty or absent `body` is a typed error.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
+<dd>Pane to comment on.</dd>
+<dt><code>line</code> · integer</dt>
+<dd>1-based source line the thread hangs on (same mapping as <code>highlight</code>).</dd>
+<dt><code>body</code> · string | null · <em>default: <code>null</code></em></dt>
+<dd>Note text. Starts a thread or appends a reply. An empty or absent body is a typed error.</dd>
+<dt><code>author</code> · string | null · <em>default: session agent</em></dt>
+<dd>Attribution label for the note. When omitted, defaults to the session's <code>ready --agent</code> name, falling back to <code>agent</code> if the tab was never readied.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "comment",
+  "pane": null,
+  "line": 42,
+  "body": "handled — see the retry loop",
+  "author": "agent"
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code> | <code>error</code>
+<pre>
+{
+  "type": "ok"
+}
+{
+  "type": "error",
+  "message": "no pane #3"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
 ### `layout`
 
 Requests the current layout without changing anything.
@@ -360,7 +408,7 @@ Reserved for a re-render nudge; not yet emitted.
 
 Interactions inside the TUI run in-process and do not cross a process boundary, so they skip the socket entirely. A keypress handler holds the live layout state directly and calls the relevant code path instead of serializing a message to itself:
 
-- review comment (`c`) and submit (`Shift+s`)
+- review comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+s`), and refresh (`Ctrl+R`)
 - focus (`^p`), scrolling, and diff toggle (`d`)
 
 See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
