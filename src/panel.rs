@@ -15,8 +15,6 @@ pub struct Panel {
     pub content: String,
     /// Styled display spans, 1:1 with `content.lines()` so a gutter number equals the review's `L<n>`.
     styled: Vec<Line<'static>>,
-    /// Display-only left indent per line (heading depth); never touches `content`, so reviews stay flush-left.
-    indent: Vec<usize>,
     /// Per-line: pre-formatted lines clip + h-scroll instead of wrapping. 1:1 with `styled`.
     nowrap: Vec<bool>,
     /// 0-based inclusive SOURCE line range each rendered row came from, 1:1 with `styled`.
@@ -33,8 +31,8 @@ pub struct Panel {
     /// Agent-directed highlight: 0-based inclusive line range to spotlight (its rows stay
     /// full-color, the rest of the pane dims) and anchor the viewport on; `None` = no highlight.
     pub highlight: Option<(usize, usize)>,
-    /// `(line, text)` comments; multiple allowed, even several per line.
-    pub comments: Vec<(usize, String)>,
+    /// Review threads, keyed by rendered-line index (1:1 with `styled`); cleared on submit (#45).
+    pub threads: Vec<Thread>,
     /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
     pub follow: bool,
     /// Last-seen source signature (mtime, byte len); drives `reload_if_changed`.
@@ -53,6 +51,75 @@ pub struct Panel {
     /// #18: render the panel as an inline `+`/`-` diff vs HEAD instead of the file.
     /// Toggled via `set_diff_view`; recomputed data comes from `refresh_diff`.
     pub diff_view: bool,
+    /// The source changed on disk while notes were open, so the pane holds its in-memory snapshot
+    /// (a reload would move the lines the notes pin to). Cleared once the notes clear (#45).
+    pub source_changed: bool,
+}
+
+/// Who wrote a note. `Agent` carries its label; the human is always `User`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Author {
+    User,
+    Agent(String),
+}
+
+/// One note in a thread — an author and its body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub author: Author,
+    pub body: String,
+}
+
+impl Note {
+    fn user(body: String) -> Note {
+        Note {
+            author: Author::User,
+            body,
+        }
+    }
+}
+
+/// A thread pinned to a rendered-line index; `assemble_review` maps it through `source` to file lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Thread {
+    pub line: usize,
+    /// Card show/hide and gutter-caret shape. Starts expanded.
+    pub collapsed: bool,
+    pub root: Note,
+    /// Newest last, one level deep.
+    pub replies: Vec<Note>,
+}
+
+impl Thread {
+    fn new(line: usize, root: Note) -> Thread {
+        Thread {
+            line,
+            collapsed: false,
+            root,
+            replies: vec![],
+        }
+    }
+
+    /// Newest note: the last reply, else the root.
+    fn last(&self) -> &Note {
+        self.replies.last().unwrap_or(&self.root)
+    }
+
+    fn last_mut(&mut self) -> &mut Note {
+        self.replies.last_mut().unwrap_or(&mut self.root)
+    }
+
+    /// Root then replies, in order.
+    fn notes(&self) -> impl Iterator<Item = &Note> {
+        std::iter::once(&self.root).chain(&self.replies)
+    }
+}
+
+/// One decision shared by the `c` keypress prefill and its commit, so both agree.
+enum UserIntent {
+    New,
+    Edit,
+    Reply,
 }
 
 impl Panel {
@@ -61,7 +128,6 @@ impl Panel {
         let Rendered {
             content,
             styled,
-            indent,
             nowrap,
             source,
             source_lines,
@@ -72,14 +138,13 @@ impl Panel {
             path,
             content,
             styled,
-            indent,
             nowrap,
             source,
             source_lines,
             h_offset: 0,
             cursor: 0,
             highlight: None,
-            comments: vec![],
+            threads: vec![],
             follow: false,
             sig,
             read_error: error,
@@ -87,6 +152,7 @@ impl Panel {
             git_missing: false,
             removed: vec![],
             diff_view: false,
+            source_changed: false,
         };
         panel.refresh_diff();
         panel
@@ -233,45 +299,292 @@ impl Panel {
             .unwrap_or(0)
     }
 
-    /// Pin a comment to the current cursor line.
-    pub fn add_comment(&mut self, text: String) {
-        self.comments.push((self.cursor, text));
+    /// The thread on rendered line `line`, if any.
+    pub fn thread_at(&self, line: usize) -> Option<&Thread> {
+        self.threads.iter().find(|t| t.line == line)
     }
 
-    /// Assemble a PR-style review for PTY injection: comments grouped under one 1-based source-line header per row (`L<n>`, or `L<a>-<b>` for a collapsed markdown block), `overall` omitted when empty.
+    fn thread_at_mut(&mut self, line: usize) -> Option<&mut Thread> {
+        self.threads.iter_mut().find(|t| t.line == line)
+    }
+
+    /// How many threads — gates the title and `S`, and the gutter shows them all.
+    pub fn thread_count(&self) -> usize {
+        self.threads.len()
+    }
+
+    /// Toggle collapse of the thread on `line`'s canonical row (no-op if none).
+    pub fn toggle_collapsed(&mut self, line: usize) {
+        let row = self.canonical_row(line);
+        if let Some(t) = self.thread_at_mut(row) {
+            t.collapsed = !t.collapsed;
+        }
+    }
+
+    /// Set every thread's collapse to `v` (bulk `r`).
+    pub fn set_all_collapsed(&mut self, v: bool) {
+        for t in &mut self.threads {
+            t.collapsed = v;
+        }
+    }
+
+    /// What `c` does on the cursor line: new thread, edit your own newest note, or reply.
+    fn user_intent(&self) -> UserIntent {
+        match self.thread_at(self.canonical_row(self.cursor)) {
+            None => UserIntent::New,
+            Some(t) if matches!(t.last().author, Author::User) => UserIntent::Edit,
+            Some(_) => UserIntent::Reply,
+        }
+    }
+
+    /// `c` seam: expand the cursor's thread and return the edit-prefill seed (edited note, else empty).
+    pub fn begin_comment(&mut self) -> String {
+        let row = self.canonical_row(self.cursor);
+        if let Some(t) = self.thread_at_mut(row) {
+            t.collapsed = false;
+        }
+        match self.user_intent() {
+            UserIntent::Edit => self
+                .thread_at(row)
+                .map(|t| t.last().body.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
+    /// Commit the human's draft on Enter (contextual new / edit / reply).
+    pub fn author_note(&mut self, text: String) {
+        if text.trim().is_empty() {
+            return; // no empty threads/replies; empty edit is a no-op, keeps the existing body. Esc cancels.
+        }
+        let row = self.canonical_row(self.cursor);
+        match self.user_intent() {
+            UserIntent::New => self.threads.push(Thread::new(row, Note::user(text))),
+            UserIntent::Edit => {
+                self.thread_at_mut(row).unwrap().last_mut().body = text;
+            }
+            UserIntent::Reply => {
+                self.thread_at_mut(row)
+                    .unwrap()
+                    .replies
+                    .push(Note::user(text));
+            }
+        }
+    }
+
+    /// The agent's write path. `line` is a 1-based file line; `body` starts a thread or appends a
+    /// reply. `Err` on an empty body, and `Err` past EOF so a stale line can't clamp onto another thread.
+    pub fn agent_note(
+        &mut self,
+        line: u32,
+        body: Option<String>,
+        author: Option<String>,
+    ) -> Result<(), String> {
+        let body = body
+            .filter(|b| !b.trim().is_empty())
+            .ok_or("comment needs a body")?;
+        let n = self.source_lines.len();
+        if (line.saturating_sub(1) as usize) >= n {
+            return Err(format!(
+                "line {line} is past the file's {n} lines — it may have changed under review; retry"
+            ));
+        }
+        let row = self.source_line_to_row(line);
+        let name = author.unwrap_or_else(|| "agent".into());
+        let note = Note {
+            author: Author::Agent(name),
+            body,
+        };
+        match self.thread_at_mut(row) {
+            Some(t) => t.replies.push(note),
+            None => self.threads.push(Thread::new(row, note)),
+        }
+        Ok(())
+    }
+
+    /// First rendered row whose source range holds 1-based file `line`; clamps to the last row when
+    /// out of range. The single-point form of `set_highlight`'s intersect (agent may send `line: 0`).
+    fn source_line_to_row(&self, line: u32) -> usize {
+        let s = line.saturating_sub(1) as usize;
+        self.source
+            .iter()
+            .position(|&(a, b)| a <= s && b >= s)
+            .unwrap_or_else(|| self.source.len().saturating_sub(1))
+    }
+
+    /// A rendered `row` mapped to its block's first row — where both write paths key threads, so a
+    /// comment on any row of a folded block hits one shared thread (#45).
+    fn canonical_row(&self, row: usize) -> usize {
+        match self.source.get(row) {
+            Some(&(a, _)) => self.source_line_to_row(a as u32 + 1),
+            None => row,
+        }
+    }
+
+    /// The thread on the cursor's canonical row, if any (what `r`/`c` key off).
+    pub fn cursor_thread(&self) -> Option<&Thread> {
+        self.thread_at(self.canonical_row(self.cursor))
+    }
+
+    /// Threads at-or-above vs strictly below the cursor's canonical row — the title's ↑/↓ counter,
+    /// so `a + b` equals the thread count (#45).
+    pub fn thread_split(&self) -> (usize, usize) {
+        let row = self.canonical_row(self.cursor);
+        let below = self.threads.iter().filter(|t| t.line > row).count();
+        (self.threads.len() - below, below)
+    }
+
+    /// Rendered row of the nearest thread after (`fwd`) or before the cursor — the `n`/`N` target,
+    /// wrapping around the ends. None only with no threads.
+    pub fn thread_jump(&self, fwd: bool) -> Option<usize> {
+        let row = self.canonical_row(self.cursor);
+        let lines = self.threads.iter().map(|t| t.line);
+        if fwd {
+            lines
+                .clone()
+                .filter(|&l| l > row)
+                .min()
+                .or_else(|| lines.min())
+        } else {
+            lines
+                .clone()
+                .filter(|&l| l < row)
+                .max()
+                .or_else(|| lines.max())
+        }
+    }
+
+    /// `Shift+S`: build the review payload, then clear the threads (the call and response is over).
+    pub fn submit_review(&mut self, overall: &str) -> String {
+        let out = self.assemble_review(overall);
+        self.threads.clear();
+        out
+    }
+
+    /// PR-style review for PTY injection: each thread under a 1-based source header (`L<n>` or
+    /// `L<a>-<b>` for a block), author-labeled; `overall` omitted when empty (#45).
     pub fn assemble_review(&self, overall: &str) -> String {
         let mut out = format!("[laura review · {}]\n", self.path);
+        // A frozen snapshot's line numbers are against the reviewed content, not disk — warn the agent.
+        if self.source_changed {
+            out.push_str(
+                "⚠ file changed on disk since this review — line numbers are against the reviewed snapshot\n",
+            );
+        }
         if !overall.is_empty() {
             out.push_str(&format!("\n{overall}\n"));
         }
-        // Group by line, sorted; several comments share one L<n> header.
-        let mut by_line: Vec<(usize, Vec<&str>)> = vec![];
-        let mut sorted: Vec<&(usize, String)> = self.comments.iter().collect();
-        sorted.sort_by_key(|(l, _)| *l);
-        for (line, text) in sorted {
-            match by_line.last_mut() {
-                Some((l, cs)) if *l == *line => cs.push(text),
-                _ => by_line.push((*line, vec![text])),
-            }
-        }
-        for (line, comments) in by_line {
+        let mut threads: Vec<&Thread> = self.threads.iter().collect();
+        threads.sort_by_key(|t| t.line);
+        for t in threads {
             out.push('\n');
             // Header is the row's source range: `L<n>` for a 1:1 line, `L<a>-<b>` for a block (#32).
-            let (a, b) = self.source.get(line).copied().unwrap_or((line, line));
+            let (a, b) = self.source.get(t.line).copied().unwrap_or((t.line, t.line));
             let hdr = if a == b {
                 format!("L{}", a + 1)
             } else {
                 format!("L{}-{}", a + 1, b + 1)
             };
-            match self.content.lines().nth(line) {
+            // Raw source line, not the rendered row: a table/list thread carries `| c | 3 |`, not box glyphs.
+            match self.source_lines.get(a) {
                 Some(text) => out.push_str(&format!("{hdr}  {text}\n")),
                 None => out.push_str(&format!("{hdr}\n")),
             }
-            for c in comments {
-                out.push_str(&format!("      > {c}\n"));
+            for note in t.notes() {
+                let label = match &note.author {
+                    Author::User => "user",
+                    Author::Agent(n) => n.as_str(),
+                };
+                out.push_str(&format!("      > [{label}] {}\n", note.body));
             }
         }
         out
+    }
+
+    /// Card rows for the expanded thread on line `i` (empty when none/collapsed): a rounded gray box
+    /// grown to the widest note; human notes are inline-code chips, agent notes plain fg.
+    /// Emitted at column 0 — `render_panel` prefixes the decoration, so `pad_w` is only a wrap budget.
+    fn thread_rows(&self, i: usize, inner_w: usize) -> Vec<PanelRow> {
+        let Some(t) = self.thread_at(i).filter(|t| !t.collapsed) else {
+            return vec![];
+        };
+        let gutter_width = self.source_lines.len().max(1).to_string().len();
+        let pad_w = gutter_width + 3; // number + sep + change + sep — card's left edge sits under the caret
+        let cap = inner_w.saturating_sub(pad_w + 4).max(12); // two border + two padding columns
+        let border = Style::default().fg(Color::Rgb(120, 120, 120)); // rounded box gray
+        let plain = Style::default().fg(Color::Rgb(171, 178, 191)); // one dark fg
+        let chip = Style::default().fg(Color::Rgb(180, 180, 180)).bg(CODE_BG);
+
+        let width = |spans: &[Span<'static>]| -> usize {
+            spans.iter().map(|s| s.content.chars().count()).sum()
+        };
+
+        // Inner note lines: wrap the whole `{name} · body` as one unit; continuations align under the
+        // note's start (connector width only), not under the body.
+        let mut inner: Vec<Vec<Span<'static>>> = vec![];
+        for (idx, note) in t.notes().enumerate() {
+            let is_user = matches!(note.author, Author::User);
+            let name = match &note.author {
+                Author::User => "You",
+                // Title-case the unnamed-agent fallback so it reads as a role beside "You";
+                // real supplied names render verbatim. The chat payload keeps lowercase "agent".
+                Author::Agent(n) if n == "agent" => "Agent",
+                Author::Agent(n) => n.as_str(),
+            };
+            let connector = if idx == 0 { "" } else { "└─ " };
+            let cw = connector.chars().count();
+            let chip_pad = if is_user { 2 } else { 0 }; // the chip pads one space each side
+            let full = format!("{name} · {}", note.body);
+            for (j, seg) in wrap_line(&full, cap.saturating_sub(cw + chip_pad))
+                .into_iter()
+                .enumerate()
+            {
+                let mut spans = vec![];
+                let lead = if j == 0 {
+                    connector.to_string()
+                } else {
+                    " ".repeat(cw)
+                };
+                if !lead.is_empty() {
+                    spans.push(Span::styled(lead, border));
+                }
+                spans.push(if is_user {
+                    Span::styled(format!(" {seg} "), chip) // whole note as an inline-code chip
+                } else {
+                    Span::styled(seg, plain)
+                });
+                inner.push(spans);
+            }
+        }
+
+        // Draw the rounded box, growing to the widest inner line. `line: i` so scroll/copy keep the
+        // card with its source line; `comment: true` so cosmetics skip it and render_panel indents it.
+        let w = inner.iter().map(|s| width(s)).max().unwrap_or(0);
+        let mk = |spans: Vec<Span<'static>>| PanelRow {
+            line: i,
+            gutter: None,
+            spans,
+            comment: true,
+            change: None,
+            review: None,
+            nowrap: false,
+        };
+        let mut rows = vec![mk(vec![Span::styled(
+            format!("╭{}╮", "─".repeat(w + 2)),
+            border,
+        )])];
+        for line in inner {
+            let used = width(&line);
+            let mut spans = vec![Span::styled("│ ".to_string(), border)];
+            spans.extend(line);
+            spans.push(Span::styled(format!("{} │", " ".repeat(w - used)), border));
+            rows.push(mk(spans));
+        }
+        rows.push(mk(vec![Span::styled(
+            format!("╰{}╯", "─".repeat(w + 2)),
+            border,
+        )]));
+        rows
     }
 
     /// Lay the panel into visual rows for an `inner_w`-wide area. Wrapping here (not the widget) keeps rows 1:1 so scroll, scrollbar, and `L<n>` stay exact.
@@ -283,7 +596,8 @@ impl Panel {
         // number exceed `styled.len()`.
         let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
-        let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
+        // 5-cell gutter decoration (number · sep · change · sep · caret · sep · body); see render_panel.
+        let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
         for (i, line) in self.styled.iter().enumerate() {
@@ -293,7 +607,8 @@ impl Panel {
             if let Some(n) = self.removed_in_row(i) {
                 let word = if n == 1 { "line" } else { "lines" };
                 let mut label = format!("── {n} {word} removed ");
-                let dashes = tw.saturating_sub(label.chars().count());
+                // +2 so the separator still reaches the pane edge from the caret-aligned indent (+3, not +5).
+                let dashes = (tw + 2).saturating_sub(label.chars().count());
                 label.push_str(&"─".repeat(dashes));
                 rows.push(PanelRow {
                     line: i,
@@ -304,53 +619,42 @@ impl Panel {
                     )],
                     comment: true,
                     change: None,
+                    review: None,
+                    nowrap: false,
                 });
             }
             starts.push(rows.len());
-            // Indent is display-only; it eats text width but never `content`.
-            let ind = self.indent.get(i).copied().unwrap_or(0).min(tw - 1);
-            let pad = |spans: &mut Vec<Span<'static>>| {
-                if ind > 0 {
-                    spans.insert(0, Span::raw(" ".repeat(ind)));
-                }
-            };
-            let avail = tw - ind;
+            let nowrap = self.nowrap.get(i).copied().unwrap_or(false);
             // A thematic-break sentinel stretches full-width; everything else word-wraps.
             let chunks = if line.spans.len() == 1 && line.spans[0].content.as_ref() == RULE_SENTINEL
             {
-                vec![vec![Span::styled("─".repeat(avail), line.spans[0].style)]]
-            } else if self.nowrap.get(i).copied().unwrap_or(false) {
+                vec![vec![Span::styled("─".repeat(tw), line.spans[0].style)]]
+            } else if nowrap {
                 // Pre-formatted: clip to the horizontal window instead of wrapping.
-                vec![clip_spans(&line.spans, self.h_offset, avail)]
+                vec![clip_spans(&line.spans, self.h_offset, tw)]
             } else {
-                wrap_spans(&line.spans, avail)
+                wrap_spans(&line.spans, tw)
             };
-            for (k, mut chunk) in chunks.into_iter().enumerate() {
-                pad(&mut chunk);
+            for (k, chunk) in chunks.into_iter().enumerate() {
                 rows.push(PanelRow {
                     line: i,
                     // Gutter shows the block's *first* source line, not the rendered index.
                     gutter: (k == 0).then_some(self.source[i].0 + 1),
                     spans: chunk,
                     comment: false,
+                    nowrap,
                     // Bar runs every wrapped row of the changed paragraph; row_change folds
                     // the block's source range, identical for each row of line i (#35).
                     change: self.row_change(i),
+                    // Caret only on the line's first row; carries collapse shape.
+                    review: (k == 0)
+                        .then(|| self.thread_at(i))
+                        .flatten()
+                        .map(|t| t.collapsed),
                 });
             }
-            for (_, c) in self.comments.iter().filter(|(l, _)| *l == i) {
-                for chunk in wrap_line(&format!("<- {c}"), avail) {
-                    let mut spans = vec![Span::raw(chunk)];
-                    pad(&mut spans);
-                    rows.push(PanelRow {
-                        line: i,
-                        gutter: None,
-                        spans,
-                        comment: true,
-                        change: None,
-                    });
-                }
-            }
+            // Card rows for an expanded thread land after the line's last (wrapped) row.
+            rows.extend(self.thread_rows(i, inner_w));
         }
         // Source-independent cosmetics, applied once to the finished rows (both testable through
         // `layout`): box fenced code into a rectangle, then half-cap inline code. Neither adds or
@@ -373,7 +677,8 @@ impl Panel {
     fn diff_layout(&self, inner_w: usize) -> PanelLayout {
         let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
-        let tw = inner_w.saturating_sub(gutter_width + 1).max(1);
+        // Match `layout`'s 5-cell decoration budget; diff view renders those cells as blanks.
+        let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
         let green = Style::default().fg(Color::Rgb(163, 190, 140)); // nord green
         let red = Style::default().fg(Color::Rgb(191, 97, 106)); // nord red
         let line_count = self.source_lines.len().max(1);
@@ -391,6 +696,8 @@ impl Panel {
                             spans: vec![Span::styled(chunk, red)],
                             comment: false,
                             change: None,
+                            review: None,
+                            nowrap: false,
                         });
                     }
                 }
@@ -418,6 +725,8 @@ impl Panel {
                     spans: vec![span],
                     comment: false,
                     change: None,
+                    review: None,
+                    nowrap: false,
                 });
             }
         }
@@ -459,10 +768,13 @@ impl Panel {
         if sig == self.sig {
             return false;
         }
+        if !self.threads.is_empty() {
+            self.source_changed = true; // freeze: hold the snapshot the notes pin to, don't touch self.sig
+            return false; // stays "dirty" so we keep noticing until the notes clear (submit/Ctrl+R)
+        }
         let Rendered {
             content,
             styled,
-            indent,
             nowrap,
             source,
             source_lines,
@@ -470,7 +782,6 @@ impl Panel {
         } = render(&self.path);
         self.content = content;
         self.styled = styled;
-        self.indent = indent;
         self.nowrap = nowrap;
         self.source = source;
         self.source_lines = source_lines;
@@ -489,7 +800,15 @@ impl Panel {
             self.highlight = Some((lo.min(last), hi.min(last)));
         }
         self.refresh_diff();
+        self.source_changed = false;
         true
+    }
+
+    /// `Ctrl+R`: drop pending notes and refresh the pane to the on-disk file.
+    pub fn discard_and_reload(&mut self) {
+        self.threads.clear();
+        self.sig = None;
+        self.reload_if_changed();
     }
 }
 
@@ -503,6 +822,11 @@ pub struct PanelRow {
     /// Gutter-bar change, folded from the row's source range; `None` on continuation/comment/gap
     /// rows and in diff-view. The renderer keys the bar off this (#32).
     pub change: Option<ChangeKind>,
+    /// Review caret on the line's first row: `Some(collapsed)` = a thread here, shape carries
+    /// collapse (`▸`/`▾`) (#45).
+    pub review: Option<bool>,
+    /// Pre-formatted row (table/code/diff): `cap_inline` skips it so caps don't drift alignment (#45).
+    pub nowrap: bool,
 }
 
 impl PanelRow {
@@ -561,7 +885,8 @@ fn box_fenced(rows: &mut [PanelRow]) {
     };
     let mut i = 0;
     while i < rows.len() {
-        if !is_fenced_row(&rows[i].spans) {
+        // Card rows carry a pre-sized rounded box; boxing them would double-wrap it.
+        if rows[i].comment || !is_fenced_row(&rows[i].spans) {
             i += 1;
             continue;
         }
@@ -578,15 +903,7 @@ fn box_fenced(rows: &mut [PanelRow]) {
                 .find(|s| !s.content.trim().is_empty())
                 .map_or_else(Style::default, |s| s.style);
             let used = width(r);
-            // A leading heading-indent span (blank, no bg) stays *outside* the box, else the code
-            // bg's left pad renders at column 0 with the indent gap between it and the block.
-            let indent = r
-                .spans
-                .first()
-                .is_some_and(|s| s.style.bg.is_none() && s.content.trim().is_empty())
-                .then(|| r.spans.remove(0));
-            let mut boxed = indent.into_iter().collect::<Vec<_>>();
-            boxed.push(Span::styled(" ", style));
+            let mut boxed = vec![Span::styled(" ", style)];
             boxed.append(&mut r.spans);
             boxed.push(Span::styled(" ".repeat(w - used + 1), style));
             r.spans = boxed;
@@ -605,7 +922,13 @@ fn box_fenced(rows: &mut [PanelRow]) {
 fn cap_inline(rows: &mut [PanelRow]) {
     let cap = Style::default().fg(CODE_BG);
     for r in rows.iter_mut() {
-        if is_fenced_row(&r.spans) || !r.spans.iter().any(|s| s.style.bg.is_some()) {
+        // Card note rows carry inline-code chips inside a pre-sized border; capping them overflows it.
+        // Nowrap rows (tables/code) are column-aligned — a cap widens a cell and drifts the borders (#45).
+        if r.comment
+            || r.nowrap
+            || is_fenced_row(&r.spans)
+            || !r.spans.iter().any(|s| s.style.bg.is_some())
+        {
             continue;
         }
         let mut out: Vec<Span<'static>> = vec![];

@@ -1,4 +1,4 @@
-//! The plain-text projection and row/indent structure that `L<n>` and scroll read off — verbatim for code, markup-stripped for `.md`, heading-indented. Through `Panel::open` + `Panel::layout`. Styling (colour/bold/bg) is display-only pixels, not asserted here.
+//! The plain-text projection and row structure that `L<n>` and scroll read off — verbatim for code, markup-stripped for `.md`. Through `Panel::open` + `Panel::layout`. Styling (colour/bold/bg) is display-only pixels, not asserted here.
 
 use std::io::Write;
 
@@ -42,30 +42,23 @@ fn markdown_content_is_plain_text() -> Result<()> {
 }
 
 #[test]
-fn markdown_headings_are_indented() -> Result<()> {
-    // H1 flush with its literal `#` marker; H2 section indented two columns — the row structure scroll reads.
+fn markdown_headings_are_flush() -> Result<()> {
+    // #45: heading-indent removed — every heading and its body start at column 0; the `#` prefix
+    // carries the hierarchy on its own.
     let panel = open(".md", "# Top\n\n## Sub\n\nbody")?;
     let rows = panel.layout(80).rows;
 
-    let h1 = rows
-        .iter()
-        .find(|r| r.text().contains("Top"))
-        .expect("H1 row");
-    assert!(
-        h1.text().starts_with("# Top"),
-        "H1 keeps its literal marker, no indent: {:?}",
-        h1.text()
-    );
-
-    let h2 = rows
-        .iter()
-        .find(|r| r.text().contains("Sub"))
-        .expect("H2 row");
-    assert!(
-        h2.text().starts_with("  ## Sub"),
-        "H2 section indented two columns with its literal marker: {:?}",
-        h2.text()
-    );
+    for needle in ["# Top", "## Sub", "body"] {
+        let row = rows
+            .iter()
+            .find(|r| r.text().contains(needle.trim_start_matches('#').trim()))
+            .unwrap_or_else(|| panic!("row for {needle:?}"));
+        assert!(
+            row.text().starts_with(needle),
+            "no leading indent — starts flush with its content: {:?}",
+            row.text()
+        );
+    }
     Ok(())
 }
 

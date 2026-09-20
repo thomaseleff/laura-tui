@@ -19,13 +19,20 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 | Key | Action |
 |-----|--------|
 | `↑/↓` | Move |
+| `n/N` | Jump the cursor to the next / previous comment thread |
 | `←/→` | Scroll pre-formatted lines sideways (code, diffs, markdown tables/fences/HTML) |
-| `c` | Comment on a line |
-| `Shift+s` | Submit the review |
+| `c` | Comment on a line (start a thread, edit your last note, or reply) |
+| `r` | Collapse/expand the cursor's review thread — or, off a thread, all of them |
+| `Shift+s` | Submit the review — ships every thread as one block, then clears the pane |
+| `Ctrl+R` | Refresh the pane to the on-disk file, discarding any pending comments |
 | `d` | Toggle inline diff vs git `HEAD` |
 | `x` | Close the pane |
 | `h` | Clear the pane's highlight |
 | `Esc` | Leave the pane |
+
+A per-line comment is a **call and response**: notes ride the pane while you work, `Shift+S` ships them all as one review block, and the pane clears — nothing outlives the submit. When a pane holds threads, its border reads `[review: N ↑a ↓b]` — `N` threads (what a submit would carry), `a` at or above the cursor and `b` below it, so you can tell a comment sits off-screen before scrolling to it. `n`/`N` jump straight there, wrapping around the ends — `n` past the last thread lands on the first.
+
+If the file changes on disk while you have comments open, the pane **freezes** on its current snapshot rather than reloading out from under your notes; a standing bottom-right warning names both exits. `Shift+S` submits against the snapshot (the review carries a `⚠ file changed` banner) then the pane catches up to disk; `Ctrl+R` discards the pending comments and refreshes to disk.
 
 ## Scrolling
 

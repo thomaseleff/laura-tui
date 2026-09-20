@@ -63,6 +63,36 @@ fn open_wire_shape_is_stable() {
     );
 }
 
+#[test]
+fn comment_wire_shape_is_stable() {
+    let json = serde_json::to_string(&Message::Comment {
+        pane: Some(2),
+        line: 42,
+        body: Some("tighten this".into()),
+        author: Some("agent".into()),
+    })
+    .unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"comment","pane":2,"line":42,"body":"tighten this","author":"agent"}"#
+    );
+}
+
+/// The bare form `{"type":"comment","line":N}` decodes: pane→focused, no body/author.
+#[test]
+fn comment_defaults_are_minimal() {
+    let msg: Message = serde_json::from_str(r#"{"type":"comment","line":7}"#).unwrap();
+    assert_eq!(
+        msg,
+        Message::Comment {
+            pane: None,
+            line: 7,
+            body: None,
+            author: None,
+        }
+    );
+}
+
 /// An older `{"type":"open","path":"x"}` (no split/dir/ratio/side/focus/dry_run) still decodes;
 /// the split fields fill `None` so the server infers the layout.
 #[test]
