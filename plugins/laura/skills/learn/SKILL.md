@@ -10,16 +10,18 @@ argument-hint: [style] [difficulty] [prompt]
 
 Run a lesson: teach, produce, review, revise, over real files in panes, with the learner setting the pace.
 
+In a lesson the agent **navigates**: the learner is the driver — produces and edits — while you navigate: point, review on their lines, and revise in place as they go.
+
 Args are positional and all optional: an optional leading **style** (`socratic` / `montessori` / `direct` / `gradual`), an optional **difficulty** (`beginner` / `intermediate` / `advanced` / `expert`), then the **prompt**. For example: `learn two-sum`, `learn socratic recursion`, `learn direct beginner 101 crash course on Rust`. Infer any omitted arg; an explicit one always wins.
 
 **Rules**
-- Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
-- Run `laura ready --session "$YOUR_SESSION_ID" --agent claude` once at the start — **mandatory**, so `retro` can measure this session. Use your **own** conversation/session id so the journal lines up 1:1 with this chat.
-- The learner sets the pace: after each step **wait for `Next`**. If they ask a question, answer it, stay put, and resume on `Next`.
-- Journal a closing sentiment at the end (see below).
-- **Just `laura open <path>` — Laura dwindles for you** (splits the newest pane, alternates orientation); no manual `--split` threading.
-- See the `laura` skill for the full CLI or run `laura --help`.
-- Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
+- **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start — *mandatory*, so `retro` can measure this session. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
+- **The learner sets the pace** — after each step **wait for `Next`**. If they ask a question, answer it, stay put, and resume on `Next`.
+- **Journal a closing sentiment** at the end (see below).
+- **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.
+- **See the `laura` skill** for the full CLI or run `laura --help`.
+- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
 
 ## Understand the subject and the learner first
 

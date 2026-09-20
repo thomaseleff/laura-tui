@@ -11,11 +11,11 @@ argument-hint: [filter]
 Read and summarize the feedback and reviews recorded in the journals — this skill only reads them. The journals are per-session NDJSON files, queried with `jq`.
 
 **Rules**
-- Check that `$LAURA_TAB` is set, otherwise, let the user know you are not running in a Laura workspace.
-- Read only — never write to the journals here.
-- Summarize back in chat: a sentiment count, the recurring negative notes, and anything worth opening as an issue (https://github.com/thomaseleff/laura-tui/issues).
-- See the `laura` skill for the full CLI or run `laura --help`.
-- Read the docs: https://thomaseleff.github.io/laura-tui/llms.txt
+- **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
+- **Read only** — never write to the journals here.
+- **Summarize back in chat**: a sentiment count, the recurring negative notes, and anything worth opening as an issue (https://github.com/thomaseleff/laura-tui/issues).
+- **See the `laura` skill** for the full CLI or run `laura --help`.
+- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
 
 ## Find the sessions dir
 

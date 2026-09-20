@@ -21,7 +21,8 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         Relative paths resolve against the *calling* process's cwd, so `cd`
                         inside the PTY then `laura open ./x` works. Warns on stderr (still exit 0)
                         when the file can't be read (`cannot read <path>: …`) or the pane doesn't
-                        fit (`overflows:` / `too small`), so `laura layout` is confirmatory, not required.
+                        fit (`overflows:` / `too small`) — so `laura layout` isn't required just to
+                        check fit, though it's still the first move before tiling (to see what's open).
       --split <id>      pane to split (default: the focused pane).
       --dir <h|v>       Split orientation: h side-by-side, v stacked (default: inferred).
       --ratio <1..99>   Percent of the split given to the new pane (default: inferred).
@@ -79,7 +80,7 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 }
 ```
 
-`overflow_rows > 0` (or `clipped`) means the pane is taller than its pane — widen/reshape the split or lower `--ratio` until it fits. A real `open` (not just `--dry-run`) surfaces the same condition as a terse `overflows:` / `too small` line on stderr, so you rarely need to call `layout` after opening.
+`overflow_rows > 0` (or `clipped`) means the pane is taller than its pane — widen/reshape the split or lower `--ratio` until it fits. A real `open` (not just `--dry-run`) surfaces the same condition as a terse `overflows:` / `too small` line on stderr, so you rarely need `layout` just to check fit *after* opening — but run it *before* tiling to see what's already open.
 
 ## Journal
 
