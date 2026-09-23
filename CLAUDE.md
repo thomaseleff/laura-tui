@@ -39,3 +39,18 @@ Implementation should always be comprehensive of code, tests, docs and skills.
 - **Skills** — `plugins/laura/skills/` teach the agent the new surface; revise `skills/demo/` when a user-facing capability is worth demoing.
 
 New CLI verb, protocol message, or keybinding → assume all four apply and say so if you're skipping one. Docs and skills drift silently otherwise: nothing fails to compile when they fall behind.
+
+## Plans
+
+- **Revision** at the top (`Revision N`); bump it on every revision.
+- **Organize by commit, not by artifact.** Each commit carries its own code, tests, docs, and
+  skills, passes the check suite on its own, and can be reviewed in isolation.
+- **Reference note.** Put this under the title word for word, filling in `{branch}` and
+  `{commit}`:
+
+  > [!NOTE]
+  > This plan was drafted against `{branch}` at `{commit}`. Code snippets are example implementations and line
+  > numbers are references only; explore the current code and write an implementation plan for
+  > your task before editing code.
+- **Conventions section.** `file:line` pointers to the codebase patterns the implementer must
+  follow, each with a one-line description.
