@@ -22,7 +22,7 @@ use ratatui::crossterm::execute;
 use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
 
 /// Laura hosts your coding agent's shell in a PTY with a live side-pane for showing files and
-/// receiving in-place review.
+/// receiving inline reviews.
 ///
 /// Agents: install the skill — `claude plugin marketplace add thomaseleff/laura-tui`.
 ///
@@ -73,7 +73,7 @@ enum Cmd {
         #[arg(long, conflicts_with_all = ["split", "dir", "ratio", "side"])]
         panel: Option<PaneId>,
     },
-    /// Close a pane (default: the focused one). `--all` returns to PTY-only.
+    /// Close a pane (default: the focused one). `--all` returns to shell-only.
     Close {
         /// Pane id to close (default: the focused pane).
         id: Option<PaneId>,
@@ -105,13 +105,13 @@ enum Cmd {
         #[arg(long)]
         off: bool,
     },
-    /// Write to a line's review thread: start a thread or reply on it.
+    /// Write to a line's thread: start a thread or reply on it.
     Comment {
         /// 1-based source line the thread hangs on.
         line: u32,
-        /// Note body — starts a thread or appends a reply.
+        /// Comment body — starts a thread or appends a reply.
         body: String,
-        /// Attribute the note to this author (default: the session's `ready --agent` name, else `agent`).
+        /// Attribute the comment to this author (default: the session's `ready --agent` name, else `agent`).
         #[arg(long)]
         author: Option<String>,
         /// Pane to comment on (default: the focused pane).
@@ -120,7 +120,7 @@ enum Cmd {
     },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
-    /// Mark this tab as hosting an agent (enables review submission). Prints the journal path.
+    /// Mark this tab as hosting an agent (enables inline review submission). Prints the journal path.
     Ready {
         /// Name the journal session (default: `laura-<pid>-<n>`).
         #[arg(long)]
@@ -137,7 +137,7 @@ enum Cmd {
         /// Negative signal.
         #[arg(long)]
         negative: bool,
-        /// Free-text note.
+        /// Free-text body.
         body: Option<String>,
     },
     /// Spool piped stdin to an internal file and show it in a live, autoscrolling pane.

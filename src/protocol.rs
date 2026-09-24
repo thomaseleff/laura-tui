@@ -84,7 +84,7 @@ pub enum Message {
         #[serde(default)]
         panel: Option<PaneId>,
     },
-    /// Close a pane. `None` = the focused panel; `all` returns to PTY-only. The PTY can't close.
+    /// Close a pane. `None` = the focused panel; `all` returns to shell-only. The PTY can't close.
     Close {
         #[serde(default)]
         pane: Option<PaneId>,
@@ -111,7 +111,7 @@ pub enum Message {
         #[serde(default)]
         on: Option<bool>,
     },
-    /// Write to a line's review thread (agent side). `body` starts a thread or appends a reply,
+    /// Write to a line's thread (agent side). `body` starts a thread or appends a reply,
     /// `author` labels it. An empty/absent `body` is a typed error.
     Comment {
         #[serde(default)]
@@ -125,7 +125,7 @@ pub enum Message {
     },
     /// Query the current layout + per-pane geometry/overflow.
     Layout,
-    /// Mark the tab as hosting an agent; enables review submission. Optionally names the
+    /// Mark the tab as hosting an agent; enables inline review submission. Optionally names the
     /// journal `session` and the `agent`; the reply carries the journal path.
     Ready {
         #[serde(default)]
@@ -134,7 +134,7 @@ pub enum Message {
         agent: Option<String>,
     },
     /// Append a meta-signal to the journal: how well Laura/the agent performed
-    /// (layout, render quality, a missing tool) — not review content.
+    /// (layout, render quality, a missing tool) — not inline review content.
     Feedback {
         /// `"+"` positive, `"-"` negative.
         sentiment: String,

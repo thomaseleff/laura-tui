@@ -12,7 +12,7 @@ Run your coding agent inside the laura TUI:
 laura -- claude
 ```
 
-Laura opens with your agent running inside its PTY:
+Laura opens with your agent running in the shell:
 
 ```
 +- Laura ----------------------------------------------------+
@@ -44,7 +44,7 @@ Your agent will load and run the **laura** skill, splitting the TUI with the pro
 +- Laura ----------------------------------------------------+
 | [ 1 ]                                                      |
 +------------------------------------------------------------+
-| agent (pty)               | docs/protocol.md               |
+| shell                     | docs/protocol.md               |
 | > ...                     | 1  # Protocol                  |
 |                           | 2                              |
 |                           | 3  An agent mutates a tab's ...|
@@ -54,19 +54,19 @@ Your agent will load and run the **laura** skill, splitting the TUI with the pro
 +---------------------------+--------------------------------+
 ```
 
-The pane is live so the file re-renders when your agent edits the file.
+The file pane reloads when your agent edits the file.
 
-## 3. Mark up a line
+## 3. Comment on a line
 
-Panes are auto-focused when opened. To switch into a pane press `Ctrl+P` and type the pane's number to jump into it. Move up and down with `↑` and `↓` and place the cursor on a line worth a note.
+Panes are auto-focused by default when opened. To switch into a pane press `Ctrl+P` and type the pane's number to jump into it. Move up and down with `↑` and `↓` and place the cursor on a line to leave a comment.
 
-Press `c`, type your comment — *"tighten this"* — and press `Enter`. In-line comments accumulate within a review, comment on as many lines as you like.
+Press `c`, type your comment, then press `Enter`. Comments accumulate into an inline review, so comment on as many lines as you like.
 
-## 4. Submit the review
+## 4. Submit the inline review
 
-Still within the file pane, press `Shift+S` once you are done adding comments, then type an overall note, and press `Enter`.
+Still within the file pane, press `Shift+S` once you are done adding comments, then type a review body, and press `Enter`.
 
-Your review is automatically injected into your agent chat with a review body and per-line summary of each comment, just like a PR review. Your agent will automatically pick up the review and start working on your feedback.
+Laura submits your inline review into the chat: the review body plus each thread, just like a PR review. Your agent will automatically pick up the inline review and start working on your feedback.
 
 ## Next
 

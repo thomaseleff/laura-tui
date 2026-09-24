@@ -2,14 +2,14 @@
 
 The following reference provides the keystrokes to navigate the Laura TUI workspace. Press `Ctrl+H` anytime from within Laura to pull up the same reference.
 
-All keystrokes not recognized as Laura commands are always passed directly into the PTY automatically, allowing you to interact with your coding agent CLI.
+Keys Laura doesn't bind pass through to the shell.
 
 ## Global keys
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress) |
-| `Ctrl+T` | Tab nav — `←/→` browse · `n` new tab · `x` close tab |
+| `Ctrl+T` | Tab nav — `←/→` browse · `n` new tab · `x` close tab · `r` rename tab |
 | `Ctrl+H` | Help |
 | `Ctrl+Q` | Quit (then `y` to confirm) |
 | `F12` | Lock all input to the shell |
@@ -18,21 +18,21 @@ All keystrokes not recognized as Laura commands are always passed directly into 
 
 | Key | Action |
 |-----|--------|
-| `↑/↓` | Move |
-| `n/N` | Jump the cursor to the next / previous comment thread |
+| `↑/↓` | Move the cursor |
+| `n/N` | Jump the cursor to the next / previous thread |
 | `←/→` | Scroll pre-formatted lines sideways (code, diffs, markdown tables/fences/HTML) |
-| `c` | Comment on a line (start a thread, edit your last note, or reply) |
-| `r` | Collapse/expand the cursor's review thread — or, off a thread, all of them |
-| `Shift+s` | Submit the review — ships every thread as one block, then clears the pane |
-| `Ctrl+R` | Refresh the pane to the on-disk file, discarding any pending comments |
+| `c` | Comment on a line: start a thread, edit your last comment, or reply (needs `laura ready`) |
+| `r` | Collapse/expand the cursor's thread — or, off a thread, all of them |
+| `Shift+S` | Submit the inline review (needs `laura ready`) |
+| `Ctrl+R` | Refresh the pane: discard the unsubmitted inline review and reload the file |
 | `d` | Toggle inline diff vs git `HEAD` |
 | `x` | Close the pane |
 | `h` | Clear the pane's highlight |
 | `Esc` | Leave the pane |
 
-A per-line comment is a **call and response**: notes ride the pane while you work, `Shift+S` ships them all as one review block, and the pane clears — nothing outlives the submit. When a pane holds threads, its border reads `[review: N ↑a ↓b]` — `N` threads (what a submit would carry), `a` at or above the cursor and `b` below it, so you can tell a comment sits off-screen before scrolling to it. `n`/`N` jump straight there, wrapping around the ends — `n` past the last thread lands on the first.
+An inline review is a **call and response**. Comments and threads remain in the pane until you press `Shift+S` to submit the inline review. A pane with threads shows `[review: N ↑a ↓b]` on its border: `N` threads, `a` at or above the cursor, `b` below it. Use `n`/`Shift+N` to jump to the next / previous thread. If the inline review can't be written into the shell, the notice `⚠ inline review submission failed — Enter to retry · Esc to cancel` appears and the threads and review body are kept. `Enter` retries; `Esc` closes the review body and keeps the threads. The cause is recorded in the journal's `review` event. While you type a comment or review body, the agent's commands wait until you press `Enter` or `Esc`.
 
-If the file changes on disk while you have comments open, the pane **freezes** on its current snapshot rather than reloading out from under your notes; a standing bottom-right warning names both exits. `Shift+S` submits against the snapshot (the review carries a `⚠ file changed` banner) then the pane catches up to disk; `Ctrl+R` discards the pending comments and refreshes to disk.
+A file pane with an unsubmitted inline review **freezes** when its file changes on disk. A focused frozen pane shows the notice `⚠ <file> changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review)` (shortened to `⚠ Shift+S submit · Ctrl+R discards inline review` on a narrow terminal). `Shift+S` submits against the snapshot (the inline review starts with a `⚠ file changed` banner), then the pane reloads. `Ctrl+R` refreshes.
 
 ## Scrolling
 

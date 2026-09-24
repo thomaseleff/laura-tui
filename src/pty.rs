@@ -83,12 +83,14 @@ impl PtyTab {
         self.exited.load(Ordering::SeqCst)
     }
 
-    /// Forward raw input bytes (keystrokes) to the child.
-    pub fn write(&self, bytes: &[u8]) {
-        if let Ok(mut w) = self.writer.lock() {
-            let _ = w.write_all(bytes);
-            let _ = w.flush();
-        }
+    /// Forward raw input bytes (keystrokes, a review) to the child.
+    pub fn write(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let mut w = self
+            .writer
+            .lock()
+            .map_err(|_| std::io::Error::other("can't write to the shell"))?;
+        w.write_all(bytes)?;
+        w.flush()
     }
 
     /// Resize both the PTY and the parser grid.

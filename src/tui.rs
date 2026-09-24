@@ -54,7 +54,8 @@ fn coalesce_paste_burst(first: ratatui::crossterm::event::KeyEvent) -> Result<Ev
 
 /// What live typing captures: a per-line comment, the review body, or a tab rename. Enter branches per variant.
 enum Draft {
-    Comment(String),
+    /// The row is the panel cursor when `c` was pressed: the comment lands there, not wherever the cursor drifted (#68).
+    Comment(usize, String),
     Review(String),
     Rename(String),
 }
@@ -62,19 +63,19 @@ enum Draft {
 impl Draft {
     fn body_mut(&mut self) -> &mut String {
         match self {
-            Draft::Comment(s) | Draft::Review(s) | Draft::Rename(s) => s,
+            Draft::Comment(_, s) | Draft::Review(s) | Draft::Rename(s) => s,
         }
     }
 
     fn body(&self) -> &str {
         match self {
-            Draft::Comment(s) | Draft::Review(s) | Draft::Rename(s) => s,
+            Draft::Comment(_, s) | Draft::Review(s) | Draft::Rename(s) => s,
         }
     }
 
     /// Comment/Review are tied to the focused panel; Rename is not.
     fn is_panel(&self) -> bool {
-        matches!(self, Draft::Comment(_) | Draft::Review(_))
+        matches!(self, Draft::Comment(..) | Draft::Review(_))
     }
 
     /// `\`+Enter inserts a newline; Rename stays single-line.
@@ -108,7 +109,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     loop {
         // Content rect sits below the 1-line tab bar; sockets deliver while unfocused, so drain every tab.
         let content = content_rect(terminal.get_frame().area());
-        for tab in tabs.iter_mut() {
+        // A comment/review-body draft holds its tab's requests so the pane under it can't move.
+        for (i, tab) in tabs.iter_mut().enumerate() {
+            tab.hold = i == active && draft.as_ref().is_some_and(Draft::is_panel);
             tab.drain(content);
         }
         // git-presence is a machine-global fact: arm the "install git" toast once,
@@ -194,15 +197,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  quit? press y to confirm · any other key cancels"
             } else if let Some(d) = &draft {
                 focus_hint = match d {
-                    Draft::Comment(_) => {
-                        let cursor = tab.focused_panel().map_or(0, |p| p.cursor);
-                        format!(
-                            "  comment L{} · \\+Enter newline · Enter add · Esc cancel",
-                            cursor + 1
-                        )
-                    }
+                    Draft::Comment(row, _) => format!(
+                        "  comment L{} · \\+Enter newline · Enter add · Esc cancel",
+                        row + 1
+                    ),
                     Draft::Review(_) => {
-                        "  overall · \\+Enter newline · Enter submit · Esc cancel".into()
+                        "  review body · \\+Enter newline · Enter submit · Esc cancel".into()
                     }
                     Draft::Rename(_) => "  rename tab · Enter save · Esc cancel".into(),
                 };
@@ -213,12 +213,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
             } else if tab.focus != PTY_PANE {
                 if tab.agent {
-                    "  ↑/↓ move · n/N next/prev comment · c comment · r reviews · S submit · ^r refresh · d diff · x close · h clear · Esc leave focus"
+                    "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · d diff · x close · h clear · Esc leave pane"
                 } else {
-                    "  ↑/↓ move · n/N next/prev comment · r reviews · d diff · x close · h clear · Esc leave focus · review: run `laura ready`"
+                    "  ↑/↓ move · n/N next/prev thread · r threads · d diff · x close · h clear · Esc leave pane · inline review: run `laura ready`"
                 }
             } else {
-                "  ^p panes · ^t tabs · ^h help · ^q quit"
+                "  Ctrl+P panes · Ctrl+T tabs · Ctrl+H help · Ctrl+Q quit"
             };
             f.render_widget(Paragraph::new(hint).dim(), rows[2]);
             // A live draft grows a bordered input box over the bottom of the shell pane — never over
@@ -227,8 +227,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 && let Some(pty_rect) = map.get(&PTY_PANE)
             {
                 let (title, body) = match d {
-                    Draft::Comment(s) => ("comment", s.as_str()),
-                    Draft::Review(s) => ("overall", s.as_str()),
+                    Draft::Comment(_, s) => ("comment", s.as_str()),
+                    Draft::Review(s) => ("review body", s.as_str()),
                     Draft::Rename(s) => ("rename tab", s.as_str()),
                 };
                 render_draft_box(f, *pty_rect, title, body);
@@ -239,18 +239,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if help {
                 render_help(f);
             }
-            // A frozen pane (notes open, file changed on disk) shows a standing warning that wins
-            // the bottom-right slot over the transient toast until the freeze clears (submit / ^r).
-            // ponytail: only the *focused* pane's freeze warns; an unfocused (e.g. --follow tail)
-            // frozen pane gives no cue until focused. Widen to any frozen pane if that bites.
-            if tab.focused_panel().is_some_and(|p| p.source_changed) {
-                // Trailing space: ⚠ (U+26A0) renders width-2 under VS16, so pad or the box clips ~1 cell.
-                render_toast(
-                    f,
-                    "⚠ source changed — Shift+S submit review · Ctrl+R refresh (clears all comments) ",
-                );
-            } else if let Some((msg, _)) = &toast {
+            // A live toast (e.g. a failed submit) wins the bottom-right slot; a focused frozen pane's
+            // notice shows otherwise, and returns once the toast expires, until submit / ^r clears it.
+            if let Some((msg, _)) = &toast {
                 render_toast(f, msg);
+            } else if let Some(p) = tab.focused_panel().filter(|p| p.source_changed) {
+                render_toast(f, &frozen_notice(&base_name(&p.path), f.area().width));
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
             if let Some(sel) = &selection
@@ -298,7 +292,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         // Everything to the shell; only F12 (handled above) is intercepted.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
                             tabs[active].pty.to_live();
-                            tabs[active].pty.write(&bytes);
+                            let _ = tabs[active].pty.write(&bytes);
                         }
                     } else if confirm_quit {
                         if key.code == KeyCode::Char('y') {
@@ -325,31 +319,54 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 b.push('\n');
                             }
                             KeyCode::Enter => match draft.take().unwrap() {
-                                Draft::Comment(text) => {
+                                Draft::Comment(row, text) => {
                                     if let Some(p) = tabs[active].focused_panel_mut() {
+                                        // A wheel scroll while typing moves the cursor, not the comment.
+                                        p.cursor = row;
                                         p.author_note(text);
                                     }
                                 }
                                 Draft::Review(body) => {
-                                    // Read the count first: `submit_review` clears the threads.
-                                    let logged = tabs[active]
-                                        .focused_panel()
-                                        .map(|p| (p.path.clone(), p.thread_count()));
-                                    let payload = tabs[active]
-                                        .focused_panel_mut()
-                                        .map(|p| bracketed_paste(&p.submit_review(&body), true));
-                                    if let Some(payload) = payload {
-                                        tabs[active].pty.write(&payload);
-                                    }
-                                    if let Some((path, comments)) = logged {
-                                        tabs[active].log_event(json!({
+                                    // Borrow pane and PTY as separate fields so the send can write.
+                                    let tab = &mut tabs[active];
+                                    let pty = &tab.pty;
+                                    let sent = tab.panels.get_mut(&tab.focus).map(|p| {
+                                        // Read the count first: a sent review clears the threads.
+                                        let logged = (p.path.clone(), p.thread_count());
+                                        let res = p.submit_review(&body, |r| {
+                                            pty.write(&bracketed_paste(r, true))
+                                        });
+                                        (logged, res)
+                                    });
+                                    let mut sent_ok = true;
+                                    if let Some(((path, comments), res)) = sent {
+                                        let mut event = json!({
                                             "type": "review",
                                             "path": path,
                                             "comments": comments,
                                             "body": body,
-                                        }));
+                                        });
+                                        if let Err(e) = res {
+                                            // Journal the cause so a lost review is traceable; the notice stays fixed (#72).
+                                            event["error"] = json!(e.to_string());
+                                            toast = Some((
+                                                SUBMIT_FAILED.into(),
+                                                Instant::now() + Duration::from_secs(5),
+                                            ));
+                                            sent_ok = false;
+                                        }
+                                        tab.log_event(event);
+                                        if !sent_ok {
+                                            draft = Some(Draft::Review(body));
+                                        }
                                     }
-                                    tabs[active].focus = PTY_PANE;
+                                    if sent_ok {
+                                        tab.focus = PTY_PANE;
+                                        // A retry that lands must not leave "Enter to retry" up.
+                                        if toast.as_ref().is_some_and(|(m, _)| m == SUBMIT_FAILED) {
+                                            toast = None;
+                                        }
+                                    }
                                 }
                                 Draft::Rename(text) => {
                                     let text = text.trim();
@@ -357,7 +374,13 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         (!text.is_empty()).then(|| text.to_string());
                                 }
                             },
-                            KeyCode::Esc => draft = None,
+                            KeyCode::Esc => {
+                                draft = None;
+                                // Nothing left to retry, so "Enter to retry" would lie.
+                                if toast.as_ref().is_some_and(|(m, _)| m == SUBMIT_FAILED) {
+                                    toast = None;
+                                }
+                            }
                             _ => {}
                         }
                     } else if panes.is_some() {
@@ -450,11 +473,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 }
                             }
                             KeyCode::Char('c') if tabs[active].agent => {
-                                let seed = tabs[active]
+                                let (row, seed) = tabs[active]
                                     .focused_panel_mut()
-                                    .map(Panel::begin_comment)
+                                    .map(|p| (p.cursor, p.begin_comment()))
                                     .unwrap_or_default();
-                                draft = Some(Draft::Comment(seed));
+                                draft = Some(Draft::Comment(row, seed));
                             }
                             KeyCode::Char('r') if ctrl => {
                                 if let Some(p) = tabs[active].focused_panel_mut() {
@@ -505,7 +528,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         // itself; on the main screen scroll Laura's own scrollback.
                         if tabs[active].pty.on_alt_screen() {
                             if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                                tabs[active].pty.write(&bytes);
+                                let _ = tabs[active].pty.write(&bytes);
                             }
                         } else if key.code == KeyCode::PageUp {
                             tabs[active].pty.scroll(pty_inner.height as isize);
@@ -514,7 +537,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         }
                     } else if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
                         tabs[active].pty.to_live(); // typing snaps to the live prompt
-                        tabs[active].pty.write(&bytes);
+                        let _ = tabs[active].pty.write(&bytes);
                     }
                 }
                 // The resize is applied by `resize_to` at the top of the loop from the content-inner
@@ -538,7 +561,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             && !confirm_quit)
                     {
                         tabs[active].pty.to_live();
-                        tabs[active].pty.write(&bracketed_paste(&s, false));
+                        let _ = tabs[active].pty.write(&bracketed_paste(&s, false));
                     }
                     // Popups / focused panel without a draft / help / confirm — paste is meaningless, drop it.
                 }
@@ -560,7 +583,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     {
                         // Forward to the child; no `to_live` — forwarding mustn't disturb the view.
                         if let Some(bytes) = mouse::sgr_mouse_bytes(&m, pty_inner, mode) {
-                            tabs[active].pty.write(&bytes);
+                            let _ = tabs[active].pty.write(&bytes);
                         }
                     } else {
                         match m.kind {
@@ -732,6 +755,12 @@ fn pane_block(title: Option<String>, focused: bool) -> Block<'static> {
 /// The cursor row's gray band (nord3) and the slightly-lighter gray code chips read on top of it.
 const BAND: Color = Color::Rgb(67, 76, 94);
 const CODE_ON_BAND: Color = Color::Rgb(82, 92, 110);
+
+/// Warning yellow (nord13): toasts and a frozen pane's border tag.
+const WARN: Color = Color::Rgb(235, 203, 139);
+
+/// The failed-submit notice (#72). Trailing space: ⚠ renders width-2, see `frozen_notice`.
+const SUBMIT_FAILED: &str = "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
 
 /// A highlighted row's gutter number: soft white (nord4), brighter than the dimmed rest, so the
 /// gutter itself marks which rows the spotlight is on — regardless of the row's content.
@@ -921,12 +950,12 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
     let view = area.height.saturating_sub(2) as usize;
     let total_rows = rows.len();
     let offset = panel.scroll_offset(&layout, view).min(u16::MAX as usize) as u16;
-    f.render_widget(
-        Paragraph::new(rows)
-            .block(pane_block(Some(title), focused))
-            .scroll((offset, 0)),
-        area,
-    );
+    let mut block = pane_block(Some(title), focused);
+    if panel.source_changed {
+        // Trailing space: ⚠ renders width-2 under VS16, so pad or the corner clips.
+        block = block.title_bottom(Line::from(" ⚠ ").right_aligned().fg(WARN));
+    }
+    f.render_widget(Paragraph::new(rows).block(block).scroll((offset, 0)), area);
     render_scrollbar(f, area, total_rows, view, offset as usize);
 }
 
@@ -1057,6 +1086,21 @@ fn base_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
+/// The frozen-pane notice for file `name`, shortened when the full text won't fit in `width`.
+fn frozen_notice(name: &str, width: u16) -> String {
+    // Trailing space: ⚠ (U+26A0) renders width-2 under VS16, so pad or the box clips ~1 cell.
+    let full = format!(
+        "⚠ {name} changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review) "
+    );
+    // `render_toast` pads by 2 and keeps a 1-cell right margin.
+    if full.chars().count() + 3 <= width as usize {
+        full
+    } else {
+        // No filename: a long one overflows 80 cols, and the pane title already names the file.
+        "⚠ Shift+S submit · Ctrl+R discards inline review ".to_string()
+    }
+}
+
 /// Draw a one-line transient toast in the bottom-right corner (nord yellow), just above the hint line.
 fn render_toast(f: &mut Frame, msg: &str) {
     let area = f.area();
@@ -1069,7 +1113,7 @@ fn render_toast(f: &mut Frame, msg: &str) {
     };
     f.render_widget(Clear, rect);
     f.render_widget(
-        Paragraph::new(format!(" {msg} ")).style(Style::default().fg(Color::Rgb(235, 203, 139))),
+        Paragraph::new(format!(" {msg} ")).style(Style::default().fg(WARN)),
         rect,
     );
 }
@@ -1087,42 +1131,46 @@ fn render_help(f: &mut Frame) {
     let group = |g: &'static str| Line::from(g.bold());
     let lines = vec![
         group("Global"),
-        key("^p", "panes popup"),
-        key("^t", "tab nav (footer)"),
-        key("^h", "this help"),
+        key("Ctrl+P", "panes popup"),
+        key("Ctrl+T", "tab nav"),
+        key("Ctrl+H", "this help"),
         key("F12", "lock all input to the shell"),
         key("drag", "select within pane (copies on release)"),
-        key("^q", "quit (then y to confirm)"),
+        key("Ctrl+Q", "quit (then y to confirm)"),
         Line::raw(""),
-        group("Panes (^p …)"),
+        group("Panes (Ctrl+P …)"),
         key("id", "type a pane id, Enter to focus"),
         key("Esc", "dismiss"),
         Line::raw(""),
-        group("Tabs (^t …)"),
+        group("Tabs (Ctrl+T …)"),
         key("←/→", "browse tabs"),
         key("n", "new tab"),
         key("x", "close tab"),
         key("r", "rename tab"),
         key("Esc", "dismiss"),
         Line::raw(""),
-        group("Panel focus"),
-        key("↑/↓", "move cursor"),
-        key("n/N", "next/prev comment"),
+        group("Focused pane"),
+        key("↑/↓", "move the cursor"),
+        key("n/N", "next/prev thread"),
+        key("←/→", "scroll pre-formatted lines sideways"),
         key("d", "toggle inline diff vs HEAD"),
         key("c", "comment on line (needs `laura ready`)"),
-        key("r", "collapse/expand review"),
-        key("S", "submit review (needs `laura ready`)"),
-        key("^r", "refresh pane (discards pending comments)"),
+        key("r", "collapse/expand thread"),
+        key("Shift+S", "submit inline review (needs `laura ready`)"),
+        key(
+            "Ctrl+R",
+            "refresh pane (discards unsubmitted inline review)",
+        ),
         key("x", "close pane"),
         key("h", "clear highlight"),
-        key("Esc", "leave focus"),
+        key("Esc", "leave pane"),
         Line::raw(""),
         group("Draft"),
-        key("\\+Enter", "newline (comment/review)"),
+        key("\\+Enter", "newline"),
         key("Enter", "confirm / submit"),
         key("Esc", "cancel"),
     ];
-    let width = 44u16;
+    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4; // + border, margin
     let height = lines.len() as u16 + 2; // + border
     let [area] = Layout::vertical([Constraint::Length(height)])
         .flex(Flex::Center)
@@ -1139,7 +1187,16 @@ fn render_help(f: &mut Frame) {
 
 #[cfg(test)]
 mod tests {
-    use super::{pane_id_ambiguous, pane_id_exact, tab_window};
+    use super::{frozen_notice, pane_id_ambiguous, pane_id_exact, tab_window};
+
+    // The frozen notice is drawn by the render loop (no CLI/socket surface), so its fit is checked here.
+    #[test]
+    fn frozen_notice_shortens_on_a_narrow_terminal() {
+        let short = frozen_notice("2026-09-23-protect-review-plan.md", 80);
+        assert!(short.contains("Ctrl+R discards inline review"), "{short}");
+        assert!(short.chars().count() + 3 <= 80, "{short}");
+        assert!(frozen_notice("main.rs", 200).contains("changed on disk"));
+    }
 
     // The pane-id popup entry lives in the TUI event loop (no CLI/socket surface), so its
     // disambiguation is checked here per CLAUDE.md's exception. This is the `1` vs `10` case.

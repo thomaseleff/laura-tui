@@ -20,22 +20,25 @@ Who drives during pair-programming determines which `laura` motions you reach fo
 Regardless of either mode, you compose the TUI workspace, run interactions within panes, and run code, tests, and builds. 
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**, otherwise, let the user know you are not running in a Laura workspace.
-- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat.
-- **Run `laura layout`** before opening or closing panes, see what's open and `laura close` anything stale.
+- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
+- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat.
+- **Run `laura layout`** before opening or closing panes to see what's open and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
 - **Proactively show a file, diff, or logs** in a pane over pasting or referring to the content in the chat.
-- **Laura auto-tiles** A bare `laura open <path>` open splits the newest pane and alternates orientation — a dwindle. No need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override to create a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place.
+- **Laura auto-tiles.** A bare `laura open <path>` splits the newest pane and alternates orientation — a dwindle. No need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override it with a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place. It errors on a pane with an unsubmitted inline review.
+- **On an `unsubmitted inline review` / `frozen` error**, ask your partner to submit (`Shift+S`) or refresh (`Ctrl+R`). Don't retry.
+- **Annotate only when you need your partner's answer in a thread.** `laura comment` starts an unsubmitted inline review that only your partner can submit (`Shift+S`) or refresh (`Ctrl+R`). Until they do, you can't close the pane or replace its file. To explain, `laura highlight` the span and explain in chat.
+- **A `laura` command can wait while your partner types a comment or review body.** It returns when they finish. Don't kill or retry it.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
 
 ## Reference
 
 Every `laura` command and its flags. Run `laura --help` (or `laura <cmd> --help`) for the full reference.
 
-```
+```bash
 laura open <path>       Split a pane and render <path> in the new pane. Prints the new pane id.
                         Relative paths resolve against the *calling* process's cwd, so `cd`
-                        inside the PTY then `laura open ./x` works. Warns on stderr (still exit 0)
+                        in the shell then `laura open ./x` works. Warns on stderr (still exit 0)
                         when the file can't be read (`cannot read <path>: …`) or the pane doesn't
                         fit (`overflows:` / `too small`) — so `laura layout` isn't required just to
                         check fit, but still run it first to see what's open (see Rules).
@@ -47,32 +50,35 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
       --follow          Autoscroll: pin the cursor to the last line on open and every reload.
       --dry-run         Print the would-be overflow report; open nothing.
       --highlight <start> [end]  Highlight a line range once open (1-based, inclusive); end
-                        defaults to start. Opens the pane already scrolled to and spotlighting
-                        the range — the one-call "show me where" gesture. e.g. `laura open x.rs
-                        --highlight 40 52`.
+                        defaults to start. Opens the pane already scrolled to and highlighting
+                        the range: `laura open x.rs --highlight 40 52`.
       --diff            Open straight into the inline diff view (vs git HEAD).
       --panel <id>      Swap a pane's file in place, no new split — same id, rect, focus.
-                        Ignores --split/--dir/--ratio/--side.
-laura close [<id>]      Close a pane (default: the focused one).
-      --all             Close every pane, back to shell-only.
+                        Ignores --split/--dir/--ratio/--side. Errors (exit 1) while the pane
+                        has an unsubmitted inline review.
+laura close [<id>]      Close a pane (default: the focused one). Errors (exit 1) while the
+                        pane has an unsubmitted inline review.
+      --all             Close every pane, back to shell-only. Errors (exit 1), closing nothing,
+                        while any pane has an unsubmitted inline review.
 laura focus <id>        Focus a pane by id.
 laura highlight [start] [end]
                         Highlight lines start..=end (1-based, inclusive) in a pane and
                         scroll them into view. end defaults to start (single line). Line numbers
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph maps to
-                        that whole block. e.g. `laura highlight 40 52`.
-      --off             Clear the pane's highlight (start optional; user can also press `h`).
+                        that whole block: `laura highlight 40 52`. Errors (exit 1) on a
+                        frozen pane.
+      --off             Clear the pane's highlight (start optional; works on a frozen pane;
+                        your partner can also press `h`).
       --pane <id>       pane to highlight (default: the focused pane).
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
       --pane <id>       pane to toggle (default: the focused pane).
       --off             Turn the diff view off (default: toggle).
 laura comment <line> <body>
-                        Write to a line's review thread: start a thread or reply on it.
+                        Write to a line's thread: start a thread or reply on it.
                         <line> is a 1-based source line; <body> is required. A <line>
-                        past the file's end errors (exit 1) and places no note — if you just edited
-                        the file the pane may be mid-reload; retry once it reflects the file.
-      --author <name>   Attribute the note (default: the session's ready --agent name, else agent).
+                        past the file's end errors (exit 1) and places no comment.
+      --author <name>   Attribute the comment (default: the session's ready --agent name, else agent).
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path.
@@ -81,9 +87,9 @@ laura ready             Mark the tab as hosting an agent (enables pane interacti
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
       --positive        Positive signal.        (one of --positive/--negative is required)
       --negative        Negative signal.
-      [<body>]          Optional free-text note.
-some-cmd | laura tail   Spool piped stdin to an internal file and show it in a live pane.
-                        Never steals focus — the tail pane opens unfocused.
+      [<body>]          Optional free-text body.
+some-cmd | laura tail   Spool piped stdin to an internal file and show it in a tail pane.
+                        The tail pane opens unfocused.
       --title <t>       Pane title (also names the spool file).
       --follow          Autoscroll to the newest line as output arrives.
       --split/--dir/--ratio  Same split controls as `open`.
@@ -103,54 +109,56 @@ some-cmd | laura tail   Spool piped stdin to an internal file and show it in a l
 }
 ```
 
-`overflow_rows > 0` (or `clipped`) means the pane is taller than its rect — widen/reshape the split or lower `--ratio` until it fits. A real `open` surfaces the same condition as a terse `overflows:` / `too small` line on stderr.
+`overflow_rows > 0` (or `clipped`) means the content is taller than its pane — widen/reshape the split or lower `--ratio` until it fits. A real `open` surfaces the same condition as a terse `overflows:` / `too small` line on stderr.
 
 ## Motions
 
-Common workflows with the `laura` CLI to improve interactions between you and your pair-programmer and when to use them.
+Common workflows with the `laura` CLI to improve interactions between you and your partner and when to use them.
 
 ### Show a file
 
 **Motion**
 1. Run `laura layout` to see what is currently open.
-2. Run `laura close <id>` (or `laura close --all`) to clear any / all pane(s) that is no longer relevant.
-3. Run `laura open <path>` to split a pane and render it — `--dry-run` simulates the fit before you commit (panes updates live as the source is edited.)
+2. Run `laura close <id>` (or `laura close --all`) to clear any pane that's no longer relevant. A pane with an unsubmitted inline review errors instead of closing.
+3. Run `laura open <path>` to split a pane and render it — `--dry-run` simulates the fit before you commit (file panes reload when the file changes).
 
-**Use when** your pair-programmer asks to see a file, or when you want to put one on screen as part of collaborating, riffing, or improvising.
+**Use when** your partner asks to see a file, or when you want to put one on screen as part of collaborating, riffing, or improvising.
 
 **Handle stderr warnings** `open` and `tail` warn on `stderr` and still exit 0, so read the warning and re-open with different layout params when the layout can be improved:
 
-- **`overflows:`** — the doc is taller than the pane. A large overflow may indicate you should open it vertically (`--dir v`) to gain height.
+- **`overflows:`** — the file is taller than the pane. A large overflow may indicate you should open it vertically (`--dir v`) to gain height.
 - **`too small`** — the pane cannot render the content at all; raise `--ratio` or change `--dir`.
 - **`cannot read <path>: …`** — the file path cannot be found.
 - **`diff markers unavailable`** — `git` is not installed, so gutter marking and the diff view are disabled.
+- **`already open in pane #N`** — reuse pane N (`laura highlight --pane N`). Open a second pane of one file only for two distant sections. If it says pane N has an unsubmitted inline review, work in the new pane.
 
 ### Call and respond
 
 **Motion**
-1. Run `laura comment <line> "…"` to add in line comments to a file open in a pane. Comments open threads for you and your partner — a call and response on the line.
-   - Your partner uses `c` to comment on the same line, adding a comment into the thread, then `Shift+S` to submit all in line comments as a `[laura review · …]` chat message. The submit clears the pane.
+1. Run `laura comment <line> "…"` to annotate a file open in a pane. Each comment starts or extends a thread for you and your partner — a call and response on the line.
+   - Your partner uses `c` to comment on the same line, adding to the thread, then `Shift+S` to submit the inline review as a `[laura review · …]` chat message. The submit clears the pane's threads.
 
-**Use when** your pair-programmer asks for you to provide a review on a file, or, you want to explain concepts in line. Subagents can also be tasked with providing an annotated in line review as well on an open pane.
+**Use when** your partner asks you to review a file, or you need their answer in a thread, such as a question or a suggestion to accept or reject. Subagents can also annotate an open pane.
 
 ### Review
 
 **Motion**
-1. Run `laura open <path>` so your pair-programmer can mark up the file in place
-   - Your partner uses `↑`/`↓` to move to a line, `n`/`N` to jump to the next/prev comment thread, `c` to comment, `r` to collapse/expand threads, `Shift+S` to submit the review, `Ctrl+R` to refresh the pane (discarding pending comments), `x` to close the pane, and `Esc` to switch back to chat. The pane border's `[review: N ↑a ↓b]` counter shows how many threads sit at/above (`a`) vs below (`b`) their cursor, so an off-screen comment is visible before they scroll.
-2. Once submitted, their review lands in your input as a `[laura review · …]` chat message and the pane clears. Each `L<n>` is a thread with author-labelled notes (`> [user] …`, `> [agent] …`).
-3. Resolve any open questions with your partner first, then act on the review.
-4. Run `laura comment <line> "…"` to reply in line. If a comment errors as out-of-range right after you edited the file, the pane is mid-reload — retry once it catches up. If you edit a file while your partner has comments open, its pane freezes on the reviewed snapshot until they submit (`Shift+S`, with a `⚠ file changed` banner) or refresh (`Ctrl+R`).
+1. Run `laura open <path>` so your partner can comment on the file in place
+   - Your partner uses `↑`/`↓` to move to a line, `n`/`N` to jump to the next/prev thread, `c` to comment, `r` to collapse/expand threads, `Shift+S` to submit the inline review, `Ctrl+R` to refresh the pane (discarding the unsubmitted inline review), `x` to close the pane, and `Esc` to switch back to chat. The pane border's `[review: N ↑a ↓b]` counter shows how many threads sit at/above (`a`) vs below (`b`) their cursor, so an off-screen comment is visible before they scroll.
+2. Once submitted, their inline review lands in your input as a `[laura review · …]` chat message and the pane clears. Each `L<n>` is a thread with author-labelled comments (`> [user] …`, `> [agent] …`).
+3. Resolve any open questions with your partner first, then act on the inline review.
+4. Respond to the inline review in chat. Annotate again only for a follow-up you need answered in a thread. If you edit a file while your partner has an unsubmitted inline review on it, its pane freezes until they submit (`Shift+S`, with a `⚠ file changed` banner) or refresh (`Ctrl+R`).
 
-**Use when** your pair-programmer asks to review a file, or when you want a review on something you just wrote or modified.
+**Use when** your partner asks to review a file, or when you want your partner to review something you just wrote or modified.
 
 ### Highlight
 
 **Motion**
-1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` opens *and* highlights in one call leaving your partners focus in chat.
+1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` to open *and* highlight in one call, leaving your partner's focus in chat.
 2. If the file is open, run `laura highlight <start> [end] --pane <id>` to highlight a different section.
 3. Re-call to move the highlight as the conversation moves.
-4. Run `laura highlight --off [--pane <id>]` to clear it (or the user presses `h` on the focused pane).
+4. Run `laura highlight --off [--pane <id>]` to clear it (or your partner presses `h` on the focused pane).
+   - On a frozen pane `highlight` errors; `--off` still clears.
 
 **Use when** you want to show a reference while you hold a conversation in chat or when your partner asks for you to explain something step-by-step.
 
@@ -167,15 +175,15 @@ By default an open file always shows added, modified and deleted lines via the l
 ### Tail live output
 
 **Motion**
-1. Pipe a running command into `laura tail` to tile a thin, autoscrolling log pane `some-cmd | laura tail --title logs --follow --split <id> --dir v --ratio 30` puts the source above and the streaming output below.
+1. Pipe a running command into `laura tail` to tile a thin, autoscrolling tail pane: `some-cmd | laura tail --title logs --follow --split <id> --dir v --ratio 30` puts the source above and the streaming output below.
 
 **Use when** you are running or debugging a service and want to display the logs for your partner to watch live, or, your partner asks for you to bring up or monitor a service.
 
 ## Workflows
 
-Refer to the following additional `laura` skills for longer running workflows, which sequence motions into interactive experiences with your pair-programmer.
+Refer to the following additional `laura` skills for longer running workflows, which sequence motions into interactive experiences with your partner.
 
-- **`demo`** runs a guided, live tour of Laura — the review loop, panes, tailing, and feedback.
-- **`explain`** walks the user through a PR, file, or flow, stepping across highlighted ranges one at a time on their cue.
-- **`learn`** teaches a concept hands-on through different styles and complexities: it exposes the idea step by step, has the learner produce something, then reviews it in place and revises.
-- **`retro`** reads back the feedback and reviews recorded across sessions — sentiment, negative notes, grouping — so you can *summarize how sessions have gone over time*.
+- **`demo`** runs a guided, live tour of Laura — the inline review loop, panes, tailing, and feedback.
+- **`explain`** walks your partner through a PR, file, or flow, stepping across highlighted ranges one at a time on their cue.
+- **`learn`** teaches a concept hands-on through different styles and complexities: it exposes the idea step by step, has your partner produce something, then reviews it in place and revises.
+- **`retro`** reads back the feedback and inline reviews recorded across sessions — sentiment, negative feedback, grouping — so you can *summarize how sessions have gone over time*.

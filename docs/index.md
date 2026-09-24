@@ -7,14 +7,14 @@ Laura is a TUI workspace that provides your agent with an **API over the TUI**, 
 Your agent can open the file you're discussing, the plan you're following, the diff you just made, or tail logs of your running service. Laura supports every coding agent CLI and agents learn how to use the CLI through agent skills.
 
 > [!NOTE]
-> Laura is focused on making collaboration more enjoyable, celebrating the riffing, the live review and problem solving, and the improvisation between you and your coding agent, without ever leaving the terminal.
+> Laura is focused on making collaboration more enjoyable, celebrating the riffing, the live reviewing and problem solving, and the improvisation between you and your coding agent, without ever leaving the terminal.
 
 **Laura lets you:**
 
 - **Stay in the flow** - view a file, a plan, a diff, or a log right in the TUI, without switching windows between the terminal, IDE, and browser.
 - **Compose the TUI** - your agent tiles the workspace from your natural-language conversation through the `laura` CLI and skills — panes dwindle automatically, each open splitting off the newest.
 - **Pick your coding agent CLI** - Laura hosts a shell your agent runs inside without abstraction, so every CLI and model is compatible.
-- **Interact in every pane** - mark up any pane in place and inject the review straight into your conversation.
+- **Interact in every pane** - comment on any file pane and submit the inline review into the chat.
 - **Learn while staying focused** - your agent shows and explains concepts live, step by step.
 
 ## How it works
@@ -45,9 +45,9 @@ Both drop a `laura` binary on PATH. Or from a clone: `cargo build --release --lo
 laura -- claude "/laura:demo"
 ```
 
-**4. Work with your agent.** Chat as you normally would. Ask it to show you a file, a plan, or a diff. Your agent will leverage the skills to tile panes alongside your chat. Comment on a line in place and submit; your review goes straight back into the agent's chat.
+**4. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 
-Panes are live-watched: edit the source and they re-render. Markdown renders with terminal styling; other files show their content with syntax colours, and lines changed since git `HEAD` are marked in the gutter.
+File panes reload when their file changes. Markdown renders with terminal styling; other files show their content with syntax colours, and lines changed since git `HEAD` are marked in the gutter.
 
 ## Where to go next
 
