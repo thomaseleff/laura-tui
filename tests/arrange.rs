@@ -280,7 +280,7 @@ fn compose_introspect_and_close() -> Result<()> {
     assert_eq!(
         pane_count(&drive(&mut tab, &["layout"])),
         1,
-        "back to PTY-only"
+        "back to shell-only"
     );
     assert!(tab.panels.is_empty());
 

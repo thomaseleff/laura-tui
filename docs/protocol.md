@@ -3,7 +3,7 @@
 The protocol is NDJSON communication over a socket, either a Windows named pipe or a Unix namespaced socket, that allows for external processes to dynamically tile panes or interact with a Laura workspace. Whether through the `laura` CLI or an MCP service, all external interactions flow through the protocol.
 
 > [!TIP]
-> A tab has only two kinds of interaction: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, submitting a review, do not communicate via the protocol (see [In-process interactions](#in-process-interactions)).
+> A tab has only two kinds of interaction: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, and submitting an inline review, do not communicate via the protocol (see [In-process interactions](#in-process-interactions)).
 
 ## Addressing
 
@@ -18,6 +18,8 @@ A Laura workspace is a recursive binary split tree; each leaf is a pane with a p
 ## Messages
 
 Each connection carries one request and one response: the client connects, sends a single request frame, reads a single response frame, and the socket closes. A *frame* is one JSON object on a single line, e.g. NDJSON. The response comes from the TUI process, which holds the live layout state. Messages are internally tagged by `type` with fields and default values. A client that reads EOF with no response frame treats the result as `ok`.
+
+Requests to a tab wait while the user is typing a comment or review body there, and are answered once the user submits or cancels it.
 
 ### `open`
 
@@ -47,7 +49,7 @@ Splits a pane into a new pane rendering a file.
 <dt><code>diff</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Open straight into the inline diff view.</dd>
 <dt><code>panel</code> · integer · <em>default: <code>null</code></em></dt>
-<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting; the PTY and absent ids error, and <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> are ignored when set.</dd>
+<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting; the shell and absent ids return <code>error</code>, and <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> are ignored when set. Returns <code>error</code> while that pane has an unsubmitted inline review.</dd>
 </dl>
 
 </td>
@@ -82,9 +84,9 @@ Splits a pane into a new pane rendering a file.
 </tr>
 </table>
 
-`opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error. With `dry_run`, the response is `report` instead.
+`opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error, as does `already open in pane #N` when the file is already on screen (also on a `panel` replace; `…, which has an unsubmitted inline review` when pane N has one). The pane still opens. With `dry_run`, the response is `report` instead.
 
-**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, the server picks the split: it splits the newest pane, alternating orientation by depth — a dwindle — so repeated bare opens split off the newest pane, at a flat 50%. Any one of those fields present bypasses inference. A split that would collapse a pane below the renderable minimum is refused with an `error`.
+**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, the server picks the split: it splits the newest pane, alternating orientation by depth — a dwindle — so repeated bare opens split off the newest pane, at a flat 50%. Any one of those fields present bypasses inference. A split that would collapse a pane below the renderable minimum returns `error`.
 
 ### `close`
 
@@ -113,7 +115,7 @@ Removes a pane, or returns the tab to shell-only.
 }
 </pre>
 
-<strong>Response</strong> · <code>ok</code>
+<strong>Response</strong> · <code>ok</code> | <code>error</code>
 <pre>
 {
   "type": "ok"
@@ -124,7 +126,7 @@ Removes a pane, or returns the tab to shell-only.
 </tr>
 </table>
 
-The shell (pane `0`) cannot be closed.
+The shell (pane `0`) cannot be closed. Returns `error` when the pane has an unsubmitted inline review. With `all`, returns `error` and removes nothing when any pane has an unsubmitted inline review.
 
 ### `focus`
 
@@ -197,7 +199,7 @@ Highlights a range of lines in a pane and scrolls it into view.
 }
 </pre>
 
-<strong>Response</strong> · <code>ok</code>
+<strong>Response</strong> · <code>ok</code> | <code>error</code>
 <pre>
 {
   "type": "ok"
@@ -208,7 +210,9 @@ Highlights a range of lines in a pane and scrolls it into view.
 </tr>
 </table>
 
-Line numbers are source-file lines, matching the gutter and review `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
+On a frozen pane, a `range` returns `error`; `range: null` still clears.
+
+Line numbers are source-file lines, matching the gutter and the inline review's `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
 
 ### `diffview`
 
@@ -256,7 +260,7 @@ Returns `error` when there is nothing to diff — no `git` binary, or a clean or
 
 ### `comment`
 
-Writes to a line's review thread from the agent side. `body` starts a thread on the line (or appends a reply to the human's thread there). A comment is a **call and response**: the human's `Shift+s` ships every thread as one review block and clears the pane, so nothing outlives a submit. An empty or absent `body` is a typed error.
+Writes to a line's thread from the agent side. `body` starts a thread on the line or appends a reply to the user's thread there. The user's `Shift+S` submits every thread as one inline review and clears the pane's threads. An empty or absent `body` returns `error`.
 
 <table class="proto">
 <tr>
@@ -268,9 +272,9 @@ Writes to a line's review thread from the agent side. `body` starts a thread on 
 <dt><code>line</code> · integer</dt>
 <dd>1-based source line the thread hangs on (same mapping as <code>highlight</code>).</dd>
 <dt><code>body</code> · string | null · <em>default: <code>null</code></em></dt>
-<dd>Note text. Starts a thread or appends a reply. An empty or absent body is a typed error.</dd>
+<dd>Comment text. Starts a thread or appends a reply. An empty or absent body returns <code>error</code>.</dd>
 <dt><code>author</code> · string | null · <em>default: session agent</em></dt>
-<dd>Attribution label for the note. When omitted, defaults to the session's <code>ready --agent</code> name, falling back to <code>agent</code> if the tab was never readied.</dd>
+<dd>Attribution label for the comment. When omitted, defaults to the session's <code>ready --agent</code> name, falling back to <code>agent</code> if the tab was never readied.</dd>
 </dl>
 
 </td>
@@ -378,7 +382,7 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 
 ### `update`
 
-Reserved for a re-render nudge; not yet emitted.
+Reserved for a reload nudge; not yet emitted.
 
 <table class="proto">
 <tr>
@@ -386,7 +390,7 @@ Reserved for a re-render nudge; not yet emitted.
 
 <dl>
 <dt><code>path</code> · string · <strong>required</strong></dt>
-<dd>File whose pane to re-render.</dd>
+<dd>File whose pane to reload.</dd>
 </dl>
 
 </td>
@@ -408,8 +412,8 @@ Reserved for a re-render nudge; not yet emitted.
 
 Interactions inside the TUI run in-process and do not cross a process boundary, so they skip the socket entirely. A keypress handler holds the live layout state directly and calls the relevant code path instead of serializing a message to itself:
 
-- review comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+s`), and refresh (`Ctrl+R`)
-- focus (`^p`), scrolling, and diff toggle (`d`)
+- comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+S`), and refresh (`Ctrl+R`)
+- focus (`Ctrl+P`), scrolling, and diff toggle (`d`)
 
 See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
 

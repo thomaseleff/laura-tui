@@ -40,6 +40,35 @@ Implementation should always be comprehensive of code, tests, docs and skills.
 
 New CLI verb, protocol message, or keybinding → assume all four apply and say so if you're skipping one. Docs and skills drift silently otherwise: nothing fails to compile when they fall behind.
 
+## Glossary
+
+The following glossary defines the vocabulary for Laura's components and interactions.
+
+| Use | Meaning | Never |
+|---|---|---|
+| **pane** | A tile in the tab's split tree. | tile (noun), window |
+| **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
+| **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
+| **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
+| **tail pane** | A file pane opened by `laura tail`. | log pane |
+| **comment** (n., v.) | A single inline annotation on a pane, or an action the user takes (`c`). | note, annotation, mark up, in-line / in line comment |
+| **annotate** (v.) | An action the agent takes when running `laura comment`. | note, annotation, mark up, in-line / in line comment |
+| **thread** | A set of inline comments on a single line of a pane. | comment thread, inline thread |
+| **review body** | The text typed after `Shift+S` providing overall direction in the review. | overall comment, overall note |
+| **inline review** | A pane's threads plus the review body, submitted into the chat as one `[laura review · <path>]` block. | review (noun), inline file review |
+| **review** (v.) | The action a user takes to provide inline feedback in a pane. | — |
+| **submit** | Write the inline review into the chat (`Shift+S`). | ship, send, inject, land |
+| **unsubmitted inline review** | An in-progress inline review on a pane. | unsubmitted comments, pending comments, open comments |
+| **refresh** | To discard a pane's unsubmitted inline review and reload the file contents (`Ctrl+R`). | clear, reset |
+| **reload** | A file pane re-reads the file contents when it changes on disk. | re-render, auto-update, catch up, live-watched |
+| **frozen** / **freeze** | A file pane whose file changed on disk while it has an unsubmitted inline review. | paused, stale |
+| **snapshot** | The content of a pane with an unsubmitted inline review. | reviewed content |
+| **highlight** (n., v.) | Lines marked by `laura highlight`. | spotlight |
+| **workspace** | The TUI, including all panes. | — |
+| **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
+| **hint line** | A bottom line in the workspace listing the keys for the current context. | footer |
+| **the user** (`docs/`, README) / **your partner** (skills) | The developer / student. | human, developer, learner, pair-programmer, reader |
+
 ## Plans
 
 - **Revision** at the top (`Revision N`); bump it on every revision.
@@ -52,5 +81,6 @@ New CLI verb, protocol message, or keybinding → assume all four apply and say 
   > This plan was drafted against `{branch}` at `{commit}`. Code snippets are example implementations and line
   > numbers are references only; explore the current code and write an implementation plan for
   > your task before editing code.
+
 - **Conventions section.** `file:line` pointers to the codebase patterns the implementer must
   follow, each with a one-line description.

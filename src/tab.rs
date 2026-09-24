@@ -117,6 +117,8 @@ pub struct Tab {
     pub agent: bool,
     /// Per-session journal, created on `ready` (names + audits composition events).
     pub journal: Option<Journal>,
+    /// The user is typing a comment/review body: leave requests queued, and panes unreloaded, until they finish.
+    pub hold: bool,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -147,6 +149,7 @@ impl Tab {
             pending_focus: None,
             agent: false,
             journal: None,
+            hold: false,
             seq: n,
             next_pane: 1,
             rx,
@@ -185,14 +188,21 @@ impl Tab {
         build_report(&self.layout, &self.panel_refs(), area)
     }
 
-    /// Drain queued requests, applying each and replying, then live-reload panels. `area` is the current draw area (for `Layout`/dry-run reports).
+    /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
     pub fn drain(&mut self, area: Rect) {
-        while let Ok((msg, reply)) = self.rx.try_recv() {
+        if self.hold {
+            return;
+        }
+        loop {
+            // Catch up to disk before each message: one sent right after an edit must see the new content.
+            for p in self.panels.values_mut() {
+                p.reload_if_changed();
+            }
+            let Ok((msg, reply)) = self.rx.try_recv() else {
+                break;
+            };
             let resp = self.apply(msg, area);
             reply.send(&resp);
-        }
-        for p in self.panels.values_mut() {
-            p.reload_if_changed();
         }
     }
 
@@ -201,7 +211,7 @@ impl Tab {
         let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
         let Some(target) = target else {
             return Response::Error {
-                message: "no panel focused to close".into(),
+                message: "no pane focused to close".into(),
             };
         };
         match self.layout.remove(target) {
@@ -243,7 +253,9 @@ impl Tab {
         self.panels.insert(id, panel);
         let mut warnings = vec![];
         if !self.agent {
-            warnings.push("panel shown, but run `laura ready` to enable review submission".into());
+            warnings.push(
+                "pane shown, but run `laura ready` to enable inline review submission".into(),
+            );
         }
         if let Some(e) = &self.panels[&id].read_error {
             warnings.push(e.clone());
@@ -268,6 +280,41 @@ impl Tab {
         warnings
     }
 
+    /// Refuse an agent verb that would drop pane `id`'s unsubmitted comment threads.
+    fn threads_guard(&self, id: PaneId) -> Result<(), Response> {
+        match self.panels.get(&id) {
+            Some(p) if p.thread_count() > 0 => Err(Response::Error {
+                message: format!(
+                    "pane #{id} has an unsubmitted inline review — ask the user to submit (Shift+S) or refresh (Ctrl+R) first"
+                ),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// Warn if `path` is already open in a pane other than `except` (lowest id wins).
+    fn already_open(&self, path: &str, except: PaneId) -> Option<String> {
+        // Resolve `.`/`..`, symlinks, Windows case and 8.3 names so two spellings
+        // of one file compare equal; a missing file falls back to the raw path.
+        let normalized = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
+        let this = normalized(path);
+        let n = self
+            .panels
+            .iter()
+            .filter(|(id, p)| **id != except && normalized(&p.path) == this)
+            .map(|(id, _)| *id)
+            .min()?;
+        // Don't point at the reuse verbs on a pane under review: `--panel` errors, and `highlight` does once it freezes.
+        Some(if self.panels[&n].thread_count() > 0 {
+            format!("already open in pane #{n}, which has an unsubmitted inline review")
+        } else {
+            format!(
+                "already open in pane #{n} — use `laura highlight --pane {n}` \
+                 or `laura open --panel {n}`"
+            )
+        })
+    }
+
     /// Replace pane `id`'s content in place: same id, rect, and focus, no new split.
     fn replace_panel(
         &mut self,
@@ -283,8 +330,13 @@ impl Tab {
                 message: format!("no pane #{id} to replace"),
             };
         }
+        if let Err(e) = self.threads_guard(id) {
+            return e;
+        }
         remove_if_temp(&self.panels[&id].path); // clean an old tail spool, same as the close path
-        let warnings = self.install_panel(id, &path, follow, highlight, diff, area);
+        let dup = self.already_open(&path, id);
+        let mut warnings = self.install_panel(id, &path, follow, highlight, diff, area);
+        warnings.extend(dup);
         self.log_event(json!({"type":"open","pane":id,"path":path,"replaced":true}));
         Response::Opened { pane: id, warnings }
     }
@@ -343,8 +395,10 @@ impl Tab {
                 match self.layout.split(target, dir, ratio, side, new) {
                     Ok(()) => {
                         self.next_pane += 1;
-                        let warnings =
+                        let dup = self.already_open(&path, new);
+                        let mut warnings =
                             self.install_panel(new, &path, follow, highlight, diff, area);
+                        warnings.extend(dup);
                         self.log_event(json!({"type": "open", "pane": new, "path": path}));
                         if let Some((start, end)) = highlight {
                             self.log_event(
@@ -364,6 +418,14 @@ impl Tab {
             }
             Message::Close { pane, all } => {
                 if all {
+                    // All-or-nothing: one pane under review refuses the whole close.
+                    if let Some(e) = self
+                        .panels
+                        .keys()
+                        .find_map(|&id| self.threads_guard(id).err())
+                    {
+                        return e;
+                    }
                     for p in self.panels.values() {
                         remove_if_temp(&p.path);
                     }
@@ -372,6 +434,12 @@ impl Tab {
                     self.focus = PTY_PANE;
                     self.log_event(json!({"type": "close", "all": true}));
                     return Response::Ok;
+                }
+                // Guarded here, not in `close_pane`: the user's `x` key closes through it too.
+                if let Some(id) = pane.or((self.focus != PTY_PANE).then_some(self.focus))
+                    && let Err(e) = self.threads_guard(id)
+                {
+                    return e;
                 }
                 self.close_pane(pane)
             }
@@ -390,7 +458,7 @@ impl Tab {
                 let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
                 let Some(target) = target else {
                     return Response::Error {
-                        message: "no panel focused to highlight".into(),
+                        message: "no pane focused to highlight".into(),
                     };
                 };
                 let Some(panel) = self.panels.get_mut(&target) else {
@@ -400,6 +468,13 @@ impl Tab {
                 };
                 match range {
                     Some((start, end)) => {
+                        if panel.source_changed {
+                            return Response::Error {
+                                message: format!(
+                                    "pane #{target} is frozen — its file changed on disk while it has an unsubmitted inline review; ask the user to submit (Shift+S) or refresh (Ctrl+R)"
+                                ),
+                            };
+                        }
                         panel.set_highlight(start, end);
                         self.log_event(
                             json!({"type":"highlight","pane":target,"start":start,"end":end}),
@@ -416,7 +491,7 @@ impl Tab {
                 let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
                 let Some(target) = target else {
                     return Response::Error {
-                        message: "no panel focused for diff view".into(),
+                        message: "no pane focused for diff view".into(),
                     };
                 };
                 let Some(panel) = self.panels.get_mut(&target) else {
@@ -443,7 +518,7 @@ impl Tab {
                 let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
                 let Some(target) = target else {
                     return Response::Error {
-                        message: "no panel focused to comment on".into(),
+                        message: "no pane focused to comment on".into(),
                     };
                 };
                 // Default to the session's agent name; `agent_note` falls back to `"agent"`.

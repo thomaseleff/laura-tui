@@ -385,9 +385,7 @@ impl Panel {
             .ok_or("comment needs a body")?;
         let n = self.source_lines.len();
         if (line.saturating_sub(1) as usize) >= n {
-            return Err(format!(
-                "line {line} is past the file's {n} lines — it may have changed under review; retry"
-            ));
+            return Err(format!("line {line} is past the file's {n} lines"));
         }
         let row = self.source_line_to_row(line);
         let name = author.unwrap_or_else(|| "agent".into());
@@ -454,11 +452,16 @@ impl Panel {
         }
     }
 
-    /// `Shift+S`: build the review payload, then clear the threads (the call and response is over).
-    pub fn submit_review(&mut self, overall: &str) -> String {
-        let out = self.assemble_review(overall);
+    /// `Shift+S`: build the review, hand it to `send`, and clear the threads only once it's sent —
+    /// a failed send keeps them so the user can retry (#72).
+    pub fn submit_review(
+        &mut self,
+        overall: &str,
+        send: impl FnOnce(&str) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        send(&self.assemble_review(overall))?;
         self.threads.clear();
-        out
+        Ok(())
     }
 
     /// PR-style review for PTY injection: each thread under a 1-based source header (`L<n>` or
@@ -468,7 +471,7 @@ impl Panel {
         // A frozen snapshot's line numbers are against the reviewed content, not disk — warn the agent.
         if self.source_changed {
             out.push_str(
-                "⚠ file changed on disk since this review — line numbers are against the reviewed snapshot\n",
+                "⚠ file changed on disk since this inline review — line numbers are against the snapshot\n",
             );
         }
         if !overall.is_empty() {

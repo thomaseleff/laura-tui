@@ -290,7 +290,11 @@ fn a_changed_file_freezes_the_pane_until_submit_or_refresh() -> Result<()> {
         "pane still shows the reviewed snapshot, not disk"
     );
     // A frozen submit banners the mismatch; the note still ships.
-    let review = panel.submit_review("");
+    let mut review = String::new();
+    panel.submit_review("", |r| {
+        review = r.to_string();
+        Ok(())
+    })?;
     assert!(review.contains("please fix"), "note ships");
     assert!(
         review.contains("⚠ file changed"),
@@ -350,7 +354,11 @@ fn submit_clears_the_threads_and_a_clean_submit_has_no_banner() -> Result<()> {
 
     panel.cursor = 1;
     panel.author_note("please fix".into());
-    let review = panel.submit_review("overall");
+    let mut review = String::new();
+    panel.submit_review("overall", |r| {
+        review = r.to_string();
+        Ok(())
+    })?;
     assert!(
         review.contains("please fix"),
         "the note ships in the review"
@@ -360,6 +368,30 @@ fn submit_clears_the_threads_and_a_clean_submit_has_no_banner() -> Result<()> {
         "clean submit carries no banner"
     );
     assert_eq!(panel.thread_count(), 0, "the panel clears on submit");
+    Ok(())
+}
+
+#[test]
+fn a_failed_send_keeps_the_threads_for_a_retry() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    write!(file, "l0\nl1\nl2")?;
+    file.flush()?;
+    let mut panel = Panel::open(file.path().to_str().unwrap().to_string());
+    drop(file);
+
+    panel.cursor = 1;
+    panel.author_note("please fix".into());
+    let failed = panel.submit_review("", |_| Err(std::io::Error::other("boom")));
+    assert!(failed.is_err(), "the send error surfaces");
+    assert_eq!(panel.thread_count(), 1, "a failed send keeps the note");
+
+    let mut review = String::new();
+    panel.submit_review("", |r| {
+        review = r.to_string();
+        Ok(())
+    })?;
+    assert!(review.contains("please fix"), "the retry ships the note");
+    assert_eq!(panel.thread_count(), 0, "a sent review clears the note");
     Ok(())
 }
 
