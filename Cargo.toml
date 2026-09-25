@@ -1,6 +1,6 @@
 [package]
 name = "laura-tui"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2024"
 description = "Laura is a TUI workspace that provides your agent with an API over the TUI, allowing your agent to dynamically tile panes while you pair-program."
 license = "MIT"
