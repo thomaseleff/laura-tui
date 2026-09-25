@@ -40,9 +40,11 @@ Compose the walkthrough from these actions, in whatever order the explanation ca
 
 A step may highlight one span, move across several spans of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the calls that set up what you want your partner to see, then explain it in chat. Annotate with `laura comment` only when you need your partner's answer in a thread, for example "which of these two approaches do you prefer?". The pane stays open until they submit or refresh.
 
-## Close the loop — journal the session (mandatory)
+## Close the loop — journal what you noticed
 
-At the end of the explanation, prompt your partner for feedback on the session for you to submit as a one-line sentiment:
+When something notable happened — a layout read badly, a tool was missing, a step clearly
+landed — log it yourself with `laura feedback --positive/--negative "<one line>"`. Never ask your
+partner for feedback; if they offer some ("log that as feedback"), record it.
 
 ```bash
 laura feedback --positive "gradual-release layout made the two-pointer click"

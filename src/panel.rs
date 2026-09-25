@@ -1,5 +1,6 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
 
+use std::cell::Cell;
 use std::time::SystemTime;
 
 use ratatui::style::{Color, Style};
@@ -29,8 +30,14 @@ pub struct Panel {
     /// Selected line, 0-based; where a new comment pins.
     pub cursor: usize,
     /// Agent-directed highlight: 0-based inclusive line range to spotlight (its rows stay
-    /// full-color, the rest of the pane dims) and anchor the viewport on; `None` = no highlight.
+    /// full-color, the rest of the pane dims), centered once when set; `None` = no highlight.
     pub highlight: Option<(usize, usize)>,
+    /// Viewport top as (line, rows past that line's first row), remembered across frames so the
+    /// view only moves at its edges, and a card added or collapsed above it doesn't shift the lines
+    /// on screen (#69). `Cell` because render holds `&Panel`; a panel never crosses threads.
+    scroll: Cell<(usize, usize)>,
+    /// Set by `set_highlight`; the next `scroll_offset` centers the highlight and clears it.
+    recenter: Cell<bool>,
     /// Review threads, keyed by rendered-line index (1:1 with `styled`); cleared on submit (#45).
     pub threads: Vec<Thread>,
     /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
@@ -144,6 +151,8 @@ impl Panel {
             h_offset: 0,
             cursor: 0,
             highlight: None,
+            scroll: Cell::default(),
+            recenter: Cell::default(),
             threads: vec![],
             follow: false,
             sig,
@@ -206,7 +215,7 @@ impl Panel {
         }
     }
 
-    /// Highlight the rows covering source lines `start..=end` (1-based) and scroll them into view.
+    /// Highlight the rows covering source lines `start..=end` (1-based); the next frame centers them once.
     /// Lights *every* rendered row whose source range intersects the request, so a collapsed block
     /// (table/list/alert — many rows sharing one range) lights whole, not just its first row.
     /// A fully out-of-range request pins to the last row.
@@ -228,9 +237,9 @@ impl Panel {
             }
         };
         self.highlight = Some((lo, hi));
-        // Park the cursor at `hi`: `scroll_offset` reads `cursor == hi` as "fresh highlight" and
-        // centers the span. A manual Up/Down moves the cursor off `hi` → plain cursor-follow.
-        self.cursor = hi;
+        // Cursor on `lo` so `c` right after a highlight comments on its first line.
+        self.cursor = lo;
+        self.recenter.set(true);
     }
 
     /// Clear the agent-directed highlight; the pane returns to normal (undimmed) rendering.
@@ -268,15 +277,23 @@ impl Panel {
         (n > 0).then_some(n)
     }
 
-    /// Line count, floored at 1 so the cursor always has a valid slot.
+    /// Rendered row count, floored at 1 so the cursor always has a valid slot. `styled`, not
+    /// `content.lines()`: the join drops a trailing blank markdown row.
     pub fn line_count(&self) -> usize {
-        self.content.lines().count().max(1)
+        self.styled.len().max(1)
     }
 
     /// Move the line cursor by `delta`, clamped to `[0, line_count-1]`.
     pub fn move_cursor(&mut self, delta: isize) {
         let last = self.line_count() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
+    }
+
+    /// Mouse wheel: scroll the view and carry the cursor along, both by `delta` lines.
+    pub fn scroll_view(&mut self, delta: isize) {
+        let (line, _) = self.scroll.get();
+        self.scroll.set((line.saturating_add_signed(delta), 0));
+        self.move_cursor(delta);
     }
 
     /// Scroll pre-formatted lines horizontally by `delta` chars, clamped to `[0, max_width-1]`.
@@ -354,10 +371,17 @@ impl Panel {
 
     /// Commit the human's draft on Enter (contextual new / edit / reply).
     pub fn author_note(&mut self, text: String) {
-        if text.trim().is_empty() {
-            return; // no empty threads/replies; empty edit is a no-op, keeps the existing body. Esc cancels.
-        }
         let row = self.canonical_row(self.cursor);
+        // No empty threads/replies; empty on your own comment deletes it. Esc cancels.
+        if text.trim().is_empty() {
+            if matches!(self.user_intent(), UserIntent::Edit)
+                && let Some(t) = self.thread_at_mut(row)
+                && t.replies.pop().is_none()
+            {
+                self.threads.retain(|t| t.line != row);
+            }
+            return;
+        }
         match self.user_intent() {
             UserIntent::New => self.threads.push(Thread::new(row, Note::user(text))),
             UserIntent::Edit => {
@@ -504,11 +528,12 @@ impl Panel {
         out
     }
 
-    /// Card rows for the expanded thread on line `i` (empty when none/collapsed): a rounded gray box
-    /// grown to the widest note; human notes are inline-code chips, agent notes plain fg.
+    /// Card rows for the expanded thread keyed on line `key` (empty when none/collapsed), tagged
+    /// `line: at` — the block's last row, so the card follows the whole block (#70). A rounded gray
+    /// box grown to the widest note; human notes are inline-code chips, agent notes plain fg.
     /// Emitted at column 0 — `render_panel` prefixes the decoration, so `pad_w` is only a wrap budget.
-    fn thread_rows(&self, i: usize, inner_w: usize) -> Vec<PanelRow> {
-        let Some(t) = self.thread_at(i).filter(|t| !t.collapsed) else {
+    fn thread_rows(&self, key: usize, at: usize, inner_w: usize) -> Vec<PanelRow> {
+        let Some(t) = self.thread_at(key).filter(|t| !t.collapsed) else {
             return vec![];
         };
         let gutter_width = self.source_lines.len().max(1).to_string().len();
@@ -560,17 +585,16 @@ impl Panel {
             }
         }
 
-        // Draw the rounded box, growing to the widest inner line. `line: i` so scroll/copy keep the
-        // card with its source line; `comment: true` so cosmetics skip it and render_panel indents it.
+        // Draw the rounded box, growing to the widest inner line. `line: at` so scroll/copy keep the
+        // card with the block's last row; `comment: true` so cosmetics skip it and render_panel indents it.
         let w = inner.iter().map(|s| width(s)).max().unwrap_or(0);
         let mk = |spans: Vec<Span<'static>>| PanelRow {
-            line: i,
+            line: at,
             gutter: None,
             spans,
             comment: true,
             change: None,
             review: None,
-            nowrap: false,
         };
         let mut rows = vec![mk(vec![Span::styled(
             format!("╭{}╮", "─".repeat(w + 2)),
@@ -603,7 +627,12 @@ impl Panel {
         let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
+        let mut block_start = 0;
         for (i, line) in self.styled.iter().enumerate() {
+            // Rows of one block share a source range; its first row is where threads key.
+            if i == 0 || self.source[i] != self.source[i - 1] {
+                block_start = i;
+            }
             // A deletion has no surviving line to bar, so emit a dim-red gap row
             // *above* line `i`. Pushed before `starts[i]` so the row sits outside
             // line `i`'s selectable span and the `starts` invariant holds.
@@ -623,7 +652,6 @@ impl Panel {
                     comment: true,
                     change: None,
                     review: None,
-                    nowrap: false,
                 });
             }
             starts.push(rows.len());
@@ -633,10 +661,25 @@ impl Panel {
             {
                 vec![vec![Span::styled("─".repeat(tw), line.spans[0].style)]]
             } else if nowrap {
-                // Pre-formatted: clip to the horizontal window instead of wrapping.
-                vec![clip_spans(&line.spans, self.h_offset, tw)]
+                // Pre-formatted: clip to the horizontal window instead of wrapping. Judge fenced
+                // from the source: a clipped row ends in a bg-less `›` and would drop out of the
+                // box. Fenced rows clip 2 narrower for `box_fenced`'s 1-cell pad per side (#65).
+                let fenced = is_fenced_row(&line.spans);
+                let w = if fenced {
+                    tw.saturating_sub(2).max(1)
+                } else {
+                    tw
+                };
+                let mut row = clip_spans(&line.spans, self.h_offset, w);
+                if fenced
+                    && let Some(bg) = row.iter().find_map(|s| s.style.bg)
+                    && let Some(m) = row.last_mut().filter(|s| s.style.bg.is_none())
+                {
+                    m.style.bg = Some(bg); // keep the `›` inside the box
+                }
+                vec![row]
             } else {
-                wrap_spans(&line.spans, tw)
+                wrap_spans(&cap_inline(&line.spans), tw)
             };
             for (k, chunk) in chunks.into_iter().enumerate() {
                 rows.push(PanelRow {
@@ -645,7 +688,6 @@ impl Panel {
                     gutter: (k == 0).then_some(self.source[i].0 + 1),
                     spans: chunk,
                     comment: false,
-                    nowrap,
                     // Bar runs every wrapped row of the changed paragraph; row_change folds
                     // the block's source range, identical for each row of line i (#35).
                     change: self.row_change(i),
@@ -656,14 +698,14 @@ impl Panel {
                         .map(|t| t.collapsed),
                 });
             }
-            // Card rows for an expanded thread land after the line's last (wrapped) row.
-            rows.extend(self.thread_rows(i, inner_w));
+            // A folded block's card lands after its last row so it never splits the block (#70).
+            if self.source.get(i + 1) != self.source.get(i) {
+                rows.extend(self.thread_rows(block_start, i, inner_w));
+            }
         }
-        // Source-independent cosmetics, applied once to the finished rows (both testable through
-        // `layout`): box fenced code into a rectangle, then half-cap inline code. Neither adds or
-        // removes rows, so `starts` stays valid.
-        box_fenced(&mut rows);
-        cap_inline(&mut rows);
+        // Box fenced code into a rectangle once the rows are finished; it adds no rows, so `starts`
+        // stays valid.
+        box_fenced(&mut rows, &self.styled, &self.nowrap);
         PanelLayout {
             rows,
             starts,
@@ -700,7 +742,6 @@ impl Panel {
                             comment: false,
                             change: None,
                             review: None,
-                            nowrap: false,
                         });
                     }
                 }
@@ -729,7 +770,6 @@ impl Panel {
                     comment: false,
                     change: None,
                     review: None,
-                    nowrap: false,
                 });
             }
         }
@@ -741,25 +781,46 @@ impl Panel {
         }
     }
 
-    /// Rows to scroll off the top so the cursor line's *last* wrapped row stays on-screen (its
-    /// continuations don't clip). Shared by render and copy so both read the same viewport.
+    /// Rows scrolled off the top. The offset is remembered and moves only when the cursor line
+    /// (with its wrapped rows and card) leaves the view (#69). Idempotent for the same inputs, so
+    /// render and copy read the same viewport.
     pub fn scroll_offset(&self, layout: &PanelLayout, view_h: usize) -> usize {
         let last_row = layout.rows.len().saturating_sub(1);
-        // Fresh agent highlight (cursor still parked at `hi`): center the span, or top-anchor it
-        // when it's taller than the pane (margin saturates to 0) so the reader starts at its top.
-        if let Some((lo, hi)) = self.highlight
-            && self.cursor == hi
+        // Clamps a stale offset after reload/resize/collapse.
+        let max_off = layout.rows.len().saturating_sub(view_h);
+        // Rows are sorted by `line` (gap, line, card rows all tag `i`), so a line's first row bisects.
+        let first = |line: usize| layout.rows.partition_point(|r| r.line < line);
+        let anchor = |off: usize| {
+            layout
+                .rows
+                .get(off)
+                .map_or((0, off), |r| (r.line, off - first(r.line)))
+        };
+        // Fresh agent highlight: center the span once, or top-anchor it when it's taller than the
+        // pane (margin saturates to 0) so the reader starts at its top.
+        if self.recenter.take()
+            && let Some((lo, hi)) = self.highlight
         {
             let start = layout.starts.get(lo).copied().unwrap_or(0);
             let end = line_end_row(layout, hi).unwrap_or(last_row);
             let span = end - start + 1;
             let margin = view_h.saturating_sub(span) / 2;
-            return start
-                .saturating_sub(margin)
-                .min(last_row.saturating_sub(view_h.saturating_sub(1)));
+            let off = start.saturating_sub(margin).min(max_off);
+            self.scroll.set(anchor(off));
+            return off;
         }
-        let cursor_end = line_end_row(layout, self.cursor).unwrap_or(last_row);
-        cursor_end.saturating_sub(view_h.saturating_sub(1))
+        let start = layout.starts.get(self.cursor).copied().unwrap_or(last_row);
+        let end = line_end_row(layout, self.cursor).unwrap_or(last_row);
+        let (line, past) = self.scroll.get();
+        let mut off = (first(line) + past).min(max_off);
+        if end >= off + view_h {
+            off = (end + 1).saturating_sub(view_h);
+        }
+        if start < off {
+            off = start; // a line taller than the view shows its top
+        }
+        self.scroll.set(anchor(off));
+        off
     }
 
     /// Re-read `content` when the source's `(mtime, len)` changed; returns whether it reloaded. Errors surface as text but still update `sig`, so a missing file doesn't respin.
@@ -828,8 +889,6 @@ pub struct PanelRow {
     /// Review caret on the line's first row: `Some(collapsed)` = a thread here, shape carries
     /// collapse (`▸`/`▾`) (#45).
     pub review: Option<bool>,
-    /// Pre-formatted row (table/code/diff): `cap_inline` skips it so caps don't drift alignment (#45).
-    pub nowrap: bool,
 }
 
 impl PanelRow {
@@ -861,25 +920,30 @@ fn line_end_row(layout: &PanelLayout, line: usize) -> Option<usize> {
     Some(end)
 }
 
-/// A fenced-code row: ≥1 non-blank span, every non-blank one carrying the `code()` bg box. Mirrors
-/// `render::classify_nowrap`'s code-block rule — plain code *files* are fg-only, so they don't match.
+/// A fenced-code row: ≥1 span carrying the `code()` bg box (an empty code line's only span is
+/// blank), and every non-blank span carrying it. Mirrors `render::classify_nowrap`'s code-block
+/// rule — plain code *files* are fg-only, so they don't match.
 fn is_fenced_row(spans: &[Span<'static>]) -> bool {
-    let mut any = false;
-    for s in spans.iter().filter(|s| !s.content.trim().is_empty()) {
-        any = true;
-        if s.style.bg.is_none() {
-            return false;
-        }
-    }
-    any
+    spans.iter().any(|s| s.style.bg.is_some())
+        && spans
+            .iter()
+            .filter(|s| !s.content.trim().is_empty())
+            .all(|s| s.style.bg.is_some())
 }
 
 /// Box each contiguous run of fenced-code rows into a uniform rectangle: pad every row's code bg to
 /// the run's widest content plus a 1-cell inner space on each side. Hugs the code, not the pane edge.
-///
-/// ponytail: padding runs after nowrap rows are clipped to `avail`, so a boxed run can overflow
-/// `avail` by ~2 cells; the Paragraph clips it. h-scroll extent reads source width, so it's unaffected.
-fn box_fenced(rows: &mut [PanelRow]) {
+fn box_fenced(rows: &mut [PanelRow], styled: &[Line<'static>], nowrap: &[bool]) {
+    let src = |r: &PanelRow| styled.get(r.line).map_or(&[][..], |l| &l.spans[..]);
+    let code_style =
+        |spans: &[Span<'static>]| spans.iter().find(|s| s.style.bg.is_some()).map(|s| s.style);
+    // A fenced line h-scrolled past its end clips to blank; judge it by its source so it stays
+    // boxed instead of breaking the rectangle.
+    let fenced = |r: &PanelRow| {
+        nowrap.get(r.line).copied().unwrap_or(false)
+            && (is_fenced_row(&r.spans)
+                || (code_style(&r.spans).is_none() && is_fenced_row(src(r))))
+    };
     let width = |r: &PanelRow| {
         r.spans
             .iter()
@@ -889,22 +953,17 @@ fn box_fenced(rows: &mut [PanelRow]) {
     let mut i = 0;
     while i < rows.len() {
         // Card rows carry a pre-sized rounded box; boxing them would double-wrap it.
-        if rows[i].comment || !is_fenced_row(&rows[i].spans) {
+        if rows[i].comment || !fenced(&rows[i]) {
             i += 1;
             continue;
         }
-        let end = i + rows[i..]
-            .iter()
-            .take_while(|r| is_fenced_row(&r.spans))
-            .count();
+        let end = i + rows[i..].iter().take_while(|r| fenced(r)).count();
         let w = rows[i..end].iter().map(width).max().unwrap_or(0);
         for r in &mut rows[i..end] {
             // Pad cells carry the row's own code style, so they dim/band exactly like the block.
-            let style = r
-                .spans
-                .iter()
-                .find(|s| !s.content.trim().is_empty())
-                .map_or_else(Style::default, |s| s.style);
+            let style = code_style(&r.spans)
+                .or_else(|| code_style(src(r)))
+                .unwrap_or_default();
             let used = width(r);
             let mut boxed = vec![Span::styled(" ", style)];
             boxed.append(&mut r.spans);
@@ -915,92 +974,70 @@ fn box_fenced(rows: &mut [PanelRow]) {
     }
 }
 
-/// Wrap each maximal run of inline-code (bg) spans on a non-fenced row with full-cell end caps
-/// (`█`, fg = code bg on the default bg) so the chip carries a solid cell of colour before and after
-/// its glyphs — reads as padding, not the blank half-cell a half-block cap leaves on its outer side.
-/// Plain Unicode block element — no Nerd font needed.
-///
-/// ponytail: a cap can push a fully-wrapped prose row up to 2 cells past `avail` and the last right
-/// cap may clip at the pane edge — rare (inline code exactly at a wrap boundary); the Paragraph clips.
-fn cap_inline(rows: &mut [PanelRow]) {
-    let cap = Style::default().fg(CODE_BG);
-    for r in rows.iter_mut() {
-        // Card note rows carry inline-code chips inside a pre-sized border; capping them overflows it.
-        // Nowrap rows (tables/code) are column-aligned — a cap widens a cell and drifts the borders (#45).
-        if r.comment
-            || r.nowrap
-            || is_fenced_row(&r.spans)
-            || !r.spans.iter().any(|s| s.style.bg.is_some())
-        {
+/// Wrap each maximal run of inline-code (bg) spans with full-cell end caps (`█`, fg = code bg on the
+/// default bg) so the chip carries a solid cell of colour before and after its glyphs — reads as
+/// padding, not the blank half-cell a half-block cap leaves on its outer side. Plain Unicode block
+/// element — no Nerd font needed. Runs per prose line before wrapping, so the wrap counts the caps.
+fn cap_inline(spans: &[Span<'static>]) -> Vec<Span<'static>> {
+    let cap = || Span::styled("\u{2588}", Style::default().fg(CODE_BG));
+    let mut out: Vec<Span<'static>> = vec![];
+    let mut i = 0;
+    while i < spans.len() {
+        if spans[i].style.bg.is_none() {
+            out.push(spans[i].clone());
+            i += 1;
             continue;
         }
-        let mut out: Vec<Span<'static>> = vec![];
-        let mut in_run = false;
-        for s in r.spans.drain(..) {
-            match (s.style.bg.is_some(), in_run) {
-                (true, false) => {
-                    out.push(Span::styled("\u{2588}", cap)); // █ left cap (full-cell chip edge)
-                    in_run = true;
-                }
-                (false, true) => {
-                    out.push(Span::styled("\u{2588}", cap)); // █ right cap
-                    in_run = false;
-                }
-                _ => {}
-            }
-            out.push(s);
+        let j = i + spans[i..]
+            .iter()
+            .take_while(|s| s.style.bg.is_some())
+            .count();
+        let run: Vec<(char, Style)> = spans[i..j]
+            .iter()
+            .flat_map(|s| s.content.chars().map(|c| (c, s.style)))
+            .collect();
+        // A chip's edge spaces go outside its caps, so each cap stays glued to a glyph: `wrap_spans`
+        // breaks at spaces and would otherwise strand a cap on the next row. An all-space chip keeps them.
+        let space = |(c, _): &&(char, Style)| *c == ' ';
+        let lead = run.iter().take_while(space).count();
+        let (lead, trail) = if lead == run.len() {
+            (0, 0)
+        } else {
+            (lead, run.iter().rev().take_while(space).count())
+        };
+        if lead > 0 {
+            out.push(Span::raw(" ".repeat(lead)));
         }
-        if in_run {
-            out.push(Span::styled("\u{2588}", cap));
+        out.push(cap());
+        out.extend(coalesce_spans(run[lead..run.len() - trail].to_vec()));
+        out.push(cap());
+        if trail > 0 {
+            out.push(Span::raw(" ".repeat(trail)));
         }
-        r.spans = out;
+        i = j;
     }
+    out
 }
 
 /// Greedy word-wrap `text` to `width` columns, hard-splitting over-long words. Always returns at least one row.
 ///
 /// ponytail: counts `char`s, not display width — `unicode-width` if CJK glyphs bite.
 pub fn wrap_line(text: &str, width: usize) -> Vec<String> {
-    // Preserve leading indentation: split it off, wrap the rest, re-attach to row 0.
-    let lead = text.len() - text.trim_start_matches(' ').len();
-    let (indent, body) = text.split_at(lead);
-    let mut rows = vec![];
-    let mut cur = String::new();
-    for mut word in body.split(' ') {
-        while word.chars().count() > width {
-            if !cur.is_empty() {
-                rows.push(std::mem::take(&mut cur));
-            }
-            let cut: String = word.chars().take(width).collect();
-            word = &word[cut.len()..];
-            rows.push(cut);
-        }
-        let sep = usize::from(!cur.is_empty());
-        if !cur.is_empty() && cur.chars().count() + sep + word.chars().count() > width {
-            rows.push(std::mem::take(&mut cur));
-        }
-        if !cur.is_empty() {
-            cur.push(' ');
-        }
-        cur.push_str(word);
-    }
-    rows.push(cur);
-    // ponytail: deep indent + narrow panel can push row 0 past `width`; panel clips it.
-    if !indent.is_empty() {
-        rows[0].insert_str(0, indent);
-    }
-    rows
+    wrap_spans(&[Span::raw(text.to_string())], width)
+        .into_iter()
+        .map(|row| row.iter().map(|s| s.content.as_ref()).collect())
+        .collect()
 }
 
-/// Style-preserving twin of `wrap_line`: word-wrap `spans` to `width`, re-coalescing equal-style runs. Same row invariant.
+/// Style-preserving `wrap_line`: word-wrap `spans` to `width`, re-coalescing equal-style runs. Same row invariant.
 pub fn wrap_spans(spans: &[Span<'static>], width: usize) -> Vec<Vec<Span<'static>>> {
-    // Flatten to (char, style); wrap on chars exactly as `wrap_line` does.
+    // Flatten to (char, style) and wrap on chars.
     let chars: Vec<(char, Style)> = spans
         .iter()
         .flat_map(|s| s.content.chars().map(|c| (c, s.style)))
         .collect();
 
-    // Preserve leading indentation (see `wrap_line`).
+    // Preserve leading indentation: split it off, wrap the rest, re-attach to row 0.
     let lead = chars.iter().take_while(|(c, _)| *c == ' ').count();
     let (indent, body) = chars.split_at(lead);
 
@@ -1020,19 +1057,22 @@ pub fn wrap_spans(spans: &[Span<'static>], width: usize) -> Vec<Vec<Span<'static
         }
     }
 
+    let first_w = width.saturating_sub(lead).max(1);
+    let cap = |rows: usize| if rows == 0 { first_w } else { width };
     let mut rows: Vec<Vec<(char, Style)>> = vec![];
     let mut cur: Vec<(char, Style)> = vec![];
     for (sep_style, mut word) in words {
-        while word.len() > width {
+        while word.len() > cap(rows.len()) {
             if !cur.is_empty() {
                 rows.push(std::mem::take(&mut cur));
+                continue;
             }
-            let rest = word.split_off(width);
+            let rest = word.split_off(cap(rows.len()));
             rows.push(std::mem::take(&mut word));
             word = rest;
         }
         let sep = usize::from(!cur.is_empty());
-        if !cur.is_empty() && cur.len() + sep + word.len() > width {
+        if !cur.is_empty() && cur.len() + sep + word.len() > cap(rows.len()) {
             rows.push(std::mem::take(&mut cur));
         }
         if !cur.is_empty() {
@@ -1041,7 +1081,7 @@ pub fn wrap_spans(spans: &[Span<'static>], width: usize) -> Vec<Vec<Span<'static
         cur.extend(word);
     }
     rows.push(cur);
-    // ponytail: deep indent + narrow panel can push row 0 past `width`; panel clips it.
+    // ponytail: an indent at least `width` wide still pushes row 0 past `width`; panel clips it.
     if !indent.is_empty() {
         let first = rows
             .first_mut()

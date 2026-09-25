@@ -14,10 +14,11 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use tui_term::widget::PseudoTerminal;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use laura::protocol::PTY_PANE;
 use laura::render::CODE_BG;
-use laura::{ChangeKind, Panel, Tab, bracketed_paste, wrap_line};
+use laura::{ChangeKind, Panel, Tab, bracketed_paste};
 use serde_json::json;
 
 use crate::keys::key_to_bytes;
@@ -52,30 +53,135 @@ fn coalesce_paste_burst(first: ratatui::crossterm::event::KeyEvent) -> Result<Ev
     })
 }
 
-/// What live typing captures: a per-line comment, the review body, or a tab rename. Enter branches per variant.
-enum Draft {
-    /// The row is the panel cursor when `c` was pressed: the comment lands there, not wherever the cursor drifted (#68).
-    Comment(usize, String),
-    Review(String),
-    Rename(String),
+/// A draft's text plus a cursor. `cur` is a byte offset, always on a char boundary.
+#[derive(Default)]
+struct Editor {
+    text: String,
+    cur: usize,
 }
 
-impl Draft {
-    fn body_mut(&mut self) -> &mut String {
-        match self {
-            Draft::Comment(_, s) | Draft::Review(s) | Draft::Rename(s) => s,
+impl Editor {
+    /// Seeded text with the cursor at the end, ready to append.
+    fn new(text: String) -> Self {
+        Editor {
+            cur: text.len(),
+            text,
         }
     }
 
-    fn body(&self) -> &str {
+    fn insert(&mut self, s: &str) {
+        self.text.insert_str(self.cur, s);
+        self.cur += s.len();
+    }
+
+    fn left(&mut self) {
+        if let Some(c) = self.text[..self.cur].chars().next_back() {
+            self.cur -= c.len_utf8();
+        }
+    }
+
+    fn right(&mut self) {
+        if let Some(c) = self.text[self.cur..].chars().next() {
+            self.cur += c.len_utf8();
+        }
+    }
+
+    fn backspace(&mut self) {
+        let end = self.cur;
+        self.left();
+        self.text.replace_range(self.cur..end, "");
+    }
+
+    fn delete(&mut self) {
+        if let Some(c) = self.text[self.cur..].chars().next() {
+            self.text
+                .replace_range(self.cur..self.cur + c.len_utf8(), "");
+        }
+    }
+
+    fn home(&mut self) {
+        self.cur = self.text[..self.cur].rfind('\n').map_or(0, |i| i + 1);
+    }
+
+    fn end(&mut self) {
+        self.cur += self.text[self.cur..]
+            .find('\n')
+            .unwrap_or(self.text.len() - self.cur);
+    }
+
+    /// `\` right before the cursor becomes a newline; false (untouched) otherwise.
+    fn continue_line(&mut self) -> bool {
+        if !self.text[..self.cur].ends_with('\\') {
+            return false;
+        }
+        self.text.replace_range(self.cur - 1..self.cur, "\n");
+        true
+    }
+
+    /// The cursor's (row, col) in cells, wrapped to `w`. `col == w` only at the end of a full line.
+    fn cursor_rc(&self, w: usize) -> (usize, usize) {
+        let before = &self.text[..self.cur];
+        let (prev, line) = before.rsplit_once('\n').unwrap_or(("", before));
+        let prior: usize = if before.contains('\n') {
+            prev.split('\n').map(|l| wrap_rows(l, w).len()).sum()
+        } else {
+            0
+        };
+        let rows = wrap_rows(line, w);
+        let (r, c) = (prior + rows.len() - 1, rows.last().map_or(0, |s| s.width()));
+        match self.text[self.cur..].chars().next() {
+            Some(ch) if ch != '\n' && c > 0 && c + ch.width().unwrap_or(0) > w => (r + 1, 0),
+            _ => (r, c),
+        }
+    }
+}
+
+/// `line` greedily filled to `w` cells per row, at least one row.
+// ponytail: char-wrap (splits words) so the cursor maps exactly; word-wrap with an offset map if it reads badly
+fn wrap_rows(line: &str, w: usize) -> Vec<String> {
+    let (mut rows, mut cur, mut cw) = (Vec::new(), String::new(), 0);
+    for ch in line.chars() {
+        let chw = ch.width().unwrap_or(0);
+        if cw > 0 && cw + chw > w {
+            rows.push(std::mem::take(&mut cur));
+            cw = 0;
+        }
+        cur.push(ch);
+        cw += chw;
+    }
+    rows.push(cur);
+    rows
+}
+
+/// What live typing captures: a per-line comment, the review body, or a tab rename. Enter branches per variant.
+enum Draft {
+    /// `row` is the panel cursor when `c` was pressed: the comment lands there, not wherever the cursor drifted (#68).
+    /// `edit` means `c` seeded your own comment, so an empty Enter deletes it.
+    Comment {
+        row: usize,
+        edit: bool,
+        text: Editor,
+    },
+    Review(Editor),
+    Rename(Editor),
+}
+
+impl Draft {
+    fn editor_mut(&mut self) -> &mut Editor {
         match self {
-            Draft::Comment(_, s) | Draft::Review(s) | Draft::Rename(s) => s,
+            Draft::Comment { text: e, .. } | Draft::Review(e) | Draft::Rename(e) => e,
+        }
+    }
+
+    fn editor(&self) -> &Editor {
+        match self {
+            Draft::Comment { text: e, .. } | Draft::Review(e) | Draft::Rename(e) => e,
         }
     }
 
     /// Comment/Review are tied to the focused panel; Rename is not.
     fn is_panel(&self) -> bool {
-        matches!(self, Draft::Comment(..) | Draft::Review(_))
+        matches!(self, Draft::Comment { .. } | Draft::Review(_))
     }
 
     /// `\`+Enter inserts a newline; Rename stays single-line.
@@ -197,9 +303,14 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  quit? press y to confirm · any other key cancels"
             } else if let Some(d) = &draft {
                 focus_hint = match d {
-                    Draft::Comment(row, _) => format!(
-                        "  comment L{} · \\+Enter newline · Enter add · Esc cancel",
-                        row + 1
+                    Draft::Comment { row, edit, .. } => format!(
+                        "  comment L{} · \\+Enter newline · {} · Esc cancel",
+                        row + 1,
+                        if *edit {
+                            "Enter save (empty deletes)"
+                        } else {
+                            "Enter add"
+                        }
                     ),
                     Draft::Review(_) => {
                         "  review body · \\+Enter newline · Enter submit · Esc cancel".into()
@@ -226,12 +337,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if let Some(d) = &draft
                 && let Some(pty_rect) = map.get(&PTY_PANE)
             {
-                let (title, body) = match d {
-                    Draft::Comment(_, s) => ("comment", s.as_str()),
-                    Draft::Review(s) => ("review body", s.as_str()),
-                    Draft::Rename(s) => ("rename tab", s.as_str()),
+                let title = match d {
+                    Draft::Comment { .. } => "comment",
+                    Draft::Review(_) => "review body",
+                    Draft::Rename(_) => "rename tab",
                 };
-                render_draft_box(f, *pty_rect, title, body);
+                render_draft_box(f, *pty_rect, title, d.editor(), !help);
             }
             if let Some(buf) = &panes {
                 render_panes(f, tab, buf);
@@ -304,29 +415,28 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     } else if ctrl && key.code == KeyCode::Char('h') {
                         help = true;
                     } else if draft.is_some() {
+                        let ed = draft.as_mut().expect("draft checked above").editor_mut();
                         match key.code {
-                            KeyCode::Char(c) => draft.as_mut().unwrap().body_mut().push(c),
-                            KeyCode::Backspace => {
-                                draft.as_mut().unwrap().body_mut().pop();
-                            }
+                            KeyCode::Char(c) => ed.insert(c.encode_utf8(&mut [0; 4])),
+                            KeyCode::Backspace => ed.backspace(),
+                            KeyCode::Delete => ed.delete(),
+                            KeyCode::Left => ed.left(),
+                            KeyCode::Right => ed.right(),
+                            KeyCode::Home => ed.home(),
+                            KeyCode::End => ed.end(),
                             // `\`+Enter inserts a newline (Shift+Enter isn't portable); plain Enter submits.
                             KeyCode::Enter
                                 if draft.as_ref().unwrap().multiline()
-                                    && draft.as_ref().unwrap().body().ends_with('\\') =>
-                            {
-                                let b = draft.as_mut().unwrap().body_mut();
-                                b.pop();
-                                b.push('\n');
-                            }
+                                    && draft.as_mut().unwrap().editor_mut().continue_line() => {}
                             KeyCode::Enter => match draft.take().unwrap() {
-                                Draft::Comment(row, text) => {
+                                Draft::Comment { row, text: ed, .. } => {
                                     if let Some(p) = tabs[active].focused_panel_mut() {
                                         // A wheel scroll while typing moves the cursor, not the comment.
                                         p.cursor = row;
-                                        p.author_note(text);
+                                        p.author_note(ed.text);
                                     }
                                 }
-                                Draft::Review(body) => {
+                                Draft::Review(Editor { text: body, .. }) => {
                                     // Borrow pane and PTY as separate fields so the send can write.
                                     let tab = &mut tabs[active];
                                     let pty = &tab.pty;
@@ -357,7 +467,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         }
                                         tab.log_event(event);
                                         if !sent_ok {
-                                            draft = Some(Draft::Review(body));
+                                            draft = Some(Draft::Review(Editor::new(body)));
                                         }
                                     }
                                     if sent_ok {
@@ -368,7 +478,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         }
                                     }
                                 }
-                                Draft::Rename(text) => {
+                                Draft::Rename(Editor { text, .. }) => {
                                     let text = text.trim();
                                     tabs[active].name =
                                         (!text.is_empty()).then(|| text.to_string());
@@ -430,7 +540,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             }
                             KeyCode::Char('r') => {
                                 let cur = tabs[active].name.clone().unwrap_or_default();
-                                draft = Some(Draft::Rename(cur));
+                                draft = Some(Draft::Rename(Editor::new(cur)));
                                 tab_nav = false;
                             }
                             _ => tab_nav = false, // Esc or anything else dismisses
@@ -477,7 +587,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     .focused_panel_mut()
                                     .map(|p| (p.cursor, p.begin_comment()))
                                     .unwrap_or_default();
-                                draft = Some(Draft::Comment(row, seed));
+                                draft = Some(Draft::Comment {
+                                    row,
+                                    edit: !seed.is_empty(),
+                                    text: Editor::new(seed),
+                                });
                             }
                             KeyCode::Char('r') if ctrl => {
                                 if let Some(p) = tabs[active].focused_panel_mut() {
@@ -510,7 +624,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         .focused_panel()
                                         .is_some_and(|p| p.thread_count() > 0) =>
                             {
-                                draft = Some(Draft::Review(String::new()))
+                                draft = Some(Draft::Review(Editor::default()))
                             }
                             KeyCode::Char('x') => {
                                 tabs[active].close_pane(None);
@@ -549,9 +663,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     if let Some(d) = draft.as_mut() {
                         // Rename is single-line: an interior newline can't land in the tab name.
                         if d.multiline() {
-                            d.body_mut().push_str(&s);
+                            d.editor_mut().insert(&s);
                         } else {
-                            d.body_mut().push_str(&s.replace('\n', " "));
+                            d.editor_mut().insert(&s.replace('\n', " "));
                         }
                     } else if locked
                         || (tabs[active].focus == PTY_PANE
@@ -597,7 +711,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     Some(PTY_PANE) | None => tabs[active].pty.scroll(-step),
                                     Some(id) => {
                                         if let Some(p) = tabs[active].panels.get_mut(&id) {
-                                            p.move_cursor(step);
+                                            p.scroll_view(step);
                                         }
                                     }
                                 }
@@ -694,33 +808,43 @@ fn tab_window(labels: &[String], active: usize, width: usize) -> (usize, usize) 
 }
 
 /// A bordered draft input box pinned to the bottom of `area` (the shell pane). Grows 2..=6 rows,
-/// then scrolls to keep the tail visible; wraps like a panel.
-fn render_draft_box(f: &mut Frame, area: Rect, title: &str, body: &str) {
+/// then scrolls to keep the cursor visible. `cursor` places the terminal cursor at the edit point.
+fn render_draft_box(f: &mut Frame, area: Rect, title: &str, ed: &Editor, cursor: bool) {
     let inner_w = area.width.saturating_sub(2).max(1) as usize;
-    let mut rows: Vec<String> = body
+    let mut rows: Vec<String> = ed
+        .text
         .split('\n')
-        .flat_map(|l| wrap_line(l, inner_w))
+        .flat_map(|l| wrap_rows(l, inner_w))
         .collect();
-    if rows.is_empty() {
-        rows.push(String::new());
+    let (mut r, mut c) = ed.cursor_rc(inner_w);
+    // Past a full row the cursor wraps onto a fresh one.
+    if c == inner_w {
+        rows.insert(r + 1, String::new());
+        (r, c) = (r + 1, 0);
     }
     let view = rows.len().clamp(2, 6);
-    let h = view as u16 + 2; // + border
+    let h = (view as u16 + 2).min(area.height); // + border
     let box_area = Rect {
         x: area.x,
-        y: area.y + area.height.saturating_sub(h),
+        y: area.y + area.height - h,
         width: area.width,
-        height: h.min(area.height),
+        height: h,
     };
-    let scroll = rows.len().saturating_sub(view) as u16;
+    let inner_h = h.saturating_sub(2).max(1) as usize;
+    let scroll = r.saturating_sub(inner_h - 1);
     let text: Vec<Line> = rows.into_iter().map(Line::from).collect();
     f.render_widget(Clear, box_area);
     f.render_widget(
         Paragraph::new(text)
             .block(Block::bordered().title(format!(" {title} ")))
-            .scroll((scroll, 0)),
+            .scroll((scroll as u16, 0)),
         box_area,
     );
+    if cursor && h > 2 && area.width > 2 {
+        let x = box_area.x + 1 + c as u16;
+        let y = box_area.y + 1 + (r - scroll) as u16;
+        f.set_cursor_position((x, y));
+    }
 }
 
 /// The frame minus the tab bar (top) and hint line (bottom).
@@ -946,7 +1070,7 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
         let (above, below) = panel.thread_split();
         format!("{}  [review: {review} ↑{above} ↓{below}]", panel.path)
     };
-    // Scroll off the cursor line's *last* wrapped row, so its continuations stay on-screen instead of clipped.
+    // The offset is remembered across frames (scrolls only at the edges); see `scroll_offset`.
     let view = area.height.saturating_sub(2) as usize;
     let total_rows = rows.len();
     let offset = panel.scroll_offset(&layout, view).min(u16::MAX as usize) as u16;
@@ -1166,8 +1290,12 @@ fn render_help(f: &mut Frame) {
         key("Esc", "leave pane"),
         Line::raw(""),
         group("Draft"),
+        key("←/→", "move"),
+        key("Home/End", "line start/end"),
+        key("Backspace/Delete", "delete before/after"),
         key("\\+Enter", "newline"),
         key("Enter", "confirm / submit"),
+        key("Enter", "on an empty edit: delete your comment"),
         key("Esc", "cancel"),
     ];
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4; // + border, margin
@@ -1187,7 +1315,91 @@ fn render_help(f: &mut Frame) {
 
 #[cfg(test)]
 mod tests {
-    use super::{frozen_notice, pane_id_ambiguous, pane_id_exact, tab_window};
+    use super::{
+        Editor, frozen_notice, pane_id_ambiguous, pane_id_exact, render_draft_box, tab_window,
+    };
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
+
+    // The draft editor only sees keystrokes from the render loop (no CLI/socket surface), so it's checked here.
+    #[test]
+    fn editor_inserts_and_deletes_at_the_cursor() {
+        // Mid-insert.
+        let mut e = Editor::new("helo".into());
+        e.left();
+        e.insert("l");
+        assert_eq!((e.text.as_str(), e.cur), ("hello", 4));
+        // Backspace and Delete around the cursor.
+        e.backspace();
+        e.delete();
+        assert_eq!((e.text.as_str(), e.cur), ("hel", 3));
+        // Home/End stay on the cursor's line.
+        let mut e = Editor::new("ab\ncd".into());
+        e.home();
+        assert_eq!(e.cur, 3);
+        e.left();
+        e.home();
+        assert_eq!(e.cur, 0);
+        e.end();
+        assert_eq!(e.cur, 2);
+        // `\`+Enter mid-text splits the line at the cursor.
+        let mut e = Editor::new("ab\\cd".into());
+        e.home();
+        (0..3).for_each(|_| e.right());
+        assert!(e.continue_line());
+        assert_eq!((e.text.as_str(), e.cur), ("ab\ncd", 3));
+        assert!(!e.continue_line());
+        // cursor_rc at a wrap boundary and after a newline.
+        assert_eq!(Editor::new("abcd".into()).cursor_rc(4), (0, 4));
+        assert_eq!(Editor::new("abcde".into()).cursor_rc(4), (1, 1));
+        assert_eq!(Editor::new("abcde\n".into()).cursor_rc(4), (2, 0));
+        // Mid-line wrap boundary.
+        let mut e = Editor::new("abcdefgh".into());
+        (0..4).for_each(|_| e.left());
+        assert_eq!(e.cursor_rc(4), (1, 0));
+        // Wide glyphs.
+        assert_eq!(Editor::new("日本a".into()).cursor_rc(20), (0, 5));
+        // A multi-byte char is one step.
+        let mut e = Editor::new("é".into());
+        e.left();
+        assert_eq!(e.cur, 0);
+        e.right();
+        e.backspace();
+        assert_eq!((e.text.as_str(), e.cur), ("", 0));
+    }
+
+    fn draw_draft(ed: &Editor, w: u16, h: u16) -> (Vec<String>, (u16, u16)) {
+        let mut t = Terminal::new(TestBackend::new(w, h)).expect("test backend can't fail");
+        t.draw(|f| render_draft_box(f, Rect::new(0, 0, w, h), "t", ed, true))
+            .expect("test backend can't fail");
+        let buf = t.backend().buffer();
+        let rows = (0..h)
+            .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect())
+            .collect();
+        let pos = t.get_cursor_position().expect("test backend can't fail");
+        (rows, (pos.x, pos.y))
+    }
+
+    // The draft box is drawn by the render loop (no CLI/socket surface), so its cursor is checked here.
+    #[test]
+    fn draft_box_keeps_the_cursor_on_its_row() {
+        // Mid-line wrap boundary: no blank row.
+        let mut e = Editor::new("abcdefgh".into());
+        (0..4).for_each(|_| e.left());
+        let (rows, pos) = draw_draft(&e, 6, 10);
+        let body: Vec<&str> = rows
+            .iter()
+            .filter_map(|r| r.strip_prefix('│')?.strip_suffix('│'))
+            .collect();
+        assert_eq!(body, ["abcd", "efgh"], "{rows:#?}");
+        assert_eq!(pos, (1, 8));
+        // Short pane: cursor on the `7` row, not the border.
+        let (rows, pos) = draw_draft(&Editor::new("1\n2\n3\n4\n5\n6\n7".into()), 10, 5);
+        assert_eq!(pos.1, 3, "{rows:#?}");
+        assert!(rows[3].contains('7'), "{rows:#?}");
+        // `日本a` is 5 cells wide.
+        let (_, pos) = draw_draft(&Editor::new("日本a".into()), 20, 5);
+        assert_eq!(pos.0, 6);
+    }
 
     // The frozen notice is drawn by the render loop (no CLI/socket surface), so its fit is checked here.
     #[test]

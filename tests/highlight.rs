@@ -64,11 +64,11 @@ fn highlight_sets_range_and_anchor() -> Result<()> {
     let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
     let id_s = id.to_string();
 
-    // 1-based 3..=5 → 0-based (2, 4); cursor anchors on hi.
+    // 1-based 3..=5 → 0-based (2, 4); cursor anchors on lo.
     drive(&mut tab, &["highlight", "3", "5", "--pane", &id_s]);
     let panel = &tab.panels[&id];
     assert_eq!(panel.highlight, Some((2, 4)));
-    assert_eq!(panel.cursor, 4);
+    assert_eq!(panel.cursor, 2);
 
     // Fully out-of-range clamps to the last line.
     drive(&mut tab, &["highlight", "999", "--pane", &id_s]);
@@ -102,6 +102,8 @@ fn highlight_centers_then_top_anchors() -> Result<()> {
     let panel = &tab.panels[&id];
     let layout = panel.layout(80);
     assert_eq!(panel.scroll_offset(&layout, 20), 36);
+    // Centers once: the next frame keeps the view (no snap).
+    assert_eq!(panel.scroll_offset(&layout, 20), 36);
 
     // Span taller than the 8-row viewport: margin saturates to 0, top-anchored at the first row.
     drive(
@@ -109,6 +111,7 @@ fn highlight_centers_then_top_anchors() -> Result<()> {
         &["highlight", "40", "60", "--pane", &id.to_string()],
     );
     let panel = &tab.panels[&id];
+    assert_eq!(panel.scroll_offset(&panel.layout(80), 8), 39);
     assert_eq!(panel.scroll_offset(&panel.layout(80), 8), 39);
     Ok(())
 }
@@ -156,7 +159,7 @@ fn open_highlight_points_on_open() -> Result<()> {
     .parse()?;
     let panel = &tab.panels[&id];
     assert_eq!(panel.highlight, Some((2, 4)));
-    assert_eq!(panel.cursor, 4);
+    assert_eq!(panel.cursor, 2);
 
     // Single-line form: end defaults to start.
     let id2: u64 = drive(&mut tab, &["open", &p, "--no-focus", "--highlight", "2"]).parse()?;

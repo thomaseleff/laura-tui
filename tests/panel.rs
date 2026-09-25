@@ -11,6 +11,7 @@ fn wrap_line_covers_edges() {
     assert_eq!(wrap_line("abc def ghi", 7), vec!["abc def", "ghi"]); // word boundary
     assert_eq!(wrap_line("abcdefgh", 3), vec!["abc", "def", "gh"]); // over-long word splits
     assert_eq!(wrap_line("", 5), vec![""]); // blank source line still holds a row
+    assert_eq!(wrap_line("    abcd ef", 8), vec!["    abcd", "ef"]); // indent narrows row 0
     for row in wrap_line("the quick brown fox jumped over", 8) {
         assert!(row.chars().count() <= 8, "row too wide: {row:?}");
     }
@@ -197,6 +198,45 @@ fn layout_wraps_long_lines_within_width() -> Result<()> {
             "row overflows: {:?}",
             r.text()
         );
+    }
+    Ok(())
+}
+
+#[test]
+fn markdown_rows_fit_the_pane_width() -> Result<()> {
+    // #65: inline-code caps and the fenced-code box pad are added cells; neither may push a row
+    // past the pane's right border. The `ggg` paragraph and the fenced line each fit `tw` exactly
+    // (33 at w=40, 73 at w=80; gutter is 2 digits) before those cells are added.
+    let mut file = tempfile::Builder::new().suffix(".md").tempfile()?;
+    write!(
+        file,
+        "# Fit\n\n\
+         Run `a` then `bb` and `ccc` for `dd` done, and `laura open x` to open a file.\n\n\
+         aaaa bbbb cccc dddd eeee ffff `ggg`\n\n\
+         ```rust\nlet x = \"{}\";\n```\n\n\
+         - top\n    - a nested item whose text runs well past forty columns, so it wraps\n\n\
+         A chip `{}` that wraps over rows.\n\n\
+         tail\n",
+        "y".repeat(62),
+        "spans many words so its middle rows are all code bg ".repeat(3)
+    )?;
+    file.flush()?;
+    let mut panel = Panel::open(file.path().to_str().unwrap().to_string());
+    panel.move_cursor(2);
+    panel.author_note("a note with `code` in it".into());
+    drop(file);
+
+    for w in [40, 60, 80, 101, 120] {
+        let layout = panel.layout(w);
+        for r in &layout.rows {
+            // Card rows get the 3-cell indent render_panel adds; body rows the full 5-cell gutter.
+            let deco = if r.comment { 3 } else { 5 };
+            assert!(
+                layout.gutter_width + deco + r.text().chars().count() <= w,
+                "row overflows w={w}: {:?}",
+                r.text()
+            );
+        }
     }
     Ok(())
 }
@@ -407,6 +447,67 @@ fn empty_author_note_creates_no_thread() -> Result<()> {
     panel.author_note(String::new()); // stray c+Enter with no text
     panel.author_note("   ".into()); // whitespace-only is empty too
     assert_eq!(panel.thread_count(), 0, "empty comment pushes no thread");
+    Ok(())
+}
+
+#[test]
+fn clearing_your_comment_deletes_it() -> Result<()> {
+    // #71: `c` on your own comment, clear the draft, Enter → the comment goes. Esc leaves it be.
+    use std::fs;
+
+    let file = tempfile::NamedTempFile::new()?;
+    let path = file.path().to_str().unwrap().to_string();
+    fs::write(file.path(), "l0\nl1\nl2")?;
+    let mut panel = Panel::open(path);
+
+    // Your only comment: clearing it drops the thread.
+    panel.author_note("mine".into());
+    assert_eq!(panel.begin_comment(), "mine");
+    panel.author_note(String::new());
+    assert_eq!(panel.thread_count(), 0, "cleared root drops the thread");
+
+    // Your reply under the agent's comment: clearing drops just the reply.
+    panel.cursor = 1;
+    panel
+        .agent_note(2, Some("q".into()), None)
+        .map_err(anyhow::Error::msg)?;
+    panel.author_note("a".into());
+    assert_eq!(panel.begin_comment(), "a");
+    panel.author_note("  ".into());
+    assert_eq!(panel.thread_count(), 1, "the agent's thread stays");
+    assert!(panel.threads[0].replies.is_empty(), "your reply is gone");
+    assert_eq!(panel.threads[0].root.body, "q");
+
+    // Esc: `c` with no commit leaves your comment unchanged.
+    panel.cursor = 2;
+    panel.author_note("keep".into());
+    assert_eq!(panel.begin_comment(), "keep");
+    assert_eq!(panel.begin_comment(), "keep", "no commit, no change");
+    panel.author_note(String::new());
+    assert_eq!(panel.thread_count(), 1);
+
+    // Frozen on your only comment: deleting it ends the freeze and the pane reloads.
+    panel.cursor = 1;
+    panel.discard_and_reload();
+    panel.author_note("only".into());
+    fs::write(file.path(), "l0\nCHANGED\nl2\nl3")?;
+    assert!(
+        !panel.reload_if_changed(),
+        "frozen while the comment is open"
+    );
+    assert!(panel.source_changed);
+    panel.begin_comment();
+    panel.author_note(String::new());
+    assert!(panel.reload_if_changed(), "no comments left, so it reloads");
+    assert!(!panel.source_changed, "the freeze is over");
+    assert!(
+        panel
+            .layout(80)
+            .rows
+            .iter()
+            .any(|r| r.text().contains("CHANGED")),
+        "pane shows the new content"
+    );
     Ok(())
 }
 

@@ -63,7 +63,7 @@ laura highlight 40 --pane <id>           # single line, in a specific (possibly 
 laura highlight --off                     # clear the highlight (the user can also press `h` on the pane)
 ```
 
-`open --highlight` opens the file and highlights the lines in one call; the pane first paints at the range. `laura highlight` re-highlights an open pane. The highlight stays until you re-set or clear it. On a frozen pane, `highlight` errors (exit 1); `--off` still clears. In markdown, a hand-wrapped paragraph is one row, so any of its source lines highlights the whole block. Fenced code and HTML blocks keep per-line numbers.
+`open --highlight` opens the file and highlights the lines in one call; the pane first paints at the range. `laura highlight` re-highlights an open pane. The highlight stays until you re-set or clear it. On a frozen pane, `highlight` errors (exit 1); `--off` still clears. In markdown, a hand-wrapped paragraph is one row, so any of its source lines highlights the whole block. Fenced code and HTML blocks keep per-line numbers. List items (at any depth, tight or loose), blockquote lines, and callout lines do too, blank lines included. A block folds when its rows don't line up 1:1 with its source lines: a hand-wrapped paragraph, or a fenced block or table inside a list item or blockquote.
 
 ## Show what changed
 

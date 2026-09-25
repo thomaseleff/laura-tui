@@ -212,7 +212,7 @@ Highlights a range of lines in a pane and scrolls it into view.
 
 On a frozen pane, a `range` returns `error`; `range: null` still clears.
 
-Line numbers are source-file lines, matching the gutter and the inline review's `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
+Line numbers are source-file lines, matching the gutter and the inline review's `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. List items (at any depth, tight or loose), blockquote lines, and callout lines keep per-line numbers too, blank lines included. A block folds when its rows don't line up 1:1 with its source lines: a hand-wrapped paragraph, or a fenced block or table inside a list item or blockquote. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
 
 ### `diffview`
 
