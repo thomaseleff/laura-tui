@@ -331,27 +331,243 @@ fn list_items_get_their_own_threads() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn nested_list_children_collapse_into_parent() -> Result<()> {
-    // #45 (lazy): a nested child folds into its top-level parent's range, so commenting a child row
-    // emits the parent's line, not the child's.
-    let (_f, p) = write_doc("- parent\n  - child one\n  - child two\n- sibling\n")?;
-    let mut panel = Panel::open(p);
-
-    let child_line = panel
+/// Move the cursor to the first row whose text contains `needle` and author a note there.
+fn note_on(panel: &mut Panel, needle: &str) {
+    let line = panel
         .layout(80)
         .rows
         .iter()
-        .find(|r| r.text().contains("child one"))
-        .expect("child row")
+        .find(|r| !r.comment && r.text().contains(needle))
+        .unwrap_or_else(|| panic!("row containing {needle:?}"))
         .line;
-    panel.move_cursor(child_line as isize);
-    panel.author_note("on a child".into());
+    panel.move_cursor(isize::MIN / 2); // move_cursor is a relative delta — reset to the top first
+    panel.move_cursor(line as isize);
+    panel.author_note(format!("note {needle}"));
+}
+
+#[test]
+fn nested_list_items_get_their_own_threads() -> Result<()> {
+    // #70: a nested child renders one row per source line, so it keys to its own line, not the
+    // parent item's range.
+    let (_f, p) = write_doc(
+        "- parent
+  - child one
+  - child two
+- sibling
+",
+    )?;
+    let mut panel = Panel::open(p);
+    note_on(&mut panel, "child one");
 
     let review = panel.assemble_review("");
     assert!(
-        review.contains("L1-3"),
-        "child collapses into the parent's item range (L1-3): {review}"
+        review.contains(
+            "L2    - child one
+"
+        ),
+        "child is its own line: {review}"
+    );
+    assert!(!review.contains("L1-3"), "not the parent's range: {review}");
+    Ok(())
+}
+
+/// The #70 issue fixture: nested, numbered, loose, quoted, and callout lists.
+const LISTS: &str = "# Lists
+
+- top one
+- top two
+  - nested a
+  - nested b
+- top three
+
+1. first
+2. second
+   1. sub one
+   2. sub two
+
+- loose one
+
+- loose two
+
+> - quoted a
+> - quoted b
+
+> [!NOTE]
+> - alert a
+> - alert b
+";
+
+#[test]
+fn quoted_and_callout_list_items_get_their_own_threads() -> Result<()> {
+    let (_f, p) = write_doc(LISTS)?;
+    let mut panel = Panel::open(p);
+    let needles = [
+        "nested a",
+        "nested b",
+        "sub one",
+        "sub two",
+        "loose one",
+        "loose two",
+        "quoted a",
+        "quoted b",
+        "alert a",
+        "alert b",
+    ];
+    for needle in needles {
+        note_on(&mut panel, needle);
+    }
+
+    let review = panel.assemble_review("");
+    let src: Vec<&str> = LISTS.lines().collect();
+    assert_eq!(src.len(), 23, "fixture line count");
+    for needle in needles {
+        let n = src
+            .iter()
+            .position(|l| l.contains(needle))
+            .expect("source line")
+            + 1;
+        let hdr = format!(
+            "
+L{n}  {}
+",
+            src[n - 1]
+        );
+        assert!(review.contains(&hdr), "{needle} keys to {hdr:?}: {review}");
+    }
+    let ranged = review
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .filter(|w| w.starts_with('L') && w.contains('-'))
+        .collect::<Vec<_>>();
+    assert!(
+        ranged.is_empty(),
+        "no range headers: {ranged:?}
+{review}"
+    );
+    Ok(())
+}
+
+#[test]
+fn blank_separated_list_items_get_their_own_threads() -> Result<()> {
+    // #70: a blank line inside an item (loose nesting, quoted `>`) gets its own blank row instead of
+    // folding the whole item onto one range.
+    let fixtures: [(&str, &[&str]); 3] = [
+        ("- a\n\n  - b\n  - c\n\n- d\n", &["a", "b", "c", "d"]),
+        ("* a\n\n  * b\n\n  * c\n* d\n", &["a", "b", "c", "d"]),
+        ("> - quoted a\n>\n> - quoted b\n", &["quoted a", "quoted b"]),
+    ];
+    for (doc, needles) in fixtures {
+        let (_f, p) = write_doc(doc)?;
+        let mut panel = Panel::open(p);
+        if doc.starts_with("- a") {
+            let rows: Vec<String> = panel
+                .layout(80)
+                .rows
+                .iter()
+                .filter(|r| !r.comment)
+                .map(|r| r.text().trim_end().to_string())
+                .collect();
+            assert_eq!(rows, ["- a", "", "    - b", "    - c", "", "- d"]);
+        }
+        for needle in needles {
+            note_on(&mut panel, &format!("- {needle}"));
+        }
+
+        let review = panel.assemble_review("");
+        let src: Vec<&str> = doc.lines().collect();
+        for needle in needles {
+            let n = src
+                .iter()
+                .position(|l| l.ends_with(&format!(" {needle}")))
+                .expect("source line")
+                + 1;
+            let hdr = format!("\nL{n}  {}\n", src[n - 1]);
+            assert!(review.contains(&hdr), "{needle} keys to {hdr:?}: {review}");
+        }
+        let ranged = review
+            .lines()
+            .filter_map(|l| l.split_whitespace().next())
+            .filter(|w| w.starts_with('L') && w.contains('-'))
+            .collect::<Vec<_>>();
+        assert!(ranged.is_empty(), "no range headers: {ranged:?}\n{review}");
+    }
+    Ok(())
+}
+
+/// Rendered row index of the first non-card row containing `needle`.
+fn row_of(tab: &Tab, id: u64, needle: &str) -> usize {
+    tab.panels[&id]
+        .layout(80)
+        .rows
+        .iter()
+        .find(|r| !r.comment && r.text().contains(needle))
+        .unwrap_or_else(|| panic!("row containing {needle:?}"))
+        .line
+}
+
+#[test]
+fn agent_comment_on_a_nested_item_keys_to_its_row() -> Result<()> {
+    let (_f, p) = write_doc(LISTS)?;
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
+    drive(&mut tab, &["comment", "5", "x", "--pane", &id.to_string()]);
+
+    let panel = &tab.panels[&id];
+    assert!(
+        panel.thread_at(row_of(&tab, id, "nested a")).is_some(),
+        "L5 keys to the nested item's own row"
+    );
+    assert!(
+        panel.thread_at(row_of(&tab, id, "top two")).is_none(),
+        "not the parent item's row"
+    );
+    Ok(())
+}
+
+#[test]
+fn agent_comment_on_a_loose_list_gap_keys_to_its_row() -> Result<()> {
+    // The blank between loose items used to be in no row's range, so it clamped to the last row.
+    let (_f, p) = write_doc(LISTS)?;
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
+    drive(&mut tab, &["comment", "15", "x", "--pane", &id.to_string()]);
+
+    let gap = row_of(&tab, id, "loose one") + 1;
+    let panel = &tab.panels[&id];
+    assert!(
+        panel.thread_at(gap).is_some(),
+        "L15 keys to the blank row after `loose one`"
+    );
+    let review = panel.assemble_review("");
+    // A blank source line's header is `L15` plus the two-space separator and empty text.
+    assert!(review.contains("\nL15  \n"), "header is L15: {review}");
+    Ok(())
+}
+
+#[test]
+fn folded_block_card_draws_after_its_last_row() -> Result<()> {
+    // A callout with a hand-wrapped paragraph renders 2 rows for 3 lines, so it stays one block;
+    // its card must follow the whole block, not split it after the first row (#70).
+    let (_f, p) = write_doc(
+        "> [!NOTE]
+> drafted
+> against main.
+",
+    )?;
+    let mut panel = Panel::open(p);
+    panel.author_note("on the callout".into());
+
+    let rows = panel.layout(80).rows;
+    let texts: Vec<String> = rows.iter().map(|r| r.text()).collect();
+    let card = rows.iter().position(|r| r.comment).expect("card row");
+    let body = rows
+        .iter()
+        .position(|r| r.text().contains("drafted"))
+        .expect("callout body row");
+    assert!(body > 0, "title and body are separate rows: {texts:?}");
+    assert!(
+        card > body,
+        "card draws after the block's last row: {texts:?}"
     );
     Ok(())
 }
@@ -491,6 +707,81 @@ fn fenced_block_renders_as_uniform_rectangle() -> Result<()> {
     Ok(())
 }
 
+/// #65: fenced lines at, one short of, and past the text budget are clipped yet stay in one
+/// rectangle that fits the pane — a clipped row's `›` must not knock it out of the box.
+#[test]
+fn fenced_block_stays_one_rectangle_when_clipped() -> Result<()> {
+    let (_f, p) = write_doc(&format!(
+        "```\nab\n{}\n{}\ncd\n```\n",
+        "x".repeat(73),
+        "x".repeat(100)
+    ))?;
+    let layout = Panel::open(p).layout(80);
+    let tw = 80 - (layout.gutter_width + 5); // 1-digit gutter → 74
+    let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| is_code_row(r)).collect();
+    assert_eq!(code.len(), 4, "all four code lines stay boxed");
+    let w0 = row_width(code[0]);
+    assert!(w0 <= tw, "box {w0} fits the {tw}-cell budget");
+    for r in &code {
+        assert_eq!(row_width(r), w0, "one width: {:?}", r.text());
+        let first = r.spans.first().unwrap();
+        assert_eq!(first.content.as_ref(), " ", "leading inner-pad space");
+        assert!(first.style.bg.is_some(), "leading pad carries the code bg");
+    }
+    Ok(())
+}
+
+/// #65: h-scrolling past a short fenced line's end clips it to blank; it keeps the code bg and the
+/// block stays one rectangle.
+#[test]
+fn fenced_block_stays_one_rectangle_when_scrolled_past_short_lines() -> Result<()> {
+    let (_f, p) = write_doc(&format!("```\nab\n{}\ncd\n```\n", "x".repeat(100)))?;
+    let mut panel = Panel::open(p);
+    panel.scroll_h(10);
+    let layout = panel.layout(80);
+    let code: Vec<&PanelRow> = layout
+        .rows
+        .iter()
+        .filter(|r| r.spans.first().is_some_and(|s| s.style.bg.is_some()))
+        .collect();
+    assert_eq!(code.len(), 3, "the short lines stay boxed");
+    let w0 = row_width(code[0]);
+    for r in &code {
+        assert_eq!(row_width(r), w0, "one width: {:?}", r.text());
+        assert!(
+            r.spans.iter().all(|s| s.style.bg.is_some()),
+            "every cell carries the code bg: {:?}",
+            r.text()
+        );
+    }
+    Ok(())
+}
+
+/// #65: an empty line inside a fenced block is boxed like its neighbours — no inline-code caps, no
+/// break in the rectangle.
+#[test]
+fn fenced_block_stays_one_rectangle_across_an_empty_line() -> Result<()> {
+    let (_f, p) = write_doc("```\nab\n\ncd\n```\n")?;
+    let layout = Panel::open(p).layout(80);
+    let code: Vec<&PanelRow> = layout
+        .rows
+        .iter()
+        .filter(|r| r.spans.first().is_some_and(|s| s.style.bg.is_some()))
+        .collect();
+    assert_eq!(code.len(), 3, "the empty line stays boxed");
+    let w0 = row_width(code[0]);
+    for r in &code {
+        assert_eq!(row_width(r), w0, "one width: {:?}", r.text());
+        assert!(!r.text().contains('█'), "no chip caps: {:?}", r.text());
+        assert!(
+            r.spans.iter().all(|s| s.style.bg.is_some()),
+            "every cell carries the code bg: {:?}",
+            r.text()
+        );
+    }
+    Ok(())
+}
+
 /// #51: an inline `code` run is bracketed by full-cell caps (`█`) colored with the code bg.
 #[test]
 fn inline_code_gets_half_cell_caps() -> Result<()> {
@@ -569,6 +860,26 @@ fn inline_code_chip_bg_is_contiguous_across_spaces() -> Result<()> {
     Ok(())
 }
 
+/// #65: a chip with a space at its edge (`` `trail ` ``) keeps both caps on its own row at every
+/// width — the wrap breaks at spaces, so a space between cap and glyph would strand the cap.
+#[test]
+fn inline_code_caps_wrap_with_their_chip() -> Result<()> {
+    let (_f, p) =
+        write_doc("A ` lead space chip` then `trail ` and more words to wrap around here ok\n")?;
+    let panel = Panel::open(p);
+    for w in 20..=90 {
+        for r in &panel.layout(w).rows {
+            let t = r.text();
+            let t = t.trim_end();
+            assert!(
+                !(t.ends_with(" \u{2588}") || t.starts_with("\u{2588} ") || t == "\u{2588}"),
+                "cap stranded from its chip at w={w}: {t:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// #54: highlighting a source range that lands in a collapsed multi-row block (table, list, alert)
 /// lights the *whole* block, not just its first rendered row. tui-markdown renders a table as
 /// several rows sharing one source range, so a per-bound single lookup used to collapse both the
@@ -598,6 +909,34 @@ fn highlight_collapsed_block_covers_all_its_rows() -> Result<()> {
             (3..=6).contains(&g),
             "row {i} is part of the highlighted table block (L3-6), got L{g}: {:?}",
             layout.rows[i].text()
+        );
+    }
+    Ok(())
+}
+
+/// A doc ending in a blank row (callout/loose list) keeps that row reachable, so an agent
+/// comment keyed there is one the cursor can land on (#70).
+#[test]
+fn trailing_blank_row_is_reachable() -> Result<()> {
+    for doc in ["> [!NOTE]\n> - a\n>\n> - b\n>\n", "- one\n\n- two\n\n\n"] {
+        let (_f, p) = write_doc(doc)?;
+        let mut panel = Panel::open(p);
+        let last = panel
+            .layout(80)
+            .rows
+            .iter()
+            .map(|r| r.line)
+            .max()
+            .expect("rows");
+        let n = doc.lines().count() as u32;
+        panel
+            .agent_note(n, Some("x".into()), None)
+            .map_err(anyhow::Error::msg)?;
+        panel.move_cursor(isize::MAX / 2);
+        assert_eq!(panel.cursor, last, "cursor reaches the last row: {doc:?}");
+        assert!(
+            panel.cursor_thread().is_some(),
+            "thread on last line is reachable: {doc:?}"
         );
     }
     Ok(())

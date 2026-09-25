@@ -18,7 +18,7 @@ Args are positional and all optional: an optional leading **style** (`socratic` 
 - **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
 - **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start — *mandatory*, so `retro` can measure this session. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
 - **Your partner sets the pace** — after each step **wait for `Next`**. If they ask a question, answer it, stay put, and resume on `Next`.
-- **Journal a closing sentiment** at the end (see below).
+- **Journal what you noticed** as you go (see below).
 - **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
@@ -46,9 +46,11 @@ A style is a pedagogical approach: people learn best in different ways, so these
 - **Montessori** — you prepare an environment and let your partner discover the concept by fixing something visibly wrong, noting and naming the concepts afterward.
 - **Gradual release** ("I do, we do, you do") — you shift ownership in stages: model it fully, solve one together, then hand it off entirely.
 
-## Close the loop — journal the session (mandatory)
+## Close the loop — journal what you noticed
 
-At the end of the lesson, prompt your partner for feedback on the session for you to submit as a one-line sentiment:
+When something notable happened — a layout read badly, a tool was missing, a step clearly
+landed — log it yourself with `laura feedback --positive/--negative "<one line>"`. Never ask your
+partner for feedback; if they offer some ("log that as feedback"), record it.
 
 ```bash
 laura feedback --positive "gradual-release layout made the two-pointer click"

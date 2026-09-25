@@ -861,6 +861,7 @@ dependencies = [
  "tempfile",
  "tui-markdown",
  "tui-term",
+ "unicode-width",
  "vt100",
 ]
 

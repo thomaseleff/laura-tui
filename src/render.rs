@@ -244,18 +244,29 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
             source.push((cursor, cursor));
             cursor += 1;
         }
-        // Each top-level list item is its own slice so every bullet gets its own thread; nested
-        // children fold into the parent's range (lazy) (#45).
+        // Each top-level list item is its own slice so every bullet gets its own thread (#45);
+        // `align_rows` then maps nested items per line, blank separators included (#70).
         if let BlockKind::List = kind {
             let starts = top_item_lines(&md[b0..b1], l0);
             if !starts.is_empty() {
                 for (idx, &s) in starts.iter().enumerate() {
                     let end = starts.get(idx + 1).map_or(l1, |&next| next - 1);
+                    // A loose item's range swallows the blank before the next item, which renders
+                    // no row; trim it so the item can still map 1:1, then gap-fill it below.
+                    let mut e = end;
+                    while e > s && lines.get(e).is_some_and(|l| l.trim().is_empty()) {
+                        e -= 1;
+                    }
                     let slice = format!("{}{defs}", lines[s..=end].join("\n"));
                     let text = tui_markdown::from_str_with_options(&slice, &opts);
-                    for line in text.lines.iter().map(owned_line).map(refine_line) {
-                        styled.push(line);
-                        source.push((s, end)); // whole item range → all its rows share one thread
+                    let rows: Vec<_> = text.lines.iter().map(owned_line).map(refine_line).collect();
+                    for (row, range) in align_rows(rows, &lines[s..=e], s) {
+                        styled.push(row);
+                        source.push(range);
+                    }
+                    for j in e + 1..=end {
+                        styled.push(Line::default());
+                        source.push((j, j));
                     }
                 }
                 cursor = cursor.max(l1 + 1);
@@ -265,19 +276,22 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
         }
         let slice = format!("{}{defs}", &md[b0..b1]);
         let text = tui_markdown::from_str_with_options(&slice, &opts);
-        let n = text.lines.len();
-        for (k, line) in text
-            .lines
-            .iter()
-            .map(owned_line)
-            .map(refine_line)
-            .enumerate()
-        {
-            // Verbatim blocks render one row per source line, so each row owns a single real line;
-            // prose reflows, so its whole range stays honest (#34).
+        let rows: Vec<_> = text.lines.iter().map(owned_line).map(refine_line).collect();
+        // Prose reflows, so it maps 1:1 only when its shape matches the source (#34, #70). List
+        // reaches here only on the fallback: map it like prose.
+        if let BlockKind::Prose | BlockKind::List = kind {
+            for (row, range) in align_rows(rows, &lines[l0..=l1], l0) {
+                styled.push(row);
+                source.push(range);
+            }
+            cursor = cursor.max(l1 + 1);
+            continue;
+        }
+        let n = rows.len();
+        for (k, line) in rows.into_iter().enumerate() {
+            // Verbatim blocks render one row per source line, so each row owns a single real line.
             let range = match kind {
-                // List reaches here only on the fallback: tag the whole block like prose.
-                BlockKind::Prose | BlockKind::List => (l0, l1),
+                BlockKind::Prose | BlockKind::List => (l0, l1), // handled above
                 BlockKind::Code => {
                     let s = (l0 + 1 + k).min(l1); // +1 skips the hidden opening fence
                     (s, s)
@@ -301,8 +315,9 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
     (styled, source)
 }
 
-/// How a top-level block maps source lines to rendered rows: `Prose` reflows (whole range per row);
-/// `Code` (fenced only) and `Html` render 1:1, one row per source line.
+/// How a top-level block maps source lines to rendered rows: `Prose` (incl. quotes and callouts)
+/// maps 1:1 when it renders one row per line, else whole range per row (`align_rows`); `Code`
+/// (fenced only) and `Html` render 1:1, one row per source line.
 #[derive(Clone, Copy)]
 enum BlockKind {
     Prose,
@@ -347,8 +362,9 @@ fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
     out
 }
 
-/// Source line (offset by `l0`) of each depth-1 item start in a list block — nested items fold into
-/// the parent. Empty on a degraded parse (caller then tags the whole block) (#45).
+/// Source line (offset by `l0`) of each depth-1 item start in a list block — nested items render
+/// inside their top-level item's slice and map per line via `align_rows`. Empty on a degraded
+/// parse (caller then maps the whole block) (#45, #70).
 fn top_item_lines(slice: &str, l0: usize) -> Vec<usize> {
     let line_of = line_indexer(slice);
     let mut out = vec![];
@@ -379,6 +395,55 @@ fn table_range(k: usize, n: usize, l0: usize, l1: usize) -> (usize, usize) {
     }
 }
 
+/// Tag a block's `rows` (rendered from `lines`, starting at source `l0`) with source ranges. Walks
+/// both in order: a row pairs 1:1 with a line of the same blank/non-blank shape, and a blank line the
+/// renderer dropped (a loose or nested list's separator) gets its own blank row, like the gap-fill
+/// (#70). Any other mismatch, such as a reflowed paragraph leaving a line with no row, tags the whole
+/// block on every row, like `table_range`.
+///
+/// ponytail: shape, not content — a quote whose table (+2 rows) and reflowed paragraphs (−1 each)
+/// cancel out maps 1:1 wrongly. Compare row text to line text if that shows up.
+fn align_rows(
+    rows: Vec<Line<'static>>,
+    lines: &[&str],
+    l0: usize,
+) -> Vec<(Line<'static>, (usize, usize))> {
+    // A quote's blank line is `>` alone in source. `refine_line` already strips the rendered `>`.
+    let blank = |s: &str| {
+        s.trim_start_matches(|c: char| c == '>' || c.is_whitespace())
+            .is_empty()
+    };
+    // Row index per source line; `None` = a blank line the renderer dropped.
+    let mut pairs: Vec<Option<usize>> = Vec::with_capacity(lines.len());
+    let mut k = 0;
+    for l in lines {
+        if rows
+            .get(k)
+            .is_some_and(|r| blank(&line_text(r)) == blank(l))
+        {
+            pairs.push(Some(k));
+            k += 1;
+        } else if blank(l) {
+            pairs.push(None);
+        } else {
+            break; // a text line with no matching row: the block reflowed
+        }
+    }
+    if pairs.len() < lines.len() || k < rows.len() {
+        let whole = (l0, l0 + lines.len().saturating_sub(1));
+        return rows.into_iter().map(|r| (r, whole)).collect();
+    }
+    let mut rows: Vec<Option<Line<'static>>> = rows.into_iter().map(Some).collect();
+    pairs
+        .into_iter()
+        .enumerate()
+        .map(|(j, p)| {
+            let row = p.and_then(|k| rows[k].take()).unwrap_or_default();
+            (row, (l0 + j, l0 + j))
+        })
+        .collect()
+}
+
 /// Reference definitions as blank-line-separated `[label]: dest` lines, appended to each block slice
 /// so a ref link still resolves. `\n\n` because a single `\n` folds the def into the prior paragraph.
 fn ref_defs(md: &str) -> String {
@@ -404,7 +469,8 @@ fn line_indexer(md: &str) -> impl Fn(usize) -> usize {
 /// draws them, independent of Laura's palette); a **code block** line has *every* non-blank span
 /// backgrounded (`code()` is the only backgrounded element — heading/link/blockquote/alert are
 /// fg-only); an **HTML block** line is *every*-span `DIM`. "All non-blank spans" (not "any") keeps a
-/// prose line with an inline `code`/`<tag>` span wrapping. Blank lines have no spans → wrap.
+/// prose line with an inline `code`/`<tag>` span wrapping. Blank lines wrap unless a span carries a bg
+/// (an empty line inside a fenced block).
 ///
 /// ponytail: code/HTML signals track `tui-markdown =0.3.9`'s style *shape*, like `refine_line`; the
 /// has-bg / DIM switches avoid coupling to exact colour values. HTML-via-DIM is the weakest link —
@@ -415,7 +481,8 @@ fn classify_nowrap(styled: &[Line]) -> Vec<bool> {
         .map(|line| {
             let nonblank = || line.spans.iter().filter(|s| !s.content.trim().is_empty());
             if nonblank().next().is_none() {
-                return false;
+                // An empty fenced-code line still carries the code bg; keep it in the box.
+                return line.spans.iter().any(|s| s.style.bg.is_some());
             }
             // Table: first visible char is a box-drawing border.
             let is_table = line_text(line)
