@@ -146,3 +146,13 @@ fn stale_address_errors_rather_than_misroutes() {
     let r = laura::protocol::request(&bogus, &laura::Message::Layout);
     assert!(r.is_err(), "connecting to an unserved name must Err");
 }
+
+#[test]
+fn a_closed_tab_releases_its_socket() -> Result<()> {
+    let tab = spawn_tab()?;
+    let socket = tab.socket.clone();
+    drop(tab);
+    // A stale `LAURA_TAB` fails to connect rather than reaching a listener nobody drains.
+    assert!(laura::protocol::request(&socket, &laura::Message::Layout).is_err());
+    Ok(())
+}

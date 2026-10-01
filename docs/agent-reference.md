@@ -11,6 +11,8 @@ laura ready
 
 Run once per tab before opening a pane. Inline review interactions within panes are unavailable until `laura ready` is run.
 
+`laura ready` prints the journal path on stdout and, on stderr, one `experimental: …` line per experimental feature on in the tab (e.g. `experimental: editor panes are on — …`). Use only the experimental features it lists.
+
 A `laura` command waits while the user is typing a comment or review body, and returns once they press `Enter` or `Esc`.
 
 ## Preview layout
@@ -46,13 +48,16 @@ laura open <path> --side first        # override: new pane lands on the first si
 laura open <path> --no-focus          # open without moving focus into the pane
 laura open <path> --dry-run           # print the would-be overflow report; open nothing
 laura open <path> --panel <id>        # swap a pane's file in place — same id, rect, focus
+laura open <path> --edit              # experimental: run Neovim on it in an editor pane; never takes focus
 ```
 
 A bare `laura open <path>` dynamically tiles automatically in a dwindle pattern. Any split flag overrides it. A split that would collapse a pane errors (exit 1). `open` prints the new pane id - capture it to target that pane later.
 
 Opening a file that's already open, in a new split or with `--panel`, still opens it and warns `already open in pane #N`. Reuse pane N (`laura highlight --pane N`) unless you intend to show two distinct sections or renders of the same file. If pane N has an unsubmitted inline review, the warning says so instead; work in the new pane.
 
-`--panel` errors (exit 1) while the pane has an unsubmitted inline review. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`).
+`--panel` errors (exit 1) while the pane has an unsubmitted inline review. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`). Closing or replacing an editor pane with unsaved edits errors (exit 1). Ask the user to save (`:w`) or quit Neovim.
+
+`--edit` opens an **editor pane** when the user wants to edit the file. It never takes focus, so tell the user it's there (`Ctrl+P` and its id, which shows on its border). `--panel <id> --edit` on the same file attaches Neovim to that pane and keeps its threads; on another file it replaces the pane like `--panel`. Editor panes show no highlight or diff: `--edit` with `--highlight` / `--diff`, and `laura highlight` / `laura diff` on an editor pane, error (exit 1), so annotate the lines with `laura comment` instead. `laura comment` works on an editor pane; the user sees the count on its border while editing. Editor panes are experimental: when `--edit` is refused (exit 1, `editor panes are experimental: …` or `editor panes need Neovim: …`), open with plain `laura open` and don't retry.
 
 ## Highlight a section for the user
 
@@ -91,7 +96,7 @@ laura close <id>       # close a specific pane by id
 laura close --all      # close every pane, back to shell-only
 ```
 
-Closing a pane with an unsubmitted inline review errors (exit 1). With `--all`, nothing closes. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`).
+Closing a pane with an unsubmitted inline review errors (exit 1). With `--all`, nothing closes. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`). Closing or replacing an editor pane with unsaved edits errors (exit 1). Ask the user to save (`:w`) or quit Neovim.
 
 ## Read an inline review
 

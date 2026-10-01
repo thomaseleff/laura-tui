@@ -35,11 +35,18 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         to highlight an already-open pane.)
       --diff            Open straight into the inline diff view (vs git HEAD).
       --panel <id>      Replace a pane's content in place (no new split; ignores --split/--dir/--ratio/--side).
-                        Errors (exit 1) while the pane has an unsubmitted inline review.
+                        Errors (exit 1) while the pane has an unsubmitted inline review or
+                        unsaved Neovim edits.
+      --edit            Edit in Neovim (experimental: needs LAURA_EXPERIMENTAL_EDITOR=1 and nvim
+                        on PATH). Opens an editor pane and never takes focus. With --panel on
+                        the same file, attaches Neovim in place and keeps the pane's threads.
+                        Refused (exit 1) with the reason when editor panes are off, and with
+                        --highlight or --diff: editor panes show neither, so annotate the
+                        lines with `laura comment` instead.
 laura close [<id>]      Close a pane (default: the focused one). Errors (exit 1) while the
-                        pane has an unsubmitted inline review.
+                        pane has an unsubmitted inline review or unsaved Neovim edits.
       --all             Close every pane, back to shell-only. Errors (exit 1), closing nothing,
-                        while any pane has an unsubmitted inline review.
+                        while any pane has an unsubmitted inline review or unsaved Neovim edits.
 laura focus <id>        Focus a pane by id.
 laura highlight [start] [end]
                         Highlight lines start..=end (1-based, inclusive) in a pane and
@@ -47,11 +54,14 @@ laura highlight [start] [end]
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph maps to
                         that whole block: `laura highlight 40 52`. Errors (exit 1) on a
-                        frozen pane.
+                        frozen pane, and on an editor pane (annotate the lines with
+                        `laura comment` instead).
       --off             Clear the pane's highlight (start is then optional; works on a frozen
                         pane too). The user can also press `h` on the focused pane.
       --pane <id>       pane to highlight (default: the focused pane).
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
+                        Errors (exit 1) on an editor pane (annotate the lines with
+                        `laura comment` instead).
       --pane <id>       pane to toggle (default: the focused pane).
       --off             Turn the diff view off (default: toggle).
 laura comment <line> <body>
@@ -64,7 +74,8 @@ laura comment <line> <body>
                         `ready --agent` name, else `agent`).
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
-laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path.
+laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path,
+                        and on stderr one `experimental: …` line per experimental feature on.
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
@@ -93,7 +104,38 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 }
 ```
 
-`overflow_rows > 0` (or `clipped`) means the content is taller than its pane. A real `open` warns the same condition on stderr as `overflows:` / `too small`.
+`overflow_rows > 0` (or `clipped`) means the content is taller than its pane. A real `open` warns the same condition on stderr as `overflows:` / `too small`. An editor pane reports `"kind": "editor"` with its `path` and `content_rows: null`: Neovim fits its own rect.
+
+## Experimental features
+
+Experimental features are off by default. Turn one on by setting its variable before starting Laura; Laura reads it once at startup. `laura --help` lists them, and `laura ready` prints one line on stderr for each one on in its tab, so the agent knows what it can use:
+
+```
+experimental: editor panes are on — `laura open --edit <path>` runs Neovim in a pane
+```
+
+| Variable | Feature |
+|---|---|
+| `LAURA_EXPERIMENTAL_EDITOR=1` | [Editor panes](#editor-panes-experimental) |
+
+## Editor panes (experimental)
+
+`laura open --edit <path>` runs Neovim on the file in an **editor pane**. Editor panes are off by default. Laura turns them on only when both hold at startup:
+
+- `LAURA_EXPERIMENTAL_EDITOR` is set to anything but empty or `0`;
+- `nvim` is on `PATH`. Laura inherits `PATH` from the terminal that started it, so after installing Neovim, restart the terminal.
+
+Otherwise `open --edit` is refused with the reason (`editor panes are experimental: …` or `editor panes need Neovim: …`) and nothing changes. With the variable set but no `nvim`, Laura also says so in a notice at startup.
+
+| Variable | Set by | Purpose |
+|---|---|---|
+| `LAURA_EXPERIMENTAL_EDITOR` | the user, before starting Laura | Turns editor panes on. |
+| `LAURA_TAB` | Laura, in each child | Neovim inherits it, so `:!laura …` addresses its tab. |
+| `LAURA_DATA_DIR` | the user | Where the journal and the answer to the theme wizard ([Laura's theme](navigation.md#lauras-theme)) live. |
+
+When Neovim exits, its pane closes. If the pane has threads, it stays as a file pane instead, so an unsubmitted inline review is never lost.
+
+Editor panes show no highlight or diff, since the editor view couldn't show them. `--edit` with `--highlight` or `--diff`, and `laura highlight` or `laura diff` on an editor pane, are refused (exit 1), so annotate the lines with `laura comment` instead. A file pane turned into an editor pane drops its highlight and diff.
 
 ## Journal
 

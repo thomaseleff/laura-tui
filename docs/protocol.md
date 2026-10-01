@@ -49,7 +49,9 @@ Splits a pane into a new pane rendering a file.
 <dt><code>diff</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Open straight into the inline diff view.</dd>
 <dt><code>panel</code> · integer · <em>default: <code>null</code></em></dt>
-<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting; the shell and absent ids return <code>error</code>, and <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> are ignored when set. Returns <code>error</code> while that pane has an unsubmitted inline review.</dd>
+<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting; the shell and absent ids return <code>error</code>, and <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> are ignored when set. Returns <code>error</code> while that pane has an unsubmitted inline review or unsaved Neovim edits.</dd>
+<dt><code>edit</code> · boolean · <em>default: <code>false</code></em></dt>
+<dd>Experimental: run Neovim on the file in an editor pane. Never moves focus, whatever <code>focus</code> says. With <code>panel</code> on the same file, attaches Neovim in place and keeps the pane's threads. Returns <code>error</code> with <code>highlight</code> or <code>diff</code>, which editor panes don't show (annotate the lines with <code>comment</code> instead), and with the reason when editor panes are off (see the <a href="cli.md#editor-panes-experimental">CLI reference</a>).</dd>
 </dl>
 
 </td>
@@ -67,7 +69,9 @@ Splits a pane into a new pane rendering a file.
   "focus": true,
   "dry_run": false,
   "highlight": null,
-  "diff": false
+  "diff": false,
+  "panel": null,
+  "edit": false
 }
 </pre>
 
@@ -84,7 +88,7 @@ Splits a pane into a new pane rendering a file.
 </tr>
 </table>
 
-`opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error, as does `already open in pane #N` when the file is already on screen (also on a `panel` replace; `…, which has an unsubmitted inline review` when pane N has one). The pane still opens. With `dry_run`, the response is `report` instead.
+`opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error, as does `already open in pane #N` when the file is already on screen (also on a `panel` replace; `…, which has an unsubmitted inline review` when pane N has one, `already open in editor pane #N` when it's an editor pane without one). The pane still opens. With `dry_run`, the response is `report` instead.
 
 **Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, the server picks the split: it splits the newest pane, alternating orientation by depth — a dwindle — so repeated bare opens split off the newest pane, at a flat 50%. Any one of those fields present bypasses inference. A split that would collapse a pane below the renderable minimum returns `error`.
 
@@ -126,7 +130,7 @@ Removes a pane, or returns the tab to shell-only.
 </tr>
 </table>
 
-The shell (pane `0`) cannot be closed. Returns `error` when the pane has an unsubmitted inline review. With `all`, returns `error` and removes nothing when any pane has an unsubmitted inline review.
+The shell (pane `0`) cannot be closed. Returns `error` when the pane has an unsubmitted inline review or unsaved Neovim edits. With `all`, returns `error` and removes nothing when any pane has either.
 
 ### `focus`
 
@@ -210,7 +214,7 @@ Highlights a range of lines in a pane and scrolls it into view.
 </tr>
 </table>
 
-On a frozen pane, a `range` returns `error`; `range: null` still clears.
+On a frozen pane, a `range` returns `error`; `range: null` still clears. On an editor pane, both return `error`, so annotate the lines with [`comment`](#comment) instead.
 
 Line numbers are source-file lines, matching the gutter and the inline review's `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. List items (at any depth, tight or loose), blockquote lines, and callout lines keep per-line numbers too, blank lines included. A block folds when its rows don't line up 1:1 with its source lines: a hand-wrapped paragraph, or a fenced block or table inside a list item or blockquote. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
 
@@ -256,7 +260,7 @@ Toggles a pane's inline diff view against git `HEAD`.
 </tr>
 </table>
 
-Returns `error` when there is nothing to diff — no `git` binary, or a clean or untracked file.
+Returns `error` when there is nothing to diff — no `git` binary, or a clean or untracked file — and on an editor pane, so annotate the lines with [`comment`](#comment) instead.
 
 ### `comment`
 
@@ -347,7 +351,7 @@ Requests the current layout without changing anything.
 </tr>
 </table>
 
-One `PaneReport` per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can measure fit.
+One `PaneReport` per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can measure fit. `kind` is `pty` (the shell), `panel` (a file pane) or `editor` (an editor pane, with its `path`; `content_rows` is `null` because Neovim fits its own rect).
 
 ### `ready`
 
@@ -357,7 +361,12 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 <tr>
 <td valign="top">
 
-<em>No parameters.</em>
+<dl>
+<dt><code>session</code> · string | null · <em>default: <code>laura-&lt;pid&gt;-&lt;n&gt;</code></em></dt>
+<dd>Names the journal session.</dd>
+<dt><code>agent</code> · string | null · <em>default: <code>null</code></em></dt>
+<dd>Attributes journal events, and the agent's comments, to this name.</dd>
+</dl>
 
 </td>
 <td valign="top">
@@ -365,20 +374,26 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 <strong>Request</strong>
 <pre>
 {
-  "type": "ready"
+  "type": "ready",
+  "session": "demo",
+  "agent": "claude"
 }
 </pre>
 
-<strong>Response</strong> · <code>ok</code>
+<strong>Response</strong> · <code>ready</code>
 <pre>
 {
-  "type": "ok"
+  "type": "ready",
+  "journal": "/…/laura/sessions/&lt;session&gt;.ndjson",
+  "experimental": ["editor"]
 }
 </pre>
 
 </td>
 </tr>
 </table>
+
+`journal` is the session's journal path. `experimental` names the experimental features on in the tab (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)); empty when none are.
 
 ### `update`
 

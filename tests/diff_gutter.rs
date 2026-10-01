@@ -127,6 +127,8 @@ line 10
             assert_eq!(*c, None, "line {i} unchanged");
         }
     }
+    // The border's `+N -M`: one line modified, one deleted, one inserted.
+    assert_eq!(tab.panels[&id].diff_stat, (2, 2));
 
     // Reload picks up a further edit: also modify line 1.
     std::fs::write(&path, edited.replacen("line 1\n", "line 1 CHANGED\n", 1))?;
@@ -136,6 +138,20 @@ line 10
         Some(ChangeKind::Modified),
         "reload refreshed markers"
     );
+    assert_eq!(tab.panels[&id].diff_stat, (3, 3), "reload refreshed counts");
+    Ok(())
+}
+
+#[test]
+fn a_clean_file_counts_no_changes() -> Result<()> {
+    let (_dir, path) = repo_with(
+        "f.txt", "a
+b
+",
+    )?;
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    assert_eq!(tab.panels[&id].diff_stat, (0, 0));
     Ok(())
 }
 

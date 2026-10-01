@@ -1,6 +1,7 @@
 //! The draw loop and its widgets: hosts the tabs, renders panes, and routes input to the engine.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -18,8 +19,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use laura::protocol::PTY_PANE;
 use laura::render::CODE_BG;
-use laura::{ChangeKind, Panel, Tab, bracketed_paste};
-use serde_json::json;
+use laura::{ChangeKind, PaneId, Panel, PtyTab, Response, Tab, bracketed_paste};
 
 use crate::keys::key_to_bytes;
 use crate::mouse::{self, Selection};
@@ -193,7 +193,21 @@ impl Draft {
 pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Result<()> {
     let area = terminal.size()?;
 
-    let mut tabs = vec![Tab::spawn(build_cmd(&program), area.height, area.width)?];
+    // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
+    let editor = laura::editor::resolve();
+    // The theme wizard's answer: `laura` or `neovim`; missing means ask (only when editor panes are on).
+    let theme_path = laura::journal::data_dir()
+        .join("laura")
+        .join("editor-theme");
+    let mut editor_theme = std::fs::read_to_string(&theme_path).is_ok_and(|s| s.trim() == "laura");
+    let mut wizard = editor.is_ok() && !theme_path.exists();
+    let mut tabs = vec![spawn_tab(
+        build_cmd(&program),
+        area.height,
+        area.width,
+        &editor,
+        editor_theme,
+    )?];
     let mut active = 0usize;
     // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
     let mut panes: Option<String> = None;
@@ -208,16 +222,22 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut help = false;
     // An in-progress left-drag selection; local because a drag can't span a tab switch.
     let mut selection: Option<Selection> = None;
-    // A transient bottom-right toast (message + expiry); armed once if `git` is missing.
-    let mut toast: Option<(String, Instant)> = None;
+    // A transient bottom-right toast (message + expiry); armed once if `git` is missing. The user
+    // turned editor panes on, so a missing `nvim` is said at startup, not left to a refused `--edit`.
+    let mut toast: Option<(String, Instant)> = editor
+        .as_ref()
+        .err()
+        .filter(|e| *e == laura::editor::NO_NVIM)
+        .map(|e| (format!("⚠ {e}"), Instant::now() + Duration::from_secs(10)));
     let mut toast_git_shown = false;
 
     loop {
         // Content rect sits below the 1-line tab bar; sockets deliver while unfocused, so drain every tab.
         let content = content_rect(terminal.get_frame().area());
-        // A comment/review-body draft holds its tab's requests so the pane under it can't move.
+        // A comment/review-body draft holds its tab's requests so the pane under it can't move; the
+        // theme wizard holds every tab's, so an `open --edit` launches with the answer.
         for (i, tab) in tabs.iter_mut().enumerate() {
-            tab.hold = i == active && draft.as_ref().is_some_and(Draft::is_panel);
+            tab.hold = wizard || (i == active && draft.as_ref().is_some_and(Draft::is_panel));
             tab.drain(content);
         }
         // git-presence is a machine-global fact: arm the "install git" toast once,
@@ -253,6 +273,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             .unwrap_or(content)
             .inner(Margin::new(1, 1)); // shell sits inside its border box
         tabs[active].resize_to(pty_inner.height, pty_inner.width);
+        for (id, e) in tabs[active].editors.iter_mut() {
+            if let Some(r) = rect_map.get(id) {
+                let inner = r.inner(Margin::new(1, 1));
+                e.resize(inner.height, inner.width);
+            }
+        }
 
         let tab_labels: Vec<String> = tabs
             .iter()
@@ -293,12 +319,31 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         );
                     }
                 } else if let Some(panel) = tab.panels.get(id) {
-                    render_panel(f, *rect, panel, focused);
+                    let editor = tab.editors.get(id);
+                    let unsaved = editor.map(|e| e.modified());
+                    if let Some(e) = editor.filter(|e| e.editor_view) {
+                        let mut tail = " · editor".to_string();
+                        let review = panel.thread_count();
+                        if review > 0 {
+                            tail += &format!("  [review: {review}]");
+                        }
+                        let block = pane_block(Some(title(*id, panel, unsaved, tail)), focused);
+                        f.render_widget(block, *rect);
+                        e.pty.with_screen(|s| {
+                            f.render_widget(PseudoTerminal::new(s), rect.inner(Margin::new(1, 1)))
+                        });
+                    } else {
+                        render_panel(f, *rect, *id, panel, focused, unsaved);
+                    }
                 }
             }
             let focus_hint;
-            let hint = if locked {
+            let hint = if locked && tab.focus != PTY_PANE && focused_pty(tab).is_some() {
+                "  🔒 locked — every key goes to Neovim · F12 unlock"
+            } else if locked {
                 "  🔒 locked — every key goes to the shell · F12 unlock"
+            } else if wizard {
+                "  y yes, use Laura's theme · n no, keep mine · Esc not now"
             } else if confirm_quit {
                 "  quit? press y to confirm · any other key cancels"
             } else if let Some(d) = &draft {
@@ -322,12 +367,15 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  type a pane id · Enter pick · Esc dismiss"
             } else if tab_nav {
                 "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
-            } else if tab.focus != PTY_PANE {
-                if tab.agent {
-                    "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · d diff · x close · h clear · Esc leave pane"
-                } else {
-                    "  ↑/↓ move · n/N next/prev thread · r threads · d diff · x close · h clear · Esc leave pane · inline review: run `laura ready`"
+            } else if focused_pty(tab).is_none() {
+                match (tab.agent, tab.editors.contains_key(&tab.focus)) {
+                    (true, false) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · d diff · x close · h clear · Esc leave pane",
+                    (true, true) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · x close · Ctrl+L edit · Esc leave pane",
+                    (false, false) => "  ↑/↓ move · n/N next/prev thread · r threads · d diff · x close · h clear · Esc leave pane · inline review: run `laura ready`",
+                    (false, true) => "  ↑/↓ move · n/N next/prev thread · r threads · x close · Ctrl+L edit · Esc leave pane · inline review: run `laura ready`",
                 }
+            } else if tab.focus != PTY_PANE {
+                "  Ctrl+L file view · Ctrl+P panes · Ctrl+T tabs · Ctrl+H help · Ctrl+Q quit"
             } else {
                 "  Ctrl+P panes · Ctrl+T tabs · Ctrl+H help · Ctrl+Q quit"
             };
@@ -349,6 +397,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             }
             if help {
                 render_help(f);
+            }
+            if wizard {
+                render_wizard(f, &theme_path);
             }
             // A live toast (e.g. a failed submit) wins the bottom-right slot; a focused frozen pane's
             // notice shows otherwise, and returns once the toast expires, until submit / ^r clears it.
@@ -397,13 +448,47 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             match ev {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                    if key.code == KeyCode::F(12) {
+                    if wizard {
+                        // The startup wizard takes every key, F12 included, until answered or put off.
+                        let answer = match key.code {
+                            KeyCode::Char('y') => Some(true),
+                            KeyCode::Char('n') => Some(false),
+                            _ => None,
+                        };
+                        wizard = answer.is_none() && key.code != KeyCode::Esc;
+                        if let Some(yes) = answer {
+                            let saved = theme_path
+                                .parent()
+                                .map_or(Ok(()), std::fs::create_dir_all)
+                                .and_then(|()| {
+                                    std::fs::write(
+                                        &theme_path,
+                                        if yes { "laura" } else { "neovim" },
+                                    )
+                                });
+                            toast = Some((
+                                if saved.is_ok() {
+                                    "✅ Experimental · Editor panes setup complete"
+                                } else {
+                                    "⚠ couldn't save the answer — it holds for this session"
+                                }
+                                .into(),
+                                Instant::now() + Duration::from_secs(10),
+                            ));
+                            editor_theme = yes;
+                            for t in &mut tabs {
+                                t.editor_theme = yes;
+                            }
+                        }
+                    } else if key.code == KeyCode::F(12) {
                         locked = !locked; // the one key Laura keeps even while locked
                     } else if locked {
-                        // Everything to the shell; only F12 (handled above) is intercepted.
+                        // Everything to the focused shell or editor pane (else the shell); only F12
+                        // (handled above) is intercepted.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                            tabs[active].pty.to_live();
-                            let _ = tabs[active].pty.write(&bytes);
+                            let pty = focused_pty(&tabs[active]).unwrap_or(&tabs[active].pty);
+                            pty.to_live();
+                            let _ = pty.write(&bytes);
                         }
                     } else if confirm_quit {
                         if key.code == KeyCode::Char('y') {
@@ -437,41 +522,15 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     }
                                 }
                                 Draft::Review(Editor { text: body, .. }) => {
-                                    // Borrow pane and PTY as separate fields so the send can write.
                                     let tab = &mut tabs[active];
-                                    let pty = &tab.pty;
-                                    let sent = tab.panels.get_mut(&tab.focus).map(|p| {
-                                        // Read the count first: a sent review clears the threads.
-                                        let logged = (p.path.clone(), p.thread_count());
-                                        let res = p.submit_review(&body, |r| {
-                                            pty.write(&bracketed_paste(r, true))
-                                        });
-                                        (logged, res)
-                                    });
-                                    let mut sent_ok = true;
-                                    if let Some(((path, comments), res)) = sent {
-                                        let mut event = json!({
-                                            "type": "review",
-                                            "path": path,
-                                            "comments": comments,
-                                            "body": body,
-                                        });
-                                        if let Err(e) = res {
-                                            // Journal the cause so a lost review is traceable; the notice stays fixed (#72).
-                                            event["error"] = json!(e.to_string());
-                                            toast = Some((
-                                                SUBMIT_FAILED.into(),
-                                                Instant::now() + Duration::from_secs(5),
-                                            ));
-                                            sent_ok = false;
-                                        }
-                                        tab.log_event(event);
-                                        if !sent_ok {
-                                            draft = Some(Draft::Review(Editor::new(body)));
-                                        }
-                                    }
-                                    if sent_ok {
-                                        tab.focus = PTY_PANE;
+                                    if let Some(Err(_)) = tab.submit_focused(&body) {
+                                        // The cause is in the journal; the notice stays fixed (#72).
+                                        toast = Some((
+                                            SUBMIT_FAILED.into(),
+                                            Instant::now() + Duration::from_secs(5),
+                                        ));
+                                        draft = Some(Draft::Review(Editor::new(body)));
+                                    } else {
                                         // A retry that lands must not leave "Enter to retry" up.
                                         if toast.as_ref().is_some_and(|(m, _)| m == SUBMIT_FAILED) {
                                             toast = None;
@@ -526,16 +585,28 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Right => active = (active + 1) % tabs.len(),
                             KeyCode::Left => active = (active + tabs.len() - 1) % tabs.len(),
                             KeyCode::Char('n') => {
-                                tabs.push(Tab::spawn(default_shell(), area.height, area.width)?);
+                                tabs.push(spawn_tab(
+                                    default_shell(),
+                                    area.height,
+                                    area.width,
+                                    &editor,
+                                    editor_theme,
+                                )?);
                                 active = tabs.len() - 1;
                                 tab_nav = false;
                             }
                             KeyCode::Char('x') => {
-                                tabs.remove(active); // drop kills its shell
-                                if tabs.is_empty() {
-                                    break;
+                                // Closing kills the tab's Neovims: refuse while one has unsaved edits.
+                                if let Some(message) = tabs[active].unsaved_edits() {
+                                    toast =
+                                        Some((message, Instant::now() + Duration::from_secs(5)));
+                                } else {
+                                    tabs.remove(active); // drop kills its shell
+                                    if tabs.is_empty() {
+                                        break;
+                                    }
+                                    active = active.min(tabs.len() - 1);
                                 }
-                                active = active.min(tabs.len() - 1);
                                 tab_nav = false;
                             }
                             KeyCode::Char('r') => {
@@ -550,7 +621,30 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     } else if ctrl && key.code == KeyCode::Char('t') {
                         tab_nav = true;
                     } else if ctrl && key.code == KeyCode::Char('q') {
-                        confirm_quit = true;
+                        // Quitting kills every Neovim: refuse while one has unsaved edits.
+                        let unsaved = tabs.iter().enumerate().find_map(|(i, t)| {
+                            t.unsaved_edits().map(|m| format!("tab {} · {m}", i + 1))
+                        });
+                        match unsaved {
+                            Some(message) => {
+                                toast = Some((message, Instant::now() + Duration::from_secs(5)))
+                            }
+                            None => confirm_quit = true,
+                        }
+                    } else if ctrl
+                        && matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
+                        && let Some(e) = tabs
+                            .get_mut(active)
+                            .and_then(|t| t.editors.get_mut(&t.focus))
+                    {
+                        e.editor_view = !e.editor_view;
+                    } else if tabs[active].focus != PTY_PANE
+                        && let Some(pty) = focused_pty(&tabs[active])
+                    {
+                        // An editor pane takes every other key, Esc and PageUp/PageDown included.
+                        if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
+                            let _ = pty.write(&bytes);
+                        }
                     } else if tabs[active].focus != PTY_PANE {
                         // A panel is focused: arrows move its cursor, c/S draft, Esc leaves.
                         match key.code {
@@ -574,7 +668,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     p.scroll_h(1)
                                 }
                             }
-                            KeyCode::Char('d') => {
+                            KeyCode::Char('d')
+                                if !tabs[active].editors.contains_key(&tabs[active].focus) =>
+                            {
                                 if let Some(p) = tabs[active].focused_panel_mut() {
                                     let want = !p.diff_view;
                                     if let Err(w) = p.set_diff_view(want) {
@@ -627,7 +723,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 draft = Some(Draft::Review(Editor::default()))
                             }
                             KeyCode::Char('x') => {
-                                tabs[active].close_pane(None);
+                                if let Response::Error { message } = tabs[active].close_pane(None) {
+                                    toast =
+                                        Some((message, Instant::now() + Duration::from_secs(5)));
+                                }
                             }
                             KeyCode::Char('h') => {
                                 if let Some(p) = tabs[active].focused_panel_mut() {
@@ -667,15 +766,19 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         } else {
                             d.editor_mut().insert(&s.replace('\n', " "));
                         }
-                    } else if locked
-                        || (tabs[active].focus == PTY_PANE
-                            && panes.is_none()
-                            && !tab_nav
-                            && !help
-                            && !confirm_quit)
+                    } else if let Some(pty) = focused_pty(&tabs[active])
+                        .filter(|_| {
+                            locked
+                                || (panes.is_none()
+                                    && !tab_nav
+                                    && !help
+                                    && !confirm_quit
+                                    && !wizard)
+                        })
+                        .or(locked.then_some(&tabs[active].pty))
                     {
-                        tabs[active].pty.to_live();
-                        let _ = tabs[active].pty.write(&bracketed_paste(&s, false));
+                        pty.to_live();
+                        let _ = pty.write(&bracketed_paste(&s, false));
                     }
                     // Popups / focused panel without a draft / help / confirm — paste is meaningless, drop it.
                 }
@@ -691,13 +794,17 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             | MouseEventKind::Up(MouseButton::Left)
                     );
 
-                    if let Some(mode) = (over == Some(PTY_PANE))
-                        .then(|| tabs[active].pty.mouse_capture())
-                        .flatten()
-                    {
+                    let capture = over.and_then(|id| {
+                        let pty = pane_pty(&tabs[active], id)?;
+                        Some((id, pty, pty.mouse_capture()?))
+                    });
+                    if let Some((id, pty, mode)) = capture {
                         // Forward to the child; no `to_live` — forwarding mustn't disturb the view.
-                        if let Some(bytes) = mouse::sgr_mouse_bytes(&m, pty_inner, mode) {
-                            let _ = tabs[active].pty.write(&bytes);
+                        let inner = rect_map
+                            .get(&id)
+                            .map_or(pty_inner, |r| r.inner(Margin::new(1, 1)));
+                        if let Some(bytes) = mouse::sgr_mouse_bytes(&m, inner, mode) {
+                            let _ = pty.write(&bytes);
                         }
                     } else {
                         match m.kind {
@@ -709,8 +816,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 };
                                 match over {
                                     Some(PTY_PANE) | None => tabs[active].pty.scroll(-step),
+                                    // Neovim without mouse mode drops the wheel: the panel under it is hidden.
                                     Some(id) => {
-                                        if let Some(p) = tabs[active].panels.get_mut(&id) {
+                                        if pane_pty(&tabs[active], id).is_none()
+                                            && let Some(p) = tabs[active].panels.get_mut(&id)
+                                        {
                                             p.scroll_view(step);
                                         }
                                     }
@@ -733,7 +843,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         let inner = rect.inner(Margin::new(1, 1));
                         // Panels draw a gutter + wrap the source, so copy source-aware; the PTY owns
                         // its own glyphs (no gutter, child wraps) → scrape as-is.
-                        let text = match tabs[active].panels.get(&sel.pane) {
+                        let panel = tabs[active]
+                            .panels
+                            .get(&sel.pane)
+                            .filter(|_| pane_pty(&tabs[active], sel.pane).is_none());
+                        let text = match panel {
                             Some(panel) => {
                                 let layout = panel.layout(inner.width as usize);
                                 let off = panel.scroll_offset(&layout, inner.height as usize);
@@ -864,17 +978,45 @@ fn pane_at_point(map: &HashMap<laura::PaneId, Rect>, col: u16, row: u16) -> Opti
         .map(|(id, _)| *id)
 }
 
-/// A pane's border block: focused keeps the default color (plus a `▸ ` title mark on panels), unfocused dims to gray.
-fn pane_block(title: Option<String>, focused: bool) -> Block<'static> {
+/// A pane's border block: focused keeps the default color, unfocused dims to gray.
+fn pane_block(title: Option<Line<'static>>, focused: bool) -> Block<'static> {
     let mut block = Block::bordered();
     if let Some(t) = title {
-        block = block.title(if focused { format!("▸ {t}") } else { t });
+        block = block.title(t);
     }
     if !focused {
         block = block.border_style(Style::default().fg(Color::Rgb(90, 90, 90)));
     }
     block
 }
+
+/// A file pane's border title: `#id path`, its lines added and removed vs HEAD, `● unsaved` while
+/// an editor pane's Neovim has unsaved edits (`unsaved` is `None` on a plain file pane), then `tail`.
+fn title(id: PaneId, panel: &Panel, unsaved: Option<bool>, tail: String) -> Line<'static> {
+    let mut spans = vec![Span::raw(format!("#{id} {}", display_path(&panel.path)))];
+    let (added, removed) = panel.diff_stat;
+    if added > 0 {
+        spans.push(Span::styled(
+            format!(" +{added}"),
+            Style::default().fg(ADDED),
+        ));
+    }
+    if removed > 0 {
+        spans.push(Span::styled(
+            format!(" -{removed}"),
+            Style::default().fg(REMOVED),
+        ));
+    }
+    if unsaved == Some(true) {
+        spans.push(Span::styled(" ● unsaved", Style::default().fg(WARN)));
+    }
+    spans.push(Span::raw(tail));
+    Line::from(spans)
+}
+
+/// The diff gutter's added and removed colors, shared with the border's `+N -M`.
+const ADDED: Color = Color::Rgb(56, 166, 96); // #38a660
+const REMOVED: Color = Color::Rgb(179, 89, 107); // #b3596b
 
 /// The cursor row's gray band (nord3) and the slightly-lighter gray code chips read on top of it.
 const BAND: Color = Color::Rgb(67, 76, 94);
@@ -956,7 +1098,15 @@ fn dim_span(mut s: Span<'static>) -> Span<'static> {
 }
 
 /// Draw one file panel: pre-wrapped rows, gutter, agent-highlight spotlight + cursor band, and an overflow scrollbar.
-fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
+/// `unsaved`: on an editor pane's file view, whether its Neovim has unsaved edits.
+fn render_panel(
+    f: &mut Frame,
+    area: Rect,
+    id: PaneId,
+    panel: &Panel,
+    focused: bool,
+    unsaved: Option<bool>,
+) {
     // `Panel::layout` pre-wraps into 1:1 rows; we only style them here.
     let inner_w = area.width.saturating_sub(2) as usize; // minus borders
     let layout = panel.layout(inner_w);
@@ -979,9 +1129,9 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
                     Span::styled(
                         "▌",
                         Style::default().fg(match k {
-                            ChangeKind::Added => Color::Rgb(56, 166, 96), // #38a660
+                            ChangeKind::Added => ADDED,
                             ChangeKind::Modified => Color::Rgb(56, 150, 217), // #3896d9
-                            ChangeKind::Removed(_) => Color::Rgb(179, 89, 107), // #b3596b
+                            ChangeKind::Removed(_) => REMOVED,
                         }),
                     )
                 })
@@ -1064,17 +1214,20 @@ fn render_panel(f: &mut Frame, area: Rect, panel: &Panel, focused: bool) {
         })
         .collect();
     let review = panel.thread_count();
-    let title = if review == 0 {
-        panel.path.clone()
+    let mut tail = if unsaved.is_some() {
+        " · file".to_string()
     } else {
-        let (above, below) = panel.thread_split();
-        format!("{}  [review: {review} ↑{above} ↓{below}]", panel.path)
+        String::new()
     };
+    if review > 0 {
+        let (above, below) = panel.thread_split();
+        tail += &format!("  [review: {review} ↑{above} ↓{below}]");
+    }
     // The offset is remembered across frames (scrolls only at the edges); see `scroll_offset`.
     let view = area.height.saturating_sub(2) as usize;
     let total_rows = rows.len();
     let offset = panel.scroll_offset(&layout, view).min(u16::MAX as usize) as u16;
-    let mut block = pane_block(Some(title), focused);
+    let mut block = pane_block(Some(title(id, panel, unsaved, tail)), focused);
     if panel.source_changed {
         // Trailing space: ⚠ renders width-2 under VS16, so pad or the corner clips.
         block = block.title_bottom(Line::from(" ⚠ ").right_aligned().fg(WARN));
@@ -1141,6 +1294,51 @@ fn with_cwd(mut cmd: CommandBuilder) -> CommandBuilder {
         cmd.cwd(cwd);
     }
     cmd
+}
+
+/// Spawn a tab carrying the editor settings resolved at startup.
+fn spawn_tab(
+    cmd: CommandBuilder,
+    rows: u16,
+    cols: u16,
+    editor: &Result<PathBuf, String>,
+    editor_theme: bool,
+) -> Result<Tab> {
+    let mut tab = Tab::spawn(cmd, rows, cols)?;
+    tab.editor = editor.clone();
+    tab.editor_theme = editor_theme;
+    Ok(tab)
+}
+
+/// The terminal drawn in pane `id`: the shell, or an editor pane's Neovim. `None` for a file pane,
+/// or an editor pane in its file view.
+fn pane_pty(tab: &Tab, id: PaneId) -> Option<&PtyTab> {
+    if id == PTY_PANE {
+        Some(&tab.pty)
+    } else {
+        tab.editors
+            .get(&id)
+            .filter(|e| e.editor_view)
+            .map(|e| &e.pty)
+    }
+}
+
+/// The focused terminal pane (shell or editor pane), which takes keys and paste.
+fn focused_pty(tab: &Tab) -> Option<&PtyTab> {
+    pane_pty(tab, tab.focus)
+}
+
+/// A pane title's path: relative to Laura's cwd, so `[review: N]` fits a half-width pane.
+fn display_path(path: &str) -> String {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| {
+            Path::new(path)
+                .strip_prefix(cwd)
+                .ok()
+                .map(Path::to_path_buf)
+        })
+        .map_or_else(|| path.to_string(), |p| p.display().to_string())
 }
 
 /// True if some live id extends `buf` (a longer id is still reachable, so don't commit yet).
@@ -1258,7 +1456,7 @@ fn render_help(f: &mut Frame) {
         key("Ctrl+P", "panes popup"),
         key("Ctrl+T", "tab nav"),
         key("Ctrl+H", "this help"),
-        key("F12", "lock all input to the shell"),
+        key("F12", "lock all input to the shell or editor pane"),
         key("drag", "select within pane (copies on release)"),
         key("Ctrl+Q", "quit (then y to confirm)"),
         Line::raw(""),
@@ -1288,6 +1486,10 @@ fn render_help(f: &mut Frame) {
         key("x", "close pane"),
         key("h", "clear highlight"),
         key("Esc", "leave pane"),
+        key(
+            "Ctrl+L",
+            "editor pane: flip between Neovim and its file view",
+        ),
         Line::raw(""),
         group("Draft"),
         key("←/→", "move"),
@@ -1309,6 +1511,45 @@ fn render_help(f: &mut Frame) {
     f.render_widget(Clear, area);
     f.render_widget(
         Paragraph::new(lines).block(Block::bordered().title(" Help ")),
+        area,
+    );
+}
+
+/// The startup wizard: should editor panes use Laura's theme? Centered like `render_help`; `answer`
+/// is the file the answer is kept in, named so the user can delete it to be asked again.
+fn render_wizard(f: &mut Frame, answer: &Path) {
+    let lines = vec![
+        Line::raw("Laura can open your files in editor panes via Neovim."),
+        Line::raw("Would you like to adopt Laura's theme while running"),
+        Line::raw("Neovim inside Laura?"),
+        Line::raw(""),
+        Line::raw("The theme applies only inside Laura; your Neovim config"),
+        Line::raw("stays as it is."),
+        Line::raw(""),
+        Line::raw("If you change your mind, delete").dim(),
+        Line::raw(answer.display().to_string()).dim(),
+        Line::raw("and restart Laura to bring up this wizard again.").dim(),
+        Line::raw(""),
+        Line::from(vec![
+            " y".bold().cyan(),
+            " yes, use Laura's theme · ".into(),
+            "n".bold().cyan(),
+            " no, keep mine · ".into(),
+            "Esc".bold().cyan(),
+            " not now".into(),
+        ]),
+    ];
+    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4; // + border, margin
+    let height = lines.len() as u16 + 2; // + border
+    let [area] = Layout::vertical([Constraint::Length(height)])
+        .flex(Flex::Center)
+        .areas(f.area());
+    let [area] = Layout::horizontal([Constraint::Length(width)])
+        .flex(Flex::Center)
+        .areas(area);
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Paragraph::new(lines).block(Block::bordered().title(" Experimental · Editor panes ")),
         area,
     );
 }

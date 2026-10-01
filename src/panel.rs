@@ -55,6 +55,9 @@ pub struct Panel {
     /// Deleted-line text keyed by the 0-based source line its gap sits *before*.
     /// Populated with `changes` (same git call); consumed only by the diff view.
     removed: Vec<(usize, Vec<String>)>,
+    /// Lines added and removed vs HEAD, summed over the hunks; the border's `+N -M`. Populated with
+    /// `changes`; `(0, 0)` when clean, untracked or without `git`.
+    pub diff_stat: (usize, usize),
     /// #18: render the panel as an inline `+`/`-` diff vs HEAD instead of the file.
     /// Toggled via `set_diff_view`; recomputed data comes from `refresh_diff`.
     pub diff_view: bool,
@@ -117,7 +120,7 @@ impl Thread {
     }
 
     /// Root then replies, in order.
-    fn notes(&self) -> impl Iterator<Item = &Note> {
+    pub fn notes(&self) -> impl Iterator<Item = &Note> {
         std::iter::once(&self.root).chain(&self.replies)
     }
 }
@@ -160,6 +163,7 @@ impl Panel {
             changes: vec![],
             git_missing: false,
             removed: vec![],
+            diff_stat: (0, 0),
             diff_view: false,
             source_changed: false,
         };
@@ -176,15 +180,20 @@ impl Panel {
                 let n = self.source_lines.len();
                 self.changes = gitdiff::line_changes(&h, n);
                 self.removed = gitdiff::removed_lines(&h, n);
+                self.diff_stat = h
+                    .iter()
+                    .fold((0, 0), |(a, r), h| (a + h.added.len(), r + h.removed.len()));
             }
             DiffOutcome::NoGit => {
                 self.git_missing = true;
                 self.changes = vec![];
                 self.removed = vec![];
+                self.diff_stat = (0, 0);
             }
             DiffOutcome::Unavailable => {
                 self.changes = vec![];
                 self.removed = vec![];
+                self.diff_stat = (0, 0);
             }
         }
     }
@@ -488,6 +497,11 @@ impl Panel {
         Ok(())
     }
 
+    /// A thread's 0-based source line range (a block's whole range for a markdown thread).
+    pub fn thread_source(&self, t: &Thread) -> (usize, usize) {
+        self.source.get(t.line).copied().unwrap_or((t.line, t.line))
+    }
+
     /// PR-style review for PTY injection: each thread under a 1-based source header (`L<n>` or
     /// `L<a>-<b>` for a block), author-labeled; `overall` omitted when empty (#45).
     pub fn assemble_review(&self, overall: &str) -> String {
@@ -506,7 +520,7 @@ impl Panel {
         for t in threads {
             out.push('\n');
             // Header is the row's source range: `L<n>` for a 1:1 line, `L<a>-<b>` for a block (#32).
-            let (a, b) = self.source.get(t.line).copied().unwrap_or((t.line, t.line));
+            let (a, b) = self.thread_source(t);
             let hdr = if a == b {
                 format!("L{}", a + 1)
             } else {
