@@ -21,12 +21,12 @@ Regardless of either mode, you compose the TUI workspace, run interactions withi
 
 **Rules**
 - **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
-- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat.
+- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat. It prints one `experimental: …` line on stderr per experimental feature on in this tab; use only those.
 - **Run `laura layout`** before opening or closing panes to see what's open and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
 - **Proactively show a file, diff, or logs** in a pane over pasting or referring to the content in the chat.
-- **Laura auto-tiles.** A bare `laura open <path>` splits the newest pane and alternates orientation — a dwindle. No need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override it with a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place. It errors on a pane with an unsubmitted inline review.
-- **On an `unsubmitted inline review` / `frozen` error**, ask your partner to submit (`Shift+S`) or refresh (`Ctrl+R`). Don't retry.
+- **Laura auto-tiles.** A bare `laura open <path>` splits the newest pane and alternates orientation — a dwindle. No need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override it with a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place. It errors on a pane with an unsubmitted inline review or unsaved Neovim edits.
+- **On an `unsubmitted inline review` / `frozen` error**, ask your partner to submit (`Shift+S`) or refresh (`Ctrl+R`). **On an `unsaved edits` error**, ask them to save (`:w`) or quit Neovim in that pane. Don't retry either.
 - **Annotate only when you need your partner's answer in a thread.** `laura comment` starts an unsubmitted inline review that only your partner can submit (`Shift+S`) or refresh (`Ctrl+R`). Until they do, you can't close the pane or replace its file. To explain, `laura highlight` the span and explain in chat.
 - **A `laura` command can wait while your partner types a comment or review body.** It returns when they finish. Don't kill or retry it.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
@@ -55,11 +55,15 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
       --diff            Open straight into the inline diff view (vs git HEAD).
       --panel <id>      Swap a pane's file in place, no new split — same id, rect, focus.
                         Ignores --split/--dir/--ratio/--side. Errors (exit 1) while the pane
-                        has an unsubmitted inline review.
+                        has an unsubmitted inline review or unsaved Neovim edits.
+      --edit            Experimental: run Neovim on <path> in an editor pane. Never takes
+                        focus. With --panel on the same file, attaches in place and keeps
+                        its threads. Refused (exit 1) when editor panes are off, and with
+                        --highlight or --diff: editor panes show neither.
 laura close [<id>]      Close a pane (default: the focused one). Errors (exit 1) while the
-                        pane has an unsubmitted inline review.
+                        pane has an unsubmitted inline review or unsaved Neovim edits.
       --all             Close every pane, back to shell-only. Errors (exit 1), closing nothing,
-                        while any pane has an unsubmitted inline review.
+                        while any pane has an unsubmitted inline review or unsaved Neovim edits.
 laura focus <id>        Focus a pane by id.
 laura highlight [start] [end]
                         Highlight lines start..=end (1-based, inclusive) in a pane and
@@ -67,11 +71,12 @@ laura highlight [start] [end]
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph maps to
                         that whole block: `laura highlight 40 52`. Errors (exit 1) on a
-                        frozen pane.
+                        frozen pane or an editor pane.
       --off             Clear the pane's highlight (start optional; works on a frozen pane;
                         your partner can also press `h`).
       --pane <id>       pane to highlight (default: the focused pane).
 laura diff              Toggle a pane's inline diff view vs git HEAD (interleaved +/- lines).
+                        Errors (exit 1) on an editor pane.
       --pane <id>       pane to toggle (default: the focused pane).
       --off             Turn the diff view off (default: toggle).
 laura comment <line> <body>
@@ -81,7 +86,8 @@ laura comment <line> <body>
       --author <name>   Attribute the comment (default: the session's ready --agent name, else agent).
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
-laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path.
+laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path,
+                        and on stderr one `experimental: …` line per experimental feature on.
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
@@ -119,7 +125,7 @@ Common workflows with the `laura` CLI to improve interactions between you and yo
 
 **Motion**
 1. Run `laura layout` to see what is currently open.
-2. Run `laura close <id>` (or `laura close --all`) to clear any pane that's no longer relevant. A pane with an unsubmitted inline review errors instead of closing.
+2. Run `laura close <id>` (or `laura close --all`) to clear any pane that's no longer relevant. A pane with an unsubmitted inline review or unsaved Neovim edits errors instead of closing.
 3. Run `laura open <path>` to split a pane and render it — `--dry-run` simulates the fit before you commit (file panes reload when the file changes).
 
 **Use when** your partner asks to see a file, or when you want to put one on screen as part of collaborating, riffing, or improvising.
@@ -144,7 +150,7 @@ Common workflows with the `laura` CLI to improve interactions between you and yo
 
 **Motion**
 1. Run `laura open <path>` so your partner can comment on the file in place
-   - Your partner uses `↑`/`↓` to move to a line, `n`/`N` to jump to the next/prev thread, `c` to comment, `r` to collapse/expand threads, `Shift+S` to submit the inline review, `Ctrl+R` to refresh the pane (discarding the unsubmitted inline review), `x` to close the pane, and `Esc` to switch back to chat. The pane border's `[review: N ↑a ↓b]` counter shows how many threads sit at/above (`a`) vs below (`b`) their cursor, so an off-screen comment is visible before they scroll.
+   - Your partner uses `↑`/`↓` to move to a line, `n`/`N` to jump to the next/prev thread, `c` to comment, `r` to collapse/expand threads, `Shift+S` to submit the inline review, `Ctrl+R` to refresh the pane (discarding the unsubmitted inline review), `x` to close the pane, and `Esc` to switch back to chat. The pane border's `[review: N ↑a ↓b]` counter shows how many threads sit at/above (`a`) vs below (`b`) their cursor, so an off-screen comment is visible before they scroll. After the file name, the border's `+N -M` counts the lines changed since git `HEAD` (and `● unsaved` marks an editor pane whose Neovim has unsaved edits), so you can point your partner to it for what changed.
 2. Once submitted, their inline review lands in your input as a `[laura review · …]` chat message and the pane clears. Each `L<n>` is a thread with author-labelled comments (`> [user] …`, `> [agent] …`).
 3. Resolve any open questions with your partner first, then act on the inline review.
 4. Respond to the inline review in chat. Annotate again only for a follow-up you need answered in a thread. If you edit a file while your partner has an unsubmitted inline review on it, its pane freezes until they submit (`Shift+S`, with a `⚠ file changed` banner) or refresh (`Ctrl+R`).
@@ -171,6 +177,18 @@ Common workflows with the `laura` CLI to improve interactions between you and yo
 **Use when** you want to show *what* changed, not just *where*, or your partner asks to see the latest changes to a file.
 
 By default an open file always shows added, modified and deleted lines via the line number gutter markers. Clean or untracked files, or a machine without `git`, are a no-op that warns on stderr.
+
+### Edit a file together
+
+**Motion**
+1. Only if `laura ready` printed `experimental: editor panes are on`: run `laura open <path> --edit` to run Neovim on the file in an editor pane next to the chat. To turn a file pane you already opened into one, run `laura open <path> --panel <id> --edit`; its threads carry over.
+2. Tell your partner the editor pane is there: it doesn't take focus, so they press `Ctrl+P` and its id (shown on its border) to edit, and `Ctrl+P 0` to come back to the chat.
+3. `laura comment --pane <id>` works on an editor pane as on a file pane. Your partner sees the comment on its line while editing (a `✎` diagnostic) and the thread count (`[review: N]`) on the border, so annotate the line you mean: an editor pane shows no highlight or diff, and `laura highlight` / `laura diff` on it are refused. When you've annotated it, tell them to press `Ctrl+L` to see your comments.
+4. Your partner reviews an editor pane in its **file view**: `Ctrl+L` flips the pane from its editor view to its file view, with the usual keys (`c` comment, `Shift+S` submit). The file view shows the saved file, so they save first. Submitting flips it back to the editor view.
+5. If `laura close` or `--panel` is refused because the editor pane has unsaved edits, ask your partner to save (`:w`) or quit Neovim, and don't retry.
+6. If `--edit` is refused (`editor panes are experimental: …` or `editor panes need Neovim: …`), open with plain `laura open` and don't retry. Mention `LAURA_EXPERIMENTAL_EDITOR=1` only if your partner asks about editing in Laura.
+
+**Use when** your partner wants to edit a file themselves, or you want them to make a change by hand while you watch.
 
 ### Tail live output
 

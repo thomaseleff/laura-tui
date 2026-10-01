@@ -37,12 +37,13 @@ pub enum Side {
     Second,
 }
 
-/// Whether a pane hosts the shell or a file panel.
+/// Whether a pane hosts the shell, a file panel, or an editor pane (Neovim over a file panel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PaneKind {
     Pty,
     Panel,
+    Editor,
 }
 
 /// A single request sent to a tab. Internally tagged so the JSON is a stable wire contract (`{"type":"open","path":"…"}`).
@@ -83,6 +84,11 @@ pub enum Message {
         /// The PTY and absent ids error; split/dir/ratio/side are ignored when set.
         #[serde(default)]
         panel: Option<PaneId>,
+        /// Run Neovim on the file (experimental editor pane). Never takes focus; with `panel`,
+        /// attaches to that pane in place, keeping its threads when the path matches. Errors with
+        /// `highlight` or `diff`: editor panes show neither.
+        #[serde(default)]
+        edit: bool,
     },
     /// Close a pane. `None` = the focused panel; `all` returns to shell-only. The PTY can't close.
     Close {
@@ -104,7 +110,7 @@ pub enum Message {
     },
     /// Toggle (or set) the inline diff view on a panel. `pane` defaults to the
     /// focused panel; `on` = `None` toggles, `Some(b)` sets. Refused (error) when
-    /// there's nothing to diff — no `git`, or a clean/untracked file.
+    /// there's nothing to diff — no `git`, or a clean/untracked file — or on an editor pane.
     DiffView {
         #[serde(default)]
         pane: Option<PaneId>,
@@ -159,8 +165,13 @@ pub enum Response {
     },
     /// Answers `Layout` and dry-run `Open`.
     Report(LayoutReport),
-    /// `ready` succeeded; carries the session's journal path.
-    Ready { journal: String },
+    /// `ready` succeeded; carries the session's journal path and the experimental features on in
+    /// this tab (`"editor"`), so the agent knows what it can use.
+    Ready {
+        journal: String,
+        #[serde(default)]
+        experimental: Vec<String>,
+    },
     /// The request failed.
     Error { message: String },
 }

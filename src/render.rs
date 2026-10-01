@@ -6,8 +6,8 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Theme, ThemeSet};
-use syntect::parsing::SyntaxSet;
+use syntect::highlighting::{Highlighter, Theme, ThemeSet};
+use syntect::parsing::{Scope, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
 /// A rendered file: plain-text `content` plus styled lines, all 1:1 by line.
@@ -185,6 +185,16 @@ fn nord_theme() -> &'static Theme {
         ThemeSet::load_from_reader(&mut cursor)
             .expect("bundled nord.tmTheme is a valid TextMate theme")
     })
+}
+
+/// The Nord theme's foreground for a TextMate `scope`, as `#RRGGBB`: what the file view paints it.
+/// Callers pass literal scopes, so `.expect` guards a build-time invariant.
+pub fn nord_hex(scope: &str) -> String {
+    let scope = Scope::new(scope).expect("a literal TextMate scope parses");
+    let fg = Highlighter::new(nord_theme())
+        .style_for_stack(&[scope])
+        .foreground;
+    format!("#{:02X}{:02X}{:02X}", fg.r, fg.g, fg.b)
 }
 
 /// Render markdown per top-level block, tagging each rendered line with its block's source-line

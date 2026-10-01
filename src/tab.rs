@@ -1,26 +1,33 @@
 //! One workspace tab: a PTY, its panels, the split tree, and the socket that ties them together.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, channel};
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
-use ratatui::layout::Rect;
+use ratatui::layout::{Margin, Rect};
 
 use serde_json::json;
 
+use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
-use crate::panel::Panel;
+use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{
     self, Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,
 };
 use crate::pty::PtyTab;
 
 /// Walk `layout`'s rects and, for each panel, measure content vs. visible rows to fill a `LayoutReport`.
-fn build_report(layout: &Layout, panels: &HashMap<PaneId, &Panel>, area: Rect) -> LayoutReport {
+fn build_report(
+    layout: &Layout,
+    panels: &HashMap<PaneId, &Panel>,
+    editors: &HashMap<PaneId, Nvim>,
+    area: Rect,
+) -> LayoutReport {
     let mut panes: Vec<PaneReport> = rects(layout, area)
         .into_iter()
         .map(|(id, rect)| {
@@ -29,6 +36,10 @@ fn build_report(layout: &Layout, panels: &HashMap<PaneId, &Panel>, area: Rect) -
             let too_small = rect.width < 3 || rect.height < 3;
             let (kind, path, content_rows) = if id == PTY_PANE {
                 (PaneKind::Pty, None, None)
+            } else if editors.contains_key(&id) {
+                // Neovim's grid always fits its rect, like the shell's.
+                let path = panels.get(&id).map(|p| p.path.clone());
+                (PaneKind::Editor, path, None)
             } else {
                 let p = panels.get(&id);
                 (
@@ -98,6 +109,12 @@ fn remove_if_temp(path: &str) {
     }
 }
 
+/// Resolve `.`/`..`, symlinks, Windows case and 8.3 names so two spellings
+/// of one file compare equal; a missing file falls back to the raw path.
+fn normalized(p: &str) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.into())
+}
+
 /// One workspace tab: a PTY, its panel panes, the split tree, and its own `LAURA_TAB` socket. Per-tab sockets isolate tabs by addressing (protocol.rs).
 pub struct Tab {
     pub pty: PtyTab,
@@ -117,8 +134,15 @@ pub struct Tab {
     pub agent: bool,
     /// Per-session journal, created on `ready` (names + audits composition events).
     pub journal: Option<Journal>,
-    /// The user is typing a comment/review body: leave requests queued, and panes unreloaded, until they finish.
+    /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
     pub hold: bool,
+    /// Editor panes' Neovim, by pane id. Each also has its file panel in `panels`.
+    pub editors: HashMap<PaneId, Nvim>,
+    /// The `nvim` to run for `open --edit`, or why editor panes are off. The TUI sets it from
+    /// `editor::resolve()`; defaults to off.
+    pub editor: Result<PathBuf, String>,
+    /// Editor panes use Laura's theme (the startup wizard's answer). The TUI sets it.
+    pub editor_theme: bool,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -150,6 +174,9 @@ impl Tab {
             agent: false,
             journal: None,
             hold: false,
+            editors: HashMap::new(),
+            editor: Err(editor::FLAG_OFF.into()),
+            editor_theme: false,
             seq: n,
             next_pane: 1,
             rx,
@@ -162,6 +189,29 @@ impl Tab {
         if let Some(j) = &self.journal {
             j.log(event);
         }
+    }
+
+    /// `Shift+S` → `Enter`: write the focused pane's inline review with `body` into the shell and
+    /// journal it. `None` without a focused file pane. A sent review returns focus to the shell,
+    /// and an editor pane to its editor view; a failed one keeps the threads for a retry (#72).
+    pub fn submit_focused(&mut self, body: &str) -> Option<std::io::Result<()>> {
+        let pty = &self.pty;
+        let p = self.panels.get_mut(&self.focus)?;
+        // Read the count first: a sent review clears the threads.
+        let (path, comments) = (p.path.clone(), p.thread_count());
+        let res = p.submit_review(body, |r| pty.write(&bracketed_paste(r, true)));
+        let mut event = json!({"type": "review", "path": path, "comments": comments, "body": body});
+        if let Err(e) = &res {
+            event["error"] = json!(e.to_string());
+        }
+        self.log_event(event);
+        if res.is_ok() {
+            if let Some(e) = self.editors.get_mut(&self.focus) {
+                e.editor_view = true;
+            }
+            self.focus = PTY_PANE;
+        }
+        Some(res)
     }
 
     /// The focused panel, if a panel (not the PTY) has focus.
@@ -185,13 +235,26 @@ impl Tab {
 
     /// Current geometry + overflow at draw area `area`.
     pub fn report(&self, area: Rect) -> LayoutReport {
-        build_report(&self.layout, &self.panel_refs(), area)
+        build_report(&self.layout, &self.panel_refs(), &self.editors, area)
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
     pub fn drain(&mut self, area: Rect) {
         if self.hold {
             return;
+        }
+        // An exited Neovim closes its pane, unless it holds threads: then it stays a file pane.
+        let exited: Vec<PaneId> = self
+            .editors
+            .iter()
+            .filter(|(_, e)| e.pty.has_exited())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in exited {
+            self.editors.remove(&id);
+            if self.panels.get(&id).is_some_and(|p| p.thread_count() == 0) {
+                self.close_pane(Some(id));
+            }
         }
         loop {
             // Catch up to disk before each message: one sent right after an edit must see the new content.
@@ -204,9 +267,16 @@ impl Tab {
             let resp = self.apply(msg, area);
             reply.send(&resp);
         }
+        // Every change to a thread (comment, submit, `Ctrl+R`, freeze) reaches Neovim from here.
+        for (id, e) in &mut self.editors {
+            if let Some(p) = self.panels.get(id) {
+                e.push(p);
+            }
+        }
     }
 
-    /// Close a pane (default: the focused panel). Shared by the `close` verb and the `x` key.
+    /// Close a pane (default: the focused panel). Shared by the `close` verb and the `x` key, so
+    /// both refuse to drop unsaved Neovim edits.
     pub fn close_pane(&mut self, pane: Option<PaneId>) -> Response {
         let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
         let Some(target) = target else {
@@ -214,11 +284,15 @@ impl Tab {
                 message: "no pane focused to close".into(),
             };
         };
+        if let Err(e) = self.edits_guard(target) {
+            return e;
+        }
         match self.layout.remove(target) {
             Ok(()) => {
                 if let Some(p) = self.panels.remove(&target) {
                     remove_if_temp(&p.path);
                 }
+                self.editors.remove(&target); // drop kills Neovim
                 if self.focus == target {
                     self.focus = PTY_PANE;
                 }
@@ -292,11 +366,34 @@ impl Tab {
         }
     }
 
+    /// Refuse to kill pane `id`'s Neovim while it has unsaved edits.
+    fn edits_guard(&self, id: PaneId) -> Result<(), Response> {
+        match self.editors.get(&id) {
+            Some(e) if e.modified() => Err(Response::Error {
+                message: unsaved_message(id),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// Why closing the tab would drop unsaved Neovim edits: the lowest-id editor pane with them,
+    /// `(+N more)` for the rest. `None` when every Neovim is saved.
+    pub fn unsaved_edits(&self) -> Option<String> {
+        let ids: Vec<PaneId> = self
+            .editors
+            .iter()
+            .filter(|(_, e)| e.modified())
+            .map(|(&id, _)| id)
+            .collect();
+        let mut message = unsaved_message(*ids.iter().min()?);
+        if ids.len() > 1 {
+            message += &format!(" (+{} more)", ids.len() - 1);
+        }
+        Some(message)
+    }
+
     /// Warn if `path` is already open in a pane other than `except` (lowest id wins).
     fn already_open(&self, path: &str, except: PaneId) -> Option<String> {
-        // Resolve `.`/`..`, symlinks, Windows case and 8.3 names so two spellings
-        // of one file compare equal; a missing file falls back to the raw path.
-        let normalized = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
         let this = normalized(path);
         let n = self
             .panels
@@ -304,9 +401,11 @@ impl Tab {
             .filter(|(id, p)| **id != except && normalized(&p.path) == this)
             .map(|(id, _)| *id)
             .min()?;
-        // Don't point at the reuse verbs on a pane under review: `--panel` errors, and `highlight` does once it freezes.
+        // Suggest reuse verbs only where they work: not under review, nor on an editor pane (it refuses highlight; a bare --panel quits Neovim).
         Some(if self.panels[&n].thread_count() > 0 {
             format!("already open in pane #{n}, which has an unsubmitted inline review")
+        } else if self.editors.contains_key(&n) {
+            format!("already open in editor pane #{n}")
         } else {
             format!(
                 "already open in pane #{n} — use `laura highlight --pane {n}` \
@@ -315,7 +414,39 @@ impl Tab {
         })
     }
 
+    /// Start Neovim on `path` in pane `id`, sized to the pane's inner rect.
+    fn attach_editor(&mut self, id: PaneId, path: &str, area: Rect) -> Result<(), Response> {
+        let nvim = self
+            .editor
+            .clone()
+            .map_err(|message| Response::Error { message })?;
+        // Drop the old Neovim first: its Drop deletes the same bootstrap files the new one writes.
+        let was = self.editors.remove(&id).map(|e| e.editor_view);
+        let inner = rects(&self.layout, area)
+            .get(&id)
+            .map(|r| r.inner(Margin::new(1, 1)))
+            .unwrap_or_default();
+        let mut e = Nvim::spawn(
+            &nvim,
+            path,
+            &self.socket,
+            id,
+            self.editor_theme,
+            inner.height.max(1),
+            inner.width.max(1),
+        )
+        .map_err(|e| Response::Error {
+            message: format!("couldn't edit {path}: {e:#}"),
+        })?;
+        // A file pane the user is in opens in the file view, so their next keys don't land in Neovim.
+        e.editor_view = was.unwrap_or(self.focus != id);
+        self.editors.insert(id, e);
+        Ok(())
+    }
+
     /// Replace pane `id`'s content in place: same id, rect, and focus, no new split.
+    /// `--edit` on the file the pane already shows attaches Neovim and keeps its threads.
+    #[allow(clippy::too_many_arguments)] // one per `open` flag it honors
     fn replace_panel(
         &mut self,
         id: PaneId,
@@ -323,6 +454,7 @@ impl Tab {
         follow: bool,
         highlight: Option<(u32, u32)>,
         diff: bool,
+        edit: bool,
         area: Rect,
     ) -> Response {
         if id == PTY_PANE || !self.panels.contains_key(&id) {
@@ -330,14 +462,43 @@ impl Tab {
                 message: format!("no pane #{id} to replace"),
             };
         }
-        if let Err(e) = self.threads_guard(id) {
+        if edit && normalized(&self.panels[&id].path) == normalized(&path) {
+            if !self.editors.contains_key(&id) {
+                if let Err(e) = self.attach_editor(id, &path, area) {
+                    return e;
+                }
+                if let Some(p) = self.panels.get_mut(&id) {
+                    p.clear_highlight();
+                    p.diff_view = false;
+                }
+                self.log_event(
+                    json!({"type":"open","pane":id,"path":path,"edit":true,"replaced":true}),
+                );
+            }
+            return Response::Opened {
+                pane: id,
+                warnings: vec![],
+            };
+        }
+        if let Err(e) = self.threads_guard(id).and(self.edits_guard(id)) {
             return e;
+        }
+        if edit {
+            if let Err(e) = self.attach_editor(id, &path, area) {
+                return e;
+            }
+        } else {
+            self.editors.remove(&id);
         }
         remove_if_temp(&self.panels[&id].path); // clean an old tail spool, same as the close path
         let dup = self.already_open(&path, id);
         let mut warnings = self.install_panel(id, &path, follow, highlight, diff, area);
         warnings.extend(dup);
-        self.log_event(json!({"type":"open","pane":id,"path":path,"replaced":true}));
+        let mut event = json!({"type":"open","pane":id,"path":path,"replaced":true});
+        if edit {
+            event["edit"] = true.into();
+        }
+        self.log_event(event);
         Response::Opened { pane: id, warnings }
     }
 
@@ -356,12 +517,23 @@ impl Tab {
                 highlight,
                 diff,
                 panel,
+                edit,
             } => {
+                if edit && let Err(message) = &self.editor {
+                    return Response::Error {
+                        message: message.clone(),
+                    };
+                }
+                if edit && (highlight.is_some() || diff) {
+                    return Response::Error {
+                        message: editor::SHOWS_NEITHER.into(),
+                    };
+                }
                 // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
                 // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
                 // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
                 if let Some(id) = panel {
-                    return self.replace_panel(id, path, follow, highlight, diff, area);
+                    return self.replace_panel(id, path, follow, highlight, diff, edit, area);
                 }
                 let new = self.next_pane;
                 let inferred =
@@ -395,17 +567,26 @@ impl Tab {
                 match self.layout.split(target, dir, ratio, side, new) {
                     Ok(()) => {
                         self.next_pane += 1;
+                        if edit && let Err(e) = self.attach_editor(new, &path, area) {
+                            let _ = self.layout.remove(new);
+                            return e;
+                        }
                         let dup = self.already_open(&path, new);
                         let mut warnings =
                             self.install_panel(new, &path, follow, highlight, diff, area);
                         warnings.extend(dup);
-                        self.log_event(json!({"type": "open", "pane": new, "path": path}));
+                        let mut event = json!({"type": "open", "pane": new, "path": path});
+                        if edit {
+                            event["edit"] = true.into();
+                        }
+                        self.log_event(event);
                         if let Some((start, end)) = highlight {
                             self.log_event(
                                 json!({"type": "highlight", "pane": new, "start": start, "end": end}),
                             );
                         }
-                        if focus {
+                        // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
+                        if focus && !edit {
                             self.pending_focus = Some(new);
                         }
                         Response::Opened {
@@ -422,7 +603,7 @@ impl Tab {
                     if let Some(e) = self
                         .panels
                         .keys()
-                        .find_map(|&id| self.threads_guard(id).err())
+                        .find_map(|&id| self.threads_guard(id).and(self.edits_guard(id)).err())
                     {
                         return e;
                     }
@@ -431,6 +612,7 @@ impl Tab {
                     }
                     self.layout = Layout::Pane(PTY_PANE);
                     self.panels.clear();
+                    self.editors.clear();
                     self.focus = PTY_PANE;
                     self.log_event(json!({"type": "close", "all": true}));
                     return Response::Ok;
@@ -461,6 +643,11 @@ impl Tab {
                         message: "no pane focused to highlight".into(),
                     };
                 };
+                if self.editors.contains_key(&target) {
+                    return Response::Error {
+                        message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
+                    };
+                }
                 let Some(panel) = self.panels.get_mut(&target) else {
                     return Response::Error {
                         message: format!("no pane #{target}"),
@@ -494,6 +681,11 @@ impl Tab {
                         message: "no pane focused for diff view".into(),
                     };
                 };
+                if self.editors.contains_key(&target) {
+                    return Response::Error {
+                        message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
+                    };
+                }
                 let Some(panel) = self.panels.get_mut(&target) else {
                     return Response::Error {
                         message: format!("no pane #{target}"),
@@ -545,7 +737,11 @@ impl Tab {
                 let path = journal.path().to_string_lossy().into_owned();
                 journal.log(json!({"type": "ready"}));
                 self.journal = Some(journal);
-                Response::Ready { journal: path }
+                let experimental = self.editor.iter().map(|_| "editor".to_string()).collect();
+                Response::Ready {
+                    journal: path,
+                    experimental,
+                }
             }
             Message::Feedback { sentiment, body } => {
                 let pane = (self.focus != PTY_PANE).then_some(self.focus);
@@ -579,7 +775,7 @@ impl Tab {
         let temp = Panel::open(path.to_string());
         let mut refs = self.panel_refs();
         refs.insert(new, &temp);
-        Response::Report(build_report(&layout, &refs, area))
+        Response::Report(build_report(&layout, &refs, &self.editors, area))
     }
 
     /// Resize the PTY only when its draw area changed, else the shell wraps wrong.
@@ -589,4 +785,21 @@ impl Tab {
             self.pty.resize(rows, cols);
         }
     }
+}
+
+/// Release the tab's socket. The listener thread blocks in `accept` and only learns `rx` is gone
+/// from a failed send, so the pipe outlives the tab until a request wakes it, and a stale
+/// `LAURA_TAB` reads that request's dropped reply as success.
+/// ponytail: a self-connect wakes the accept; a nonblocking listener with a stop flag if it's flaky.
+impl Drop for Tab {
+    fn drop(&mut self) {
+        // `rx` first: alive, it would take the wake-up request and `request` would wait on a reply.
+        self.rx = channel().1;
+        let _ = protocol::request(&self.socket, &Message::Layout);
+    }
+}
+
+/// The unsaved-edits refusal, shared by a pane's close and the tab's.
+fn unsaved_message(id: PaneId) -> String {
+    format!("pane #{id} has unsaved edits in Neovim — save (:w) or quit Neovim first")
 }

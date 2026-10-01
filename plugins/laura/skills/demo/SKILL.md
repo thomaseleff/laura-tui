@@ -12,7 +12,7 @@ Run a **live walkthrough** of Laura, where you lay out the panes using the `laur
 **Rules**
 - **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
 - **After each numbered beat, stop and wait** — your partner advances by sending `Next` (beat 2 advances **only** when their inline review arrives). Don't run ahead.
-- **If `laura close --all` errors with `unsubmitted inline review`**, send only: "Submit (`Shift+S`) or refresh (`Ctrl+R`) pane #N to continue.", then wait. This only happens after your partner comments, and it is the one message you may send outside the script.
+- **If `laura close --all` errors with `unsubmitted inline review`**, send only: "Submit (`Shift+S`) or refresh (`Ctrl+R`) pane #N to continue.", then wait. **If it errors with `unsaved edits`**, send only: "Save (`:w`) or quit Neovim in pane #N to continue.", then wait. These only happen after your partner comments or edits, and they are the only messages you may send outside the script.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
 
@@ -34,7 +34,7 @@ JOURNAL=$(laura ready --session demo --agent claude)   # enables inline review s
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
-_Keep `$JOURNAL` and `$D` for later beats._
+_Keep `$JOURNAL` and `$D` for later beats. Note any `experimental: …` lines `laura ready` printed: they decide which bonus beats run._
 
 ```bash
 # Close all open panes before beginning the demo
@@ -309,6 +309,54 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 > Send `Next` to learn how to record feedback.
 
 _Then **wait for `Next`**, and `laura close --all`._
+
+---
+
+### Edit together (experimental)
+
+_Run this beat only if `laura ready` printed `experimental: editor panes are on`. Otherwise, or if `laura open --edit` is refused, skip straight to **Recording feedback** without mentioning it. It shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+
+**Do:**
+
+```bash
+cat > "$D/retry.py" <<'EOF'
+def backoff(tries):
+    delay = 2 ** tries
+    return delay
+EOF
+ED=$(laura open "$D/retry.py" --edit --ratio 55)   # never takes focus
+```
+
+**Say:**
+
+> **Bonus · Edit together**
+>
+> The pane to the right is an **editor pane**: Neovim running on the file, next to the chat.
+>
+> 1. Press `Ctrl+P`, then its number, to edit. Change `2 ** tries` to `min(2 ** tries, 60)` and save with `:w`.
+> 2. Tell me when you've saved.
+
+_Wait for your partner, then annotate the saved line:_
+
+```bash
+laura comment 2 "nice cap - should 60 be a setting?" --pane "$ED"
+```
+
+**Say:**
+
+> I left a comment on L2. In Neovim it shows on its line with a `✎` sign, and the pane's border shows `[review: 1]`. Put the cursor on L2 and press `Ctrl+W` then `d` to read the whole thread.
+>
+> 1. Press `Ctrl+L` to flip the pane to its **file view**: the saved file, with my comment as a card and the usual pane keys.
+> 2. On L2 press `c`, type a reply, and `Enter`.
+> 3. Press `Shift+S` and `Enter` to submit. The inline review lands in the chat and the pane flips back to Neovim.
+>
+> **Suggested prompts**
+>
+> - `/laura:laura Open retry.py in an editor pane so I can fix it`
+>
+> Submit your inline review with `Shift+S` to continue.
+
+_Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
 ---
 

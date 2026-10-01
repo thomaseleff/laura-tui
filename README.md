@@ -49,6 +49,10 @@ laura -- claude "/laura:demo"
 
 File panes reload when their file changes. Markdown renders with terminal styling; other files show their content with syntax colours, and lines changed since git `HEAD` are marked in the gutter.
 
+**Experimental features** are opt-in: set the feature's variable before starting Laura. `laura --help` lists them, and `laura ready` tells your agent which ones are on in its tab. See the [CLI reference](docs/cli.md#experimental-features).
+
+**Editor panes (experimental).** Start Laura with `LAURA_EXPERIMENTAL_EDITOR=1` and `nvim` on `PATH` (restart the terminal after installing Neovim), and `laura open --edit <path>` runs Neovim in a pane next to the chat. It doesn't take focus: press `Ctrl+P` and its id to edit. `Ctrl+L` flips the pane to its file view to comment and submit an inline review, and back to Neovim. On first start, Laura asks whether Neovim should use its theme, so the two views match. See the [CLI reference](docs/cli.md#editor-panes-experimental).
+
 See the [tutorial](docs/tutorial.md) for a first session and [navigating the TUI](docs/navigation.md) for the keys. Reference lives in the [CLI reference](docs/cli.md) for the verb set, the [protocol reference](docs/protocol.md) for the wire format, and the [agent reference](docs/agent-reference.md) for the recipes your agent drives on your behalf.
 
 ## License

@@ -28,7 +28,12 @@ use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
 ///
 /// Docs: https://thomaseleff.github.io/laura-tui/llms.txt
 #[derive(Parser)]
-#[command(version, about, args_conflicts_with_subcommands = true)]
+#[command(
+    version,
+    about,
+    args_conflicts_with_subcommands = true,
+    after_help = "Experimental features (opt-in: set the variable before starting Laura; `laura ready` lists the ones on):\n  LAURA_EXPERIMENTAL_EDITOR=1  Editor panes: `laura open --edit <path>` runs Neovim in a pane (needs nvim on PATH)"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -72,6 +77,9 @@ enum Cmd {
         /// Replace this pane's content in place (no new split). Ignores --split/--dir/--ratio/--side.
         #[arg(long, conflicts_with_all = ["split", "dir", "ratio", "side"])]
         panel: Option<PaneId>,
+        /// Edit in Neovim (experimental: needs LAURA_EXPERIMENTAL_EDITOR=1 and nvim on PATH)
+        #[arg(long)]
+        edit: bool,
     },
     /// Close a pane (default: the focused one). `--all` returns to shell-only.
     Close {
@@ -120,7 +128,7 @@ enum Cmd {
     },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
-    /// Mark this tab as hosting an agent (enables inline review submission). Prints the journal path.
+    /// Mark this tab as hosting an agent (enables inline review submission). Prints the journal path, and the experimental features on to stderr.
     Ready {
         /// Name the journal session (default: `laura-<pid>-<n>`).
         #[arg(long)]
@@ -176,6 +184,7 @@ fn main() -> Result<()> {
             highlight,
             diff,
             panel,
+            edit,
         }) => {
             // Absolutize against the caller's cwd, not the server's. `absolute` (not
             // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
@@ -194,6 +203,7 @@ fn main() -> Result<()> {
                 highlight,
                 diff,
                 panel,
+                edit,
             })
         }
         Some(Cmd::Close { id, all }) => client_request(Message::Close { pane: id, all }),
@@ -284,7 +294,21 @@ fn client_request(msg: Message) -> Result<()> {
             println!("{pane}");
         }
         Response::Report(report) => println!("{}", serde_json::to_string_pretty(&report)?),
-        Response::Ready { journal } => println!("{journal}"),
+        Response::Ready {
+            journal,
+            experimental,
+        } => {
+            // stderr: skills capture stdout as the journal path.
+            for feature in experimental {
+                match feature.as_str() {
+                    "editor" => eprintln!(
+                        "experimental: editor panes are on — `laura open --edit <path>` runs Neovim in a pane"
+                    ),
+                    other => eprintln!("experimental: {other} is on"),
+                }
+            }
+            println!("{journal}");
+        }
         Response::Error { message } => {
             eprintln!("{message}");
             std::process::exit(1);
@@ -335,6 +359,7 @@ fn tail(
             highlight: None,
             diff: false,
             panel: None,
+            edit: false,
         },
     )? {
         Response::Opened { pane, warnings } => {

@@ -51,6 +51,10 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
+| **editor pane** | A pane where the user edits a file in an editor, over its file pane (`open --edit`, experimental). | editor (alone), nvim pane, vim pane |
+| **editor view** | An editor pane showing the editor, which takes the keys (the default). | Neovim view, nvim mode |
+| **file view** | An editor pane showing its file pane, flipped with `Ctrl+L`. | review view, review mode |
+| **Neovim** | The editor that editor panes run today. Name it only for Neovim's own behavior (`:w`, its config, diagnostics, its file-changed prompt). | nvim (in prose) |
 | **comment** (n., v.) | A single inline annotation on a pane, or an action the user takes (`c`). | note, annotation, mark up, in-line / in line comment |
 | **annotate** (v.) | An action the agent takes when running `laura comment`. | note, annotation, mark up, in-line / in line comment |
 | **thread** | A set of inline comments on a single line of a pane. | comment thread, inline thread |
@@ -64,6 +68,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **frozen** / **freeze** | A file pane whose file changed on disk while it has an unsubmitted inline review. | paused, stale |
 | **snapshot** | The content of a pane with an unsubmitted inline review. | reviewed content |
 | **highlight** (n., v.) | Lines marked by `laura highlight`. | spotlight |
+| **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
 | **workspace** | The TUI, including all panes. | — |
 | **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keys for the current context. | footer |

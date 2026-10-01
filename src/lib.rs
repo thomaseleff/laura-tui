@@ -6,10 +6,12 @@
 //! - [`render`] — file→styled: read a file into styled lines plus a plain-text projection.
 //! - [`panel`] — a file's review state: content, cursor, comment threads, and live reload.
 //! - [`journal`] — persisted per-session NDJSON log of composition events.
+//! - [`editor`] — an editor pane's Neovim (experimental) and the startup gate.
 //! - [`tab`] — one workspace tab tying the above together over its socket.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
 
+pub mod editor;
 pub mod gitdiff;
 pub mod journal;
 pub mod layout;
