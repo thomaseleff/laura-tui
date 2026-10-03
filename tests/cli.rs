@@ -1,6 +1,7 @@
 //! The `open`/`close`/`ready` verbs cross the real seam (binary → tab socket → `Tab::drain` → response) and land the right state; `--help`/`--version` work. State, not pixels.
 
 use std::io::Write;
+use std::process::Output;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -49,33 +50,32 @@ fn send_and_recv(args: &[&str]) -> Result<Message> {
     Ok(msg)
 }
 
-/// Run `laura <args>` against a real tab, draining (and replying) until the client exits.
-fn drive_tab(tab: &mut Tab, args: &[&str]) {
+/// Run `laura <args>` against a real tab, draining (and replying) until the client exits; return its output.
+fn drive_tab(tab: &mut Tab, args: &[&str]) -> Output {
     let name = tab.socket.clone();
     let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     let (tx, rx) = mpsc::channel();
     let h = thread::spawn(move || {
-        let ok = Command::cargo_bin("laura")
+        let out = Command::cargo_bin("laura")
             .unwrap()
             .args(&a)
             .env("LAURA_TAB", &name)
             .output()
-            .unwrap()
-            .status
-            .success();
-        tx.send(ok).unwrap();
+            .unwrap();
+        tx.send(out).unwrap();
     });
     let start = Instant::now();
-    let ok = loop {
+    let out = loop {
         tab.drain(area());
-        if let Ok(ok) = rx.try_recv() {
-            break ok;
+        if let Ok(out) = rx.try_recv() {
+            break out;
         }
         assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
-    assert!(ok, "laura {args:?} exited non-zero");
+    assert!(out.status.success(), "laura {args:?} exited non-zero");
+    out
 }
 
 #[test]
@@ -116,12 +116,25 @@ fn close_clears_the_panel() -> Result<()> {
 }
 
 #[test]
-fn ready_marks_the_tab_as_agent() -> Result<()> {
+fn ready_marks_the_tab_and_returns_the_layout() -> Result<()> {
+    let file = tempfile::NamedTempFile::new()?;
+    let path = file.path().to_str().unwrap();
     let mut tab = spawn_tab()?;
     assert!(!tab.agent, "tabs start non-agent (fail closed)");
 
-    drive_tab(&mut tab, &["ready"]);
+    drive_tab(&mut tab, &["open", path]);
+    let out = drive_tab(&mut tab, &["ready"]);
     assert!(tab.agent, "ready should mark the tab as hosting an agent");
+
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    assert!(v["journal"].as_str().unwrap().ends_with(".ndjson"), "{v}");
+    let panes = v["layout"]["panes"].as_array().unwrap();
+    assert!(
+        panes
+            .iter()
+            .any(|p| p["id"].as_u64() == Some(1) && p["path"].as_str() == Some(path)),
+        "{v}"
+    );
     Ok(())
 }
 

@@ -35,7 +35,7 @@ JOURNAL=~/.laura/sessions/demo.ndjson                   # the session's journal
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
-_Keep `$JOURNAL` and `$D` for later beats. Note any `experimental: …` lines `laura ready` printed: they decide which bonus beats run._
+_Keep `$JOURNAL` and `$D` for later beats. Note what `laura ready` lists under `experimental`: it decides which bonus beats run._
 
 ```bash
 # Close all open panes before beginning the demo
@@ -315,7 +315,7 @@ _Then **wait for `Next`**, and `laura close --all`._
 
 ### Edit together (experimental)
 
-_Run this beat only if `laura ready` printed `experimental: editor panes are on`. Otherwise, or if `laura open --edit` is refused, skip straight to **Recording feedback** without mentioning it. It shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` is refused, skip straight to **Recording feedback** without mentioning it. It shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
 
 **Do:**
 

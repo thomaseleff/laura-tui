@@ -165,12 +165,13 @@ pub enum Response {
     },
     /// Answers `Layout` and dry-run `Open`.
     Report(LayoutReport),
-    /// `ready` succeeded; carries the session's journal path and the experimental features on in
-    /// this tab (`"editor"`), so the agent knows what it can use.
+    /// `ready` succeeded; carries the session's journal path, the experimental features on in this
+    /// tab (`"editor"`), and the layout — everything a fresh agent needs to orient.
     Ready {
         journal: String,
         #[serde(default)]
         experimental: Vec<String>,
+        layout: LayoutReport,
     },
     /// The request failed.
     Error { message: String },

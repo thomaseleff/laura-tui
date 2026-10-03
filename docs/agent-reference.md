@@ -11,7 +11,7 @@ laura ready
 
 Run once per tab before opening a pane. Inline review interactions within panes are unavailable until `laura ready` is run.
 
-`laura ready` prints the journal path on stdout and, on stderr, one `experimental: …` line per experimental feature on in the tab (e.g. `experimental: editor panes are on — …`). Use only the experimental features it lists.
+`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features on in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run it at the start of every chat, including after `/new` or `/clear`: panes from earlier chats may still be open.
 
 A `laura` command waits while the user is typing a comment or review body, and returns once they press `Enter` or `Esc`.
 

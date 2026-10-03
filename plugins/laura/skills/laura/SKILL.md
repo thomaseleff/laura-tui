@@ -21,8 +21,8 @@ Regardless of either mode, you compose the TUI workspace, run interactions withi
 
 **Rules**
 - **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
-- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat. It prints one `experimental: …` line on stderr per experimental feature on in this tab; use only those.
-- **Run `laura layout`** before opening or closing panes to see what's open and `laura close` anything no longer relevant.
+- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat. Run it at the start of every chat, including after `/new` or `/clear`. It prints JSON with `journal`, `experimental` (the experimental features on in this tab; use only those), and `layout` (what's already open; `laura close` anything no longer relevant).
+- **Run `laura layout`** before later opens or closes to see what's open and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
 - **Proactively show a file, diff, or logs** in a pane over pasting or referring to the content in the chat.
 - **Laura auto-tiles.** A bare `laura open <path>` splits the newest pane and alternates orientation — a dwindle. No need to capture ids and thread `--split`. Pass `--dir`/`--ratio`/`--split` only to override it with a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>` — it replaces content in place. It errors on a pane with an unsubmitted inline review or unsaved Neovim edits.
@@ -87,7 +87,7 @@ laura comment <line> <body>
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path,
-                        and on stderr one `experimental: …` line per experimental feature on.
+                        the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
@@ -181,7 +181,7 @@ By default an open file always shows added, modified and deleted lines via the l
 ### Edit a file together
 
 **Motion**
-1. Only if `laura ready` printed `experimental: editor panes are on`: run `laura open <path> --edit` to run Neovim on the file in an editor pane next to the chat. To turn a file pane you already opened into one, run `laura open <path> --panel <id> --edit`; its threads carry over.
+1. Only if `laura ready` listed `editor` under `experimental`: run `laura open <path> --edit` to run Neovim on the file in an editor pane next to the chat. To turn a file pane you already opened into one, run `laura open <path> --panel <id> --edit`; its threads carry over.
 2. Tell your partner the editor pane is there: it doesn't take focus, so they press `Ctrl+P` and its id (shown on its border) to edit, and `Ctrl+P 0` to come back to the chat.
 3. `laura comment --pane <id>` works on an editor pane as on a file pane. Your partner sees the comment on its line while editing (a `✎` diagnostic) and the thread count (`[review: N]`) on the border, so annotate the line you mean: an editor pane shows no highlight or diff, and `laura highlight` / `laura diff` on it are refused. When you've annotated it, tell them to press `Ctrl+L` to see your comments.
 4. Your partner reviews an editor pane in its **file view**: `Ctrl+L` flips the pane from its editor view to its file view, with the usual keys (`c` comment, `Shift+S` submit). The file view shows the saved file, so they save first. Submitting flips it back to the editor view.

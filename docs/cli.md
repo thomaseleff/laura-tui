@@ -75,7 +75,7 @@ laura comment <line> <body>
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the tab as hosting an agent (enables pane interactions). Prints the journal path,
-                        and on stderr one `experimental: …` line per experimental feature on.
+                        the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
@@ -108,10 +108,10 @@ Commands require `$LAURA_TAB` to be set — i.e. run them from inside a Laura-ho
 
 ## Experimental features
 
-Experimental features are off by default. Turn one on by setting its variable before starting Laura; Laura reads it once at startup. `laura --help` lists them, and `laura ready` prints one line on stderr for each one on in its tab, so the agent knows what it can use:
+Experimental features are off by default. Turn one on by setting its variable before starting Laura; Laura reads it once at startup. `laura --help` lists them, and `laura ready` lists the ones on in its tab under `experimental`, so the agent knows what it can use:
 
 ```
-experimental: editor panes are on — `laura open --edit <path>` runs Neovim in a pane
+"experimental": ["editor"]
 ```
 
 | Variable | Feature |
@@ -138,7 +138,7 @@ Editor panes show no highlight or diff, since the editor view couldn't show them
 
 ## Journal
 
-`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/`comment`/`review`/`feedback` event is teed to it. A `review` event carries `error` when Laura couldn't write the inline review into the shell. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball. Files live at `~/.laura/sessions/<session>.ndjson`. Read the latest with `cat "$(ls -t ~/.laura/sessions/*.ndjson | head -1)" | jq .`.
+`ready` names a per-session append-only NDJSON journal and returns its path as `journal`. Every `open`/`close`/`focus`/`comment`/`review`/`feedback` event is teed to it. A `review` event carries `error` when Laura couldn't write the inline review into the shell. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball. Files live at `~/.laura/sessions/<session>.ndjson`. Read the latest with `cat "$(ls -t ~/.laura/sessions/*.ndjson | head -1)" | jq .`.
 
 ## Global
 
