@@ -171,7 +171,9 @@ pub enum Response {
         journal: String,
         #[serde(default)]
         experimental: Vec<String>,
-        layout: LayoutReport,
+        /// `None` from a host older than this field (upgraded while running).
+        #[serde(default)]
+        layout: Option<LayoutReport>,
     },
     /// The request failed.
     Error { message: String },

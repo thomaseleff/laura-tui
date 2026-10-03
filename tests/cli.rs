@@ -149,6 +149,38 @@ fn ready_outside_a_workspace_fails() -> Result<()> {
     Ok(())
 }
 
+/// A host from before `layout` (upgraded while running) still answers `ready`.
+#[test]
+fn ready_against_an_older_host_succeeds() -> Result<()> {
+    use interprocess::local_socket::{GenericNamespaced, ListenerOptions, prelude::*};
+    use std::io::{BufRead, BufReader};
+
+    let name = format!("laura-test-{}-old-host.sock", std::process::id());
+    let listener = ListenerOptions::new()
+        .name(name.as_str().to_ns_name::<GenericNamespaced>()?)
+        .create_sync()?;
+    let host = thread::spawn(move || -> std::io::Result<()> {
+        let mut conn = BufReader::new(listener.accept()?);
+        conn.read_line(&mut String::new())?;
+        conn.get_mut()
+            .write_all(b"{\"type\":\"ready\",\"journal\":\"/old/s.ndjson\",\"experimental\":[]}\n")
+    });
+    let out = Command::cargo_bin("laura")?
+        .arg("ready")
+        .env("LAURA_TAB", &name)
+        .output()?;
+    host.join().unwrap()?;
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    assert_eq!(v["journal"], "/old/s.ndjson");
+    assert!(v["layout"].is_null(), "{v}");
+    Ok(())
+}
+
 #[test]
 fn help_and_version_exit_zero() -> Result<()> {
     Command::cargo_bin("laura")?

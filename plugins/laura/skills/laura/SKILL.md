@@ -20,7 +20,7 @@ Who drives during pair-programming determines which `laura` motions you reach fo
 Regardless of either mode, you compose the TUI workspace, run interactions within panes, and run code, tests, and builds. 
 
 **Rules**
-- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat. If it fails, tell your partner you're not running in a Laura workspace and stop. Run it at the start of every chat, including after `/new` or `/clear`. It prints JSON with `journal`, `experimental` (the experimental features on in this tab; use only those), and `layout` (what's already open; `laura close` anything no longer relevant).
+- **Run `laura ready --session <id> --agent <name>`** first so pane interactions like inline review submission are enabled, and use your *own* conversation id for `--session` so the journal lines up 1:1 with this chat. If it fails, tell your partner you're not running in a Laura workspace and stop. Run it at the start of every chat, including after `/new` or `/clear`. It prints JSON with `journal`, `experimental` (the experimental features on in this tab; use only those), and `layout` (what's already open; `laura close` anything no longer relevant; if it's `null`, run `laura layout`).
 - **Run `laura layout`** before later opens or closes to see what's open and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
 - **Proactively show a file, diff, or logs** in a pane over pasting or referring to the content in the chat.

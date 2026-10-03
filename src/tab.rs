@@ -741,7 +741,7 @@ impl Tab {
                 Response::Ready {
                     journal: path,
                     experimental,
-                    layout: self.report(area),
+                    layout: Some(self.report(area)),
                 }
             }
             Message::Feedback { sentiment, body } => {

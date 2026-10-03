@@ -11,7 +11,7 @@ laura ready
 
 Run once per tab before opening a pane. Inline review interactions within panes are unavailable until `laura ready` is run.
 
-`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features on in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run it at the start of every chat, including after `/new` or `/clear`: panes from earlier chats may still be open.
+`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features on in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run it at the start of every chat, including after `/new` or `/clear`: panes from earlier chats may still be open. `layout` is `null` if Laura was upgraded while running; run `laura layout` instead.
 
 Outside a Laura workspace, `laura ready` exits 1 with `not inside a Laura tab`.
 
