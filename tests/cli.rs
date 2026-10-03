@@ -139,6 +139,17 @@ fn ready_marks_the_tab_and_returns_the_layout() -> Result<()> {
 }
 
 #[test]
+fn ready_outside_a_workspace_fails() -> Result<()> {
+    Command::cargo_bin("laura")?
+        .arg("ready")
+        .env_remove("LAURA_TAB")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("not inside a Laura tab"));
+    Ok(())
+}
+
+#[test]
 fn help_and_version_exit_zero() -> Result<()> {
     Command::cargo_bin("laura")?
         .arg("--help")

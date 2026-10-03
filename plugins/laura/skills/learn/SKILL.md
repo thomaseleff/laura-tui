@@ -1,7 +1,7 @@
 ---
 name: learn
 description: Create a lesson and teach your partner a concept, algorithm, or codebase live — expose it step by step, have them produce something, review their work in place, and revise.
-when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and your partner wants to learn something hands-on — "learn two-sum", "teach me recursion", "learn socratic borrow checker".
+when_to_use: You are running inside a Laura workspace and your partner wants to learn something hands-on — "learn two-sum", "teach me recursion", "learn socratic borrow checker".
 user-invocable: true
 argument-hint: [style] [difficulty] [prompt]
 ---
@@ -15,8 +15,7 @@ In a lesson the agent **navigates**: your partner is the driver — produces and
 Args are positional and all optional: an optional leading **style** (`socratic` / `montessori` / `direct` / `gradual`), an optional **difficulty** (`beginner` / `intermediate` / `advanced` / `expert`), then the **prompt**. For example: `learn two-sum`, `learn socratic recursion`, `learn direct beginner 101 crash course on Rust`. Infer any omitted arg; an explicit one always wins.
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
-- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start — *mandatory*, so `retro` can measure this session. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start — *mandatory*, so `retro` can measure this session. If it fails, tell your partner you're not running in a Laura workspace and stop. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
 - **Your partner sets the pace** — after each step **wait for `Next`**. If they ask a question, answer it, stay put, and resume on `Next`.
 - **Journal what you noticed** as you go (see below).
 - **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.

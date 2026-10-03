@@ -13,6 +13,8 @@ Run once per tab before opening a pane. Inline review interactions within panes 
 
 `laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features on in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run it at the start of every chat, including after `/new` or `/clear`: panes from earlier chats may still be open.
 
+Outside a Laura workspace, `laura ready` exits 1 with `not inside a Laura tab`.
+
 A `laura` command waits while the user is typing a comment or review body, and returns once they press `Enter` or `Esc`.
 
 ## Preview layout

@@ -1,7 +1,7 @@
 ---
 name: demo
 description: Run a guided, live walkthrough of Laura.
-when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and your partner wants to see what Laura does or get a feel for the inline review loop, panes, tailing, workspaces, and feedback.
+when_to_use: You are running inside a Laura workspace and your partner wants to see what Laura does or get a feel for the inline review loop, panes, tailing, workspaces, and feedback.
 user-invocable: true
 ---
 
@@ -10,7 +10,7 @@ user-invocable: true
 Run a **live walkthrough** of Laura, where you lay out the panes using the `laura` CLI, coaching your partner on how Laura works.
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
+- **Run Setup's `laura ready` first.** If it fails, tell your partner you're not running in a Laura workspace and stop.
 - **After each numbered beat, stop and wait** — your partner advances by sending `Next` (beat 2 advances **only** when their inline review arrives). Don't run ahead.
 - **If `laura close --all` errors with `unsubmitted inline review`**, send only: "Submit (`Shift+S`) or refresh (`Ctrl+R`) pane #N to continue.", then wait. **If it errors with `unsaved edits`**, send only: "Save (`:w`) or quit Neovim in pane #N to continue.", then wait. These only happen after your partner comments or edits, and they are the only messages you may send outside the script.
 - **See the `laura` skill** for the full CLI or run `laura --help`.

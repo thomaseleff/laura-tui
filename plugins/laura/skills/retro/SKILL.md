@@ -1,7 +1,7 @@
 ---
 name: retro
 description: Look back at the feedback and inline reviews Laura recorded across sessions — summarize sentiment, list negative feedback, group by agent or date.
-when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and your partner wants a summary of past feedback/inline reviews — "retro my sessions", "what feedback have I logged", "how did the lessons go".
+when_to_use: You are running inside a Laura workspace and your partner wants a summary of past feedback/inline reviews — "retro my sessions", "what feedback have I logged", "how did the lessons go".
 user-invocable: true
 argument-hint: [filter]
 ---
@@ -11,8 +11,8 @@ argument-hint: [filter]
 Read and summarize the feedback and inline reviews recorded in the journals — this skill only reads them. The journals are per-session NDJSON files, queried with `jq`.
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
-- **Read only** — never write to the journals here.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start. If it fails, tell your partner you're not running in a Laura workspace and stop.
+- **Read only** — never edit the journals.
 - **Summarize back in chat**: a sentiment count, the recurring negative feedback, and anything worth opening as an issue (https://github.com/thomaseleff/laura-tui/issues).
 - **See the `laura` skill** for the full CLI or run `laura --help`.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
