@@ -384,7 +384,7 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 <pre>
 {
   "type": "ready",
-  "journal": "/…/laura/sessions/&lt;session&gt;.ndjson",
+  "journal": "~/.laura/sessions/&lt;session&gt;.ndjson",
   "experimental": ["editor"]
 }
 </pre>

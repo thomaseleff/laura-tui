@@ -30,7 +30,8 @@ The following workflow guides you through the demo, follow it from start to fini
 
 ```bash
 # Use your own agent name for --agent (e.g. claude) — it auto-labels the comments you leave below.
-JOURNAL=$(laura ready --session demo --agent claude)   # enables inline review submission; prints the journal path
+laura ready --session demo --agent claude              # enables inline review submission
+JOURNAL=~/.laura/sessions/demo.ndjson                   # the session's journal
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 

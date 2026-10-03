@@ -131,7 +131,6 @@ Otherwise `open --edit` is refused with the reason (`editor panes are experiment
 |---|---|---|
 | `LAURA_EXPERIMENTAL_EDITOR` | the user, before starting Laura | Turns editor panes on. |
 | `LAURA_TAB` | Laura, in each child | Neovim inherits it, so `:!laura …` addresses its tab. |
-| `LAURA_DATA_DIR` | the user | Where the journal and the answer to the theme wizard ([Laura's theme](navigation.md#lauras-theme)) live. |
 
 When Neovim exits, its pane closes. If the pane has threads, it stays as a file pane instead, so an unsubmitted inline review is never lost.
 
@@ -139,7 +138,7 @@ Editor panes show no highlight or diff, since the editor view couldn't show them
 
 ## Journal
 
-`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/`comment`/`review`/`feedback` event is teed to it. A `review` event carries `error` when Laura couldn't write the inline review into the shell. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball. Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`) at `laura/sessions/<session>.ndjson`, overridable with `LAURA_DATA_DIR`. Read the latest with `cat "$(ls -t <dir>/laura/sessions/*.ndjson | head -1)" | jq .`.
+`ready` names a per-session append-only NDJSON journal and prints its path. Every `open`/`close`/`focus`/`comment`/`review`/`feedback` event is teed to it. A `review` event carries `error` when Laura couldn't write the inline review into the shell. Each event is stamped with `ts` (unix ms), `session`, `agent` (when set), and `version` — the build that emitted it: `X.Y.Z+<commit>` off a git checkout, bare `X.Y.Z` off a tarball. Files live at `~/.laura/sessions/<session>.ndjson`. Read the latest with `cat "$(ls -t ~/.laura/sessions/*.ndjson | head -1)" | jq .`.
 
 ## Global
 

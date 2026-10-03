@@ -19,20 +19,7 @@ Read and summarize the feedback and inline reviews recorded in the journals — 
 
 ## Find the sessions dir
 
-The journals live under `<data_dir>/laura/sessions/*.ndjson`. Resolve `<data_dir>` the way the binary does — honor `LAURA_DATA_DIR` first, else the OS data dir:
-
-```bash
-# Easiest anchor: laura ready prints the journal path; its grandparent is the sessions dir.
-DIR=$(dirname "$(laura ready --session "$YOUR_SESSION_ID" --agent claude)")
-
-# Or resolve directly:
-if [ -n "$LAURA_DATA_DIR" ]; then BASE="$LAURA_DATA_DIR"
-elif [ -n "$APPDATA" ]; then BASE="$APPDATA"                                   # windows
-elif [ -n "$XDG_DATA_HOME" ]; then BASE="$XDG_DATA_HOME"                       # linux
-elif [ -d "$HOME/Library/Application Support" ]; then BASE="$HOME/Library/Application Support"  # mac
-else BASE="$HOME/.local/share"; fi                                            # linux fallback
-DIR="$BASE/laura/sessions"
-```
+The journals live in `~/.laura/sessions/*.ndjson` (`DIR=~/.laura/sessions`).
 
 ## Recipes
 

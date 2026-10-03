@@ -9,7 +9,18 @@ use anyhow::Result;
 use assert_cmd::Command;
 use laura::{Message, Rect, Response, Tab};
 
+/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
+fn isolate_home() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: once per binary; std's env lock serializes it with std's own readers (`Command` spawn, `env::var`).
+    ONCE.call_once(|| unsafe {
+        std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
+    });
+}
+
 fn spawn_tab() -> Result<Tab> {
+    isolate_home();
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
     Tab::spawn(cmd, 24, 80)
 }
