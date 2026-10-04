@@ -11,7 +11,18 @@ use anyhow::Result;
 use assert_cmd::Command;
 use laura::{Rect, Tab};
 
+/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
+fn isolate_home() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: once per binary; std's env lock serializes it with std's own readers (`Command` spawn, `env::var`).
+    ONCE.call_once(|| unsafe {
+        std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
+    });
+}
+
 fn spawn_tab() -> Result<Tab> {
+    isolate_home();
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
     Tab::spawn(cmd, 24, 80)
 }
@@ -172,23 +183,23 @@ fn edit_is_refused_without_editor_support() -> Result<()> {
 #[test]
 fn ready_lists_editor_panes_only_when_on() -> Result<()> {
     let mut tab = spawn_tab()?;
-    let out = run(&mut tab, &["ready"]);
-    assert!(out.status.success());
-    assert!(
-        out.stderr.is_empty(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    tab.editor = Ok(fake("stay"));
-    let out = run(&mut tab, &["ready"]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("experimental: editor panes are on"),
-        "{stderr}"
-    );
-    // stdout stays the bare journal path: skills capture it.
-    assert!(!String::from_utf8_lossy(&out.stdout).contains("experimental"));
+    for (expected, editor) in [
+        (serde_json::json!([]), None),
+        (serde_json::json!(["editor"]), Some(fake("stay"))),
+    ] {
+        if let Some(exe) = editor {
+            tab.editor = Ok(exe);
+        }
+        let out = run(&mut tab, &["ready"]);
+        assert!(out.status.success());
+        assert!(
+            out.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+        assert_eq!(v["experimental"], expected, "{v}");
+    }
     Ok(())
 }
 

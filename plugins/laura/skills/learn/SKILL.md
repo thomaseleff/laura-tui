@@ -1,7 +1,7 @@
 ---
 name: learn
 description: Create a lesson and teach your partner a concept, algorithm, or codebase live — expose it step by step, have them produce something, review their work in place, and revise.
-when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and your partner wants to learn something hands-on — "learn two-sum", "teach me recursion", "learn socratic borrow checker".
+when_to_use: You are running inside a Laura workspace and your partner wants to learn something hands-on — "learn two-sum", "teach me recursion", "learn socratic borrow checker".
 user-invocable: true
 argument-hint: [style] [difficulty] [prompt]
 ---
@@ -15,8 +15,7 @@ In a lesson the agent **navigates**: your partner is the driver — produces and
 Args are positional and all optional: an optional leading **style** (`socratic` / `montessori` / `direct` / `gradual`), an optional **difficulty** (`beginner` / `intermediate` / `advanced` / `expert`), then the **prompt**. For example: `learn two-sum`, `learn socratic recursion`, `learn direct beginner 101 crash course on Rust`. Infer any omitted arg; an explicit one always wins.
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
-- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start — *mandatory*, so `retro` can measure this session. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start — *mandatory*, so `retro` can measure this session. If it fails, tell your partner you're not running in a Laura workspace and stop. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
 - **Your partner sets the pace** — after each step **wait for `Next`**. If they ask a question, answer it, stay put, and resume on `Next`.
 - **Journal what you noticed** as you go (see below).
 - **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.
@@ -33,7 +32,7 @@ Before composing a lesson:
 ## The four-phase loop
 
 - **Exposition** — teach in ordered steps: open a markdown pane, run `laura highlight` to highlight the span you are narrating, `laura close` the prior pane as you `laura open` the next. If a close is refused because an editor pane has unsaved edits, ask your partner to save (`:w`) or quit Neovim, and don't retry.
-- **Produce** — write a scratch stub file and, if `laura ready` printed `experimental: editor panes are on`, open it with `laura open <stub> --edit`, an editor pane running Neovim next to the chat. It doesn't take focus: tell your partner to press `Ctrl+P` and its id to edit, and `Ctrl+P 0` to come back. Otherwise, or if `--edit` is refused, open it with plain `laura open` instead and don't retry; your partner edits it in the shell (`vim`, `code .`) and the pane reloads on save.
+- **Produce** — write a scratch stub file and, if `laura ready` listed `editor` under `experimental`, open it with `laura open <stub> --edit`, an editor pane running Neovim next to the chat. It doesn't take focus: tell your partner to press `Ctrl+P` and its id to edit, and `Ctrl+P 0` to come back. Otherwise, or if `--edit` is refused, open it with plain `laura open` instead and don't retry; your partner edits it in the shell (`vim`, `code .`) and the pane reloads on save.
 - **Review** — review their work **in one chat message, referencing `file:line`**. As you walk each point, run `laura highlight <line> --pane <id>` to highlight that line in the open pane. An editor pane shows no highlight or diff (`laura highlight` and `laura diff` are refused), so annotate lines with `laura comment --pane <id>` instead, and tell your partner to press `Ctrl+L` to read and reply in the file view.
 - **Revise** — your partner edits again, the pane reloads, and you loop back as needed. In an editor pane the whole loop stays in one pane: submitting their replies flips it back to Neovim to revise.
 

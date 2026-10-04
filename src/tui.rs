@@ -196,9 +196,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
     let editor = laura::editor::resolve();
     // The theme wizard's answer: `laura` or `neovim`; missing means ask (only when editor panes are on).
-    let theme_path = laura::journal::data_dir()
-        .join("laura")
-        .join("editor-theme");
+    let theme_path = laura::journal::data_dir().join("editor-theme");
     let mut editor_theme = std::fs::read_to_string(&theme_path).is_ok_and(|s| s.trim() == "laura");
     let mut wizard = editor.is_ok() && !theme_path.exists();
     let mut tabs = vec![spawn_tab(
@@ -457,22 +455,17 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         };
                         wizard = answer.is_none() && key.code != KeyCode::Esc;
                         if let Some(yes) = answer {
-                            let saved = theme_path
-                                .parent()
-                                .map_or(Ok(()), std::fs::create_dir_all)
-                                .and_then(|()| {
+                            // A failed write only means the wizard asks again next launch.
+                            let _ = std::fs::create_dir_all(laura::journal::data_dir()).and_then(
+                                |()| {
                                     std::fs::write(
                                         &theme_path,
                                         if yes { "laura" } else { "neovim" },
                                     )
-                                });
+                                },
+                            );
                             toast = Some((
-                                if saved.is_ok() {
-                                    "✅ Experimental · Editor panes setup complete"
-                                } else {
-                                    "⚠ couldn't save the answer — it holds for this session"
-                                }
-                                .into(),
+                                "✅ Experimental · Editor panes setup complete".into(),
                                 Instant::now() + Duration::from_secs(10),
                             ));
                             editor_theme = yes;

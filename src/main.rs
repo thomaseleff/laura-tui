@@ -128,7 +128,7 @@ enum Cmd {
     },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
-    /// Mark this tab as hosting an agent (enables inline review submission). Prints the journal path, and the experimental features on to stderr.
+    /// Mark this tab as hosting an agent (enables inline review submission). Prints the journal path, the experimental features on, and the layout (JSON).
     Ready {
         /// Name the journal session (default: `laura-<pid>-<n>`).
         #[arg(long)]
@@ -297,18 +297,15 @@ fn client_request(msg: Message) -> Result<()> {
         Response::Ready {
             journal,
             experimental,
-        } => {
-            // stderr: skills capture stdout as the journal path.
-            for feature in experimental {
-                match feature.as_str() {
-                    "editor" => eprintln!(
-                        "experimental: editor panes are on — `laura open --edit <path>` runs Neovim in a pane"
-                    ),
-                    other => eprintln!("experimental: {other} is on"),
-                }
-            }
-            println!("{journal}");
-        }
+            layout,
+        } => println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "journal": journal,
+                "experimental": experimental,
+                "layout": layout,
+            }))?
+        ),
         Response::Error { message } => {
             eprintln!("{message}");
             std::process::exit(1);

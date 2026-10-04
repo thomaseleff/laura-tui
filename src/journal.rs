@@ -1,50 +1,30 @@
 //! Persisted composition journal: one append-only NDJSON file per session, teeing
 //! `open`/`close`/`focus`/`review`/`feedback` events so a session is auditable after it ends.
 //!
-//! Files live under the OS data dir (`%APPDATA%` / `$XDG_DATA_HOME` / `~/Library/Application Support`),
-//! overridable via `LAURA_DATA_DIR`. Auditing is just files: `cat $(ls -t <dir>/*.ndjson | head) | jq …`.
+//! Files live at `~/.laura/sessions/<session>.ndjson`.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
 
-/// The OS data dir Laura writes under, honoring `LAURA_DATA_DIR` first.
+/// Laura's data dir: `~/.laura` on every OS.
 pub fn data_dir() -> PathBuf {
-    if let Ok(d) = std::env::var("LAURA_DATA_DIR") {
-        return PathBuf::from(d);
-    }
-    #[cfg(windows)]
-    if let Ok(d) = std::env::var("APPDATA") {
-        return PathBuf::from(d);
-    }
-    #[cfg(target_os = "macos")]
-    if let Ok(h) = std::env::var("HOME") {
-        return PathBuf::from(h).join("Library/Application Support");
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        if let Ok(d) = std::env::var("XDG_DATA_HOME") {
-            return PathBuf::from(d);
-        }
-        if let Ok(h) = std::env::var("HOME") {
-            return PathBuf::from(h).join(".local/share");
-        }
-    }
-    std::env::temp_dir()
+    std::env::home_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".laura")
 }
 
 /// The per-session NDJSON path. `session` is sanitized to a safe file stem.
 pub fn session_path(session: &str) -> PathBuf {
     data_dir()
-        .join("laura")
         .join("sessions")
         .join(format!("{}.ndjson", sanitize(session)))
 }
 
 /// Runtime scratch dir for internal, auto-removed files (e.g. `laura tail` spools).
 pub fn runtime_dir() -> PathBuf {
-    data_dir().join("laura").join("runtime")
+    data_dir().join("runtime")
 }
 
 /// Whether `path` is a file Laura owns under `runtime_dir` (so `close` may delete it).
