@@ -1,5 +1,5 @@
 //! `ready --session` names a journal; a later `open` tees an event into that session's NDJSON.
-//! Drives the real seam (binary → socket → `Tab::drain`) with `LAURA_DATA_DIR` pointed at a tempdir.
+//! Drives the real seam (binary → socket → `Tab::drain`) with `HOME` pointed at a tempdir.
 
 use std::sync::mpsc;
 use std::thread;
@@ -41,7 +41,10 @@ fn drive_tab(tab: &mut Tab, args: &[&str]) {
 fn ready_names_a_session_and_open_is_journaled() -> Result<()> {
     let dir = tempfile::tempdir()?;
     // SAFETY: single test in this binary; nothing else reads the env concurrently.
-    unsafe { std::env::set_var("LAURA_DATA_DIR", dir.path()) };
+    unsafe {
+        std::env::set_var("HOME", dir.path());
+        std::env::set_var("USERPROFILE", dir.path());
+    }
 
     let file = tempfile::NamedTempFile::new()?;
     let path = file.path().to_str().unwrap();
@@ -54,7 +57,7 @@ fn ready_names_a_session_and_open_is_journaled() -> Result<()> {
 
     let ndjson = dir
         .path()
-        .join("laura")
+        .join(".laura")
         .join("sessions")
         .join("audit-test.ndjson");
     let body = std::fs::read_to_string(&ndjson)?;
