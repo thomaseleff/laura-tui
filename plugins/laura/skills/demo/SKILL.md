@@ -30,12 +30,11 @@ The following workflow guides you through the demo, follow it from start to fini
 
 ```bash
 # Use your own agent name for --agent (e.g. claude) — it auto-labels the comments you leave below.
-laura ready --session demo --agent claude              # enables inline review submission
-JOURNAL=~/.laura/sessions/demo.ndjson                   # the session's journal
+laura ready --session demo --agent claude              # enables inline review submission; prints JSON
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
-_Keep `$JOURNAL` and `$D` for later beats. Note what `laura ready` lists under `experimental`: it decides which bonus beats run._
+_Keep `$D` and the `journal` path `laura ready` printed (`$JOURNAL` below) for later beats. Note what it lists under `experimental`: it decides which bonus beats run._
 
 ```bash
 # Close all open panes before beginning the demo
