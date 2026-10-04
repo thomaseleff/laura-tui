@@ -35,7 +35,7 @@ An editor pane never takes focus when it opens, so typing into the chat can't la
 
 ### Laura's theme
 
-The first time Laura starts with editor panes on, it asks whether Neovim should use Laura's theme inside Laura: `y` yes, `n` keep your Neovim as it is, `Esc` ask again next launch. Until you answer, the agent's commands wait. `y` or `n` shows `✅ Experimental · Editor panes setup complete`. Laura's theme gives Neovim the file view's syntax colors (Nord, over the terminal's own background) and turns on line numbers and an always-on sign column, so a `Ctrl+L` flip neither swaps palettes nor shifts the code. It applies after your Neovim config loads, and only inside Laura: your config is never changed. The answer is kept in `<data dir>/laura/editor-theme` (see [`LAURA_DATA_DIR`](cli.md#editor-panes-experimental)), and the wizard shows the full path; delete that file and restart Laura to be asked again.
+The first time Laura starts with editor panes on, it asks whether Neovim should use Laura's theme inside Laura: `y` yes, `n` keep your Neovim as it is, `Esc` ask again next launch. Until you answer, the agent's commands wait. `y` or `n` shows `✅ Experimental · Editor panes setup complete`. Laura's theme gives Neovim the file view's syntax colors (Nord, over the terminal's own background) and turns on line numbers and an always-on sign column, so a `Ctrl+L` flip neither swaps palettes nor shifts the code. It applies after your Neovim config loads, and only inside Laura: your config is never changed. The answer is kept in `~/.laura/editor-theme`, and the wizard shows the full path; delete that file and restart Laura to be asked again.
 
 ## In a focused pane
 

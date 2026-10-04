@@ -1,7 +1,7 @@
 ---
 name: explain
 description: Walk your partner through a PR, a file, or how something works, stepping across ranges of one or more panes one range at a time and advancing on their cue.
-when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and your partner wants a guided walkthrough — "explain this PR", "walk me through the render loop", "how does X work".
+when_to_use: You are running inside a Laura workspace and your partner wants a guided walkthrough — "explain this PR", "walk me through the render loop", "how does X work".
 user-invocable: true
 argument-hint: [target]
 ---
@@ -13,8 +13,7 @@ Run a guided walkthrough: open the relevant files in panes, step through them on
 An explanation is **agent-driven**: you are the driver — opening, highlighting, narrating — while your partner navigates, reviewing and reacting as you go.
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
-- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start. If it fails, tell your partner you're not running in a Laura workspace and stop. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
 - **After each step, wait for `Next`.** If your partner asks a question mid-step, answer it, stay on the step, and advance on `Next`.
 - **End with `laura close --all`.**
 - **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.

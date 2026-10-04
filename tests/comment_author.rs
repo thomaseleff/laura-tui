@@ -1,7 +1,6 @@
 //! An omitted `laura comment --author` defaults to the session's `ready --agent` name; an
 //! explicit `--author` (the sub-agent case) overrides it. Drives the real seam
 //! (binary → socket → `Tab::drain`) and reads the recorded author back off the panel.
-//! Own test binary so the `LAURA_DATA_DIR` env set below isn't raced by a sibling test.
 
 use std::sync::mpsc;
 use std::thread;
@@ -11,6 +10,16 @@ use anyhow::Result;
 use assert_cmd::Command;
 use laura::protocol::{self, Message, Response};
 use laura::{Author, Rect, Tab};
+
+/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
+fn isolate_home() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    // SAFETY: once per binary; std's env lock serializes it with std's own readers (`Command` spawn, `env::var`).
+    ONCE.call_once(|| unsafe {
+        std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
+    });
+}
 
 fn run_tab(tab: &mut Tab, args: &[&str]) -> bool {
     let name = tab.socket.clone();
@@ -46,9 +55,7 @@ fn drive_tab(tab: &mut Tab, args: &[&str]) {
 
 #[test]
 fn comment_author_defaults_to_session_agent() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    // SAFETY: single test in this binary; nothing else reads the env concurrently.
-    unsafe { std::env::set_var("LAURA_DATA_DIR", dir.path()) };
+    isolate_home();
 
     let file = tempfile::NamedTempFile::new()?;
     std::fs::write(file.path(), "line one\nline two\n")?;
@@ -129,9 +136,7 @@ fn request_tab(tab: &mut Tab, msg: Message) -> Response {
 
 #[test]
 fn bodyless_comment_errors_and_places_no_thread() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    // SAFETY: single test in this binary; nothing else reads the env concurrently.
-    unsafe { std::env::set_var("LAURA_DATA_DIR", dir.path()) };
+    isolate_home();
 
     let file = tempfile::NamedTempFile::new()?;
     std::fs::write(file.path(), "line one\nline two\n")?;
@@ -165,9 +170,7 @@ fn bodyless_comment_errors_and_places_no_thread() -> Result<()> {
 
 #[test]
 fn comment_past_eof_exits_nonzero_and_places_no_thread() -> Result<()> {
-    let dir = tempfile::tempdir()?;
-    // SAFETY: single test in this binary; nothing else reads the env concurrently.
-    unsafe { std::env::set_var("LAURA_DATA_DIR", dir.path()) };
+    isolate_home();
 
     let file = tempfile::NamedTempFile::new()?;
     std::fs::write(file.path(), "line one\nline two\n")?;

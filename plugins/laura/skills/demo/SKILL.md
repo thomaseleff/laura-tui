@@ -1,7 +1,7 @@
 ---
 name: demo
 description: Run a guided, live walkthrough of Laura.
-when_to_use: You are running inside a Laura tab (LAURA_TAB is set) and your partner wants to see what Laura does or get a feel for the inline review loop, panes, tailing, workspaces, and feedback.
+when_to_use: You are running inside a Laura workspace and your partner wants to see what Laura does or get a feel for the inline review loop, panes, tailing, workspaces, and feedback.
 user-invocable: true
 ---
 
@@ -10,7 +10,7 @@ user-invocable: true
 Run a **live walkthrough** of Laura, where you lay out the panes using the `laura` CLI, coaching your partner on how Laura works.
 
 **Rules**
-- **Check that `$LAURA_TAB` is set**; otherwise, let your partner know you are not running in a Laura workspace.
+- **Run Setup's `laura ready` first.** If it fails, tell your partner you're not running in a Laura workspace and stop.
 - **After each numbered beat, stop and wait** — your partner advances by sending `Next` (beat 2 advances **only** when their inline review arrives). Don't run ahead.
 - **If `laura close --all` errors with `unsubmitted inline review`**, send only: "Submit (`Shift+S`) or refresh (`Ctrl+R`) pane #N to continue.", then wait. **If it errors with `unsaved edits`**, send only: "Save (`:w`) or quit Neovim in pane #N to continue.", then wait. These only happen after your partner comments or edits, and they are the only messages you may send outside the script.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
@@ -30,11 +30,11 @@ The following workflow guides you through the demo, follow it from start to fini
 
 ```bash
 # Use your own agent name for --agent (e.g. claude) — it auto-labels the comments you leave below.
-JOURNAL=$(laura ready --session demo --agent claude)   # enables inline review submission; prints the journal path
+laura ready --session demo --agent claude              # enables inline review submission; prints JSON
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
-_Keep `$JOURNAL` and `$D` for later beats. Note any `experimental: …` lines `laura ready` printed: they decide which bonus beats run._
+_Keep `$D` and the `journal` path `laura ready` printed (`$JOURNAL` below) for later beats. Note what it lists under `experimental`: it decides which bonus beats run._
 
 ```bash
 # Close all open panes before beginning the demo
@@ -314,7 +314,7 @@ _Then **wait for `Next`**, and `laura close --all`._
 
 ### Edit together (experimental)
 
-_Run this beat only if `laura ready` printed `experimental: editor panes are on`. Otherwise, or if `laura open --edit` is refused, skip straight to **Recording feedback** without mentioning it. It shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` is refused, skip straight to **Recording feedback** without mentioning it. It shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
 
 **Do:**
 

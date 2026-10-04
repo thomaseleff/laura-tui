@@ -384,8 +384,9 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 <pre>
 {
   "type": "ready",
-  "journal": "/…/laura/sessions/&lt;session&gt;.ndjson",
-  "experimental": ["editor"]
+  "journal": "~/.laura/sessions/&lt;session&gt;.ndjson",
+  "experimental": ["editor"],
+  "layout": { "area": {}, "panes": [ … ] }
 }
 </pre>
 
@@ -393,7 +394,7 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 </tr>
 </table>
 
-`journal` is the session's journal path. `experimental` names the experimental features on in the tab (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)); empty when none are.
+`journal` is the session's journal path. `experimental` names the experimental features on in the tab (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)); empty when none are. `layout` is the same report [`layout`](#layout) returns; `null` from a Laura started before this field, upgraded while running.
 
 ### `update`
 
