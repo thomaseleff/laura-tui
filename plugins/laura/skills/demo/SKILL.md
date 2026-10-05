@@ -47,20 +47,19 @@ laura close --all
 
 **Say:**
 
-> **Laura** is a TUI workspace that provides your agent with an **API over the TUI**, allowing your agent to lay out panes while you pair-program.
+> **Laura** is a TUI workspace that gives your agent an **API over the TUI**, so your agent can tile panes while you pair-program.
 >
-> Each pane renders a file or displays logs, allowing you to interact with your agent in every pane without ever leaving the terminal.
+> Each pane shows a file or the output of a running command, and you can work with your agent in every pane without leaving the terminal.
 >
-> Your agent learns how to use Laura through skills, and you can run them anytime in chat:
-> 
-> - `/laura:laura <file>` shows a file in a pane (or `/laura:laura <prompt>` to lay out a whole workspace)
-> - `/laura:demo` runs this walkthrough
-> - `/laura:explain <target>` instructs your agent to explain code, a concept, or a PR
-> - `/laura:learn <prompt>` instructs your agent to teach you a concept, or guide you through a coding task
-> - `/laura:retro` allows you to browse feedback your agent has recorded on working with Laura
+> Your agent learns Laura from its skills, and you can run the skills anytime in the chat:
 >
-> In the demo, I'll guide you through the core inline review workflow, show you how your agent lays out different workspaces, and show you how to log feedback. Each step of the demo also includes **Suggested prompts** that you can use after the demo with your agent.
+> - `/laura:laura <file>` shows a file in a pane, and `/laura:laura <prompt>` lays out a whole workspace.
+> - `/laura:demo` runs this walkthrough.
+> - `/laura:explain <target>` has your agent explain code, a concept, or a PR.
+> - `/laura:learn <prompt>` has your agent teach you a concept, or guide you through a coding task.
+> - `/laura:retro` has your agent read back the feedback and inline reviews from past sessions.
 >
+> In this demo, I'll walk you through the inline review loop, show how your agent lays out different workspaces, and show how to record feedback. Each step ends with **Suggested prompts** to try with your agent after the demo.
 >
 > Read the docs at https://thomaseleff.github.io/laura-tui.
 >
@@ -93,7 +92,9 @@ done
 
 > **[1 / 5] The workspace is just panes**
 >
-> Laura's workspace is just panes, so your agent can lay out pretty much anything... Here's a Fibonacci sequence. By default, panes open in a downward spiral / dwindle pattern and reload when the source file changes.
+> Laura's workspace is just panes, so your agent can lay out almost anything. Here's a Fibonacci sequence, one number per pane.
+>
+> By default, Laura splits the newest pane and alternates the orientation, a spiral called a dwindle. Laura reloads each pane when its file changes.
 >
 > **Suggested prompts**
 >
@@ -134,17 +135,17 @@ laura comment 6 "suggest 1 hour — 24h is a long window for a bearer token" --p
 
 > **[2 / 5] The pane interactions**
 >
-> Aside from laying out panes, Laura allows you to interact with your agent in every pane within your workspace without ever leaving the terminal.
+> Beyond laying out panes, Laura lets you review with your agent in every pane, without leaving the terminal.
 >
-> In the pane to the right I pulled up a plan file and left a suggestion for you to address. Reply to it and add your own:
+> I opened a plan in the pane to the right and left a comment for you. Reply to my comment and add your own:
 >
-> 1. Panes are auto-focused by default. Press `Ctrl+P`, then type a number to focus the corresponding pane. Press `Esc` from any pane to return here to the chat.
-> 2. From within a focused pane, use the `↑`/`↓` arrow keys to move the line cursor to L6, the **"Every token expires 24 hours…"** line — you'll see my comment as a card under it. Press `c`, type `Agreed`, and then `Enter` to leave an inline reply.
-> 3. Move to L11, the **"Open question: should refresh tokens rotate…"** line, press `c`, and type `Sounds good`, and `Enter`. On a line with no thread, `c` opens a **new** thread instead of replying.
-> 4. With threads in a pane, press `r` on a thread to collapse/expand it. Pressing `r` off a thread toggles all threads within the pane.
-> 5. When you're ready, press `Shift+S`, type `Replied below - all looks good` and `Enter` to submit.
+> 1. Laura focuses a new pane when it opens. To focus another pane, press `Ctrl+P` then the pane's number. Press `Esc` in a file pane to return to the chat.
+> 2. In the plan pane, press `↑`/`↓` to move the cursor to L6, the **"Every token expires 24 hours…"** line. My comment shows as a card under the line. Press `c`, type `Agreed`, then press `Enter` to reply.
+> 3. Move to L11, the **"Open question: should refresh tokens rotate…"** line. Press `c`, type `Sounds good`, then press `Enter`. L11 has no thread yet, so your comment starts a **new** thread.
+> 4. Press `r` on a thread to collapse or expand the thread. Press `r` on a line without a thread to collapse or expand every thread in the pane.
+> 5. When you're ready, press `Shift+S`, type `Replied below - all looks good` as the review body, then press `Enter` to submit.
 >
-> Your inline review, along with its threads, is submitted into the chat.
+> Laura submits your inline review, with its threads and review body, into the chat.
 >
 > **Suggested prompts**
 >
@@ -178,15 +179,15 @@ EOF
 
 **Say:**
 
-> I applied your inline review: L6 → a 1 hour TTL, L11 → refresh tokens rotate on every use. The plan in the pane reloaded with the changes.
+> I applied your inline review: L6 now sets a 1 hour TTL, and L11 now says refresh tokens rotate on every use. Laura reloaded the plan in the pane with the changes.
 >
-> Threads accumulate as part of an inline review, and `Shift+S` submits the entire inline review into chat, clearing the threads from the pane.
+> Your threads add up to one inline review. When you submit with `Shift+S`, Laura writes the whole inline review into the chat and clears the threads from the pane.
 >
-> If a file is edited while its pane has an unsubmitted inline review, the pane freezes: it keeps showing the snapshot so comments don't shift before the inline review is submitted. A frozen pane shows ⚠ on its bottom border - you can either submit the inline review with `Shift+S` or refresh the file and discard the unsubmitted inline review with `Ctrl+R`.
+> If I edit a file while you have an unsubmitted inline review on its pane, Laura freezes the pane. The frozen pane keeps showing the snapshot, so your comments stay on the original lines, and Laura shows ⚠ on the pane's bottom border. To continue, submit with `Shift+S`, or press `Ctrl+R` to refresh: Laura discards the unsubmitted inline review and reloads the file.
 >
-> Your agent can also task subagents to attach comments to threads for extra opinions before submitting an inline review.
+> Your agent can also have subagents annotate the pane, for extra opinions before you submit.
 >
-> Send `Next` to review the code change from your inline review.
+> Send `Next` to review the code that implements your inline review.
 
 _Then **wait for `Next`**, and `laura close --all`._
 
@@ -224,18 +225,18 @@ laura open "$R/tokens.py" --diff --ratio 55   # focused, straight into the inlin
 
 > **[3 / 5] Code review**
 >
-> Here's the code change that implements the plan from earlier, including the suggestions we worked out through the inline review. When `git` is available panes render per-line gutter markers, indicating added, modified, or deleted lines, or an optional full diff. I've opened the full diff in the pane to the right.
+> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff. I opened the full diff in the pane to the right.
 >
-> 1. Press `d` to toggle the inline diff **off**, which will switch the pane back to rendering the raw content along with per-line gutter markers. Press `d` again to bring back the full diff.
+> 1. Press `d` to turn the diff view **off**. Laura shows the file with the gutter markers. Press `d` again to turn the diff view back on.
 >
-> A diff is still just a view onto a file, so all the same in-pane interactions work as well (`↑`/`↓` to a line, `c` to comment, `Shift+S` to submit, `Esc` back to chat). Submit (`Shift+S`) or refresh (`Ctrl+R`) any comments before sending `Next`.
+> The diff view still shows the file, so the same pane keys work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
 > - `/laura:laura Show me the diff of my last commit so I can review it`
 > - `/laura:laura Open the staged changes in a pane so I can review them`
 >
-> Send `Next` to learn how to tail logs.
+> Send `Next` to debug with live logs.
 
 **Do (git unavailable):**
 
@@ -259,16 +260,16 @@ laura open "$D/tokens.diff" --ratio 55   # git absent — show the static patch 
 
 > **[3 / 5] Code review**
 >
-> Here's the code change that implements the plan from earlier, including the suggestions we worked out through the inline review. When `git` is available panes render per-line gutter markers, indicating added, modified, or deleted lines, or an optional full diff. I've opened the full diff in the pane to the right.
+> Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in the pane to the right. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff.
 >
-> A diff pane is still just a view onto a file, so all the in-pane interactions work as well (`↑`/`↓` to a line, `c` to comment, `Shift+S` to submit, `Esc` back to chat). Submit (`Shift+S`) or refresh (`Ctrl+R`) any comments before sending `Next`.
+> The patch is still a file, so the same pane keys work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
 > - `/laura:laura Show me the diff of my last commit so I can review it`
 > - `/laura:laura Open the staged changes in a pane so I can review them`
 >
-> Send `Next` to learn how to debug live logs.
+> Send `Next` to debug with live logs.
 
 _Then **wait for `Next`** (ignore any inline review if one is submitted), and `laura close --all`._
 
@@ -297,9 +298,9 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 
 > **[4 / 5] Debug**
 >
-> I've opened a source code file to a new pane, then ran the file, tailing the logs into another pane on the right.
+> I opened a source file in the pane to the right, ran the code, and piped its logs into a tail pane below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.
 >
-> Just like a diff, tail panes are still just a view onto a file, so all the in-pane interactions work as well (`↑`/`↓` to a line, `c` to comment, `Shift+S` to submit, `Esc` back to chat). Submit (`Shift+S`) or refresh (`Ctrl+R`) any comments before sending `Next`.
+> A tail pane still shows a file, so the same pane keys work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
@@ -314,7 +315,7 @@ _Then **wait for `Next`**, and `laura close --all`._
 
 ### Edit together (experimental)
 
-_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` is refused, skip straight to **Recording feedback** without mentioning it. It shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` returns an error, skip straight to **Recording feedback** without mentioning it. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
 
 **Do:**
 
@@ -331,9 +332,9 @@ ED=$(laura open "$D/retry.py" --edit --ratio 55)   # never takes focus
 
 > **Bonus · Edit together**
 >
-> The pane to the right is an **editor pane**: Neovim running on the file, next to the chat.
+> The pane to the right is an **editor pane**, where you edit the file in Neovim next to the chat.
 >
-> 1. Press `Ctrl+P`, then its number, to edit. Change `2 ** tries` to `min(2 ** tries, 60)` and save with `:w`.
+> 1. Press `Ctrl+P`, then the pane's number, to edit the file. Change `2 ** tries` to `min(2 ** tries, 60)` and save with `:w`.
 > 2. Tell me when you've saved.
 
 _Wait for your partner, then annotate the saved line:_
@@ -344,11 +345,11 @@ laura comment 2 "nice cap - should 60 be a setting?" --pane "$ED"
 
 **Say:**
 
-> I left a comment on L2. In Neovim it shows on its line with a `✎` sign, and the pane's border shows `[review: 1]`. Put the cursor on L2 and press `Ctrl+W` then `d` to read the whole thread.
+> I left a comment on L2. In the editor view, Neovim shows my comment as a `✎` sign on L2, and the pane's border shows `[review: 1]`. To read the whole thread, put the cursor on L2 and press `Ctrl+W` then `d`.
 >
-> 1. Press `Ctrl+L` to flip the pane to its **file view**: the saved file, with my comment as a card and the usual pane keys.
-> 2. On L2 press `c`, type a reply, and `Enter`.
-> 3. Press `Shift+S` and `Enter` to submit. The inline review lands in the chat and the pane flips back to Neovim.
+> 1. Press `Ctrl+L` to flip the pane to its **file view**. The file view shows the saved file, with my comment as a card, and takes the usual pane keys.
+> 2. On L2, press `c`, type a reply, then press `Enter`.
+> 3. Press `Shift+S`, then `Enter`, to submit. Laura submits the inline review into the chat and flips the pane back to the editor view.
 >
 > **Suggested prompts**
 >
@@ -366,7 +367,7 @@ _Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
 ```bash
 laura feedback --positive "the debug dashboard layout read clearly"
-laura feedback --negative "wanted an inline diff view Laura doesn't have yet"
+laura feedback --negative "wanted a side-by-side diff view"
 tail -2 "$JOURNAL"
 ```
 
@@ -374,9 +375,13 @@ tail -2 "$JOURNAL"
 
 > **[5 / 5] Recording feedback**
 >
-> Laura is a new tool, so your agent may not have background on the full command / flag interface, or your agent may display content poorly, or you may find improvements to the UX.
+> Laura is new, so your agent may not know every command and flag yet, your agent may lay out content poorly, or you may spot ways to improve Laura.
 >
-> You can ask your agent at any time to log positive or negative feedback. All feedback is stored locally so you can audit / review periodically, task your agent to record memory based on your feedback, or open feedback as issues in GitHub (https://github.com/thomaseleff/laura-tui/issues) anytime.
+> Ask your agent to log positive or negative feedback at any time. Laura stores your feedback locally, so you can:
+>
+> - Review your feedback with `/laura:retro`.
+> - Have your agent save memories from your feedback.
+> - Open issues on GitHub (https://github.com/thomaseleff/laura-tui/issues).
 >
 > **Suggested prompts**
 >
@@ -400,9 +405,9 @@ rm -rf "$D"
 
 **Say:**
 
-> **The demo is finished!** Here are a few final workspace ideas as you start your first task:
+> **The demo is finished!** Here are a few workspace ideas for your first task:
 >
-> - **Doc / plan review** — a plan on one side, revised live as you comment.
-> - **Debug dashboard** — source plus a tailing log, like you just saw.
-> - **Diff review** — review changes in place before they land.
-> - **Data analysis** — a markdown report (headings, lists) rendered in a pane.
+> - **Doc or plan review** — a plan on one side, which your agent revises as you comment.
+> - **Debug dashboard** — source code next to a tail pane, like you just saw.
+> - **Diff review** — review changes in place before you commit them.
+> - **Data analysis** — a markdown report, with headings and lists, in a pane.

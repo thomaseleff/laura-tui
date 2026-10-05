@@ -13,7 +13,7 @@ use ratatui::layout::{Margin, Rect};
 use serde_json::json;
 
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, is_runtime_temp};
+use crate::journal::{Journal, is_runtime_temp, runtime_dir};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
 use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{
@@ -151,7 +151,8 @@ pub struct Tab {
 }
 
 impl Tab {
-    /// Mint a unique socket, serve it, point `cmd`'s `LAURA_TAB` at it, spawn the PTY.
+    /// Mint a unique socket, serve it, point `cmd`'s `LAURA_TAB` at it and `LAURA_RUNTIME` at
+    /// the host's spool dir, spawn the PTY.
     pub fn spawn(mut cmd: CommandBuilder, rows: u16, cols: u16) -> Result<Tab> {
         let n = TAB_COUNTER.fetch_add(1, Ordering::Relaxed);
         let socket = format!(
@@ -162,6 +163,7 @@ impl Tab {
         );
         let rx = protocol::serve(&socket)?;
         cmd.env("LAURA_TAB", &socket);
+        cmd.env("LAURA_RUNTIME", runtime_dir());
         let pty = PtyTab::spawn(cmd, rows, cols)?;
         Ok(Tab {
             pty,
@@ -185,6 +187,7 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
+    /// Field names and values are public: `laura journal` filters on them and `docs/cli.md` lists them; change both together.
     pub fn log_event(&self, event: serde_json::Value) {
         if let Some(j) = &self.journal {
             j.log(event);
@@ -788,12 +791,15 @@ impl Tab {
     }
 }
 
-/// Release the tab's socket. The listener thread blocks in `accept` and only learns `rx` is gone
+/// Delete the tab's `laura tail` spools and release its socket. The listener thread blocks in `accept` and only learns `rx` is gone
 /// from a failed send, so the pipe outlives the tab until a request wakes it, and a stale
 /// `LAURA_TAB` reads that request's dropped reply as success.
 /// ponytail: a self-connect wakes the accept; a nonblocking listener with a stop flag if it's flaky.
 impl Drop for Tab {
     fn drop(&mut self) {
+        for p in self.panels.values() {
+            remove_if_temp(&p.path);
+        }
         // `rx` first: alive, it would take the wake-up request and `request` would wait on a reply.
         self.rx = channel().1;
         let _ = protocol::request(&self.socket, &Message::Layout);

@@ -10,7 +10,7 @@ mod keys;
 mod mouse;
 mod tui;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 // Bracketed paste is a no-op stub on Windows (crossterm #962) that can taint pasted Enter events, so
@@ -148,6 +148,18 @@ enum Cmd {
         /// Free-text body.
         body: Option<String>,
     },
+    /// Print journaled events across sessions (NDJSON, oldest first). Works outside a workspace.
+    Journal {
+        /// Match a top-level field, e.g. `type=feedback sentiment=+`. Repeat a field to match any of its values.
+        #[arg(value_name = "FIELD=VALUE", value_parser = parse_filter)]
+        filters: Vec<(String, String)>,
+        /// Only events newer than this: `30m`, `24h`, `7d`.
+        #[arg(long, value_parser = parse_since)]
+        since: Option<u64>,
+        /// Print the newest N matches; `-n 0` prints only the match count.
+        #[arg(short = 'n', value_name = "N", default_value_t = 50)]
+        limit: usize,
+    },
     /// Spool piped stdin to an internal file and show it in a live, autoscrolling pane.
     /// Usage: `some-cmd | laura tail --follow`.
     Tail {
@@ -256,6 +268,28 @@ fn main() -> Result<()> {
                 body,
             })
         }
+        Some(Cmd::Journal {
+            filters,
+            since,
+            limit,
+        }) => {
+            use std::io::Write;
+            let events = laura::journal::read_events(&filters, since);
+            let skip = events.len().saturating_sub(limit);
+            if skip > 0 {
+                eprintln!(
+                    "showing {limit} of {} events; pass -n for more",
+                    events.len()
+                );
+            }
+            let mut out = std::io::stdout().lock();
+            for v in &events[skip..] {
+                if writeln!(out, "{v}").is_err() {
+                    break; // reader closed the pipe
+                }
+            }
+            Ok(())
+        }
         Some(Cmd::Tail {
             title,
             follow,
@@ -314,9 +348,31 @@ fn client_request(msg: Message) -> Result<()> {
     Ok(())
 }
 
+/// `FIELD=VALUE` → `(field, value)`.
+fn parse_filter(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(f, v)| (f.to_string(), v.to_string()))
+        .ok_or_else(|| format!("expected FIELD=VALUE, got `{s}`"))
+}
+
+/// `30m` / `24h` / `7d` → milliseconds.
+fn parse_since(s: &str) -> Result<u64, String> {
+    [("m", 60_000), ("h", 3_600_000), ("d", 86_400_000)]
+        .iter()
+        .find_map(|&(unit, per)| {
+            Some(
+                s.strip_suffix(unit)?
+                    .parse::<u64>()
+                    .ok()?
+                    .saturating_mul(per),
+            )
+        })
+        .ok_or_else(|| format!("expected a duration like 30m, 24h, 7d, got `{s}`"))
+}
+
 /// `some-cmd | laura tail`: spool stdin to an internal file, show it as a live follow-pane,
-/// then keep copying stdin → file until EOF. The file lives under Laura's runtime dir and is
-/// auto-removed when the pane closes.
+/// then keep copying stdin → file until EOF. The file lives in `runtime_dir()` and is removed
+/// when its pane closes or Laura quits; a crash leaves it in the temp dir.
 ///
 /// ponytail: file-backed, not socket-streamed — deferred. One temp file per invocation.
 fn tail(
@@ -332,7 +388,8 @@ fn tail(
         bail!("not inside a Laura tab (LAURA_TAB unset)");
     };
     let runtime = laura::journal::runtime_dir();
-    std::fs::create_dir_all(&runtime)?;
+    std::fs::create_dir_all(&runtime)
+        .with_context(|| format!("couldn't create {}", runtime.display()))?;
     let stem = title.as_deref().unwrap_or("tail");
     let stem: String = stem
         .chars()

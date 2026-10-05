@@ -8,44 +8,44 @@ argument-hint: [target]
 
 # laura explain
 
-Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, run `laura highlight` to highlight the span you are describing, and explain it in chat.
+Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, highlight the lines you're describing with `laura highlight`, and explain them in the chat.
 
-An explanation is **agent-driven**: you are the driver — opening, highlighting, narrating — while your partner navigates, reviewing and reacting as you go.
+In a walkthrough, you **drive**. You open files, highlight lines and explain, while your partner navigates, reviewing and reacting as you go.
 
 **Rules**
-- **Run `laura ready --session "$YOUR_SESSION_ID" --agent claude`** once at the start. If it fails, tell your partner you're not running in a Laura workspace and stop. Use your *own* conversation/session id so the journal lines up 1:1 with this chat.
-- **After each step, wait for `Next`.** If your partner asks a question mid-step, answer it, stay on the step, and advance on `Next`.
+- **Run `laura ready --session "$YOUR_SESSION_ID" --agent <name>`** at the start. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop.
+- **After each step, wait for `Next`.** If your partner asks a question mid-step, answer it, stay on the step, and continue on `Next`.
 - **End with `laura close --all`.**
-- **Laura auto-tiles** — a bare `laura open <path>` splits the newest pane and alternates orientation (a dwindle); no manual `--split` threading.
+- **Let Laura tile.** With no split flags, Laura splits the newest pane and alternates the orientation (a dwindle), so you don't need to pass `--split`.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
-- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
+- **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
 
 ## Understand the target first, then plan
 
-Before beginning the guided explanation:
+Before beginning the walkthrough:
 
-1. **Understand what and why.** Ask your partner clarifying questions to discover what you are tasked with explaining and why.
-2. **Explore the target yourself.** Read the diff (`git diff <base>...HEAD`), open the files, and trace the call sites until you understand it.
+1. **Understand what and why.** Ask your partner clarifying questions to learn what to explain and why.
+2. **Explore the target yourself.** Read the diff (`git diff <base>...HEAD`), open the files, and trace the call sites until you understand the target.
 3. **Plan the sequence** of ranges you will step through.
 
 ## The loop
 
-Compose the walkthrough from these actions, in whatever order the explanation calls for:
+Compose the walkthrough from these commands, in whatever order the explanation calls for:
 
-- `laura open <path>` opens a file in a pane and prints the new pane id. Capture the id to target that pane later, and open a pane per file when the walkthrough spans several.
+- `laura open <path>` opens a file in a pane and prints the new pane id. Capture the id to target that pane later, and open one pane per file when the walkthrough spans several files.
 - `laura open <path> --highlight <a> <b>` opens a file already scrolled to and highlighting lines `a`–`b`.
-- `laura highlight <a> <b> --pane <id>` highlights lines `a`–`b` in an already-open pane.
-- `<some-cmd> | laura tail --follow --split <id> --dir v --ratio 30` tiles a tail pane under a pane when the explanation needs runtime output beside the code.
+- `laura highlight <a> <b> --pane <id>` highlights lines `a`–`b` in an open pane.
+- `<some-cmd> | laura tail --follow --split <id> --dir v --ratio 30` opens a tail pane below pane `<id>`, when the explanation needs live output next to the code.
 
-A step may highlight one span, move across several spans of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the calls that set up what you want your partner to see, then explain it in chat. Annotate with `laura comment` only when you need your partner's answer in a thread, for example "which of these two approaches do you prefer?". The pane stays open until they submit or refresh.
+A step may highlight one range, move across several ranges of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the commands that set up what your partner should see, then explain the step in the chat.
+
+Annotate with `laura comment` only when you need your partner's answer in a thread, for example "which of these two approaches do you prefer?". Until your partner submits or refreshes, you can't close the pane.
 
 ## Close the loop — journal what you noticed
 
-When something notable happened — a layout read badly, a tool was missing, a step clearly
-landed — log it yourself with `laura feedback --positive/--negative "<one line>"`. Never ask your
-partner for feedback; if they offer some ("log that as feedback"), record it.
+When something notable happens (a layout reads badly, a tool is missing, a step clearly works), log it yourself with `laura feedback --positive "<one line>"` or `laura feedback --negative "<one line>"`. Never ask your partner for feedback. If your partner offers some ("log that as feedback"), record it.
 
 ```bash
-laura feedback --positive "gradual-release layout made the two-pointer click"
-laura feedback --negative "exposition moved too fast"
+laura feedback --positive "one file per step made the render loop easy to follow"
+laura feedback --negative "highlighted ranges were too long to follow"
 ```

@@ -1,29 +1,31 @@
 # Protocol
 
-The protocol is NDJSON communication over a socket, either a Windows named pipe or a Unix namespaced socket, that allows for external processes to dynamically tile panes or interact with a Laura workspace. Whether through the `laura` CLI or an MCP service, all external interactions flow through the protocol.
+The protocol is NDJSON over a socket, either a Windows named pipe or a Unix namespaced socket, that lets external processes tile panes and interact with a Laura workspace. All external interactions, including the `laura` CLI, flow through the protocol.
 
 > [!TIP]
-> A tab has only two kinds of interaction: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, and submitting an inline review, do not communicate via the protocol (see [In-process interactions](#in-process-interactions)).
+> Laura handles interactions in two ways: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, and submitting an inline review, don't use the protocol (see [In-process interactions](#in-process-interactions)).
 
 ## Addressing
 
-The `LAURA_TAB` environment variable holds the Laura workspace socket name, one socket per tab. A client reaches a tab by connecting to that name and sending a request.
+Laura opens one socket per tab and sets `LAURA_TAB` to the socket's name in each shell. A client connects to the socket and sends a request.
 
-The name includes per-process entropy (`laura-<pid>-<nonce>-<n>`) so a reused PID cannot recreate a dead tab's name. A stale `LAURA_TAB` inherited by a later process fails to connect rather than routing into a live tab.
+The socket name includes the process id and a random nonce (`laura-<pid>-<nonce>-<n>`), so a new Laura process that reuses an old process id never reuses an old tab's name. A client holding the `LAURA_TAB` of a closed tab fails to connect instead of reaching a different, live tab.
 
 ### Panes
 
-A Laura workspace is a recursive binary split tree; each leaf is a pane with a per-tab monotonic `u64` id. The shell is always pane `0`. Ids are stable and never reused within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
+Each tab's panes form a split tree: Laura adds a pane by splitting an existing pane in two. Laura gives each pane an integer id (`u64`), counting up within the tab. The shell is always pane `0`. Laura never reuses an id within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
 
 ## Messages
 
-Each connection carries one request and one response: the client connects, sends a single request frame, reads a single response frame, and the socket closes. A *frame* is one JSON object on a single line, e.g. NDJSON. The response comes from the TUI process, which holds the live layout state. Messages are internally tagged by `type` with fields and default values. A client that reads EOF with no response frame treats the result as `ok`.
+Each connection carries one request and one response: the client connects, sends a single request frame, reads a single response frame, and the socket closes. A *frame* is one JSON object on a single line (NDJSON). The response comes from the TUI process, which holds the live layout state.
 
-Requests to a tab wait while the user is typing a comment or review body there, and are answered once the user submits or cancels it.
+Every message has a `type` field, such as `open` or `ok`, plus the fields listed under that message below, with their defaults. When a client reads the end of the stream with no response frame, the client treats the result as `ok`.
+
+While the user types a comment or review body in a tab, Laura holds requests to that tab and answers them once the user finishes or cancels.
 
 ### `open`
 
-Splits a pane into a new pane rendering a file.
+Split a pane and render a file in the new pane.
 
 <table class="proto">
 <tr>
@@ -49,9 +51,9 @@ Splits a pane into a new pane rendering a file.
 <dt><code>diff</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Open straight into the inline diff view.</dd>
 <dt><code>panel</code> · integer · <em>default: <code>null</code></em></dt>
-<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting; the shell and absent ids return <code>error</code>, and <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> are ignored when set. Returns <code>error</code> while that pane has an unsubmitted inline review or unsaved Neovim edits.</dd>
+<dd>Replace this pane's content in place (same id, rect, focus) instead of splitting. Laura ignores <code>split</code>/<code>dir</code>/<code>ratio</code>/<code>side</code> when <code>panel</code> is set. Laura returns <code>error</code> for the shell, for an id with no pane, and while the pane has an unsubmitted inline review or unsaved Neovim edits.</dd>
 <dt><code>edit</code> · boolean · <em>default: <code>false</code></em></dt>
-<dd>Experimental: run Neovim on the file in an editor pane. Never moves focus, whatever <code>focus</code> says. With <code>panel</code> on the same file, attaches Neovim in place and keeps the pane's threads. Returns <code>error</code> with <code>highlight</code> or <code>diff</code>, which editor panes don't show (annotate the lines with <code>comment</code> instead), and with the reason when editor panes are off (see the <a href="cli.md#editor-panes-experimental">CLI reference</a>).</dd>
+<dd>Run Neovim on the file in an editor pane. Never moves focus, whatever <code>focus</code> says. With <code>panel</code> on the same file, attaches Neovim in place and keeps the pane's threads. Returns <code>error</code> with <code>highlight</code> or <code>diff</code>, which editor panes don't show, and with the reason when editor panes are off (see <a href="cli.md#editor-panes">Editor panes</a>).</dd>
 </dl>
 
 </td>
@@ -88,13 +90,18 @@ Splits a pane into a new pane rendering a file.
 </tr>
 </table>
 
-`opened` carries the new pane id (which `laura open` prints) and any warnings — a `diff` refusal surfaces here rather than as an error, as does `already open in pane #N` when the file is already on screen (also on a `panel` replace; `…, which has an unsubmitted inline review` when pane N has one, `already open in editor pane #N` when it's an editor pane without one). The pane still opens. With `dry_run`, the response is `report` instead.
+`opened` holds the new pane id, which `laura open` prints, and a list of warnings. Laura still opens the pane when it returns a warning. Laura returns these as warnings, not errors:
 
-**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, the server picks the split: it splits the newest pane, alternating orientation by depth — a dwindle — so repeated bare opens split off the newest pane, at a flat 50%. Any one of those fields present bypasses inference. A split that would collapse a pane below the renderable minimum returns `error`.
+- `diff` when there is nothing to diff (`no changes vs HEAD — nothing to diff`).
+- `already open in pane #N` when the file is already open in pane N, including on a `panel` replace. The warning ends with `, which has an unsubmitted inline review` when pane N has one, and reads `already open in editor pane #N` when pane N is an editor pane without one.
+
+With `dry_run`, Laura returns a `report` instead of `opened`.
+
+**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, Laura picks the split. Laura splits the newest pane at 50% and alternates the orientation by depth (a dwindle), so repeated bare opens each split off the newest pane. Setting any one of those fields turns inference off. When a split would shrink a pane below the minimum size Laura can render, Laura returns `error`.
 
 ### `close`
 
-Removes a pane, or returns the tab to shell-only.
+Close a pane, or close every pane and return the tab to shell-only.
 
 <table class="proto">
 <tr>
@@ -130,11 +137,11 @@ Removes a pane, or returns the tab to shell-only.
 </tr>
 </table>
 
-The shell (pane `0`) cannot be closed. Returns `error` when the pane has an unsubmitted inline review or unsaved Neovim edits. With `all`, returns `error` and removes nothing when any pane has either.
+Laura never closes the shell (pane `0`). Laura returns `error` when the pane has an unsubmitted inline review or unsaved Neovim edits. With `all`, Laura returns `error` and closes nothing when any pane has either.
 
 ### `focus`
 
-Focuses a pane by id.
+Focus a pane by id.
 
 <table class="proto">
 <tr>
@@ -169,7 +176,7 @@ Focuses a pane by id.
 
 ### `highlight`
 
-Highlights a range of lines in a pane and scrolls it into view.
+Highlight a range of lines in a pane and scroll the lines into view.
 
 <table class="proto">
 <tr>
@@ -214,13 +221,25 @@ Highlights a range of lines in a pane and scrolls it into view.
 </tr>
 </table>
 
-On a frozen pane, a `range` returns `error`; `range: null` still clears. On an editor pane, both return `error`, so annotate the lines with [`comment`](#comment) instead.
+On a frozen pane, Laura returns `error` for a `range` but still clears the highlight for `range: null`. On an editor pane, Laura returns `error` for both, so annotate the lines with [`comment`](#comment) instead.
 
-Line numbers are source-file lines, matching the gutter and the inline review's `L<n>`; for markdown a hand-wrapped paragraph collapses onto one rendered row, so any of its source lines maps to that block. List items (at any depth, tight or loose), blockquote lines, and callout lines keep per-line numbers too, blank lines included. A block folds when its rows don't line up 1:1 with its source lines: a hand-wrapped paragraph, or a fenced block or table inside a list item or blockquote. The highlight is independent of focus and of the cursor, and persists until re-set, cleared (`range: null`), or the file reloads shorter. Out-of-range values clamp to the file. Clearing leaves the cursor and scroll untouched; the user can also press `h` on the focused pane to clear.
+Line numbers are the file's source lines, matching the gutter and the inline review's `L<n>`. In markdown:
+
+- List items, blockquote lines, and callout lines keep one number per line, including blank lines.
+- Laura shows a hand-wrapped paragraph as one block, and highlights the whole block for any of the paragraph's lines.
+- Laura does the same for a fenced block or table inside a list item or blockquote.
+
+The highlight stays until one of these happens:
+
+- The agent sets a new highlight or clears it (`range: null`).
+- The user presses `h` on the focused pane.
+- The agent turns the file pane into an editor pane (`open --edit` on the same file).
+
+Moving focus or the cursor doesn't change the highlight. Laura clamps out-of-range lines to the file, including after a reload that shortens the file. Clearing the highlight doesn't move the cursor or scroll the pane.
 
 ### `diffview`
 
-Toggles a pane's inline diff view against git `HEAD`.
+Toggle a pane's inline diff view against git `HEAD`.
 
 <table class="proto">
 <tr>
@@ -260,11 +279,11 @@ Toggles a pane's inline diff view against git `HEAD`.
 </tr>
 </table>
 
-Returns `error` when there is nothing to diff — no `git` binary, or a clean or untracked file — and on an editor pane, so annotate the lines with [`comment`](#comment) instead.
+Laura returns `error` when there is nothing to diff (`git` isn't installed, or the file is clean or untracked). Laura also returns `error` on an editor pane, so annotate the lines with [`comment`](#comment) instead.
 
 ### `comment`
 
-Writes to a line's thread from the agent side. `body` starts a thread on the line or appends a reply to the user's thread there. The user's `Shift+S` submits every thread as one inline review and clears the pane's threads. An empty or absent `body` returns `error`.
+Annotate a line: start a thread on the line, or add a reply to the user's thread there. When the user presses `Shift+S`, Laura submits every thread as one inline review and clears the pane's threads. Laura returns `error` for an empty or absent `body`.
 
 <table class="proto">
 <tr>
@@ -274,7 +293,7 @@ Writes to a line's thread from the agent side. `body` starts a thread on the lin
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to comment on.</dd>
 <dt><code>line</code> · integer</dt>
-<dd>1-based source line the thread hangs on (same mapping as <code>highlight</code>).</dd>
+<dd>1-based source line of the thread (same mapping as <code>highlight</code>).</dd>
 <dt><code>body</code> · string | null · <em>default: <code>null</code></em></dt>
 <dd>Comment text. Starts a thread or appends a reply. An empty or absent body returns <code>error</code>.</dd>
 <dt><code>author</code> · string | null · <em>default: session agent</em></dt>
@@ -312,7 +331,7 @@ Writes to a line's thread from the agent side. `body` starts a thread on the lin
 
 ### `layout`
 
-Requests the current layout without changing anything.
+Return the current layout without changing anything.
 
 <table class="proto">
 <tr>
@@ -351,11 +370,11 @@ Requests the current layout without changing anything.
 </tr>
 </table>
 
-One `PaneReport` per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can measure fit. `kind` is `pty` (the shell), `panel` (a file pane) or `editor` (an editor pane, with its `path`; `content_rows` is `null` because Neovim fits its own rect).
+The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. `kind` is `pty` (the shell), `panel` (a file pane), or `editor` (an editor pane, with its `path`). Editor panes report `content_rows: null`, because Neovim sizes its own content.
 
 ### `ready`
 
-Marks the tab as hosting an agent, which gates interactivity (see [In-process interactions](#in-process-interactions)).
+Mark the tab as hosting an agent, which enables commenting and submitting (see [In-process interactions](#in-process-interactions)).
 
 <table class="proto">
 <tr>
@@ -394,11 +413,11 @@ Marks the tab as hosting an agent, which gates interactivity (see [In-process in
 </tr>
 </table>
 
-`journal` is the session's journal path. `experimental` names the experimental features on in the tab (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)); empty when none are. `layout` is the same report [`layout`](#layout) returns; `null` from a Laura started before this field, upgraded while running.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the tab (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 ### `update`
 
-Reserved for a reload nudge; not yet emitted.
+Reserved for asking a file pane to reload. The `laura` CLI doesn't send `update` yet, and Laura answers it with `ok`.
 
 <table class="proto">
 <tr>
@@ -426,11 +445,11 @@ Reserved for a reload nudge; not yet emitted.
 
 ## In-process interactions
 
-Interactions inside the TUI run in-process and do not cross a process boundary, so they skip the socket entirely. A keypress handler holds the live layout state directly and calls the relevant code path instead of serializing a message to itself:
+Laura handles the user's keys inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
 
 - comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+S`), and refresh (`Ctrl+R`)
 - focus (`Ctrl+P`), scrolling, and diff toggle (`d`)
 
 See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
 
-Interactivity is gated on `ready` and fails closed: until the tab has received a `ready` message declaring an agent, in-process interactions are unavailable.
+Until the tab receives a `ready` message, the user can't comment or submit an inline review.
