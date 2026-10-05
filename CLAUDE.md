@@ -38,7 +38,22 @@ Implementation should always be comprehensive of code, tests, docs and skills.
 - **Docs** — `README.md` + `docs/` reflect the new verbs, flags, protocol messages, keybindings.
 - **Skills** — `plugins/laura/skills/` teach the agent the new surface; revise `skills/demo/` when a user-facing capability is worth demoing.
 
-New CLI verb, protocol message, or keybinding → assume all four apply and say so if you're skipping one. Docs and skills drift silently otherwise: nothing fails to compile when they fall behind.
+New CLI verb, protocol message, keybinding, or journal event field → assume all four apply and say so if you're skipping one. Docs and skills drift silently otherwise: nothing fails to compile when they fall behind.
+
+## Writing
+
+For prose in `README.md`, `docs/`, and skills.
+
+- **Name the actor.** Laura, the user, or the agent is the subject of each sentence. A pane, key, file, command, gerund phrase or page doesn't act.
+- **Use plain, literal verbs.** Say what happens ("returns an error", "shows a notice"), never "refused" or a figurative verb.
+- **Repeat the noun** instead of "it" when the reader could lose track of the subject.
+- **Write complete sentences** in a calm, direct voice. Use the imperative for instructions.
+- **Write for someone new to Laura.** Describe what the user sees, with no internals or jargon.
+- **Lead with what it is and what to do, then how.** Use numbered steps for setup.
+- **One idea per paragraph.** Split a dense paragraph into a list.
+- **Document each fact in one place.** Elsewhere, link to that place instead of repeating the fact.
+- **Use the glossary terms exactly.** When citing an error or notice, copy its exact text.
+- **Experimental means early, not unsafe.** Describe an experimental feature as a minimal implementation of a pattern that's still evolving, not as a warning.
 
 ## Glossary
 
@@ -72,6 +87,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **workspace** | The TUI, including all panes. | — |
 | **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keys for the current context. | footer |
+| **overflow** (n., v.) | Content taller than its pane, which the user scrolls to read in full. | clipped, below the fold, doesn't fit |
 | **the user** (`docs/`, README) / **your partner** (skills) | The developer / student. | human, developer, learner, pair-programmer, reader |
 
 ## Plans

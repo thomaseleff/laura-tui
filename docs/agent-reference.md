@@ -1,7 +1,7 @@
 # Agent reference
 
 > [!TIP]
-> This reference is for coding agents. See [Navigating the TUI](navigation.md) on how to move around the Laura TUI workspace.
+> The agent reference is for coding agents. For the keys the user presses in the workspace, see [Navigating the TUI](navigation.md).
 
 ## Enable interaction
 
@@ -9,13 +9,13 @@
 laura ready
 ```
 
-Run once per tab before opening a pane. Inline review interactions within panes are unavailable until `laura ready` is run.
+Run `laura ready` once per tab before opening a pane. Until you run `laura ready`, the user can't comment (`c`) or submit an inline review (`Shift+S`).
 
-`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features on in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run it at the start of every chat, including after `/new` or `/clear`: panes from earlier chats may still be open. `layout` is `null` if Laura was upgraded while running; run `laura layout` instead.
+`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features enabled in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run `laura ready` at the start of every new chat, because panes from earlier chats may still be open. `layout` is `null` when the running Laura is older than the `laura` CLI; run `laura layout` instead.
 
 Outside a Laura workspace, `laura ready` exits 1 with `not inside a Laura tab`.
 
-A `laura` command waits while the user is typing a comment or review body, and returns once they press `Enter` or `Esc`.
+Laura holds `laura` CLI commands while the user is typing a comment or review body. Do not kill or retry a command that is waiting.
 
 ## Preview layout
 
@@ -24,7 +24,7 @@ laura layout
 laura open <path> --dry-run
 ```
 
-Both emit a JSON report of the current panes in the workspace:
+`laura layout` and `laura open --dry-run` both print a JSON report with one entry per pane, its rect and overflow:
 
 ```json
 {
@@ -38,7 +38,7 @@ Both emit a JSON report of the current panes in the workspace:
 }
 ```
 
-`overflow_rows > 0` (or `clipped`) means the content is taller than its pane. A real `open` warns the same condition on stderr as `overflows:` / `too small`.
+When `overflow_rows` is above 0, or `clipped` is `true`, the content overflows the pane and the user has to scroll to read the full content. `laura open` also warns on stderr when a file's content overflows (`pane #N overflows: …`), and when the pane is too small to show any of it (`pane #N too small to render …`).
 
 ## Open a pane
 
@@ -50,16 +50,24 @@ laura open <path> --side first        # override: new pane lands on the first si
 laura open <path> --no-focus          # open without moving focus into the pane
 laura open <path> --dry-run           # print the would-be overflow report; open nothing
 laura open <path> --panel <id>        # swap a pane's file in place — same id, rect, focus
-laura open <path> --edit              # experimental: run Neovim on it in an editor pane; never takes focus
+laura open <path> --edit              # run Neovim on the file in an editor pane; never takes focus
 ```
 
-A bare `laura open <path>` dynamically tiles automatically in a dwindle pattern. Any split flag overrides it. A split that would collapse a pane errors (exit 1). `open` prints the new pane id - capture it to target that pane later.
+With no split flags, Laura tiles `laura open <path>` automatically: Laura splits the newest pane and alternates the orientation (a dwindle). Any split flag overrides the automatic tiling. When a split would shrink a pane below the minimum size, `laura open` returns an error (exit 1). `laura open` prints the new pane id; capture the id to target that pane later.
 
-Opening a file that's already open, in a new split or with `--panel`, still opens it and warns `already open in pane #N`. Reuse pane N (`laura highlight --pane N`) unless you intend to show two distinct sections or renders of the same file. If pane N has an unsubmitted inline review, the warning says so instead; work in the new pane.
+When you open a file that's already open, in a new split or with `--panel`, Laura still opens the file and warns `already open in pane #N`. Reuse pane N (`laura highlight --pane N`) unless you want to show two distinct sections of the same file. If pane N has an unsubmitted inline review, the warning ends with `, which has an unsubmitted inline review`. In that case, use the new pane and leave pane N to the user's inline review.
 
-`--panel` errors (exit 1) while the pane has an unsubmitted inline review. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`). Closing or replacing an editor pane with unsaved edits errors (exit 1). Ask the user to save (`:w`) or quit Neovim.
+`laura open --panel` returns an error (exit 1) in two cases:
 
-`--edit` opens an **editor pane** when the user wants to edit the file. It never takes focus, so tell the user it's there (`Ctrl+P` and its id, which shows on its border). `--panel <id> --edit` on the same file attaches Neovim to that pane and keeps its threads; on another file it replaces the pane like `--panel`. Editor panes show no highlight or diff: `--edit` with `--highlight` / `--diff`, and `laura highlight` / `laura diff` on an editor pane, error (exit 1), so annotate the lines with `laura comment` instead. `laura comment` works on an editor pane; the user sees the count on its border while editing. Editor panes are experimental: when `--edit` is refused (exit 1, `editor panes are experimental: …` or `editor panes need Neovim: …`), open with plain `laura open` and don't retry.
+- The pane has an unsubmitted inline review. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`).
+- The pane is an editor pane with unsaved edits. Ask the user to save (`:w`) or quit Neovim.
+
+Use `--edit` to open an **editor pane** when the user wants to edit the file:
+
+- Laura never focuses an editor pane, so tell the user the editor pane is open and to press `Ctrl+P` then the pane id shown on its border.
+- `--panel <id> --edit` on the file the pane already shows attaches Neovim to that pane and keeps its threads. On another file, `--panel <id> --edit` replaces the pane like `--panel`.
+- Editor panes show no highlight or diff. `--edit` with `--highlight` or `--diff`, and `laura highlight` or `laura diff` on an editor pane, return an error (exit 1). Annotate the lines with `laura comment` instead; the user sees the thread count on the pane's border while editing.
+- When `--edit` returns `editor panes are experimental: …` or `editor panes need Neovim: …` (exit 1), open the file with plain `laura open` and don't retry.
 
 ## Highlight a section for the user
 
@@ -70,19 +78,25 @@ laura highlight 40 --pane <id>           # single line, in a specific (possibly 
 laura highlight --off                     # clear the highlight (the user can also press `h` on the pane)
 ```
 
-`open --highlight` opens the file and highlights the lines in one call; the pane first paints at the range. `laura highlight` re-highlights an open pane. The highlight stays until you re-set or clear it. On a frozen pane, `highlight` errors (exit 1); `--off` still clears. In markdown, a hand-wrapped paragraph is one row, so any of its source lines highlights the whole block. Fenced code and HTML blocks keep per-line numbers. List items (at any depth, tight or loose), blockquote lines, and callout lines do too, blank lines included. A block folds when its rows don't line up 1:1 with its source lines: a hand-wrapped paragraph, or a fenced block or table inside a list item or blockquote.
+`laura open --highlight` opens the file and highlights the lines in one call, with the pane already scrolled to the range. `laura highlight` moves the highlight in an open pane. The highlight stays until you set a new one or clear it. On a frozen pane, `laura highlight` returns an error (exit 1), but `--off` still clears the highlight.
+
+In markdown:
+
+- Fenced code and HTML blocks, list items, blockquote lines, and callout lines keep one number per line, including blank lines.
+- Laura shows a hand-wrapped paragraph as one block, and highlights the whole block for any of the paragraph's lines.
+- Laura does the same for a fenced block or table inside a list item or blockquote.
 
 ## Show what changed
 
-A file pane marks each line changed since git `HEAD` in the gutter: a **green** bar on added lines, **blue** on modified, and a dim-**red** `── N lines removed ──` row where lines were deleted. Markers update on reload.
+Laura marks each line changed since git `HEAD` in a file pane's gutter: a **green** bar on added lines, **blue** on modified lines, and a dim-**red** `── N lines removed ──` row where lines were deleted. Laura updates the markers when the file reloads.
 
-- Markers need `git` on `PATH`. Without it, `laura open` warns `diff markers unavailable` on stderr and shows a notice; markers stay off.
-- In markdown, a marker lights the rendered row whose paragraph or block covers the changed source line.
-- An untracked file has no markers until it's committed.
+- Laura needs `git` on `PATH` for the markers. Without `git`, `laura open` warns `diff markers unavailable` on stderr, and Laura shows a notice and no markers.
+- In markdown, Laura marks the rendered row whose paragraph or block holds the changed source line.
+- Laura shows no markers on an untracked file until the file is committed.
 
 ## See the full diff inline
 
-The gutter marks *where* lines changed; the diff view shows *what* changed — the pane body becomes an interleaved `+`/`-` diff vs git `HEAD`, deleted lines visible as red `-` rows with their old text.
+Laura marks *where* lines changed in the gutter. In the diff view, Laura shows *what* changed: Laura replaces the pane's content with an interleaved `+`/`-` diff against git `HEAD`, with deleted lines as red `-` rows holding their old text.
 
 ```bash
 laura open src/x.rs --diff       # open straight into the diff view
@@ -98,13 +112,16 @@ laura close <id>       # close a specific pane by id
 laura close --all      # close every pane, back to shell-only
 ```
 
-Closing a pane with an unsubmitted inline review errors (exit 1). With `--all`, nothing closes. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`). Closing or replacing an editor pane with unsaved edits errors (exit 1). Ask the user to save (`:w`) or quit Neovim.
+`laura close` returns an error (exit 1) in two cases, and with `--all` closes nothing:
+
+- The pane has an unsubmitted inline review. Ask the user to submit (`Shift+S`) or refresh (`Ctrl+R`).
+- The pane is an editor pane with unsaved edits. Ask the user to save (`:w`) or quit Neovim.
 
 ## Read an inline review
 
-When a `[laura review · <path>]` block arrives in your chat, treat it as feedback on that file: address each `L<n>` thread (line numbers are 1-based) and the review body, then edit the file.
+When the user submits an inline review, you receive a `[laura review · <path>]` block in the chat. Treat the block as feedback on that file: address each `L<n>` thread (line numbers are 1-based) and the review body, then edit the file.
 
-Each `L<n>` is a thread; its comments are labelled by author (`> [user] …`, `> [agent] …`). An inline review is a **call and response**: the block is the whole conversation on that file. The user's comments reach you only when they submit (`Shift+S`); you can't read them off the pane.
+Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`). An inline review is a **call and response**: the block holds the whole conversation on that file. You only see the user's comments when the user submits (`Shift+S`); you can't read them from the pane.
 
 ## Annotate a file
 
@@ -114,4 +131,8 @@ laura comment 42 "…" --author reviewer            # attribute to a name (defau
 laura comment 42 "…" --pane <id>                  # target a specific (possibly unfocused) pane
 ```
 
-`<line>` is a 1-based real source line (same mapping as `laura highlight`). `<body>` is required. A `<line>` past the file's end errors (exit 1) and places no comment. A comment starts an unsubmitted inline review that only the user can submit or refresh. Until they do, the pane can't be closed or replaced. Annotate only when you need the user's answer in a thread. If you edit a file while the user has an unsubmitted inline review on it, its pane freezes until they submit or refresh. An inline review from a frozen pane starts with a `⚠ file changed` banner, and each thread header carries its raw source line. Re-map your comments against those lines.
+`<line>` is a 1-based source line (same mapping as `laura highlight`), and `<body>` is required. When `<line>` is past the file's end, `laura comment` returns an error (exit 1) and places no comment.
+
+Annotate only when you need the user's answer in a thread. Your comment starts an unsubmitted inline review that only the user can submit or refresh. Until the user does, you can't close or replace the pane.
+
+If you edit a file while the user has an unsubmitted inline review on it, Laura freezes the pane until the user submits or refreshes. An inline review from a frozen pane starts with a `⚠ file changed` banner, and its line numbers refer to the snapshot, not your edited file. Each thread header quotes its source line; use the quoted text to find the line in the edited file.
