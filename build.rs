@@ -1,6 +1,7 @@
 //! Best-effort git short-hash for journal provenance. Empty off a tarball build.
 fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/logs/HEAD");
     let hash = std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
