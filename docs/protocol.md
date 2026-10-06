@@ -7,13 +7,13 @@ The protocol is NDJSON over a socket, either a Windows named pipe or a Unix name
 
 ## Addressing
 
-Laura opens one socket per tab and sets `LAURA_TAB` to the socket's name in each shell. A client connects to the socket and sends a request.
+Laura opens one socket for the workspace and sets `LAURA_TAB` to the socket's name in the shell. A client connects to the socket and sends a request.
 
-The socket name includes the process id and a random nonce (`laura-<pid>-<nonce>-<n>`), so a new Laura process that reuses an old process id never reuses an old tab's name. A client holding the `LAURA_TAB` of a closed tab fails to connect instead of reaching a different, live tab.
+The socket name includes the process id and a random nonce (`laura-<pid>-<nonce>-<n>`), so a new Laura process that reuses an old process id never reuses an old workspace's name. A client holding the `LAURA_TAB` of a closed workspace fails to connect instead of reaching a different, live workspace.
 
 ### Panes
 
-Each tab's panes form a split tree: Laura adds a pane by splitting an existing pane in two. Laura gives each pane an integer id (`u64`), counting up within the tab. The shell is always pane `0`. Laura never reuses an id within a tab, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
+The workspace's panes form a split tree: Laura adds a pane by splitting an existing pane in two. Laura gives each pane an integer id (`u64`), counting up within the workspace. The shell is always pane `0`. Laura never reuses an id within a workspace, so closing a middle pane leaves a gap (ids `0, 4` after closing `1..3`). Requests address panes by id.
 
 ## Messages
 
@@ -21,7 +21,7 @@ Each connection carries one request and one response: the client connects, sends
 
 Every message has a `type` field, such as `open` or `ok`, plus the fields listed under that message below, with their defaults. When a client reads the end of the stream with no response frame, the client treats the result as `ok`.
 
-While the user types a comment or review body in a tab, Laura holds requests to that tab and answers them once the user finishes or cancels.
+While the user types a comment or review body, Laura holds requests to the workspace and answers them once the user finishes or cancels.
 
 ### `open`
 
@@ -101,7 +101,7 @@ With `dry_run`, Laura returns a `report` instead of `opened`.
 
 ### `close`
 
-Close a pane, or close every pane and return the tab to shell-only.
+Close a pane, or close every pane and return the workspace to shell-only.
 
 <table class="proto">
 <tr>
@@ -111,7 +111,7 @@ Close a pane, or close every pane and return the tab to shell-only.
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to remove.</dd>
 <dt><code>all</code> · boolean · <em>default: <code>false</code></em></dt>
-<dd>Return the tab to shell-only.</dd>
+<dd>Return the workspace to shell-only.</dd>
 </dl>
 
 </td>
@@ -297,7 +297,7 @@ Annotate a line: start a thread on the line, or add a reply to the user's thread
 <dt><code>body</code> · string | null · <em>default: <code>null</code></em></dt>
 <dd>Comment text. Starts a thread or appends a reply. An empty or absent body returns <code>error</code>.</dd>
 <dt><code>author</code> · string | null · <em>default: session agent</em></dt>
-<dd>Attribution label for the comment. When omitted, defaults to the session's <code>ready --agent</code> name, falling back to <code>agent</code> if the tab was never readied.</dd>
+<dd>Attribution label for the comment. When omitted, defaults to the session's <code>ready --agent</code> name, falling back to <code>agent</code> if the workspace was never readied.</dd>
 </dl>
 
 </td>
@@ -374,7 +374,7 @@ The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, 
 
 ### `ready`
 
-Mark the tab as hosting an agent, which enables commenting and submitting (see [In-process interactions](#in-process-interactions)).
+Mark the workspace as hosting an agent, which enables commenting and submitting (see [In-process interactions](#in-process-interactions)).
 
 <table class="proto">
 <tr>
@@ -413,7 +413,7 @@ Mark the tab as hosting an agent, which enables commenting and submitting (see [
 </tr>
 </table>
 
-`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the tab (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 ### `update`
 
@@ -452,4 +452,4 @@ Laura handles the user's keys inside the TUI process, which already holds the la
 
 See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
 
-Until the tab receives a `ready` message, the user can't comment or submit an inline review.
+Until the workspace receives a `ready` message, the user can't comment or submit an inline review.

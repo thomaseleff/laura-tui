@@ -1,4 +1,4 @@
-//! Two tabs run independent shells; a `laura open` in tab A never appears in tab B. Through the `laura open` binary → tab socket → `drain()`. State, not pixels.
+//! Two workspaces run independent shells; a `laura open` in workspace A never appears in workspace B. Through the `laura open` binary → workspace socket → `drain()`. State, not pixels.
 
 use std::io::Write;
 use std::sync::mpsc;

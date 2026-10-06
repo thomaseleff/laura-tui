@@ -9,11 +9,11 @@
 laura ready
 ```
 
-Run `laura ready` once per tab before opening a pane. Until you run `laura ready`, the user can't comment (`c`) or submit an inline review (`Shift+S`).
+Run `laura ready` once per workspace before opening a pane. Until you run `laura ready`, the user can't comment (`c`) or submit an inline review (`Shift+S`).
 
-`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features enabled in the tab; use only those), and `layout` (what's already open, the same report as `laura layout`). Run `laura ready` at the start of every new chat, because panes from earlier chats may still be open. `layout` is `null` when the running Laura is older than the `laura` CLI; run `laura layout` instead.
+`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features enabled in the workspace; use only those), and `layout` (what's already open, the same report as `laura layout`). Run `laura ready` at the start of every new chat, because panes from earlier chats may still be open. `layout` is `null` when the running Laura is older than the `laura` CLI; run `laura layout` instead.
 
-Outside a Laura workspace, `laura ready` exits 1 with `not inside a Laura tab`.
+Outside a Laura workspace, `laura ready` exits 1 with `not inside a Laura workspace`.
 
 Laura holds `laura` CLI commands while the user is typing a comment or review body. Do not kill or retry a command that is waiting.
 
@@ -28,12 +28,12 @@ laura open <path> --dry-run
 
 ```json
 {
-  "area": {"x": 0, "y": 1, "width": 120, "height": 39},
+  "area": {"x": 0, "y": 0, "width": 120, "height": 40},
   "panes": [
-    {"id": 0, "kind": "pty",   "path": null,       "rect": {"x":0,"y":1,"width":48,"height":39},
-     "content_rows": null, "visible_rows": 37, "overflow_rows": 0,  "clipped": false},
-    {"id": 1, "kind": "panel", "path": "spec.md",  "rect": {"x":48,"y":1,"width":72,"height":39},
-     "content_rows": 120, "visible_rows": 37, "overflow_rows": 83, "clipped": true}
+    {"id": 0, "kind": "pty",   "path": null,       "rect": {"x":0,"y":0,"width":48,"height":40},
+     "content_rows": null, "visible_rows": 38, "overflow_rows": 0,  "clipped": false},
+    {"id": 1, "kind": "panel", "path": "spec.md",  "rect": {"x":48,"y":0,"width":72,"height":40},
+     "content_rows": 120, "visible_rows": 38, "overflow_rows": 82, "clipped": true}
   ]
 }
 ```

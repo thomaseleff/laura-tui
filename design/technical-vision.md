@@ -8,20 +8,20 @@ The engineering objectives. Product context is in [explanation.md](explanation.m
 
 ### laura is the hub
 
-laura is the one long-lived process. It owns every tab's PTY and every tab's socket: hub-and-spoke, laura at the center, one spoke per tab. Every client — the agent CLI, a statusline, a future MCP server — talks to laura, never to another client.
+laura is the one long-lived process for a workspace. It owns that workspace's PTY and socket: hub-and-spoke, laura at the center. Every client — the agent CLI, a statusline, a future MCP server — talks to laura, never to another client. The same picture moves up a level for many workspaces: one Laura process per workspace, and a future hub (#88) fronts them.
 
 Three invariants follow:
 
-1. **State and routing live in laura.** A client sends a message; laura holds the resulting state (`tab.agent`, the open pane) and routes between tabs. Clients are stateless.
-2. **The wire `Message` is transport-agnostic.** A message means the same thing whether it arrived over the per-tab socket, a stdio MCP server, or anything later. No transport detail leaks into message semantics.
-3. **Transports are swappable adapters.** The CLI socket, a per-tab stdio MCP server, a shared daemon — each is a thin adapter onto the same `Message` set and the same laura-held state.
+1. **State and routing live in laura.** A client sends a message; laura holds the resulting state (`tab.agent`, the open pane) and routes it. Clients are stateless.
+2. **The wire `Message` is transport-agnostic.** A message means the same thing whether it arrived over the workspace's socket, a stdio MCP server, or anything later. No transport detail leaks into message semantics.
+3. **Transports are swappable adapters.** The CLI socket, a per-workspace stdio MCP server, a shared daemon — each is a thin adapter onto the same `Message` set and the same laura-held state.
 
 ### The injection boundary
 
 Everything laura does splits by direction of data flow:
 
-- **laura → screen (view).** `open`, panes, a future statusline or diff. laura reads a source and renders it beside the shell. This depends on nothing in the PTY — a pane renders the same whether the tab hosts an agent, a bare shell, or a dead one.
-- **laura → PTY (injection).** Review submission, and later cross-tab messaging. laura writes into someone else's input stream, so it needs a live consumer on the other end.
+- **laura → screen (view).** `open`, panes, a future statusline or diff. laura reads a source and renders it beside the shell. This depends on nothing in the PTY — a pane renders the same whether the workspace hosts an agent, a bare shell, or a dead one.
+- **laura → PTY (injection).** Review submission, and later messaging between agents. laura writes into someone else's input stream, so it needs a live consumer on the other end.
 
 What laura shows is always safe. What laura writes into a PTY needs a ready consumer. The "is an agent listening?" question lives only at that second boundary — `open` and `close` never touch it; review submission and messaging do.
 
@@ -36,7 +36,7 @@ So the agent declares itself. Today that's a one-shot `laura ready`, a client ve
 
 ### Arrangement is a verb set, not a fixed split
 
-A tab is a recursive split tree the agent drives through verbs. `open --split <id> --dir <h|v> --ratio <n> --side` splits any pane; `close` and `focus` address panes by a stable per-tab id (the shell is pane `0`; see [pane identity](../docs/protocol.md#pane-identity)); `layout` and `open --dry-run` report per-pane rects and overflow so a pane can be sized before it's committed. `dir`, `ratio`, and `side` are fields on the mutation — laura owns the screen, so honoring them is rendering work, not new architecture. The socket is [request/response](../docs/protocol.md#request-and-response): every verb gets one reply — the new pane id, a report, or a typed error — because the run loop holds the live layout to answer from.
+A workspace is a recursive split tree the agent drives through verbs. `open --split <id> --dir <h|v> --ratio <n> --side` splits any pane; `close` and `focus` address panes by a stable per-workspace id (the shell is pane `0`; see [pane identity](../docs/protocol.md#pane-identity)); `layout` and `open --dry-run` report per-pane rects and overflow so a pane can be sized before it's committed. `dir`, `ratio`, and `side` are fields on the mutation — laura owns the screen, so honoring them is rendering work, not new architecture. The socket is [request/response](../docs/protocol.md#request-and-response): every verb gets one reply — the new pane id, a report, or a typed error — because the run loop holds the live layout to answer from.
 
 ---
 
@@ -55,7 +55,7 @@ A connection-based transport also upgrades readiness. `laura ready` can only eve
 
 ### Cross-agent messaging is laura routing
 
-Agents never talk to each other; they talk to laura, and laura routes: tab A → laura → inject into tab B's PTY, the same injection path as review submission. So per-tab MCP servers being isolated from one another is a non-problem — they were never the bus; laura is. And a shared MCP daemon isn't needed: it would be a second hub redundant with laura, and it would cost the free addressing that `LAURA_TAB` gives a per-tab client.
+Agents never talk to each other; they talk to laura, and laura routes across Laura processes: workspace A's laura → workspace B's socket → inject into B's shell, the same injection path as review submission. So per-workspace MCP servers being isolated from one another is a non-problem — they were never the bus; laura is. And a shared MCP daemon isn't needed: it would be a second hub redundant with laura, and it would cost the free addressing that `LAURA_TAB` gives a per-workspace client.
 
 ### The view side — hooks and saved frames
 
@@ -68,4 +68,4 @@ Both are `laura → screen`, so the injection boundary never applies: always saf
 
 ### The one forward-consequential decision — identity
 
-Under these invariants, transport choice is reversible — start with the socket, add MCP later, run both. The one decision that isn't is the addressing and identity model. Today a tab is addressed by its ephemeral `LAURA_TAB` socket name, and panes within it carry stable ids — but tabs, and the agents across them, don't. Stable identity — addressing "the reviewer agent", or "tab 2" — is what cross-agent messaging and multi-surface tabs will eventually need.
+Under these invariants, transport choice is reversible — start with the socket, add MCP later, run both. The one decision that isn't is the addressing and identity model. Today a workspace is addressed by its ephemeral `LAURA_TAB` socket name, and panes within it carry stable ids — but workspaces, and the agents across them, don't. Stable workspace identity — addressing "the reviewer agent" — is what the hub's registry (#88) and messaging between agents will need.

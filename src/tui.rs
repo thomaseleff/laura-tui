@@ -1,12 +1,12 @@
-//! The draw loop and its widgets: hosts the tabs, renders panes, and routes input to the engine.
+//! The draw loop and its widgets: hosts the workspace, renders panes, and routes input to the engine.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
-use ratatui::Frame;
+use ratatui::backend::Backend;
 use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
@@ -14,6 +14,7 @@ use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::{Frame, Terminal};
 use tui_term::widget::PseudoTerminal;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -153,7 +154,7 @@ fn wrap_rows(line: &str, w: usize) -> Vec<String> {
     rows
 }
 
-/// What live typing captures: a per-line comment, the review body, or a tab rename. Enter branches per variant.
+/// What live typing captures: a per-line comment or the review body. Enter branches per variant.
 enum Draft {
     /// `row` is the panel cursor when `c` was pressed: the comment lands there, not wherever the cursor drifted (#68).
     /// `edit` means `c` seeded your own comment, so an empty Enter deletes it.
@@ -163,30 +164,19 @@ enum Draft {
         text: Editor,
     },
     Review(Editor),
-    Rename(Editor),
 }
 
 impl Draft {
     fn editor_mut(&mut self) -> &mut Editor {
         match self {
-            Draft::Comment { text: e, .. } | Draft::Review(e) | Draft::Rename(e) => e,
+            Draft::Comment { text: e, .. } | Draft::Review(e) => e,
         }
     }
 
     fn editor(&self) -> &Editor {
         match self {
-            Draft::Comment { text: e, .. } | Draft::Review(e) | Draft::Rename(e) => e,
+            Draft::Comment { text: e, .. } | Draft::Review(e) => e,
         }
-    }
-
-    /// Comment/Review are tied to the focused panel; Rename is not.
-    fn is_panel(&self) -> bool {
-        matches!(self, Draft::Comment { .. } | Draft::Review(_))
-    }
-
-    /// `\`+Enter inserts a newline; Rename stays single-line.
-    fn multiline(&self) -> bool {
-        self.is_panel()
     }
 }
 
@@ -197,20 +187,13 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let editor = laura::editor::resolve();
     // The theme wizard's answer: `laura` or `neovim`; missing means ask (only when editor panes are on).
     let theme_path = laura::journal::data_dir().join("editor-theme");
-    let mut editor_theme = std::fs::read_to_string(&theme_path).is_ok_and(|s| s.trim() == "laura");
+    let editor_theme = std::fs::read_to_string(&theme_path).is_ok_and(|s| s.trim() == "laura");
     let mut wizard = editor.is_ok() && !theme_path.exists();
-    let mut tabs = vec![spawn_tab(
-        build_cmd(&program),
-        area.height,
-        area.width,
-        &editor,
-        editor_theme,
-    )?];
-    let mut active = 0usize;
+    let mut tab = Tab::spawn(build_cmd(&program), area.height, area.width)?;
+    tab.editor = editor.clone();
+    tab.editor_theme = editor_theme;
     // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
     let mut panes: Option<String> = None;
-    // `^t` toggles tab-nav in the footer (←/→ browse, n new); no popup.
-    let mut tab_nav = false;
     // `F12` locks input: every key goes to the shell, Laura intercepts nothing but F12.
     let mut locked = false;
     // `^q` arms a quit confirm; the next key must be `y`.
@@ -218,7 +201,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     // Draft captures typing for a comment or the review body.
     let mut draft: Option<Draft> = None;
     let mut help = false;
-    // An in-progress left-drag selection; local because a drag can't span a tab switch.
+    // An in-progress left-drag selection.
     let mut selection: Option<Selection> = None;
     // A transient bottom-right toast (message + expiry); armed once if `git` is missing. The user
     // turned editor panes on, so a missing `nvim` is said at startup, not left to a refused `--edit`.
@@ -230,14 +213,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut toast_git_shown = false;
 
     loop {
-        // Content rect sits below the 1-line tab bar; sockets deliver while unfocused, so drain every tab.
-        let content = content_rect(terminal.get_frame().area());
-        // A comment/review-body draft holds its tab's requests so the pane under it can't move; the
-        // theme wizard holds every tab's, so an `open --edit` launches with the answer.
-        for (i, tab) in tabs.iter_mut().enumerate() {
-            tab.hold = wizard || (i == active && draft.as_ref().is_some_and(Draft::is_panel));
-            tab.drain(content);
-        }
+        // Content rect sits above the 1-line hint line.
+        let content = content_rect(terminal)?;
+        // A comment/review-body draft holds requests so the pane under it can't move; the theme
+        // wizard holds them too, so an `open --edit` launches with the answer.
+        tab.hold = wizard || draft.is_some();
+        tab.drain(content);
         // git-presence is a machine-global fact: arm the "install git" toast once,
         // the first time any diff attempt (open or reload) found no `git` binary.
         if !toast_git_shown && laura::gitdiff::git_missing() {
@@ -251,52 +232,35 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             toast = None;
         }
         // A just-drained `open` requests focus; keep focus valid if a pane vanished.
-        let a = &mut tabs[active];
-        if let Some(id) = a.pending_focus.take() {
-            a.focus = id;
+        if let Some(id) = tab.pending_focus.take() {
+            tab.focus = id;
         }
-        if a.focus != PTY_PANE && !a.panels.contains_key(&a.focus) {
-            a.focus = PTY_PANE;
+        if tab.focus != PTY_PANE && !tab.panels.contains_key(&tab.focus) {
+            tab.focus = PTY_PANE;
         }
-        // A panel draft is void once no panel is focused; a Rename draft survives (focus is the shell).
-        if a.focus == PTY_PANE && draft.as_ref().is_some_and(Draft::is_panel) {
+        // A draft is void once no panel is focused.
+        if tab.focus == PTY_PANE && draft.is_some() {
             draft = None;
         }
 
         // One rect map per frame — render, resize, wheel and popups all read it.
-        let rect_map = laura::rects(&tabs[active].layout, content);
+        let rect_map = laura::rects(&tab.layout, content);
         let pty_inner = rect_map
             .get(&PTY_PANE)
             .copied()
             .unwrap_or(content)
             .inner(Margin::new(1, 1)); // shell sits inside its border box
-        tabs[active].resize_to(pty_inner.height, pty_inner.width);
-        for (id, e) in tabs[active].editors.iter_mut() {
+        tab.resize_to(pty_inner.height, pty_inner.width);
+        for (id, e) in tab.editors.iter_mut() {
             if let Some(r) = rect_map.get(id) {
                 let inner = r.inner(Margin::new(1, 1));
                 e.resize(inner.height, inner.width);
             }
         }
 
-        let tab_labels: Vec<String> = tabs
-            .iter()
-            .enumerate()
-            .map(|(i, t)| match &t.name {
-                Some(n) => format!(" {}:{n} ", i + 1),
-                None => format!(" {} ", i + 1),
-            })
-            .collect();
         let completed = terminal.draw(|f| {
-            let rows = Layout::vertical([
-                Constraint::Length(1),
-                Constraint::Min(0),
-                Constraint::Length(1),
-            ])
-            .split(f.area());
-            f.render_widget(tab_bar(&tab_labels, active, rows[0].width), rows[0]);
-            let tab = &tabs[active];
-            let map = laura::rects(&tab.layout, rows[1]);
-            for (id, rect) in &map {
+            let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
+            for (id, rect) in &rect_map {
                 let focused = tab.focus == *id;
                 if *id == PTY_PANE {
                     let inner = rect.inner(Margin::new(1, 1));
@@ -336,7 +300,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 }
             }
             let focus_hint;
-            let hint = if locked && tab.focus != PTY_PANE && focused_pty(tab).is_some() {
+            let hint = if locked && tab.focus != PTY_PANE && focused_pty(&tab).is_some() {
                 "  🔒 locked — every key goes to Neovim · F12 unlock"
             } else if locked {
                 "  🔒 locked — every key goes to the shell · F12 unlock"
@@ -358,14 +322,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     Draft::Review(_) => {
                         "  review body · \\+Enter newline · Enter submit · Esc cancel".into()
                     }
-                    Draft::Rename(_) => "  rename tab · Enter save · Esc cancel".into(),
                 };
                 focus_hint.as_str()
             } else if panes.is_some() {
                 "  type a pane id · Enter pick · Esc dismiss"
-            } else if tab_nav {
-                "  ←/→ tabs · n new tab · x close tab · r rename tab · Esc dismiss"
-            } else if focused_pty(tab).is_none() {
+            } else if focused_pty(&tab).is_none() {
                 match (tab.agent, tab.editors.contains_key(&tab.focus)) {
                     (true, false) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · d diff · x close · h clear · Esc leave pane",
                     (true, true) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · x close · Ctrl+L edit · Esc leave pane",
@@ -373,25 +334,24 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     (false, true) => "  ↑/↓ move · n/N next/prev thread · r threads · x close · Ctrl+L edit · Esc leave pane · inline review: run `laura ready`",
                 }
             } else if tab.focus != PTY_PANE {
-                "  Ctrl+L file view · Ctrl+P panes · Ctrl+T tabs · Ctrl+H help · Ctrl+Q quit"
+                "  Ctrl+L file view · Ctrl+P panes · Ctrl+H help · Ctrl+Q quit"
             } else {
-                "  Ctrl+P panes · Ctrl+T tabs · Ctrl+H help · Ctrl+Q quit"
+                "  Ctrl+P panes · Ctrl+H help · Ctrl+Q quit"
             };
-            f.render_widget(Paragraph::new(hint).dim(), rows[2]);
+            f.render_widget(Paragraph::new(hint).dim(), rows[1]);
             // A live draft grows a bordered input box over the bottom of the shell pane — never over
             // a panel, so the file under review stays visible.
             if let Some(d) = &draft
-                && let Some(pty_rect) = map.get(&PTY_PANE)
+                && let Some(pty_rect) = rect_map.get(&PTY_PANE)
             {
                 let title = match d {
                     Draft::Comment { .. } => "comment",
                     Draft::Review(_) => "review body",
-                    Draft::Rename(_) => "rename tab",
                 };
                 render_draft_box(f, *pty_rect, title, d.editor(), !help);
             }
             if let Some(buf) = &panes {
-                render_panes(f, tab, buf);
+                render_panes(f, &tab, buf);
             }
             if help {
                 render_help(f);
@@ -408,7 +368,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
             if let Some(sel) = &selection
-                && let Some(rect) = map.get(&sel.pane)
+                && let Some(rect) = rect_map.get(&sel.pane)
             {
                 let inner = rect.inner(Margin::new(1, 1));
                 mouse::highlight(f.buffer_mut(), inner, sel.anchor, sel.head);
@@ -418,13 +378,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         // that just showed the selection — snapshot it here while a drag is live, not the empty next one.
         let drag_frame = selection.is_some().then(|| completed.buffer.clone());
 
-        // A tab closes when its shell exits; when the last one goes, quit.
-        if let Some(dead) = tabs.iter().position(|t| t.pty.has_exited()) {
-            tabs.remove(dead);
-            if tabs.is_empty() {
-                break;
-            }
-            active = active.min(tabs.len() - 1);
+        // The shell exiting quits Laura.
+        if tab.pty.has_exited() {
+            break;
         }
 
         // ~60fps poll so PTY output and panel reloads redraw without a keypress; ratatui diffs, so idle redraws emit ~nothing.
@@ -468,10 +424,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 "✅ Experimental · Editor panes setup complete".into(),
                                 Instant::now() + Duration::from_secs(10),
                             ));
-                            editor_theme = yes;
-                            for t in &mut tabs {
-                                t.editor_theme = yes;
-                            }
+                            tab.editor_theme = yes;
                         }
                     } else if key.code == KeyCode::F(12) {
                         locked = !locked; // the one key Laura keeps even while locked
@@ -479,7 +432,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         // Everything to the focused shell or editor pane (else the shell); only F12
                         // (handled above) is intercepted.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                            let pty = focused_pty(&tabs[active]).unwrap_or(&tabs[active].pty);
+                            let pty = focused_pty(&tab).unwrap_or(&tab.pty);
                             pty.to_live();
                             let _ = pty.write(&bytes);
                         }
@@ -504,18 +457,16 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::End => ed.end(),
                             // `\`+Enter inserts a newline (Shift+Enter isn't portable); plain Enter submits.
                             KeyCode::Enter
-                                if draft.as_ref().unwrap().multiline()
-                                    && draft.as_mut().unwrap().editor_mut().continue_line() => {}
+                                if draft.as_mut().unwrap().editor_mut().continue_line() => {}
                             KeyCode::Enter => match draft.take().unwrap() {
                                 Draft::Comment { row, text: ed, .. } => {
-                                    if let Some(p) = tabs[active].focused_panel_mut() {
+                                    if let Some(p) = tab.focused_panel_mut() {
                                         // A wheel scroll while typing moves the cursor, not the comment.
                                         p.cursor = row;
                                         p.author_note(ed.text);
                                     }
                                 }
                                 Draft::Review(Editor { text: body, .. }) => {
-                                    let tab = &mut tabs[active];
                                     if let Some(Err(_)) = tab.submit_focused(&body) {
                                         // The cause is in the journal; the notice stays fixed (#72).
                                         toast = Some((
@@ -529,11 +480,6 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                             toast = None;
                                         }
                                     }
-                                }
-                                Draft::Rename(Editor { text, .. }) => {
-                                    let text = text.trim();
-                                    tabs[active].name =
-                                        (!text.is_empty()).then(|| text.to_string());
                                 }
                             },
                             KeyCode::Esc => {
@@ -553,10 +499,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 let buf = panes.as_mut().expect("popup open");
                                 buf.push(c);
                                 let buf = buf.clone();
-                                let ids = tabs[active].layout.order();
+                                let ids = tab.layout.order();
                                 if !pane_id_ambiguous(&ids, &buf) {
                                     if let Some(id) = pane_id_exact(&ids, &buf) {
-                                        tabs[active].focus = id;
+                                        tab.focus = id;
                                     }
                                     panes = None;
                                 }
@@ -566,59 +512,18 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             }
                             KeyCode::Enter => {
                                 let buf = panes.take().expect("popup open");
-                                let ids = tabs[active].layout.order();
+                                let ids = tab.layout.order();
                                 if let Some(id) = pane_id_exact(&ids, &buf) {
-                                    tabs[active].focus = id;
+                                    tab.focus = id;
                                 }
                             }
                             _ => panes = None, // Esc or anything else dismisses
                         }
-                    } else if tab_nav {
-                        match key.code {
-                            KeyCode::Right => active = (active + 1) % tabs.len(),
-                            KeyCode::Left => active = (active + tabs.len() - 1) % tabs.len(),
-                            KeyCode::Char('n') => {
-                                tabs.push(spawn_tab(
-                                    default_shell(),
-                                    area.height,
-                                    area.width,
-                                    &editor,
-                                    editor_theme,
-                                )?);
-                                active = tabs.len() - 1;
-                                tab_nav = false;
-                            }
-                            KeyCode::Char('x') => {
-                                // Closing kills the tab's Neovims: refuse while one has unsaved edits.
-                                if let Some(message) = tabs[active].unsaved_edits() {
-                                    toast =
-                                        Some((message, Instant::now() + Duration::from_secs(5)));
-                                } else {
-                                    tabs.remove(active); // drop kills its shell
-                                    if tabs.is_empty() {
-                                        break;
-                                    }
-                                    active = active.min(tabs.len() - 1);
-                                }
-                                tab_nav = false;
-                            }
-                            KeyCode::Char('r') => {
-                                let cur = tabs[active].name.clone().unwrap_or_default();
-                                draft = Some(Draft::Rename(Editor::new(cur)));
-                                tab_nav = false;
-                            }
-                            _ => tab_nav = false, // Esc or anything else dismisses
-                        }
                     } else if ctrl && key.code == KeyCode::Char('p') {
                         panes = Some(String::new());
-                    } else if ctrl && key.code == KeyCode::Char('t') {
-                        tab_nav = true;
                     } else if ctrl && key.code == KeyCode::Char('q') {
                         // Quitting kills every Neovim: refuse while one has unsaved edits.
-                        let unsaved = tabs.iter().enumerate().find_map(|(i, t)| {
-                            t.unsaved_edits().map(|m| format!("tab {} · {m}", i + 1))
-                        });
-                        match unsaved {
+                        match tab.unsaved_edits() {
                             Some(message) => {
                                 toast = Some((message, Instant::now() + Duration::from_secs(5)))
                             }
@@ -626,53 +531,49 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         }
                     } else if ctrl
                         && matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
-                        && let Some(e) = tabs
-                            .get_mut(active)
-                            .and_then(|t| t.editors.get_mut(&t.focus))
+                        && let Some(e) = tab.editors.get_mut(&tab.focus)
                     {
                         e.editor_view = !e.editor_view;
-                    } else if tabs[active].focus != PTY_PANE
-                        && let Some(pty) = focused_pty(&tabs[active])
+                    } else if tab.focus != PTY_PANE
+                        && let Some(pty) = focused_pty(&tab)
                     {
                         // An editor pane takes every other key, Esc and PageUp/PageDown included.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
                             let _ = pty.write(&bytes);
                         }
-                    } else if tabs[active].focus != PTY_PANE {
+                    } else if tab.focus != PTY_PANE {
                         // A panel is focused: arrows move its cursor, c/S draft, Esc leaves.
                         match key.code {
                             KeyCode::Up => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     p.move_cursor(-1)
                                 }
                             }
                             KeyCode::Down => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     p.move_cursor(1)
                                 }
                             }
                             KeyCode::Left => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     p.scroll_h(-1)
                                 }
                             }
                             KeyCode::Right => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     p.scroll_h(1)
                                 }
                             }
-                            KeyCode::Char('d')
-                                if !tabs[active].editors.contains_key(&tabs[active].focus) =>
-                            {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                            KeyCode::Char('d') if !tab.editors.contains_key(&tab.focus) => {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     let want = !p.diff_view;
                                     if let Err(w) = p.set_diff_view(want) {
                                         toast = Some((w, Instant::now() + Duration::from_secs(5)));
                                     }
                                 }
                             }
-                            KeyCode::Char('c') if tabs[active].agent => {
-                                let (row, seed) = tabs[active]
+                            KeyCode::Char('c') if tab.agent => {
+                                let (row, seed) = tab
                                     .focused_panel_mut()
                                     .map(|p| (p.cursor, p.begin_comment()))
                                     .unwrap_or_default();
@@ -683,12 +584,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 });
                             }
                             KeyCode::Char('r') if ctrl => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     p.discard_and_reload();
                                 }
                             }
                             KeyCode::Char('r') => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     // Toggle the cursor's thread if it has one, else collapse/expand all.
                                     if p.cursor_thread().is_some() {
                                         p.toggle_collapsed(p.cursor);
@@ -700,7 +601,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             }
                             // Jump the cursor to the next (`n`) / previous (`N`) thread (#45).
                             KeyCode::Char('n') | KeyCode::Char('N') => {
-                                if let Some(p) = tabs[active].focused_panel_mut()
+                                if let Some(p) = tab.focused_panel_mut()
                                     && let Some(line) =
                                         p.thread_jump(key.code == KeyCode::Char('n'))
                                 {
@@ -708,42 +609,42 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 }
                             }
                             KeyCode::Char('S')
-                                if tabs[active].agent
-                                    && tabs[active]
+                                if tab.agent
+                                    && tab
                                         .focused_panel()
                                         .is_some_and(|p| p.thread_count() > 0) =>
                             {
                                 draft = Some(Draft::Review(Editor::default()))
                             }
                             KeyCode::Char('x') => {
-                                if let Response::Error { message } = tabs[active].close_pane(None) {
+                                if let Response::Error { message } = tab.close_pane(None) {
                                     toast =
                                         Some((message, Instant::now() + Duration::from_secs(5)));
                                 }
                             }
                             KeyCode::Char('h') => {
-                                if let Some(p) = tabs[active].focused_panel_mut() {
+                                if let Some(p) = tab.focused_panel_mut() {
                                     p.clear_highlight();
                                 }
                             }
-                            KeyCode::Esc => tabs[active].focus = PTY_PANE,
+                            KeyCode::Esc => tab.focus = PTY_PANE,
                             _ => {}
                         }
                     } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
                         // On the alt screen the child owns its history — forward the key so it scrolls
                         // itself; on the main screen scroll Laura's own scrollback.
-                        if tabs[active].pty.on_alt_screen() {
+                        if tab.pty.on_alt_screen() {
                             if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                                let _ = tabs[active].pty.write(&bytes);
+                                let _ = tab.pty.write(&bytes);
                             }
                         } else if key.code == KeyCode::PageUp {
-                            tabs[active].pty.scroll(pty_inner.height as isize);
+                            tab.pty.scroll(pty_inner.height as isize);
                         } else {
-                            tabs[active].pty.scroll(-(pty_inner.height as isize));
+                            tab.pty.scroll(-(pty_inner.height as isize));
                         }
                     } else if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                        tabs[active].pty.to_live(); // typing snaps to the live prompt
-                        let _ = tabs[active].pty.write(&bytes);
+                        tab.pty.to_live(); // typing snaps to the live prompt
+                        let _ = tab.pty.write(&bytes);
                     }
                 }
                 // The resize is applied by `resize_to` at the top of the loop from the content-inner
@@ -753,22 +654,12 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 // bracketed paste (no trailing CR) so a REPL doesn't submit per newline.
                 Event::Paste(s) => {
                     if let Some(d) = draft.as_mut() {
-                        // Rename is single-line: an interior newline can't land in the tab name.
-                        if d.multiline() {
-                            d.editor_mut().insert(&s);
-                        } else {
-                            d.editor_mut().insert(&s.replace('\n', " "));
-                        }
-                    } else if let Some(pty) = focused_pty(&tabs[active])
+                        d.editor_mut().insert(&s);
+                    } else if let Some(pty) = focused_pty(&tab)
                         .filter(|_| {
-                            locked
-                                || (panes.is_none()
-                                    && !tab_nav
-                                    && !help
-                                    && !confirm_quit
-                                    && !wizard)
+                            locked || (panes.is_none() && !help && !confirm_quit && !wizard)
                         })
-                        .or(locked.then_some(&tabs[active].pty))
+                        .or(locked.then_some(&tab.pty))
                     {
                         pty.to_live();
                         let _ = pty.write(&bracketed_paste(&s, false));
@@ -788,7 +679,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     );
 
                     let capture = over.and_then(|id| {
-                        let pty = pane_pty(&tabs[active], id)?;
+                        let pty = pane_pty(&tab, id)?;
                         Some((id, pty, pty.mouse_capture()?))
                     });
                     if let Some((id, pty, mode)) = capture {
@@ -808,11 +699,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     3
                                 };
                                 match over {
-                                    Some(PTY_PANE) | None => tabs[active].pty.scroll(-step),
+                                    Some(PTY_PANE) | None => tab.pty.scroll(-step),
                                     // Neovim without mouse mode drops the wheel: the panel under it is hidden.
                                     Some(id) => {
-                                        if pane_pty(&tabs[active], id).is_none()
-                                            && let Some(p) = tabs[active].panels.get_mut(&id)
+                                        if pane_pty(&tab, id).is_none()
+                                            && let Some(p) = tab.panels.get_mut(&id)
                                         {
                                             p.scroll_view(step);
                                         }
@@ -836,10 +727,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         let inner = rect.inner(Margin::new(1, 1));
                         // Panels draw a gutter + wrap the source, so copy source-aware; the PTY owns
                         // its own glyphs (no gutter, child wraps) → scrape as-is.
-                        let panel = tabs[active]
+                        let panel = tab
                             .panels
                             .get(&sel.pane)
-                            .filter(|_| pane_pty(&tabs[active], sel.pane).is_none());
+                            .filter(|_| pane_pty(&tab, sel.pane).is_none());
                         let text = match panel {
                             Some(panel) => {
                                 let layout = panel.layout(inner.width as usize);
@@ -866,52 +757,6 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         }
     }
     Ok(())
-}
-
-/// The one-line tab bar: numbered (and optionally named) tabs, windowed to `width`, active reversed,
-/// with `‹`/`›` markers when clipped either side.
-fn tab_bar(labels: &[String], active: usize, width: u16) -> Line<'static> {
-    let (lo, hi) = tab_window(labels, active, width as usize);
-    let mut spans = vec![];
-    if lo > 0 {
-        spans.push(Span::raw("‹"));
-    }
-    for (i, label) in labels.iter().enumerate().take(hi).skip(lo) {
-        if i == active {
-            spans.push(Span::styled(label.clone(), Style::default().reversed()));
-        } else {
-            spans.push(Span::raw(label.clone()));
-        }
-    }
-    if hi < labels.len() {
-        spans.push(Span::raw("›"));
-    }
-    Line::from(spans)
-}
-
-/// The `[lo, hi)` slice of tab labels to show: always includes `active`, greedily fills `width`,
-/// reserving a column for each `‹`/`›` marker when the ends are clipped.
-fn tab_window(labels: &[String], active: usize, width: usize) -> (usize, usize) {
-    let w = |i: usize| labels[i].chars().count();
-    let total: usize = (0..labels.len()).map(w).sum();
-    if total <= width {
-        return (0, labels.len());
-    }
-    let (mut lo, mut hi, mut used) = (active, active + 1, w(active));
-    loop {
-        let reserve = usize::from(lo > 0) + usize::from(hi < labels.len());
-        let budget = width.saturating_sub(reserve);
-        if hi < labels.len() && used + w(hi) <= budget {
-            used += w(hi);
-            hi += 1;
-        } else if lo > 0 && used + w(lo - 1) <= budget {
-            lo -= 1;
-            used += w(lo);
-        } else {
-            break;
-        }
-    }
-    (lo, hi)
 }
 
 /// A bordered draft input box pinned to the bottom of `area` (the shell pane). Grows 2..=6 rows,
@@ -954,14 +799,14 @@ fn render_draft_box(f: &mut Frame, area: Rect, title: &str, ed: &Editor, cursor:
     }
 }
 
-/// The frame minus the tab bar (top) and hint line (bottom).
-fn content_rect(area: Rect) -> Rect {
-    Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .split(area)[1]
+/// The frame minus the hint line (bottom). Autoresizes first: `get_frame()` keeps the old size until
+/// `draw` syncs it, and a stale rect panics tui-term on a shrink.
+fn content_rect<B: Backend>(terminal: &mut Terminal<B>) -> Result<Rect, B::Error> {
+    terminal.autoresize()?;
+    Ok(
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)])
+            .split(terminal.get_frame().area())[0],
+    )
 }
 
 /// The pane whose rect contains `(col, row)`, if any.
@@ -1259,7 +1104,7 @@ fn render_scrollbar(f: &mut Frame, area: Rect, total: usize, view: usize, pos: u
     );
 }
 
-/// The tab's initial command: `program` (from `-- <cmd>`) if given, else the default shell.
+/// The shell's initial command: `program` (from `-- <cmd>`) if given, else the default shell.
 fn build_cmd(program: &[String]) -> CommandBuilder {
     match program.split_first() {
         Some((prog, args)) => {
@@ -1287,20 +1132,6 @@ fn with_cwd(mut cmd: CommandBuilder) -> CommandBuilder {
         cmd.cwd(cwd);
     }
     cmd
-}
-
-/// Spawn a tab carrying the editor settings resolved at startup.
-fn spawn_tab(
-    cmd: CommandBuilder,
-    rows: u16,
-    cols: u16,
-    editor: &Result<PathBuf, String>,
-    editor_theme: bool,
-) -> Result<Tab> {
-    let mut tab = Tab::spawn(cmd, rows, cols)?;
-    tab.editor = editor.clone();
-    tab.editor_theme = editor_theme;
-    Ok(tab)
 }
 
 /// The terminal drawn in pane `id`: the shell, or an editor pane's Neovim. `None` for a file pane,
@@ -1447,7 +1278,6 @@ fn render_help(f: &mut Frame) {
     let lines = vec![
         group("Global"),
         key("Ctrl+P", "panes popup"),
-        key("Ctrl+T", "tab nav"),
         key("Ctrl+H", "this help"),
         key("F12", "lock all input to the shell or editor pane"),
         key("drag", "select within pane (copies on release)"),
@@ -1455,13 +1285,6 @@ fn render_help(f: &mut Frame) {
         Line::raw(""),
         group("Panes (Ctrl+P …)"),
         key("id", "type a pane id, Enter to focus"),
-        key("Esc", "dismiss"),
-        Line::raw(""),
-        group("Tabs (Ctrl+T …)"),
-        key("←/→", "browse tabs"),
-        key("n", "new tab"),
-        key("x", "close tab"),
-        key("r", "rename tab"),
         key("Esc", "dismiss"),
         Line::raw(""),
         group("Focused pane"),
@@ -1550,7 +1373,7 @@ fn render_wizard(f: &mut Frame, answer: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Editor, frozen_notice, pane_id_ambiguous, pane_id_exact, render_draft_box, tab_window,
+        Editor, content_rect, frozen_notice, pane_id_ambiguous, pane_id_exact, render_draft_box,
     };
     use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
@@ -1599,6 +1422,18 @@ mod tests {
         e.right();
         e.backspace();
         assert_eq!((e.text.as_str(), e.cur), ("", 0));
+    }
+
+    // The content rect feeds the render loop (no CLI/socket surface), so the shrink is checked here.
+    #[test]
+    fn content_rect_follows_a_shrink() {
+        let mut t = Terminal::new(TestBackend::new(80, 24)).expect("test backend can't fail");
+        t.draw(|_| {}).expect("test backend can't fail");
+        t.backend_mut().resize(60, 15);
+        assert_eq!(
+            content_rect(&mut t).expect("test backend can't fail"),
+            Rect::new(0, 0, 60, 14)
+        );
     }
 
     fn draw_draft(ed: &Editor, w: u16, h: u16) -> (Vec<String>, (u16, u16)) {
@@ -1662,30 +1497,5 @@ mod tests {
         // A typed id that doesn't exist commits to nothing.
         assert!(!pane_id_ambiguous(&ids, "7"));
         assert_eq!(pane_id_exact(&ids, "7"), None);
-    }
-
-    // Windowing is bin-internal (no CLI/socket surface), so it's checked here per CLAUDE.md's exception.
-    #[test]
-    fn window_shows_all_when_it_fits() {
-        let labels = vec![" 1 ".to_string(), " 2 ".to_string(), " 3 ".to_string()];
-        assert_eq!(tab_window(&labels, 0, 80), (0, 3));
-    }
-
-    #[test]
-    fn window_always_includes_active_and_fits_width() {
-        // 10 tabs of 3 cols each = 30; a 12-wide bar can't show them all.
-        let labels: Vec<String> = (1..=10).map(|i| format!(" {i} ")).collect();
-        let (lo, hi) = tab_window(&labels, 9, 12);
-        assert!(lo <= 9 && 9 < hi, "active tab is inside the window");
-        // Reserve one col for the left `‹` marker; the rest holds visible labels.
-        let shown: usize = labels[lo..hi].iter().map(|s| s.chars().count()).sum();
-        assert!(
-            shown <= 12 - usize::from(lo > 0),
-            "fits the width minus markers"
-        );
-        assert!(
-            hi == labels.len(),
-            "the last (active) tab reaches the right edge"
-        );
     }
 }

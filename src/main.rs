@@ -1,9 +1,9 @@
 //! `laura` — the terminal front-end that drives the engine ([`laura`] the library).
 //!
-//! Two modules split by concern: [`tui`] is the draw loop and its widgets (it hosts the tabs,
+//! Two modules split by concern: [`tui`] is the draw loop and its widgets (it hosts the workspace,
 //! renders panes, routes input); [`keys`] turns a key event into the bytes a child expects on
 //! stdin. `main` here is just args + dispatch: with no subcommand it launches the TUI, otherwise
-//! it sends one request to the current tab's socket and prints the reply. Nothing in the engine
+//! it sends one request to the current workspace's socket and prints the reply. Nothing in the engine
 //! depends on this crate.
 
 mod keys;
@@ -37,7 +37,7 @@ use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
-    /// Program to host in the tab (after `--`); defaults to your shell.
+    /// Program to host in the workspace (after `--`); defaults to your shell.
     #[arg(last = true)]
     program: Vec<String>,
 }
@@ -128,7 +128,7 @@ enum Cmd {
     },
     /// Print the current layout tree + per-pane rects & overflow (JSON).
     Layout,
-    /// Mark this tab as hosting an agent (enables inline review submission). Prints the journal path, the experimental features on, and the layout (JSON).
+    /// Mark this workspace as hosting an agent (enables inline review submission). Prints the journal path, the experimental features on, and the layout (JSON).
     Ready {
         /// Name the journal session (default: `laura-<pid>-<n>`).
         #[arg(long)]
@@ -314,10 +314,10 @@ fn main() -> Result<()> {
     }
 }
 
-/// Send one request to the current tab's socket ($LAURA_TAB) and print its response. Never touches ratatui.
+/// Send one request to the current workspace's socket ($LAURA_TAB) and print its response. Never touches ratatui.
 fn client_request(msg: Message) -> Result<()> {
     let Ok(tab) = std::env::var("LAURA_TAB") else {
-        bail!("not inside a Laura tab (LAURA_TAB unset)");
+        bail!("not inside a Laura workspace (LAURA_TAB unset)");
     };
     match protocol::request(&tab, &msg)? {
         Response::Ok => {}
@@ -385,7 +385,7 @@ fn tail(
     use std::io::Read;
 
     let Ok(tab) = std::env::var("LAURA_TAB") else {
-        bail!("not inside a Laura tab (LAURA_TAB unset)");
+        bail!("not inside a Laura workspace (LAURA_TAB unset)");
     };
     let runtime = laura::journal::runtime_dir();
     std::fs::create_dir_all(&runtime)

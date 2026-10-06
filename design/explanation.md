@@ -8,18 +8,18 @@ Coding agents run in the terminal, but the terminal is a stream you scroll, not 
 
 Laura is an **API over the TUI**. The agent assembles the screen for the task at hand — what to show, where, how it refreshes — instead of handing you the same fixed layout every session. One rendered pane is the proof of concept; the protocol is the general form for external processes to interact with the TUI.
 
-Laura owns the screen and organizes work into tabs. Each tab holds one shell — a PTY where an agent or you runs — and the panes the agent opens within that tab. Every draw and update goes through one mutation protocol: the agent is a client, and so is any future producer — a statusline, a status pane, an extension — over the same protocol.
+Laura owns the screen and hosts one workspace per process. The workspace holds one shell — a PTY where an agent or you runs — and the panes the agent opens beside it. Running several workspaces means running several Laura processes; see [technical-vision.md](technical-vision.md) for how a hub fronts them. Every draw and update goes through one mutation protocol: the agent is a client, and so is any future producer — a statusline, a status pane, an extension — over the same protocol.
 
 ## The model
 
-- **Tab** — the top-level unit. Owns one shell/PTY and its own panes.
-- **Shell** — an agent, or you, runs in the tab's PTY. Laura never wraps or reinterprets it.
-- **Pane** — a view opened within a tab (code, a rendered doc), markable with inline comments. File-backed panes are live: they track their source and re-render when it changes.
-- **Protocol** — how a producer opens and updates panes, collects comments, and submits reviews. Transport is a per-tab local socket named from `LAURA_TAB`. Scoping falls out of addressing, not security — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
+- **Workspace** — the top-level unit, one per Laura process. Owns one shell/PTY and its own panes.
+- **Shell** — an agent, or you, runs in the workspace's PTY. Laura never wraps or reinterprets it.
+- **Pane** — a view opened within the workspace (code, a rendered doc), markable with inline comments. File-backed panes are live: they track their source and re-render when it changes.
+- **Protocol** — how a producer opens and updates panes, collects comments, and submits reviews. Transport is the workspace's local socket, named from `LAURA_TAB`. Scoping falls out of addressing, not security — every client is local and spawned by you. See [protocol.md](../docs/protocol.md).
 
 ## The core loop
 
-The agent runs in a tab's shell, opens a pane, you see it, you comment on a line, your feedback flows back, the agent revises. You never leave the terminal.
+The agent runs in the workspace's shell, opens a pane, you see it, you comment on a line, your feedback flows back, the agent revises. You never leave the terminal.
 
 ## Design principles
 
