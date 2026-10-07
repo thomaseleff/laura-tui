@@ -72,7 +72,7 @@ fn build_report(
 pub fn overflow_warning(p: &PaneReport) -> Option<String> {
     if p.overflow_rows > 0 {
         Some(format!(
-            "pane #{} overflows: {} row(s) below the fold — scroll, or grow the pane",
+            "pane #{} overflows: {} row(s) out of view — scroll, or grow the pane",
             p.id, p.overflow_rows
         ))
     } else if p.clipped {
