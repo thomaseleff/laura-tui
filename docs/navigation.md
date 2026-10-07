@@ -9,9 +9,8 @@ Laura passes keys it doesn't use to the shell, or to Neovim in an editor pane's 
 | Key | Action |
 |-----|--------|
 | `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress) |
-| `Ctrl+T` | Tab nav — `←/→` browse · `n` new tab · `x` close tab · `r` rename tab. While a Neovim in the tab has unsaved edits, `x` shows a notice instead of closing it |
 | `Ctrl+H` | Help |
-| `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its tab and pane instead: save (`:w`) or quit it first (`:qa!` discards) |
+| `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
 | `F12` | Lock all input to the shell, or to the focused editor pane |
 
 ## In an editor pane
@@ -21,7 +20,7 @@ Laura passes keys it doesn't use to the shell, or to Neovim in an editor pane's 
 
 An editor pane (`laura open --edit`) supports two views, an **Editor view** and a **File view**. Use `Ctrl+L` to flip between the views.
 
-- **Editor view** (the default): edit the file in Neovim. Every key goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+T`, `Ctrl+H`, `Ctrl+Q` and `F12`. Comments show as an inline `✎` diagnostic; use `Ctrl+W` then `d` to read the whole thread and `]d` to jump to the next one. The editor view does not support comment interactions, so flip to the file view to comment or submit.
+- **Editor view** (the default): edit the file in Neovim. Every key goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+H`, `Ctrl+Q` and `F12`. Comments show as an inline `✎` diagnostic; use `Ctrl+W` then `d` to read the whole thread and `]d` to jump to the next one. The editor view does not support comment interactions, so flip to the file view to comment or submit.
 - **File view**: comment on the saved file and submit the inline review, with the same keys as a file pane (below). Diff (`d`) and highlight (`h`) are not available.
 
 The border shows the view (`· editor` or `· file`), `● unsaved` while Neovim has unsaved edits, and `[review: N]` when the pane has threads.

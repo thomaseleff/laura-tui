@@ -145,7 +145,7 @@ fn ready_outside_a_workspace_fails() -> Result<()> {
         .env_remove("LAURA_TAB")
         .assert()
         .code(1)
-        .stderr(predicates::str::contains("not inside a Laura tab"));
+        .stderr(predicates::str::contains("not inside a Laura workspace"));
     Ok(())
 }
 

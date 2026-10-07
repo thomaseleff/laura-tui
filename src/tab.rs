@@ -1,4 +1,4 @@
-//! One workspace tab: a PTY, its panels, the split tree, and the socket that ties them together.
+//! One workspace: a PTY, its panels, the split tree, and the socket that ties them together.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -115,7 +115,7 @@ fn normalized(p: &str) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.into())
 }
 
-/// One workspace tab: a PTY, its panel panes, the split tree, and its own `LAURA_TAB` socket. Per-tab sockets isolate tabs by addressing (protocol.rs).
+/// One workspace: a PTY, its panel panes, the split tree, and its own `LAURA_TAB` socket. Each Laura process hosts one; per-workspace sockets isolate them by addressing (protocol.rs).
 pub struct Tab {
     pub pty: PtyTab,
     /// The pane arrangement; starts as the bare PTY.
@@ -126,8 +126,6 @@ pub struct Tab {
     pub focus: PaneId,
     /// The tab's `.sock` name (its `LAURA_TAB` address).
     pub socket: String,
-    /// Display name shown in the tab bar; `None` renders the bare index.
-    pub name: Option<String>,
     /// Set by `Open{focus}`; the run loop consumes it to focus the new pane once.
     pub pending_focus: Option<PaneId>,
     /// Tab hosts an agent (declared via `laura ready`); gates review injection.
@@ -171,7 +169,6 @@ impl Tab {
             panels: HashMap::new(),
             focus: PTY_PANE,
             socket,
-            name: None,
             pending_focus: None,
             agent: false,
             journal: None,
@@ -806,7 +803,7 @@ impl Drop for Tab {
     }
 }
 
-/// The unsaved-edits refusal, shared by a pane's close and the tab's.
+/// The unsaved-edits refusal, shared by a pane's close and the workspace's quit.
 fn unsaved_message(id: PaneId) -> String {
     format!("pane #{id} has unsaved edits in Neovim — save (:w) or quit Neovim first")
 }

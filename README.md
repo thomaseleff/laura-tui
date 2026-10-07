@@ -20,7 +20,7 @@ Your agent can open the file you're discussing, the plan you're following, the d
 
 ## How it works
 
-Laura runs your agent CLI in a shell and provides agent skills that you or your agent can invoke. Your agent learns the `laura` CLI from the skills. The `laura` CLI sends messages to the workspace over an NDJSON protocol, with one socket per tab. See the [protocol reference](docs/protocol.md) to learn more.
+Laura runs your agent CLI in a shell and provides agent skills that you or your agent can invoke. Your agent learns the `laura` CLI from the skills. The `laura` CLI sends messages to the workspace over an NDJSON protocol, with one socket per workspace. See the [protocol reference](docs/protocol.md) to learn more.
 
 ## Quickstart
 

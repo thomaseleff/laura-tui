@@ -1,17 +1,17 @@
 # CLI reference
 
-The CLI reference lists every `laura` command and its flags. Run `laura` on its own to start Laura. Run `laura <command>` in a shell inside Laura to open files in panes, highlight lines, comment, and more. Each command sends one message to its tab over the [protocol](protocol.md) and exits. Commands print nothing on success unless noted below.
+The CLI reference lists every `laura` command and its flags. Run `laura` on its own to start Laura. Run `laura <command>` in a shell inside Laura to open files in panes, highlight lines, comment, and more. Each command sends one message to its workspace over the [protocol](protocol.md) and exits. Commands print nothing on success unless noted below.
 
 ## Host
 
 ```bash
-laura                   Run the TUI, hosting your default shell in tab 1.
-laura -- <cmd> [args]   Run the TUI, hosting <cmd> in tab 1. New tabs still get your shell.
+laura                   Run the TUI, hosting your default shell.
+laura -- <cmd> [args]   Run the TUI, hosting <cmd> instead of your shell.
 ```
 
 ## Commands
 
-Laura arranges a tab's panes in a split tree. The shell is pane `0`, and Laura never closes the shell. `laura open` splits a pane and prints the **new pane id** on stdout. Capture the id to target that pane later.
+Laura arranges the workspace's panes in a split tree. The shell is pane `0`, and Laura never closes the shell. `laura open` splits a pane and prints the **new pane id** on stdout. Capture the id to target that pane later.
 
 ```bash
 laura open <path>       Split a pane and render <path> in the new pane. Prints the new pane id.
@@ -74,7 +74,7 @@ laura comment <line> <body>
                         `ready --agent` name, else `agent`).
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
-laura ready             Mark the tab as hosting an agent (enables commenting and inline reviews). Prints the journal path,
+laura ready             Mark the workspace as hosting an agent (enables commenting and inline reviews). Prints the journal path,
                         the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
@@ -99,18 +99,18 @@ some-cmd | laura tail   Spool piped stdin to an internal file and show it in a t
       --follow          Autoscroll to the newest line as output arrives.
 ```
 
-Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each command uses `$LAURA_TAB` to find its tab. Outside Laura, commands exit 1 with `not inside a Laura tab (LAURA_TAB unset)`. The exception is `laura journal`, which reads local files and works anywhere.
+Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each command uses `$LAURA_TAB` to find its workspace. Outside Laura, commands exit 1 with `not inside a Laura workspace (LAURA_TAB unset)`. The exception is `laura journal`, which reads local files and works anywhere.
 
 `laura layout` and `laura open --dry-run` both print a JSON report with one entry per pane, its rect and overflow:
 
 ```json
 {
-  "area": {"x": 0, "y": 1, "width": 120, "height": 39},
+  "area": {"x": 0, "y": 0, "width": 120, "height": 40},
   "panes": [
-    {"id": 0, "kind": "pty",   "path": null,       "rect": {"x":0,"y":1,"width":48,"height":39},
-     "content_rows": null, "visible_rows": 37, "overflow_rows": 0,  "clipped": false},
-    {"id": 1, "kind": "panel", "path": "spec.md",  "rect": {"x":48,"y":1,"width":72,"height":39},
-     "content_rows": 120, "visible_rows": 37, "overflow_rows": 83, "clipped": true}
+    {"id": 0, "kind": "pty",   "path": null,       "rect": {"x":0,"y":0,"width":48,"height":40},
+     "content_rows": null, "visible_rows": 38, "overflow_rows": 0,  "clipped": false},
+    {"id": 1, "kind": "panel", "path": "spec.md",  "rect": {"x":48,"y":0,"width":72,"height":40},
+     "content_rows": 120, "visible_rows": 38, "overflow_rows": 82, "clipped": true}
   ]
 }
 ```

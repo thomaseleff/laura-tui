@@ -22,7 +22,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 **Rules**
 - **Run `laura ready --session <id> --agent <name>` at the start of every new chat.** `laura ready` enables commenting and inline reviews. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop. `laura ready` prints JSON with:
   - `journal`: the journal path.
-  - `experimental`: the experimental features enabled in this tab. Use only those.
+  - `experimental`: the experimental features enabled in this workspace. Use only those.
   - `layout`: what's already open. `laura close` anything no longer relevant. If `layout` is `null`, run `laura layout`.
 - **Run `laura layout`** before later opens or closes to see what's open, and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
@@ -88,7 +88,7 @@ laura comment <line> <body>
       --author <name>   Attribute the comment (default: the session's ready --agent name, else agent).
       --pane <id>       pane to comment on (default: the focused pane).
 laura layout            Print the layout: per-pane rects + overflow (JSON).
-laura ready             Mark the tab as hosting an agent (enables commenting and inline reviews). Prints the journal path,
+laura ready             Mark the workspace as hosting an agent (enables commenting and inline reviews). Prints the journal path,
                         the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
@@ -113,12 +113,12 @@ some-cmd | laura tail   Spool piped stdin to an internal file and show it in a t
 
 ```json
 {
-  "area": {"x": 0, "y": 1, "width": 120, "height": 39},
+  "area": {"x": 0, "y": 0, "width": 120, "height": 40},
   "panes": [
-    {"id": 0, "kind": "pty",   "path": null,       "rect": {"x":0,"y":1,"width":48,"height":39},
-     "content_rows": null, "visible_rows": 37, "overflow_rows": 0,  "clipped": false},
-    {"id": 1, "kind": "panel", "path": "spec.md",  "rect": {"x":48,"y":1,"width":72,"height":39},
-     "content_rows": 120, "visible_rows": 37, "overflow_rows": 83, "clipped": true}
+    {"id": 0, "kind": "pty",   "path": null,       "rect": {"x":0,"y":0,"width":48,"height":40},
+     "content_rows": null, "visible_rows": 38, "overflow_rows": 0,  "clipped": false},
+    {"id": 1, "kind": "panel", "path": "spec.md",  "rect": {"x":48,"y":0,"width":72,"height":40},
+     "content_rows": 120, "visible_rows": 38, "overflow_rows": 82, "clipped": true}
   ]
 }
 ```
