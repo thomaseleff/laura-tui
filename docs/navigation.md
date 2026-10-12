@@ -64,6 +64,12 @@ Laura applies its theme to Neovim, including the file view's syntax colors (Nord
 
 An inline review is a **call and response**. Comments and threads stay in the pane until you press `Shift+S` to submit the inline review. While you type a comment or review body, Laura holds the agent's commands until you press `Enter` or `Esc`.
 
+Laura shows a notice instead of acting when:
+
+- You press `c` or `Shift+S` before the agent runs `laura ready`: `` ⚠ inline review needs `laura ready` ``.
+- You press `Shift+S` on a pane with no comments: `⚠ no comments to submit`.
+- You press `d` in an editor pane's file view: `⚠ diff view isn't available in an editor pane`.
+
 A file pane's border shows:
 
 - `#<id>`, its pane id, so `Ctrl+P <id>` focuses it. The focused pane's border is bright, the others gray.
@@ -86,6 +92,8 @@ A file pane with an unsubmitted inline review **freezes** when its file changes 
 | `Esc` | Cancel |
 
 To delete your comment, press `c` on it, clear the text, and press `Enter`.
+
+While you type a comment, Laura shows `comment L<n>` in the hint line, where `<n>` is the file's line number. In a markdown block, `<n>` is the block's first line. When the block spans several rows, Laura moves the cursor to the block's first row.
 
 ## Scrolling
 

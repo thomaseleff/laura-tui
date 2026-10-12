@@ -295,7 +295,17 @@ impl Panel {
     /// Move the line cursor by `delta`, clamped to `[0, line_count-1]`.
     pub fn move_cursor(&mut self, delta: isize) {
         let last = self.line_count() as isize - 1;
-        self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
+        self.cursor = (self.cursor as isize).saturating_add(delta).clamp(0, last) as usize;
+    }
+
+    /// Put the cursor on 1-based source `line`'s first row; `0` and past-EOF clamp to the ends.
+    pub fn set_cursor_line(&mut self, line: u32) {
+        self.cursor = self.source_line_to_row(line);
+    }
+
+    /// The cursor row's first source line, 1-based: the `L<n>` an inline review quotes.
+    pub fn cursor_line(&self) -> u32 {
+        self.source.get(self.cursor).map_or(self.cursor, |s| s.0) as u32 + 1
     }
 
     /// Mouse wheel: scroll the view and carry the cursor along, both by `delta` lines.
@@ -311,7 +321,7 @@ impl Panel {
     /// its blank tail, but content can never scroll fully off. Make it avail-aware if the tail annoys.
     pub fn scroll_h(&mut self, delta: isize) {
         let max = self.max_nowrap_width().saturating_sub(1) as isize;
-        self.h_offset = (self.h_offset as isize + delta).clamp(0, max) as usize;
+        self.h_offset = (self.h_offset as isize).saturating_add(delta).clamp(0, max) as usize;
     }
 
     /// Widest nowrap line in chars (0 if none), the horizontal-scroll extent.

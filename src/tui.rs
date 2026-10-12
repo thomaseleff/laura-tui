@@ -20,7 +20,8 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use laura::protocol::PTY_PANE;
 use laura::render::CODE_BG;
-use laura::{ChangeKind, PaneId, Panel, PtyTab, Response, Tab, bracketed_paste};
+use laura::tab::SUBMIT_FAILED;
+use laura::{ChangeKind, PaneId, Panel, PtyTab, Tab, UserAction};
 
 use crate::keys::key_to_bytes;
 use crate::mouse::{self, Selection};
@@ -156,26 +157,27 @@ fn wrap_rows(line: &str, w: usize) -> Vec<String> {
 
 /// What live typing captures: a per-line comment or the review body. Enter branches per variant.
 enum Draft {
-    /// `row` is the panel cursor when `c` was pressed: the comment lands there, not wherever the cursor drifted (#68).
+    /// `line` is the cursor's source line when `c` was pressed: the comment lands there, not wherever the cursor drifted.
     /// `edit` means `c` seeded your own comment, so an empty Enter deletes it.
     Comment {
-        row: usize,
+        pane: PaneId,
+        line: u32,
         edit: bool,
         text: Editor,
     },
-    Review(Editor),
+    Review(PaneId, Editor),
 }
 
 impl Draft {
     fn editor_mut(&mut self) -> &mut Editor {
         match self {
-            Draft::Comment { text: e, .. } | Draft::Review(e) => e,
+            Draft::Comment { text: e, .. } | Draft::Review(_, e) => e,
         }
     }
 
     fn editor(&self) -> &Editor {
         match self {
-            Draft::Comment { text: e, .. } | Draft::Review(e) => e,
+            Draft::Comment { text: e, .. } | Draft::Review(_, e) => e,
         }
     }
 }
@@ -231,32 +233,13 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         if toast.as_ref().is_some_and(|(_, e)| Instant::now() >= *e) {
             toast = None;
         }
-        // A just-drained `open` requests focus; keep focus valid if a pane vanished.
-        if let Some(id) = tab.pending_focus.take() {
-            tab.focus = id;
-        }
-        if tab.focus != PTY_PANE && !tab.panels.contains_key(&tab.focus) {
-            tab.focus = PTY_PANE;
-        }
-        // A draft is void once no panel is focused.
-        if tab.focus == PTY_PANE && draft.is_some() {
-            draft = None;
-        }
-
         // One rect map per frame — render, resize, wheel and popups all read it.
-        let rect_map = laura::rects(&tab.layout, content);
+        let rect_map = tab.tick(content);
         let pty_inner = rect_map
             .get(&PTY_PANE)
             .copied()
             .unwrap_or(content)
-            .inner(Margin::new(1, 1)); // shell sits inside its border box
-        tab.resize_to(pty_inner.height, pty_inner.width);
-        for (id, e) in tab.editors.iter_mut() {
-            if let Some(r) = rect_map.get(id) {
-                let inner = r.inner(Margin::new(1, 1));
-                e.resize(inner.height, inner.width);
-            }
-        }
+            .inner(Margin::new(1, 1));
 
         let completed = terminal.draw(|f| {
             let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
@@ -310,16 +293,15 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 "  quit? press y to confirm · any other key cancels"
             } else if let Some(d) = &draft {
                 focus_hint = match d {
-                    Draft::Comment { row, edit, .. } => format!(
-                        "  comment L{} · \\+Enter newline · {} · Esc cancel",
-                        row + 1,
+                    Draft::Comment { line, edit, .. } => format!(
+                        "  comment L{line} · \\+Enter newline · {} · Esc cancel",
                         if *edit {
                             "Enter save (empty deletes)"
                         } else {
                             "Enter add"
                         }
                     ),
-                    Draft::Review(_) => {
+                    Draft::Review(..) => {
                         "  review body · \\+Enter newline · Enter submit · Esc cancel".into()
                     }
                 };
@@ -346,7 +328,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             {
                 let title = match d {
                     Draft::Comment { .. } => "comment",
-                    Draft::Review(_) => "review body",
+                    Draft::Review(..) => "review body",
                 };
                 render_draft_box(f, *pty_rect, title, d.editor(), !help);
             }
@@ -432,9 +414,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         // Everything to the focused shell or editor pane (else the shell); only F12
                         // (handled above) is intercepted.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                            let pty = focused_pty(&tab).unwrap_or(&tab.pty);
-                            pty.to_live();
-                            let _ = pty.write(&bytes);
+                            let _ = tab.act(UserAction::Input {
+                                pane: key_target(&tab),
+                                bytes,
+                            });
                         }
                     } else if confirm_quit {
                         if key.code == KeyCode::Char('y') {
@@ -459,21 +442,29 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Enter
                                 if draft.as_mut().unwrap().editor_mut().continue_line() => {}
                             KeyCode::Enter => match draft.take().unwrap() {
-                                Draft::Comment { row, text: ed, .. } => {
-                                    if let Some(p) = tab.focused_panel_mut() {
-                                        // A wheel scroll while typing moves the cursor, not the comment.
-                                        p.cursor = row;
-                                        p.author_note(ed.text);
+                                Draft::Comment {
+                                    pane,
+                                    line,
+                                    text: ed,
+                                    ..
+                                } => {
+                                    let res = tab.act(UserAction::Comment {
+                                        pane,
+                                        line,
+                                        text: ed.text,
+                                    });
+                                    if let Err(t) = res {
+                                        toast = Some((t, Instant::now() + Duration::from_secs(5)));
                                     }
                                 }
-                                Draft::Review(Editor { text: body, .. }) => {
-                                    if let Some(Err(_)) = tab.submit_focused(&body) {
-                                        // The cause is in the journal; the notice stays fixed (#72).
-                                        toast = Some((
-                                            SUBMIT_FAILED.into(),
-                                            Instant::now() + Duration::from_secs(5),
-                                        ));
-                                        draft = Some(Draft::Review(Editor::new(body)));
+                                Draft::Review(pane, Editor { text: body, .. }) => {
+                                    let res = tab.act(UserAction::Submit {
+                                        pane,
+                                        body: body.clone(),
+                                    });
+                                    if let Err(t) = res {
+                                        toast = Some((t, Instant::now() + Duration::from_secs(5)));
+                                        draft = Some(Draft::Review(pane, Editor::new(body)));
                                     } else {
                                         // A retry that lands must not leave "Enter to retry" up.
                                         if toast.as_ref().is_some_and(|(m, _)| m == SUBMIT_FAILED) {
@@ -502,7 +493,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 let ids = tab.layout.order();
                                 if !pane_id_ambiguous(&ids, &buf) {
                                     if let Some(id) = pane_id_exact(&ids, &buf) {
-                                        tab.focus = id;
+                                        let _ = tab.act(UserAction::Focus { pane: id });
                                     }
                                     panes = None;
                                 }
@@ -514,7 +505,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 let buf = panes.take().expect("popup open");
                                 let ids = tab.layout.order();
                                 if let Some(id) = pane_id_exact(&ids, &buf) {
-                                    tab.focus = id;
+                                    let _ = tab.act(UserAction::Focus { pane: id });
                                 }
                             }
                             _ => panes = None, // Esc or anything else dismisses
@@ -522,132 +513,85 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     } else if ctrl && key.code == KeyCode::Char('p') {
                         panes = Some(String::new());
                     } else if ctrl && key.code == KeyCode::Char('q') {
-                        // Quitting kills every Neovim: refuse while one has unsaved edits.
-                        match tab.unsaved_edits() {
-                            Some(message) => {
+                        match tab.act(UserAction::Quit) {
+                            Err(message) => {
                                 toast = Some((message, Instant::now() + Duration::from_secs(5)))
                             }
-                            None => confirm_quit = true,
+                            Ok(_) => confirm_quit = true,
                         }
                     } else if ctrl
                         && matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
-                        && let Some(e) = tab.editors.get_mut(&tab.focus)
+                        && tab.editors.contains_key(&tab.focus)
                     {
-                        e.editor_view = !e.editor_view;
-                    } else if tab.focus != PTY_PANE
-                        && let Some(pty) = focused_pty(&tab)
-                    {
+                        let _ = tab.act(UserAction::ToggleEditorView { pane: tab.focus });
+                    } else if tab.focus != PTY_PANE && focused_pty(&tab).is_some() {
                         // An editor pane takes every other key, Esc and PageUp/PageDown included.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                            let _ = pty.write(&bytes);
+                            let _ = tab.act(UserAction::Input {
+                                pane: tab.focus,
+                                bytes,
+                            });
                         }
                     } else if tab.focus != PTY_PANE {
                         // A panel is focused: arrows move its cursor, c/S draft, Esc leaves.
-                        match key.code {
-                            KeyCode::Up => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    p.move_cursor(-1)
-                                }
+                        let pane = tab.focus;
+                        let res = match key.code {
+                            KeyCode::Up => tab.act(UserAction::MoveCursor { pane, delta: -1 }),
+                            KeyCode::Down => tab.act(UserAction::MoveCursor { pane, delta: 1 }),
+                            KeyCode::Left => tab.act(UserAction::ScrollH { pane, delta: -1 }),
+                            KeyCode::Right => tab.act(UserAction::ScrollH { pane, delta: 1 }),
+                            KeyCode::Char('d') => tab.act(UserAction::ToggleDiff { pane }),
+                            KeyCode::Char('c') => {
+                                let line = tab.focused_panel().map_or(1, Panel::cursor_line);
+                                tab.act(UserAction::BeginComment { pane, line })
+                                    .map(|seed| {
+                                        let seed = seed.unwrap_or_default();
+                                        draft = Some(Draft::Comment {
+                                            pane,
+                                            line,
+                                            edit: !seed.is_empty(),
+                                            text: Editor::new(seed),
+                                        });
+                                        None
+                                    })
                             }
-                            KeyCode::Down => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    p.move_cursor(1)
-                                }
-                            }
-                            KeyCode::Left => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    p.scroll_h(-1)
-                                }
-                            }
-                            KeyCode::Right => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    p.scroll_h(1)
-                                }
-                            }
-                            KeyCode::Char('d') if !tab.editors.contains_key(&tab.focus) => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    let want = !p.diff_view;
-                                    if let Err(w) = p.set_diff_view(want) {
-                                        toast = Some((w, Instant::now() + Duration::from_secs(5)));
-                                    }
-                                }
-                            }
-                            KeyCode::Char('c') if tab.agent => {
-                                let (row, seed) = tab
-                                    .focused_panel_mut()
-                                    .map(|p| (p.cursor, p.begin_comment()))
-                                    .unwrap_or_default();
-                                draft = Some(Draft::Comment {
-                                    row,
-                                    edit: !seed.is_empty(),
-                                    text: Editor::new(seed),
-                                });
-                            }
-                            KeyCode::Char('r') if ctrl => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    p.discard_and_reload();
-                                }
-                            }
-                            KeyCode::Char('r') => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    // Toggle the cursor's thread if it has one, else collapse/expand all.
-                                    if p.cursor_thread().is_some() {
-                                        p.toggle_collapsed(p.cursor);
-                                    } else {
-                                        let any_open = p.threads.iter().any(|t| !t.collapsed);
-                                        p.set_all_collapsed(any_open);
-                                    }
-                                }
-                            }
-                            // Jump the cursor to the next (`n`) / previous (`N`) thread (#45).
+                            KeyCode::Char('r') if ctrl => tab.act(UserAction::Refresh { pane }),
+                            KeyCode::Char('r') => tab.act(UserAction::ToggleThread { pane }),
                             KeyCode::Char('n') | KeyCode::Char('N') => {
-                                if let Some(p) = tab.focused_panel_mut()
-                                    && let Some(line) =
-                                        p.thread_jump(key.code == KeyCode::Char('n'))
-                                {
-                                    p.cursor = line;
-                                }
+                                tab.act(UserAction::JumpThread {
+                                    pane,
+                                    next: key.code == KeyCode::Char('n'),
+                                })
                             }
-                            KeyCode::Char('S')
-                                if tab.agent
-                                    && tab
-                                        .focused_panel()
-                                        .is_some_and(|p| p.thread_count() > 0) =>
-                            {
-                                draft = Some(Draft::Review(Editor::default()))
-                            }
-                            KeyCode::Char('x') => {
-                                if let Response::Error { message } = tab.close_pane(None) {
-                                    toast =
-                                        Some((message, Instant::now() + Duration::from_secs(5)));
-                                }
-                            }
-                            KeyCode::Char('h') => {
-                                if let Some(p) = tab.focused_panel_mut() {
-                                    p.clear_highlight();
-                                }
-                            }
-                            KeyCode::Esc => tab.focus = PTY_PANE,
-                            _ => {}
+                            KeyCode::Char('S') => tab
+                                .act(UserAction::BeginReview { pane })
+                                .inspect(|_| draft = Some(Draft::Review(pane, Editor::default()))),
+                            KeyCode::Char('x') => tab.act(UserAction::Close { pane }),
+                            KeyCode::Char('h') => tab.act(UserAction::ClearHighlight { pane }),
+                            KeyCode::Esc => tab.act(UserAction::Focus { pane: PTY_PANE }),
+                            _ => Ok(None),
+                        };
+                        if let Err(t) = res {
+                            toast = Some((t, Instant::now() + Duration::from_secs(5)));
                         }
-                    } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
-                        // On the alt screen the child owns its history — forward the key so it scrolls
-                        // itself; on the main screen scroll Laura's own scrollback.
-                        if tab.pty.on_alt_screen() {
-                            if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                                let _ = tab.pty.write(&bytes);
-                            }
-                        } else if key.code == KeyCode::PageUp {
+                    } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+                        && !tab.pty.on_alt_screen()
+                    {
+                        // The main screen scrolls Laura's own scrollback; on the alt screen the
+                        // child owns its history, so the key goes to it below.
+                        if key.code == KeyCode::PageUp {
                             tab.pty.scroll(pty_inner.height as isize);
                         } else {
                             tab.pty.scroll(-(pty_inner.height as isize));
                         }
                     } else if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
-                        tab.pty.to_live(); // typing snaps to the live prompt
-                        let _ = tab.pty.write(&bytes);
+                        let _ = tab.act(UserAction::Input {
+                            pane: PTY_PANE,
+                            bytes,
+                        });
                     }
                 }
-                // The resize is applied by `resize_to` at the top of the loop from the content-inner
+                // `tab.tick` applies the resize at the top of the loop from the content-inner
                 // rect; resizing the PTY to the raw terminal size here would clip the bottom rows.
                 Event::Resize(..) => {}
                 // A pasted block arrives as one unit: into a draft body, or to the shell wrapped in
@@ -655,14 +599,17 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 Event::Paste(s) => {
                     if let Some(d) = draft.as_mut() {
                         d.editor_mut().insert(&s);
-                    } else if let Some(pty) = focused_pty(&tab)
-                        .filter(|_| {
-                            locked || (panes.is_none() && !help && !confirm_quit && !wizard)
-                        })
-                        .or(locked.then_some(&tab.pty))
+                    } else if locked
+                        || (focused_pty(&tab).is_some()
+                            && panes.is_none()
+                            && !help
+                            && !confirm_quit
+                            && !wizard)
                     {
-                        pty.to_live();
-                        let _ = pty.write(&bracketed_paste(&s, false));
+                        let _ = tab.act(UserAction::Paste {
+                            pane: key_target(&tab),
+                            text: s,
+                        });
                     }
                     // Popups / focused panel without a draft / help / confirm — paste is meaningless, drop it.
                 }
@@ -679,7 +626,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     );
 
                     let capture = over.and_then(|id| {
-                        let pty = pane_pty(&tab, id)?;
+                        let pty = tab.pane_pty(id)?;
                         Some((id, pty, pty.mouse_capture()?))
                     });
                     if let Some((id, pty, mode)) = capture {
@@ -702,7 +649,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                     Some(PTY_PANE) | None => tab.pty.scroll(-step),
                                     // Neovim without mouse mode drops the wheel: the panel under it is hidden.
                                     Some(id) => {
-                                        if pane_pty(&tab, id).is_none()
+                                        if tab.pane_pty(id).is_none()
                                             && let Some(p) = tab.panels.get_mut(&id)
                                         {
                                             p.scroll_view(step);
@@ -730,7 +677,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         let panel = tab
                             .panels
                             .get(&sel.pane)
-                            .filter(|_| pane_pty(&tab, sel.pane).is_none());
+                            .filter(|_| tab.pane_pty(sel.pane).is_none());
                         let text = match panel {
                             Some(panel) => {
                                 let layout = panel.layout(inner.width as usize);
@@ -862,9 +809,6 @@ const CODE_ON_BAND: Color = Color::Rgb(82, 92, 110);
 
 /// Warning yellow (nord13): toasts and a frozen pane's border tag.
 const WARN: Color = Color::Rgb(235, 203, 139);
-
-/// The failed-submit notice (#72). Trailing space: ⚠ renders width-2, see `frozen_notice`.
-const SUBMIT_FAILED: &str = "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
 
 /// A highlighted row's gutter number: soft white (nord4), brighter than the dimmed rest, so the
 /// gutter itself marks which rows the spotlight is on — regardless of the row's content.
@@ -1134,22 +1078,18 @@ fn with_cwd(mut cmd: CommandBuilder) -> CommandBuilder {
     cmd
 }
 
-/// The terminal drawn in pane `id`: the shell, or an editor pane's Neovim. `None` for a file pane,
-/// or an editor pane in its file view.
-fn pane_pty(tab: &Tab, id: PaneId) -> Option<&PtyTab> {
-    if id == PTY_PANE {
-        Some(&tab.pty)
-    } else {
-        tab.editors
-            .get(&id)
-            .filter(|e| e.editor_view)
-            .map(|e| &e.pty)
-    }
-}
-
 /// The focused terminal pane (shell or editor pane), which takes keys and paste.
 fn focused_pty(tab: &Tab) -> Option<&PtyTab> {
-    pane_pty(tab, tab.focus)
+    tab.pane_pty(tab.focus)
+}
+
+/// The pane whose terminal takes typed keys and paste: the focused one, else the shell.
+fn key_target(tab: &Tab) -> PaneId {
+    if focused_pty(tab).is_some() {
+        tab.focus
+    } else {
+        PTY_PANE
+    }
 }
 
 /// A pane title's path: relative to Laura's cwd, so `[review: N]` fits a half-width pane.

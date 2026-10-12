@@ -33,4 +33,4 @@ pub use protocol::{
     Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,
 };
 pub use pty::{PtyTab, dsr_reply};
-pub use tab::Tab;
+pub use tab::{Tab, UserAction};
