@@ -345,7 +345,7 @@ laura comment 2 "nice cap - should 60 be a setting?" --pane "$ED"
 
 **Say:**
 
-> I left a comment on L2. In the editor view, Neovim shows my comment as a `✎` sign on L2, and the pane's border shows `[review: 1]`. To read the whole thread, put the cursor on L2 and press `Ctrl+W` then `d`.
+> I left a comment on L2. In the editor view, Neovim shows my comment as a `✎` sign on L2, and the pane's border shows `[review: 1]`. To read the whole thread, press `]d`.
 >
 > 1. Press `Ctrl+L` to flip the pane to its **file view**. The file view shows the saved file, with my comment as a card, and takes the usual pane keys.
 > 2. On L2, press `c`, type a reply, then press `Enter`.

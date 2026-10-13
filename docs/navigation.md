@@ -20,7 +20,11 @@ Laura passes keys it doesn't use to the shell, or to Neovim in an editor pane's 
 
 An editor pane (`laura open --edit`) supports two views, an **Editor view** and a **File view**. Use `Ctrl+L` to flip between the views.
 
-- **Editor view** (the default): edit the file in Neovim. Every key goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+H`, `Ctrl+Q` and `F12`. Comments show as an inline `✎` diagnostic; use `Ctrl+W` then `d` to read the whole thread and `]d` to jump to the next one. The editor view does not support comment interactions, so flip to the file view to comment or submit.
+- **Editor view** (the default): edit the file in Neovim. Every key goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+H`, `Ctrl+Q` and `F12`.
+  - Comments show as an inline `✎` diagnostic.
+  - Press `]d` to jump to the next thread and read it in full, or `[d` for the previous one. Laura maps these keys to threads only and skips a language server's diagnostics.
+  - Press `Ctrl+W` then `d` to show the thread under the cursor.
+  - The editor view does not support comment interactions, so flip to the file view to comment or submit.
 - **File view**: comment on the saved file and submit the inline review, with the same keys as a file pane (below). Diff (`d`) and highlight (`h`) are not available.
 
 The border shows the view (`· editor` or `· file`), `● unsaved` while Neovim has unsaved edits, and `[review: N]` when the pane has threads.

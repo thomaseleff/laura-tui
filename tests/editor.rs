@@ -1,5 +1,6 @@
-//! Editor panes through the CLI, with a fake `nvim`: the gate, the pane Neovim runs in, `--panel
-//! N --edit` keeping threads, and what an exit leaves behind. State, not pixels.
+//! Editor panes through the CLI, with a fake `nvim` (real Neovim for `]d`): the gate, the pane
+//! Neovim runs in, `--panel N --edit` keeping threads, and what an exit leaves behind. State, not
+//! pixels.
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -11,13 +12,19 @@ use anyhow::Result;
 use assert_cmd::Command;
 use laura::{Rect, Tab, UserAction};
 
-/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
+/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`, and a real `nvim` keeps its
+/// config, data and swap files there too. The flag only lets `editor::resolve()` find `nvim`: tabs
+/// still default to off.
 fn isolate_home() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     // SAFETY: once per binary; std's env lock serializes it with std's own readers (`Command` spawn, `env::var`).
     ONCE.call_once(|| unsafe {
         std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
         std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("XDG_CONFIG_HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("XDG_DATA_HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("XDG_STATE_HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("LAURA_EXPERIMENTAL_EDITOR", "1");
     });
 }
 
@@ -246,6 +253,34 @@ fn open_edit_runs_neovim_in_a_pane_without_focus() -> Result<()> {
     // An agent comment lands on the editor pane's file panel.
     drive(&mut tab, &["comment", "--pane", "1", "3", "check this"]);
     assert_eq!(tab.panels[&1].thread_count(), 1);
+    Ok(())
+}
+
+/// Real Neovim: skipped when `nvim` isn't on `PATH`.
+#[test]
+fn bracket_d_opens_the_next_thread() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let Ok(nvim) = laura::editor::resolve() else {
+        eprintln!("skipped: nvim isn't on PATH");
+        return Ok(());
+    };
+    tab.editor = Ok(nvim);
+    let (_dir, path) = file();
+    drive(&mut tab, &["open", "--edit", &path]);
+    drive(&mut tab, &["comment", "--pane", "1", "3", "root note"]);
+    drive(&mut tab, &["comment", "--pane", "1", "3", "newest note"]);
+    assert_eq!(tab.panels[&1].thread_count(), 1);
+    let screen = |t: &Tab| t.editors[&1].pty.with_screen(|s| s.contents());
+    // The virtual text shows only the newest note; the root note is in the float alone.
+    drain_until(&mut tab, "threads pushed", |t| {
+        screen(t).contains("newest note")
+    });
+    assert!(!screen(&tab).contains("root note"), "{}", screen(&tab));
+    tab.editors[&1].pty.write(b"]d")?;
+    drain_until(&mut tab, "thread float", |t| {
+        screen(t).contains("root note")
+    });
+    assert!(!screen(&tab).contains("deprecated"), "{}", screen(&tab));
     Ok(())
 }
 
