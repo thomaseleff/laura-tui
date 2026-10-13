@@ -11,17 +11,18 @@ use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::{Frame, Terminal};
 use tui_term::widget::PseudoTerminal;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use laura::editor::Nvim;
 use laura::protocol::PTY_PANE;
-use laura::render::CODE_BG;
 use laura::tab::SUBMIT_FAILED;
-use laura::{ChangeKind, PaneId, Panel, PtyTab, Tab, UserAction};
+use laura::view::{self, Hint};
+use laura::{PaneId, Panel, PtyTab, Tab, UserAction};
 
 use crate::keys::key_to_bytes;
 use crate::mouse::{self, Selection};
@@ -242,7 +243,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             .inner(Margin::new(1, 1));
 
         let completed = terminal.draw(|f| {
-            let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
+            let rows =
+                Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
             for (id, rect) in &rect_map {
                 let focused = tab.focus == *id;
                 if *id == PTY_PANE {
@@ -265,62 +267,38 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     }
                 } else if let Some(panel) = tab.panels.get(id) {
                     let editor = tab.editors.get(id);
-                    let unsaved = editor.map(|e| e.modified());
                     if let Some(e) = editor.filter(|e| e.editor_view) {
-                        let mut tail = " · editor".to_string();
-                        let review = panel.thread_count();
-                        if review > 0 {
-                            tail += &format!("  [review: {review}]");
-                        }
-                        let block = pane_block(Some(title(*id, panel, unsaved, tail)), focused);
+                        let block =
+                            pane_block(Some(view::pane_title(*id, panel, Some(e))), focused);
                         f.render_widget(block, *rect);
                         e.pty.with_screen(|s| {
                             f.render_widget(PseudoTerminal::new(s), rect.inner(Margin::new(1, 1)))
                         });
                     } else {
-                        render_panel(f, *rect, *id, panel, focused, unsaved);
+                        render_panel(f, *rect, *id, panel, focused, editor);
                     }
                 }
             }
-            let focus_hint;
-            let hint = if locked && tab.focus != PTY_PANE && focused_pty(&tab).is_some() {
-                "  🔒 locked — every keystroke goes to Neovim · F12 unlock"
-            } else if locked {
-                "  🔒 locked — every keystroke goes to the shell · F12 unlock"
+            let hint = if locked {
+                Hint::Locked
             } else if wizard {
-                "  y yes, use Laura's theme · n no, keep mine · Esc not now"
+                Hint::Wizard
             } else if confirm_quit {
-                "  quit? press y to confirm · any other keystroke cancels"
+                Hint::Quit
             } else if let Some(d) = &draft {
-                focus_hint = match d {
-                    Draft::Comment { line, edit, .. } => format!(
-                        "  comment L{line} · \\+Enter newline · {} · Esc cancel",
-                        if *edit {
-                            "Enter save (empty deletes)"
-                        } else {
-                            "Enter add"
-                        }
-                    ),
-                    Draft::Review(..) => {
-                        "  review body · \\+Enter newline · Enter submit · Esc cancel".into()
-                    }
-                };
-                focus_hint.as_str()
-            } else if panes.is_some() {
-                "  type a pane id · Enter pick · Esc dismiss"
-            } else if focused_pty(&tab).is_none() {
-                match (tab.agent, tab.editors.contains_key(&tab.focus)) {
-                    (true, false) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · d diff · x close · h clear · Esc leave pane",
-                    (true, true) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · x close · Ctrl+L edit · Esc leave pane",
-                    (false, false) => "  ↑/↓ move · n/N next/prev thread · r threads · d diff · x close · h clear · Esc leave pane · inline review: run `laura ready`",
-                    (false, true) => "  ↑/↓ move · n/N next/prev thread · r threads · x close · Ctrl+L edit · Esc leave pane · inline review: run `laura ready`",
+                match d {
+                    Draft::Comment { line, edit, .. } => Hint::Comment {
+                        line: *line,
+                        edit: *edit,
+                    },
+                    Draft::Review(..) => Hint::Review,
                 }
-            } else if tab.focus != PTY_PANE {
-                "  Ctrl+L file view · Ctrl+P panes · Ctrl+H help · Ctrl+Q quit"
+            } else if panes.is_some() {
+                Hint::Panes
             } else {
-                "  Ctrl+P panes · Ctrl+H help · Ctrl+Q quit"
+                Hint::Pane
             };
-            f.render_widget(Paragraph::new(hint).dim(), rows[1]);
+            f.render_widget(Paragraph::new(view::hint(&tab, hint)).dim(), rows[1]);
             // A live draft grows a bordered input box over the bottom of the shell pane — never over
             // a panel, so the file under review stays visible.
             if let Some(d) = &draft
@@ -346,7 +324,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if let Some((msg, _)) = &toast {
                 render_toast(f, msg);
             } else if let Some(p) = tab.focused_panel().filter(|p| p.source_changed) {
-                render_toast(f, &frozen_notice(&base_name(&p.path), f.area().width));
+                render_toast(f, &view::frozen_notice(&base_name(&p.path), f.area().width));
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
             if let Some(sel) = &selection
@@ -775,247 +753,30 @@ fn pane_block(title: Option<Line<'static>>, focused: bool) -> Block<'static> {
     block
 }
 
-/// A file pane's border title: `#id path`, its lines added and removed vs HEAD, `● unsaved` while
-/// an editor pane's Neovim has unsaved edits (`unsaved` is `None` on a plain file pane), then `tail`.
-fn title(id: PaneId, panel: &Panel, unsaved: Option<bool>, tail: String) -> Line<'static> {
-    let mut spans = vec![Span::raw(format!("#{id} {}", display_path(&panel.path)))];
-    let (added, removed) = panel.diff_stat;
-    if added > 0 {
-        spans.push(Span::styled(
-            format!(" +{added}"),
-            Style::default().fg(ADDED),
-        ));
-    }
-    if removed > 0 {
-        spans.push(Span::styled(
-            format!(" -{removed}"),
-            Style::default().fg(REMOVED),
-        ));
-    }
-    if unsaved == Some(true) {
-        spans.push(Span::styled(" ● unsaved", Style::default().fg(WARN)));
-    }
-    spans.push(Span::raw(tail));
-    Line::from(spans)
-}
-
-/// The diff gutter's added and removed colors, shared with the border's `+N -M`.
-const ADDED: Color = Color::Rgb(56, 166, 96); // #38a660
-const REMOVED: Color = Color::Rgb(179, 89, 107); // #b3596b
-
-/// The cursor row's gray band (nord3) and the slightly-lighter gray code chips read on top of it.
-const BAND: Color = Color::Rgb(67, 76, 94);
-const CODE_ON_BAND: Color = Color::Rgb(82, 92, 110);
-
-/// Warning yellow (nord13): toasts and a frozen pane's border tag.
-const WARN: Color = Color::Rgb(235, 203, 139);
-
-/// A highlighted row's gutter number: soft white (nord4), brighter than the dimmed rest, so the
-/// gutter itself marks which rows the spotlight is on — regardless of the row's content.
-const HL_NUMBER: Color = Color::Rgb(216, 222, 233);
-
-/// Blend an RGB colour toward white by `t` (0..1). Non-RGB colours (rare in our styles) pass through.
-fn brighten(c: Color, t: f32) -> Color {
-    match c {
-        Color::Rgb(r, g, b) => {
-            let up = |v: u8| (f32::from(v) + (255.0 - f32::from(v)) * t).round() as u8;
-            Color::Rgb(up(r), up(g), up(b))
-        }
-        other => other,
-    }
-}
-
-/// Brighten a highlighted row's span so lit rows read *above* the full-colour-but-unlit rest without
-/// a background band. A span with no explicit fg (default prose) is pinned to a bright near-white first.
-fn bright_span(mut s: Span<'static>) -> Span<'static> {
-    // Inline-code caps (fg = CODE_BG, no box) must keep matching the chip's dark bg, which brighten
-    // leaves alone — lifting their fg would make the caps read lighter than the box they edge.
-    if s.style.fg == Some(CODE_BG) {
-        return s;
-    }
-    // HTML-block spans carry DIM (render.rs uses it to detect them) — leaving it on cancels the
-    // brighten, so the row looks untouched. Drop it before lifting fg.
-    s.style.add_modifier.remove(Modifier::DIM);
-    let base = s.style.fg.unwrap_or(Color::Rgb(200, 200, 200));
-    s.style.fg = Some(brighten(base, 0.3));
-    s
-}
-
-/// Color-emoji glyphs ignore SGR DIM (the terminal paints them from the emoji font), so a dimmed
-/// callout glyph would still pop. Replace each with two spaces (not delete) so the following text
-/// keeps its columns: deleting slid it left and left the wide glyph's cells as a repaint ghost the
-/// terminal never cleared (the stray "e" after "Note"). The `Note`/`Warning` word carries the callout.
-///
-/// ponytail: callout emoji render 2 cells wide (VS16 presentation); the fixed 2-space swap matches
-/// that. A rare width-1 emoji would over-pad by one — widen this if a non-callout glyph shows up.
-fn strip_emoji(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        let u = c as u32;
-        if u == 0xFE0F {
-            // variation selector — width 0, the base glyph's spaces already cover it
-        } else if u == 0x2139 || (0x2600..=0x27BF).contains(&u) || (0x1F000..=0x1FAFF).contains(&u)
-        {
-            out.push_str("  "); // color emoji → 2 spaces, same columns as the width-2 glyph
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// Spotlight dim for a non-highlighted row: strip BOLD (else it beats DIM), drop the code bg box
-/// (it ignores DIM), drop color emoji (DIM can't touch them), then add DIM.
-fn dim_span(mut s: Span<'static>) -> Span<'static> {
-    // Inline-code caps (fg = CODE_BG, no box) would dim to a stray dark block once the chip's bg
-    // is stripped, so drop the glyph — the run then reads as plain dimmed prose.
-    if s.style.fg == Some(CODE_BG) {
-        s.content = "".into();
-    }
-    s.style.add_modifier.remove(Modifier::BOLD);
-    s.style.bg = None;
-    s.style = s.style.add_modifier(Modifier::DIM);
-    s.content = strip_emoji(&s.content).into();
-    s
-}
-
-/// Draw one file panel: pre-wrapped rows, gutter, agent-highlight spotlight + cursor band, and an overflow scrollbar.
-/// `unsaved`: on an editor pane's file view, whether its Neovim has unsaved edits.
+/// Draw one file pane: its styled rows (see `view::panel_lines`) and an overflow scrollbar.
+/// `editor`: the editor pane's Neovim when this is its file view.
 fn render_panel(
     f: &mut Frame,
     area: Rect,
     id: PaneId,
     panel: &Panel,
     focused: bool,
-    unsaved: Option<bool>,
+    editor: Option<&Nvim>,
 ) {
-    // `Panel::layout` pre-wraps into 1:1 rows; we only style them here.
     let inner_w = area.width.saturating_sub(2) as usize; // minus borders
     let layout = panel.layout(inner_w);
-    let gw = layout.gutter_width;
-    // Whole-pane decision: an active highlight spotlights its rows and dims every other row.
-    let spotlight = panel.highlight.is_some();
-    let rows: Vec<Line> = layout
-        .rows
-        .iter()
-        .map(|r| {
-            let number = match r.gutter {
-                Some(n) => format!("{n:>gw$}"),
-                None => format!("{:>gw$}", ""),
-            };
-            // 5-cell decoration: number · sep · change · sep · caret · sep · body. The change cell is
-            // a `▌` half-block in higher-contrast diff colours; the caret carries thread state.
-            let change_cell = r
-                .change
-                .map(|k| {
-                    Span::styled(
-                        "▌",
-                        Style::default().fg(match k {
-                            ChangeKind::Added => ADDED,
-                            ChangeKind::Modified => Color::Rgb(56, 150, 217), // #3896d9
-                            ChangeKind::Removed(_) => REMOVED,
-                        }),
-                    )
-                })
-                .unwrap_or_else(|| Span::raw(" "));
-            let caret_cell = match r.review {
-                Some(collapsed) => Span::raw(if collapsed { "▸" } else { "▾" }),
-                None => Span::raw(" "),
-            };
-            if r.comment {
-                // Card/gap rows emit at column 0; blank number + 3 lands the card border under the caret.
-                let mut spans = vec![Span::raw(number), Span::raw(" ".repeat(3))];
-                spans.extend(r.spans.iter().cloned());
-                Line::from(spans)
-            } else {
-                let highlighted = panel
-                    .highlight
-                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line));
-                let on_cursor = focused && r.line == panel.cursor;
-
-                // A highlighted row's number reads in soft white; every other row's dims.
-                let number_span = if highlighted {
-                    Span::styled(number, Style::default().fg(HL_NUMBER))
-                } else {
-                    Span::raw(number).dim()
-                };
-                let mut spans = vec![
-                    number_span,
-                    Span::raw(" "),
-                    change_cell,
-                    Span::raw(" "),
-                    caret_cell,
-                    Span::raw(" "),
-                ];
-                let mut body: Vec<Span> = r.spans.to_vec();
-                // Three readable states off the cursor row: a highlighted row brightens (reads above
-                // the rest, no band), the rest dim under an active spotlight, plain otherwise. On the
-                // cursor row the gray band wins over both.
-                if !on_cursor {
-                    if highlighted {
-                        body = body.into_iter().map(bright_span).collect();
-                    } else if spotlight {
-                        body = body.into_iter().map(dim_span).collect();
-                    }
-                }
-
-                // Pad every row's trailing width to the pane edge (the #35 width-pad — a Line's
-                // style doesn't fill it). Without this, a row that shrinks between frames — dim
-                // strips the callout emoji / blanks inline caps — leaves the wider prior frame's
-                // last cells unpainted (a stray "e" after "Note"). The band also needs it for its bg.
-                let used = gw
-                    + 5
-                    + body
-                        .iter()
-                        .map(|s| s.content.chars().count())
-                        .sum::<usize>();
-                let pad = inner_w.saturating_sub(used);
-                if on_cursor {
-                    // Gray band under the cursor. Repaint code chips + inline caps a shade lighter
-                    // so they read as raised chips on the band, not holes.
-                    spans.extend(body);
-                    for s in spans.iter_mut() {
-                        if s.style.bg.is_some() {
-                            s.style.bg = Some(CODE_ON_BAND); // code box → chip on the band
-                        } else if s.style.fg == Some(CODE_BG) {
-                            s.style.fg = Some(CODE_ON_BAND); // inline cap → chip edge on the band
-                        }
-                    }
-                    if pad > 0 {
-                        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
-                    }
-                    Line::from(spans).bg(BAND)
-                } else {
-                    spans.extend(body);
-                    if pad > 0 {
-                        spans.push(Span::raw(" ".repeat(pad)));
-                    }
-                    Line::from(spans)
-                }
-            }
-        })
-        .collect();
-    let review = panel.thread_count();
-    let mut tail = if unsaved.is_some() {
-        " · file".to_string()
-    } else {
-        String::new()
-    };
-    if review > 0 {
-        let (above, below) = panel.thread_split();
-        tail += &format!("  [review: {review} ↑{above} ↓{below}]");
-    }
+    let rows = view::panel_lines(panel, &layout, focused, inner_w);
     // The offset is remembered across frames (scrolls only at the edges); see `scroll_offset`.
-    let view = area.height.saturating_sub(2) as usize;
+    let height = area.height.saturating_sub(2) as usize;
     let total_rows = rows.len();
-    let offset = panel.scroll_offset(&layout, view).min(u16::MAX as usize) as u16;
-    let mut block = pane_block(Some(title(id, panel, unsaved, tail)), focused);
+    let offset = panel.scroll_offset(&layout, height).min(u16::MAX as usize) as u16;
+    let mut block = pane_block(Some(view::pane_title(id, panel, editor)), focused);
     if panel.source_changed {
         // Trailing space: ⚠ renders width-2 under VS16, so pad or the corner clips.
-        block = block.title_bottom(Line::from(" ⚠ ").right_aligned().fg(WARN));
+        block = block.title_bottom(Line::from(" ⚠ ").right_aligned().fg(view::WARN));
     }
     f.render_widget(Paragraph::new(rows).block(block).scroll((offset, 0)), area);
-    render_scrollbar(f, area, total_rows, view, offset as usize);
+    render_scrollbar(f, area, total_rows, height, offset as usize);
 }
 
 /// Right-edge vertical scrollbar for a pane; drawn only when content overflows the viewport. Shared by panels and the PTY.
@@ -1092,19 +853,6 @@ fn key_target(tab: &Tab) -> PaneId {
     }
 }
 
-/// A pane title's path: relative to Laura's cwd, so `[review: N]` fits a half-width pane.
-fn display_path(path: &str) -> String {
-    std::env::current_dir()
-        .ok()
-        .and_then(|cwd| {
-            Path::new(path)
-                .strip_prefix(cwd)
-                .ok()
-                .map(Path::to_path_buf)
-        })
-        .map_or_else(|| path.to_string(), |p| p.display().to_string())
-}
-
 /// True if some live id extends `buf` (a longer id is still reachable, so don't commit yet).
 fn pane_id_ambiguous(ids: &[laura::PaneId], buf: &str) -> bool {
     ids.iter().any(|id| {
@@ -1172,22 +920,7 @@ fn base_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
-/// The frozen-pane notice for file `name`, shortened when the full text won't fit in `width`.
-fn frozen_notice(name: &str, width: u16) -> String {
-    // Trailing space: ⚠ (U+26A0) renders width-2 under VS16, so pad or the box clips ~1 cell.
-    let full = format!(
-        "⚠ {name} changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review) "
-    );
-    // `render_toast` pads by 2 and keeps a 1-cell right margin.
-    if full.chars().count() + 3 <= width as usize {
-        full
-    } else {
-        // No filename: a long one overflows 80 cols, and the pane title already names the file.
-        "⚠ Shift+S submit · Ctrl+R discards inline review ".to_string()
-    }
-}
-
-/// Draw a one-line transient toast in the bottom-right corner (nord yellow), just above the hint line.
+/// Draw a one-line notice in the bottom-right corner (nord yellow), just above the hint line.
 fn render_toast(f: &mut Frame, msg: &str) {
     let area = f.area();
     let w = (msg.chars().count() as u16 + 2).min(area.width);
@@ -1199,63 +932,14 @@ fn render_toast(f: &mut Frame, msg: &str) {
     };
     f.render_widget(Clear, rect);
     f.render_widget(
-        Paragraph::new(format!(" {msg} ")).style(Style::default().fg(WARN)),
+        Paragraph::new(format!(" {msg} ")).style(Style::default().fg(view::WARN)),
         rect,
     );
 }
 
-/// Draw the global help popup: a centered, bordered list of key bindings, mirroring the contextual hints.
+/// Draw the help popup in a centered, bordered box.
 fn render_help(f: &mut Frame) {
-    let key = |k: &'static str, desc: &'static str| {
-        Line::from(vec![
-            Span::raw("  "),
-            k.bold().cyan(),
-            Span::raw("  "),
-            desc.dim(),
-        ])
-    };
-    let group = |g: &'static str| Line::from(g.bold());
-    let lines = vec![
-        group("Global"),
-        key("Ctrl+P", "panes popup"),
-        key("Ctrl+H", "this help"),
-        key("F12", "lock all input to the shell or editor pane"),
-        key("drag", "select within pane (copies on release)"),
-        key("Ctrl+Q", "quit (then y to confirm)"),
-        Line::raw(""),
-        group("Panes (Ctrl+P …)"),
-        key("id", "type a pane id, Enter to focus"),
-        key("Esc", "dismiss"),
-        Line::raw(""),
-        group("Focused pane"),
-        key("↑/↓", "move the cursor"),
-        key("n/N", "next/prev thread"),
-        key("←/→", "scroll pre-formatted lines sideways"),
-        key("d", "toggle inline diff vs HEAD"),
-        key("c", "comment on line (needs `laura ready`)"),
-        key("r", "collapse/expand thread"),
-        key("Shift+S", "submit inline review (needs `laura ready`)"),
-        key(
-            "Ctrl+R",
-            "refresh pane (discards unsubmitted inline review)",
-        ),
-        key("x", "close pane"),
-        key("h", "clear highlight"),
-        key("Esc", "leave pane"),
-        key(
-            "Ctrl+L",
-            "editor pane: flip between Neovim and its file view",
-        ),
-        Line::raw(""),
-        group("Draft"),
-        key("←/→", "move"),
-        key("Home/End", "line start/end"),
-        key("Backspace/Delete", "delete before/after"),
-        key("\\+Enter", "newline"),
-        key("Enter", "confirm / submit"),
-        key("Enter", "on an empty edit: delete your comment"),
-        key("Esc", "cancel"),
-    ];
+    let lines = view::help_lines();
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4; // + border, margin
     let height = lines.len() as u16 + 2; // + border
     let [area] = Layout::vertical([Constraint::Length(height)])
@@ -1312,9 +996,7 @@ fn render_wizard(f: &mut Frame, answer: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Editor, content_rect, frozen_notice, pane_id_ambiguous, pane_id_exact, render_draft_box,
-    };
+    use super::{Editor, content_rect, pane_id_ambiguous, pane_id_exact, render_draft_box};
     use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
     // The draft editor only sees keystrokes from the render loop (no CLI/socket surface), so it's checked here.
@@ -1408,15 +1090,6 @@ mod tests {
         // `日本a` is 5 cells wide.
         let (_, pos) = draw_draft(&Editor::new("日本a".into()), 20, 5);
         assert_eq!(pos.0, 6);
-    }
-
-    // The frozen notice is drawn by the render loop (no CLI/socket surface), so its fit is checked here.
-    #[test]
-    fn frozen_notice_shortens_on_a_narrow_terminal() {
-        let short = frozen_notice("2026-09-23-protect-review-plan.md", 80);
-        assert!(short.contains("Ctrl+R discards inline review"), "{short}");
-        assert!(short.chars().count() + 3 <= 80, "{short}");
-        assert!(frozen_notice("main.rs", 200).contains("changed on disk"));
     }
 
     // The pane-id popup entry lives in the TUI event loop (no CLI/socket surface), so its

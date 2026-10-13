@@ -229,7 +229,7 @@ fn markdown_rows_fit_the_pane_width() -> Result<()> {
     for w in [40, 60, 80, 101, 120] {
         let layout = panel.layout(w);
         for r in &layout.rows {
-            // Card rows get the 3-cell indent render_panel adds; body rows the full 5-cell gutter.
+            // Card rows get the 3-cell indent `view::panel_lines` adds; body rows the full 5-cell gutter.
             let deco = if r.comment { 3 } else { 5 };
             assert!(
                 layout.gutter_width + deco + r.text().chars().count() <= w,

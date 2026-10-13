@@ -8,6 +8,7 @@
 //! - [`journal`] — persisted per-session NDJSON log of composition events.
 //! - [`editor`] — an editor pane's Neovim (experimental) and the startup gate.
 //! - [`tab`] — one workspace tab tying the above together over its socket.
+//! - [`view`] — pane titles, file pane rows, and the hint, help, and notice text a front-end draws.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
 
@@ -20,6 +21,7 @@ pub mod protocol;
 pub mod pty;
 pub mod render;
 pub mod tab;
+pub mod view;
 
 pub use ratatui::layout::Rect;
 

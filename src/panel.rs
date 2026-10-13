@@ -555,7 +555,7 @@ impl Panel {
     /// Card rows for the expanded thread keyed on line `key` (empty when none/collapsed), tagged
     /// `line: at` — the block's last row, so the card follows the whole block (#70). A rounded gray
     /// box grown to the widest note; human notes are inline-code chips, agent notes plain fg.
-    /// Emitted at column 0 — `render_panel` prefixes the decoration, so `pad_w` is only a wrap budget.
+    /// Emitted at column 0 — `view::panel_lines` prefixes the decoration, so `pad_w` is only a wrap budget.
     fn thread_rows(&self, key: usize, at: usize, inner_w: usize) -> Vec<PanelRow> {
         let Some(t) = self.thread_at(key).filter(|t| !t.collapsed) else {
             return vec![];
@@ -610,7 +610,7 @@ impl Panel {
         }
 
         // Draw the rounded box, growing to the widest inner line. `line: at` so scroll/copy keep the
-        // card with the block's last row; `comment: true` so cosmetics skip it and render_panel indents it.
+        // card with the block's last row; `comment: true` so cosmetics skip it and `view::panel_lines` indents it.
         let w = inner.iter().map(|s| width(s)).max().unwrap_or(0);
         let mk = |spans: Vec<Span<'static>>| PanelRow {
             line: at,
@@ -647,7 +647,7 @@ impl Panel {
         // number exceed `styled.len()`.
         let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
-        // 5-cell gutter decoration (number · sep · change · sep · caret · sep · body); see render_panel.
+        // 5-cell gutter decoration (number · sep · change · sep · caret · sep · body); see `view::panel_lines`.
         let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
