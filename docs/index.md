@@ -16,6 +16,7 @@ Your agent can open the file you're discussing, the plan you're following, the d
 - **Pick your coding agent CLI** - Laura runs your agent in a plain shell, so Laura works with every agent CLI and model.
 - **Interact in every pane** - comment on any file pane and submit the inline review into the chat.
 - **Edit alongside your agent** *(experimental)* - edit a file in Neovim in an editor pane next to the chat, then flip to the file view to review your edits with your agent. [Enable editor panes](cli.md#editor-panes).
+- **Work in a browser** *(experimental)* - run the workspace in a browser tab instead of the terminal, with the same keystrokes. [Start the web app](web-app.md).
 - **Learn while staying focused** - your agent shows and explains concepts live, step by step.
 
 ## How it works

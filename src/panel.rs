@@ -308,6 +308,23 @@ impl Panel {
         self.source.get(self.cursor).map_or(self.cursor, |s| s.0) as u32 + 1
     }
 
+    /// A layout row's first source line, 1-based. Diff view tags rows with 0-based source lines,
+    /// not rendered lines, so `source` doesn't apply there.
+    pub fn row_source_line(&self, row: &PanelRow) -> u32 {
+        let line = if self.diff_view {
+            row.line
+        } else {
+            self.source.get(row.line).map_or(row.line, |s| s.0)
+        };
+        line as u32 + 1
+    }
+
+    /// Whether a fresh highlight still wants centering; clears it. The web app's counterpart to
+    /// `scroll_offset`'s centering.
+    pub fn take_recenter(&self) -> bool {
+        self.recenter.take()
+    }
+
     /// Mouse wheel: scroll the view and carry the cursor along, both by `delta` lines.
     pub fn scroll_view(&mut self, delta: isize) {
         let (line, _) = self.scroll.get();

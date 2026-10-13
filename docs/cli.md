@@ -7,6 +7,8 @@ The CLI reference lists every `laura` command and its flags. Run `laura` on its 
 ```bash
 laura                   Run the TUI, hosting your default shell.
 laura -- <cmd> [args]   Run the TUI, hosting <cmd> instead of your shell.
+laura --web [-- <cmd>]  Serve the workspace to a browser tab instead of the terminal, and print
+                        the URL to open (experimental: needs LAURA_EXPERIMENTAL_WEB=1).
 ```
 
 ## Commands
@@ -132,6 +134,7 @@ Experimental features are off by default and enabled by setting an environment v
 | Variable | Feature |
 |---|---|
 | `LAURA_EXPERIMENTAL_EDITOR=1` | [Editor panes](#editor-panes) |
+| `LAURA_EXPERIMENTAL_WEB=1` | [Web app](web-app.md) |
 
 ## Editor panes
 

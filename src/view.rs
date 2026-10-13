@@ -356,6 +356,20 @@ pub fn help_lines() -> Vec<Line<'static>> {
     ]
 }
 
+/// The notice when a diff found no `git` binary; shown once.
+pub const NO_GIT: &str = "diff views not available — install `git`";
+
+/// The web app's overlay on a browser tab another tab took the workspace from.
+pub const MOVED: &str = "This workspace moved to another tab.";
+
+/// The web app's overlay once the workspace ended (the shell exited or the user quit).
+pub const ENDED: &str = "This workspace ended.";
+
+/// A path's file name (last `/`- or `\`-separated segment).
+pub fn base_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
 /// The frozen-pane notice for file `name`, shortened when the full text won't fit in `width`.
 pub fn frozen_notice(name: &str, width: u16) -> String {
     // Trailing space: ⚠ (U+26A0) renders width-2 under VS16, so pad or the box clips ~1 cell.

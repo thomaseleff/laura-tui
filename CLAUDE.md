@@ -84,7 +84,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **snapshot** | The content of a pane with an unsubmitted inline review. | reviewed content |
 | **highlight** (n., v.) | Lines marked by `laura highlight`. | spotlight |
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
-| **workspace** | The TUI, including all panes. | — |
+| **workspace** | The TUI or the web app, including all panes. | — |
+| **web app** | The browser view of a workspace (`laura --web`). | web UI, frontend |
 | **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
 | **keystroke** | A key or key combination the user presses (`c`, `Ctrl+L`, `]d`). | key |

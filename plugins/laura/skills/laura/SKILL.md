@@ -23,6 +23,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 - **Run `laura ready --session <id> --agent <name>` at the start of every new chat.** `laura ready` enables commenting and inline reviews. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop. `laura ready` prints JSON with:
   - `journal`: the journal path.
   - `experimental`: the experimental features enabled in this workspace. Use only those.
+    - `web` means your partner is using the workspace in a browser tab instead of the terminal. Every `laura` command works the same. Your partner can't comment or submit an inline review in the browser yet, so explain in the chat instead of asking for an inline review.
   - `layout`: what's already open. `laura close` anything no longer relevant. If `layout` is `null`, run `laura layout`.
 - **Run `laura layout`** before later opens or closes to see what's open, and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.

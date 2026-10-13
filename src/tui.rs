@@ -1,7 +1,7 @@
 //! The draw loop and its widgets: hosts the workspace, renders panes, and routes input to the engine.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -183,18 +183,26 @@ impl Draft {
     }
 }
 
+/// The theme wizard's answer: `laura` or `neovim`; missing means ask (only when editor panes are on).
+fn theme_path() -> PathBuf {
+    laura::journal::data_dir().join("editor-theme")
+}
+
+/// Start a workspace running `program` (else the shell), with editor panes resolved and the saved
+/// theme applied. The TUI and `laura --web` share it.
+pub fn spawn_tab(program: &[String], rows: u16, cols: u16) -> Result<Tab> {
+    let mut tab = Tab::spawn(build_cmd(program), rows, cols)?;
+    // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
+    tab.editor = laura::editor::resolve();
+    tab.editor_theme = std::fs::read_to_string(theme_path()).is_ok_and(|s| s.trim() == "laura");
+    Ok(tab)
+}
+
 pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Result<()> {
     let area = terminal.size()?;
-
-    // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
-    let editor = laura::editor::resolve();
-    // The theme wizard's answer: `laura` or `neovim`; missing means ask (only when editor panes are on).
-    let theme_path = laura::journal::data_dir().join("editor-theme");
-    let editor_theme = std::fs::read_to_string(&theme_path).is_ok_and(|s| s.trim() == "laura");
-    let mut wizard = editor.is_ok() && !theme_path.exists();
-    let mut tab = Tab::spawn(build_cmd(&program), area.height, area.width)?;
-    tab.editor = editor.clone();
-    tab.editor_theme = editor_theme;
+    let mut tab = spawn_tab(&program, area.height, area.width)?;
+    let theme_path = theme_path();
+    let mut wizard = tab.editor.is_ok() && !theme_path.exists();
     // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
     let mut panes: Option<String> = None;
     // `F12` locks input: every keystroke goes to the shell, Laura intercepts nothing but F12.
@@ -208,7 +216,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut selection: Option<Selection> = None;
     // A transient bottom-right toast (message + expiry); armed once if `git` is missing. The user
     // turned editor panes on, so a missing `nvim` is said at startup, not left to a refused `--edit`.
-    let mut toast: Option<(String, Instant)> = editor
+    let mut toast: Option<(String, Instant)> = tab
+        .editor
         .as_ref()
         .err()
         .filter(|e| *e == laura::editor::NO_NVIM)
@@ -227,7 +236,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         if !toast_git_shown && laura::gitdiff::git_missing() {
             toast_git_shown = true;
             toast = Some((
-                "diff views not available — install `git`".into(),
+                view::NO_GIT.into(),
                 Instant::now() + Duration::from_secs(10),
             ));
         }
@@ -324,7 +333,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if let Some((msg, _)) = &toast {
                 render_toast(f, msg);
             } else if let Some(p) = tab.focused_panel().filter(|p| p.source_changed) {
-                render_toast(f, &view::frozen_notice(&base_name(&p.path), f.area().width));
+                render_toast(
+                    f,
+                    &view::frozen_notice(view::base_name(&p.path), f.area().width),
+                );
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
             if let Some(sel) = &selection
@@ -884,7 +896,7 @@ fn render_panes(f: &mut Frame, tab: &Tab, buf: &str) {
         } else {
             tab.panels
                 .get(&id)
-                .map(|p| base_name(&p.path))
+                .map(|p| view::base_name(&p.path).to_string())
                 .unwrap_or_else(|| "?".into())
         };
         // Dim rows the current input can't reach; leave the shortlist bright.
@@ -913,11 +925,6 @@ fn render_panes(f: &mut Frame, tab: &Tab, buf: &str) {
         Paragraph::new(lines).block(Block::bordered().title(" Panes ")),
         area,
     );
-}
-
-/// A path's file name (last `/`- or `\`-separated segment).
-fn base_name(path: &str) -> String {
-    path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
 /// Draw a one-line notice in the bottom-right corner (nord yellow), just above the hint line.

@@ -413,7 +413,7 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 </tr>
 </table>
 
-`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 ### `update`
 
@@ -451,5 +451,7 @@ Laura handles the user's keystrokes inside the TUI process, which already holds 
 - focus (`Ctrl+P`), scrolling, and diff toggle (`d`)
 
 See [navigating the TUI](navigation.md) for the in-TUI keystrokes for all interactions.
+
+The user's actions in the TUI or the [web app](web-app.md) aren't protocol messages, and the agent can't send them.
 
 Until the workspace receives a `ready` message, the user can't comment or submit an inline review.

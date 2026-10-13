@@ -10,6 +10,7 @@ use anyhow::Result;
 use portable_pty::CommandBuilder;
 use ratatui::layout::{Margin, Rect};
 
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::editor::{self, Nvim};
@@ -94,7 +95,10 @@ pub const NO_DIFF_IN_EDITOR: &str = "⚠ diff view isn't available in an editor 
 pub const SUBMIT_FAILED: &str =
     "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
 
-/// What the user did. Never a protocol `Message`: the agent can't send one.
+/// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
+/// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
+#[derive(Deserialize)]
+#[serde(tag = "act", rename_all = "snake_case")]
 pub enum UserAction {
     Focus {
         pane: PaneId,
@@ -149,7 +153,14 @@ pub enum UserAction {
     ToggleEditorView {
         pane: PaneId,
     },
-    /// Keys to the shell, or an editor pane's Neovim in its editor view.
+    /// A click on a file pane's row. `line` is 1-based source.
+    SetCursor {
+        pane: PaneId,
+        line: u32,
+    },
+    /// Keys to the shell, or an editor pane's Neovim in its editor view. The web app sends these
+    /// as binary frames, not JSON.
+    #[serde(skip)]
     Input {
         pane: PaneId,
         bytes: Vec<u8>,
@@ -223,6 +234,8 @@ pub struct Tab {
     pub editor: Result<PathBuf, String>,
     /// Editor panes use Laura's theme (the startup wizard's answer). The TUI sets it.
     pub editor_theme: bool,
+    /// Hosted by `laura --web`; `ready` lists `web` under `experimental`.
+    pub web: bool,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -258,6 +271,7 @@ impl Tab {
             editors: HashMap::new(),
             editor: Err(editor::FLAG_OFF.into()),
             editor_theme: false,
+            web: false,
             seq: n,
             next_pane: 1,
             rx,
@@ -310,6 +324,7 @@ impl Tab {
                 }
             }
             A::ClearHighlight { pane } => self.panel_mut(pane)?.clear_highlight(),
+            A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
             A::BeginComment { pane, line } => {
                 if !self.agent {
                     return Err(NEEDS_READY.into());
@@ -468,9 +483,10 @@ impl Tab {
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
-    pub fn drain(&mut self, area: Rect) {
+    /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
+    pub fn drain(&mut self, area: Rect) -> bool {
         if self.hold {
-            return;
+            return false;
         }
         // An exited Neovim closes its pane, unless it holds threads: then it stays a file pane.
         let exited: Vec<PaneId> = self
@@ -479,6 +495,7 @@ impl Tab {
             .filter(|(_, e)| e.pty.has_exited())
             .map(|(id, _)| *id)
             .collect();
+        let mut changed = !exited.is_empty();
         for id in exited {
             self.editors.remove(&id);
             if self.panels.get(&id).is_some_and(|p| p.thread_count() == 0) {
@@ -488,13 +505,16 @@ impl Tab {
         loop {
             // Catch up to disk before each message: one sent right after an edit must see the new content.
             for p in self.panels.values_mut() {
-                p.reload_if_changed();
+                // A freeze returns false, so compare `source_changed` too.
+                let frozen = p.source_changed;
+                changed |= p.reload_if_changed() || p.source_changed != frozen;
             }
             let Ok((msg, reply)) = self.rx.try_recv() else {
                 break;
             };
             let resp = self.apply(msg, area);
             reply.send(&resp);
+            changed = true;
         }
         // Every change to a thread (comment, submit, `Ctrl+R`, freeze) reaches Neovim from here.
         for (id, e) in &mut self.editors {
@@ -502,6 +522,7 @@ impl Tab {
                 e.push(p);
             }
         }
+        changed
     }
 
     /// Close a pane (default: the focused panel). Shared by the `close` verb and the `x` key, so
@@ -966,7 +987,14 @@ impl Tab {
                 let path = journal.path().to_string_lossy().into_owned();
                 journal.log(json!({"type": "ready"}));
                 self.journal = Some(journal);
-                let experimental = self.editor.iter().map(|_| "editor".to_string()).collect();
+                let experimental = [
+                    self.editor.is_ok().then_some("editor"),
+                    self.web.then_some("web"),
+                ]
+                .into_iter()
+                .flatten()
+                .map(String::from)
+                .collect();
                 Response::Ready {
                     journal: path,
                     experimental,
