@@ -1,7 +1,7 @@
 # Agent reference
 
 > [!TIP]
-> The agent reference is for coding agents. For the keys the user presses in the workspace, see [Navigating the TUI](navigation.md).
+> The agent reference is for coding agents. For the keystrokes the user presses in the workspace, see [Navigating the TUI](navigation.md).
 
 ## Enable interaction
 

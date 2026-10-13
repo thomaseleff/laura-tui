@@ -445,11 +445,11 @@ Reserved for asking a file pane to reload. The `laura` CLI doesn't send `update`
 
 ## In-process interactions
 
-Laura handles the user's keys inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
+Laura handles the user's keystrokes inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
 
 - comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+S`), and refresh (`Ctrl+R`)
 - focus (`Ctrl+P`), scrolling, and diff toggle (`d`)
 
-See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
+See [navigating the TUI](navigation.md) for the in-TUI keystrokes for all interactions.
 
 Until the workspace receives a `ready` message, the user can't comment or submit an inline review.

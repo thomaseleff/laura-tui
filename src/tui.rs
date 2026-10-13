@@ -196,7 +196,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     tab.editor_theme = editor_theme;
     // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
     let mut panes: Option<String> = None;
-    // `F12` locks input: every key goes to the shell, Laura intercepts nothing but F12.
+    // `F12` locks input: every keystroke goes to the shell, Laura intercepts nothing but F12.
     let mut locked = false;
     // `^q` arms a quit confirm; the next key must be `y`.
     let mut confirm_quit = false;
@@ -284,13 +284,13 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             }
             let focus_hint;
             let hint = if locked && tab.focus != PTY_PANE && focused_pty(&tab).is_some() {
-                "  🔒 locked — every key goes to Neovim · F12 unlock"
+                "  🔒 locked — every keystroke goes to Neovim · F12 unlock"
             } else if locked {
-                "  🔒 locked — every key goes to the shell · F12 unlock"
+                "  🔒 locked — every keystroke goes to the shell · F12 unlock"
             } else if wizard {
                 "  y yes, use Laura's theme · n no, keep mine · Esc not now"
             } else if confirm_quit {
-                "  quit? press y to confirm · any other key cancels"
+                "  quit? press y to confirm · any other keystroke cancels"
             } else if let Some(d) = &draft {
                 focus_hint = match d {
                     Draft::Comment { line, edit, .. } => format!(
@@ -423,7 +423,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         if key.code == KeyCode::Char('y') {
                             break;
                         }
-                        confirm_quit = false; // any other key cancels
+                        confirm_quit = false; // any other keystroke cancels
                     } else if help {
                         help = false;
                     } else if ctrl && key.code == KeyCode::Char('h') {
@@ -525,7 +525,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     {
                         let _ = tab.act(UserAction::ToggleEditorView { pane: tab.focus });
                     } else if tab.focus != PTY_PANE && focused_pty(&tab).is_some() {
-                        // An editor pane takes every other key, Esc and PageUp/PageDown included.
+                        // An editor pane takes every other keystroke, Esc and PageUp/PageDown included.
                         if let Some(bytes) = key_to_bytes(key.code, key.modifiers) {
                             let _ = tab.act(UserAction::Input {
                                 pane: tab.focus,

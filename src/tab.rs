@@ -379,7 +379,7 @@ impl Tab {
     fn write_keys(&self, pane: PaneId, bytes: &[u8]) -> Result<(), String> {
         let pty = self
             .pane_pty(pane)
-            .ok_or_else(|| format!("pane #{pane} doesn't take keys"))?;
+            .ok_or_else(|| format!("pane #{pane} doesn't take keystrokes"))?;
         pty.to_live();
         let _ = pty.write(bytes);
         Ok(())
