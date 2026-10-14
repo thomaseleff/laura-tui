@@ -371,10 +371,10 @@ pub fn help_lines(web: bool) -> Vec<Line<'static>> {
 pub const NO_GIT: &str = "diff views not available — install `git`";
 
 /// The web app's overlay on a browser tab another tab took the workspace from.
-pub const MOVED: &str = "This workspace moved to another tab.";
+pub const MOVED: &str = "The workspace is open in another tab.";
 
 /// The web app's overlay once the workspace ended (the shell exited or the user quit).
-pub const ENDED: &str = "This workspace ended.";
+pub const ENDED: &str = "The workspace stopped. To use Laura again, start Laura in the terminal.";
 
 /// A path's file name (last `/`- or `\`-separated segment).
 pub fn base_name(path: &str) -> &str {

@@ -16,6 +16,11 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); }
 body, .probe, button { font: 14px var(--font); }
 .probe { position: absolute; visibility: hidden; white-space: pre; }
+/* Laura's cell grid, centered in the window. Not `transform`, which blurs xterm's WebGL canvas. */
+#grid {
+  position: absolute; inset: 0; margin: auto;
+  width: calc(var(--cw) * var(--cols)); height: calc(var(--ch) * var(--rows));
+}
 #ws { position: absolute; inset: 0; outline: none; }
 
 /* Every pane sits on Laura's cell grid: x/y/w/h are cells, --cw/--ch one cell in px. */
@@ -47,22 +52,22 @@ body, .probe, button { font: 14px var(--font); }
 }
 .g { user-select: none; }
 
-/* The focused file pane's `+` on the cursor row, and its actions on the bottom border. */
+/* The focused file pane's `+` at the end of the cursor row, and its actions on the bottom border. */
 .cbtn, .acts { display: none; position: absolute; z-index: 1; }
 .pane.file.focused .cbtn { display: block; }
 .pane.file.focused .acts { display: flex; }
 #ws.drafting .cbtn, #ws.drafting .acts { display: none; }
-.cbtn { left: 0; width: var(--cw); padding: 0; }
+.cbtn { right: var(--cw); }
 .acts { bottom: 0; right: var(--cw); gap: var(--cw); padding: 0 2px; background: var(--bg); }
 .cbtn, .acts button {
   height: var(--ch); line-height: var(--ch); color: var(--bg); background: var(--accent);
   border: 0; border-radius: 4px; cursor: pointer;
 }
-.acts button { padding: 0 6px; }
+.cbtn, .acts button { padding: 0 6px; }
 
 /* 2 to 6 rows, as in the TUI. */
 #draft {
-  position: fixed; z-index: 2; box-sizing: border-box; padding: var(--ch) var(--cw);
+  position: absolute; z-index: 2; box-sizing: border-box; padding: var(--ch) var(--cw);
   background: var(--bg);
 }
 #draft textarea {
@@ -73,10 +78,11 @@ body, .probe, button { font: 14px var(--font); }
 }
 
 #hint, #notice {
-  position: fixed; right: var(--cw); height: var(--ch); line-height: var(--ch); white-space: pre;
+  position: absolute; right: var(--cw); height: var(--ch); line-height: var(--ch); white-space: pre;
 }
 #hint { bottom: 0; left: 0; color: var(--ansi-8); overflow: hidden; }
-#notice { bottom: var(--ch); color: var(--ansi-3); background: var(--bg); z-index: 2; }
+#notice { bottom: var(--ch); padding: 0 var(--cw); color: var(--ansi-3); background: var(--bg); z-index: 2; }
+#notice:empty { display: none; }
 
 .box {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3;
@@ -88,10 +94,9 @@ body, .probe, button { font: 14px var(--font); }
 .box .k { color: var(--ansi-6); font-weight: bold; }
 
 body.ended #ws { opacity: .4; }
-#overlay {
-  position: fixed; inset: 0; z-index: 4; display: flex; flex-direction: column; gap: var(--ch);
-  align-items: center; justify-content: center; background: rgb(46 52 64 / .7);
-}
+#overlay { position: fixed; inset: 0; z-index: 4; background: rgb(46 52 64 / .7); }
+#overlay .box { display: flex; flex-direction: column; align-items: center; gap: var(--ch); }
+#overlay p { margin: 0; }
 #overlay[hidden] { display: none; }
 #overlay button {
   color: var(--bg); background: var(--accent); border: 0; border-radius: 4px; padding: 4px 12px;

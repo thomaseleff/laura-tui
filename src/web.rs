@@ -24,7 +24,8 @@ use crate::protocol::{PTY_PANE, PaneId};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
 /// The error when `LAURA_EXPERIMENTAL_WEB` isn't set.
-pub const FLAG_OFF: &str = "the web app is experimental: start Laura with LAURA_EXPERIMENTAL_WEB=1";
+pub const FLAG_OFF: &str =
+    "the web app is experimental: set LAURA_EXPERIMENTAL_WEB=1 before you start Laura";
 
 /// The workspace's size until a view reports one.
 pub const DEFAULT_AREA: Rect = Rect::new(0, 0, 120, 40);

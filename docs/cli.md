@@ -7,7 +7,7 @@ The CLI reference lists every `laura` command and its flags. Run `laura` on its 
 ```bash
 laura                   Run the TUI, hosting your default shell.
 laura -- <cmd> [args]   Run the TUI, hosting <cmd> instead of your shell.
-laura --web [-- <cmd>]  Serve the workspace to a browser tab instead of the terminal, and print
+laura --web [-- <cmd>]  Show the workspace in a browser tab instead of the terminal, and print
                         the URL to open (experimental: needs LAURA_EXPERIMENTAL_WEB=1).
 ```
 

@@ -33,7 +33,7 @@ use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
     about,
     args_conflicts_with_subcommands = true,
     after_help = "Experimental features (opt-in: set the variable before starting Laura; `laura ready` lists the ones on):\n  LAURA_EXPERIMENTAL_EDITOR=1  Editor panes: `laura open --edit <path>` runs Neovim in a pane (needs nvim on PATH)
-  LAURA_EXPERIMENTAL_WEB=1     The web app: `laura --web` serves the workspace to the browser instead of the terminal"
+  LAURA_EXPERIMENTAL_WEB=1     The web app: `laura --web` shows the workspace in a web browser instead of the terminal"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -41,7 +41,7 @@ struct Cli {
     /// Program to host in the workspace (after `--`); defaults to your shell.
     #[arg(last = true)]
     program: Vec<String>,
-    /// Start the workspace in the browser instead of the terminal (experimental).
+    /// Show the workspace in a web browser instead of the terminal (experimental).
     #[arg(long)]
     web: bool,
 }
@@ -331,6 +331,8 @@ fn web(program: Vec<String>) -> Result<()> {
     let area = laura::web::DEFAULT_AREA;
     let mut tab = tui::spawn_tab(&program, area.height, area.width)?;
     tab.web = true;
+    // The label goes to stderr, so stdout stays the URL alone for scripts.
+    eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
     loop {
         let area = web.area().unwrap_or(laura::web::DEFAULT_AREA);

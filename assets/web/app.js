@@ -72,10 +72,15 @@ function measure() {
   document.documentElement.style.setProperty("--ch", ch + "px");
 }
 
+// Cells kept clear around the grid, so the hint line and borders don't touch the window's edges.
+const MARGIN = 0.5;
 function report() {
   measure();
+  const cols = Math.floor(innerWidth / cw - 2 * MARGIN), rows = Math.floor(innerHeight / ch - 2 * MARGIN);
+  document.documentElement.style.setProperty("--cols", cols);
+  document.documentElement.style.setProperty("--rows", rows);
   // The last row is the hint line.
-  send({ view: { cols: Math.floor(innerWidth / cw), rows: Math.floor(innerHeight / ch) - 1 } });
+  send({ view: { cols, rows: rows - 1 } });
 }
 
 // Laura's keys inside a terminal: false leaves the key to app.js, unsent.
@@ -141,7 +146,7 @@ function makePane(p) {
   el.id = "p" + p.id;
   el.className = "pane";
   el.innerHTML = '<div class="title"><span></span><span class="warn"></span></div><div class="term"></div><div class="rows"></div>'
-    + '<button class="cbtn" title="Comment">+</button><span class="acts"><button>Submit review</button><button>Refresh</button></span>';
+    + '<button class="cbtn" title="Comment">+</button><span class="acts"><button>Submit</button><button>Refresh</button></span>';
   const [cbtn, submit, refresh] = el.querySelectorAll("button");
   // A clicked button keeps no focus, so a later Enter can't press it again.
   for (const b of [cbtn, submit, refresh]) b.addEventListener("mousedown", e => e.preventDefault());
@@ -515,7 +520,8 @@ function connect() {
     }
     // Laura drops a view that falls behind; a fresh connection gets a fresh replay.
     if (laid) return setTimeout(connect, 500);
-    showOverlay("Can't reach this workspace.", false);
+    // Hard-coded: with no connection, the page never got a `strings` frame.
+    showOverlay("This tab cannot connect to the workspace. Make sure that Laura did not stop and that you used the full URL from the terminal.", false);
   };
 }
 
