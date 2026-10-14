@@ -29,6 +29,8 @@ Standard Rust. No house style on top of it.
 
 Run before calling anything done: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`.
 
+**Manual runs.** `tmp/` is gitignored scratch for manual checks. Build a binary to run by hand with `CARGO_TARGET_DIR=tmp/target cargo build`, so a Laura running from `target/` doesn't lock the build.
+
 ## Implementation requirements
 
 Implementation should always be comprehensive of code, tests, docs and skills.
