@@ -588,8 +588,8 @@ impl Panel {
             spans.iter().map(|s| s.content.chars().count()).sum()
         };
 
-        // Inner note lines: wrap the whole `{name} · body` as one unit; continuations align under the
-        // note's start (connector width only), not under the body.
+        // Inner note lines: wrap each line of `{name} · body`; continuations align under the note's
+        // start (connector width only), not under the body.
         let mut inner: Vec<Vec<Span<'static>>> = vec![];
         for (idx, note) in t.notes().enumerate() {
             let is_user = matches!(note.author, Author::User);
@@ -604,8 +604,9 @@ impl Panel {
             let cw = connector.chars().count();
             let chip_pad = if is_user { 2 } else { 0 }; // the chip pads one space each side
             let full = format!("{name} · {}", note.body);
-            for (j, seg) in wrap_line(&full, cap.saturating_sub(cw + chip_pad))
-                .into_iter()
+            for (j, seg) in full
+                .lines()
+                .flat_map(|l| wrap_line(l, cap.saturating_sub(cw + chip_pad)))
                 .enumerate()
             {
                 let mut spans = vec![];

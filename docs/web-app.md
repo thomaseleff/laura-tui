@@ -17,7 +17,7 @@ Laura serves the web app to this computer only. While the workspace runs, Laura 
 
 ## Keystrokes and clicks
 
-Laura uses the TUI's keystrokes in the web app. See [Navigating the TUI](navigation.md) for the full list. Laura doesn't support commenting (`c`) or submitting an inline review (`Shift+S`) in the web app yet, so use the TUI for an inline review.
+Laura uses the TUI's keystrokes in the web app. See [Navigating the TUI](navigation.md) for the full list.
 
 - Click a pane to focus it.
 - Click a line in a file pane to move the cursor to that line.
@@ -28,6 +28,23 @@ The browser keeps some keystrokes for itself, so Laura never receives them:
 
 - On Windows and Linux, the browser keeps `Ctrl+W`, `Ctrl+T`, `Ctrl+N` and `Ctrl+Tab`. In Neovim, run `:wincmd` in place of `Ctrl+W`.
 - On macOS, the browser keeps only `Ctrl+Tab`.
+
+## Comment and submit an inline review
+
+The user reviews a file pane in the web app as in the TUI, with buttons to comment, submit, and refresh. Laura shows the buttons on the focused file pane.
+
+1. Move the cursor to a line, then click **+** at the start of the line or press `c`.
+2. Type the comment in the box that Laura shows over the bottom of the shell, then press `Enter`.
+3. When the pane has comments, click **Submit review** on the pane's bottom border or press `Shift+S`.
+4. Type the review body, then press `Enter` to submit the inline review into the chat.
+
+To edit or delete a comment, click **+** or press `c` on its line again. See [Typing a comment or review body](navigation.md#typing-a-comment-or-review-body) for the keystrokes.
+
+To discard the pane's unsubmitted inline review and reload the file, click **Refresh** or press `Ctrl+R`.
+
+While the user types a comment or review body, Laura keeps the focus in the box when the user clicks a pane, so the user can select text in any pane and paste it into the comment.
+
+While the box is open, Laura [holds the agent's commands](navigation.md#in-a-focused-pane) until the user presses `Enter` or `Esc`, closes the browser tab, or opens the workspace in another browser tab.
 
 ## Quit
 

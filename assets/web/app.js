@@ -4,7 +4,8 @@
 const css = getComputedStyle(document.documentElement);
 const v = name => css.getPropertyValue(name).trim();
 const $ = id => document.getElementById(id);
-const root = $("ws"), hintEl = $("hint"), noticeEl = $("notice");
+const root = $("ws"), hintEl = $("hint"), noticeEl = $("notice"), draftEl = $("draft");
+const draftText = draftEl.querySelector("textarea");
 const enc = new TextEncoder();
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
 const THEME = { background: v("--bg"), foreground: v("--fg"), cursor: v("--fg"), selectionBackground: v("--sel") };
@@ -16,6 +17,8 @@ ANSI.forEach((c, i) => {
 let ws, layout = null, strings = {}, cw = 0, ch = 0;
 let focusKey = "", locked = false, help = false, popup = null, confirmQuit = false, ended = false;
 let notice = "", noticeTimer = 0, frozenText = "";
+// The open comment or review body: `{pane, line, kind, hint, busy}`.
+let draft = null;
 const terms = new Map(); // pane id → xterm, one per PTY pane
 const acts = []; // callbacks for `acted` replies, in send order
 
@@ -47,7 +50,8 @@ const paintNotice = () => (noticeEl.textContent = notice || frozenText);
 function paintHint() {
   const h = layout?.hints;
   if (!h) return;
-  hintEl.textContent = locked ? h.locked : confirmQuit ? h.quit : popup !== null ? h.panes : h.pane;
+  hintEl.textContent = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
+    : popup !== null ? h.panes : h.pane;
 }
 
 // One cell: xterm's own once it has drawn (it can't be given one), else the font's advance.
@@ -79,6 +83,7 @@ function termKeys(id, term, e) {
   if (overlayOpen()) return false;
   if (e.key === "F12") return false;
   if (locked) return true;
+  if (draft) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
   if (id === 0 && (e.key === "PageUp" || e.key === "PageDown") && term.buffer.active.type === "normal") {
@@ -135,13 +140,24 @@ function makePane(p) {
   const el = document.createElement("div");
   el.id = "p" + p.id;
   el.className = "pane";
-  el.innerHTML = '<div class="title"><span></span><span class="warn"></span></div><div class="term"></div><div class="rows"></div>';
+  el.innerHTML = '<div class="title"><span></span><span class="warn"></span></div><div class="term"></div><div class="rows"></div>'
+    + '<button class="cbtn" title="Comment">+</button><span class="acts"><button>Submit review</button><button>Refresh</button></span>';
+  const [cbtn, submit, refresh] = el.querySelectorAll("button");
+  // A clicked button keeps no focus, so a later Enter can't press it again.
+  for (const b of [cbtn, submit, refresh]) b.addEventListener("mousedown", e => e.preventDefault());
+  cbtn.addEventListener("click", () => begin(p.id, "comment"));
+  submit.addEventListener("click", () => begin(p.id, "review"));
+  refresh.addEventListener("click", () => act({ act: "refresh", pane: p.id }));
+  el.querySelector(".rows").addEventListener("scroll", () => placeBtn(p.id));
   el.addEventListener("mousedown", () => {
     const k = pane(p.id)?.kind;
-    if (k && k !== "file" && layout.focus !== p.id) act({ act: "focus", pane: p.id });
+    if (!draft && k && k !== "file" && layout.focus !== p.id) act({ act: "focus", pane: p.id });
   });
   el.addEventListener("click", e => {
-    if (pane(p.id)?.kind !== "file" || !getSelection().isCollapsed) return;
+    if (!getSelection().isCollapsed) return;
+    // A draft keeps its pane and line; a click only gives the draft its focus back.
+    if (draft) return followFocus(true);
+    if (pane(p.id)?.kind !== "file") return;
     if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
     const row = e.target.closest(".row");
     if (row) act({ act: "set_cursor", pane: p.id, line: +row.dataset.line });
@@ -165,8 +181,10 @@ function onLayout(m) {
     const [title, warn] = el.querySelector(".title").children;
     title.textContent = ` ${p.title} `;
     warn.textContent = p.frozen ? "⚠ " : "";
+    el.querySelector(".acts button").hidden = !p.threads;
     const t = terms.get(p.id);
     if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 2)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 2));
+    placeBtn(p.id);
   }
   for (const el of [...root.children]) {
     if (seen.has(el.id)) continue;
@@ -175,17 +193,72 @@ function onLayout(m) {
     terms.delete(id);
     el.remove();
   }
+  paintDraft();
   followFocus();
   paintHint();
+}
+
+// The draft box sits over the bottom of the shell, as in the TUI, outside every pane.
+function paintDraft() {
+  draftEl.hidden = !draft;
+  root.classList.toggle("drafting", !!draft);
+  const p = pane(0);
+  if (!draft || !p) return;
+  draftEl.querySelector(".title").textContent = ` ${strings.draft[draft.kind]} `;
+  Object.assign(draftEl.style, {
+    left: `calc(var(--cw) * ${p.x})`, width: `calc(var(--cw) * ${p.w})`,
+    bottom: `calc(100% - var(--ch) * ${p.y + p.h})`, maxHeight: `calc(var(--ch) * ${p.h})`,
+  });
+}
+
+function begin(id, kind) {
+  act({ act: kind === "comment" ? "begin_comment" : "begin_review", pane: id }, r => {
+    if (!r.ok) return;
+    draft = { pane: id, line: r.line, kind, hint: r.hint, busy: false };
+    draftText.value = r.text ?? "";
+    paintDraft();
+    paintHint();
+    followFocus(true);
+  });
+}
+
+// `Enter`: add or save the comment, or submit the inline review. A failure keeps the draft for a retry.
+function confirmDraft() {
+  if (draft.busy) return;
+  draft.busy = true;
+  const { pane: p, line, kind } = draft, text = draftText.value;
+  act(kind === "comment" ? { act: "comment", pane: p, line, text } : { act: "submit", pane: p, body: text },
+    r => (r.ok ? closeDraft() : draft && (draft.busy = false)));
+}
+
+function closeDraft() {
+  if (!draft) return;
+  draft = null;
+  send({ hold: false });
+  if (notice === strings.draft.failed) (notice = ""), paintNotice();
+  paintDraft();
+  paintHint();
+  followFocus(true);
+}
+
+// The `+` button rides the focused file pane's cursor row, hidden while that row is out of view.
+function placeBtn(id) {
+  const el = $("p" + id), rows = el?.querySelector(".rows"), btn = el?.querySelector(".cbtn");
+  if (!btn) return;
+  const row = rows.children[rows.dataset.cursor];
+  const top = row ? row.offsetTop - rows.scrollTop : -1;
+  btn.style.visibility = top >= 0 && top + row.offsetHeight <= rows.clientHeight ? "" : "hidden";
+  btn.style.top = `calc(var(--ch) + ${top}px)`;
 }
 
 // DOM focus follows the workspace's focus, only when it changes, so a title or resize frame doesn't
 // take focus from anything else.
 function followFocus(force) {
   const f = focused();
-  const key = `${layout?.focus}:${f?.kind}:${locked}`;
+  const key = `${layout?.focus}:${f?.kind}:${locked}:${!!draft}`;
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
+  if (draft && !locked) return draftText.focus();
   const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
@@ -204,6 +277,7 @@ function onPane(m) {
   if (m.recenter) rows.querySelector(".hl")?.scrollIntoView({ block: "center" });
   else if (String(m.cursor) !== rows.dataset.cursor) rows.children[m.cursor]?.scrollIntoView({ block: "nearest" });
   rows.dataset.cursor = String(m.cursor);
+  placeBtn(m.id);
 }
 
 function paintPopup() {
@@ -286,6 +360,14 @@ addEventListener("keydown", e => {
     help = true;
     return ($("help").hidden = false);
   }
+  if (draft) {
+    // Enter confirms; Shift+Enter falls through as a newline. Ctrl+R/L/P/Q and Tab would reach the browser.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) return take(), confirmDraft();
+    if (e.key === "Escape") return take(), closeDraft();
+    if ((ctrl && "rlpq".includes(k)) || e.key === "Tab") return take();
+    if (document.activeElement !== draftText) draftText.focus();
+    return;
+  }
   if (ctrl && k === "p") {
     take();
     popup = "";
@@ -294,7 +376,7 @@ addEventListener("keydown", e => {
   }
   if (ctrl && k === "q") {
     take();
-    return act({ act: "quit" }, () => ((confirmQuit = true), paintHint()));
+    return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));
   }
   if (ctrl && k === "l" && f && f.pty && f.id !== 0) {
     take();
@@ -306,6 +388,10 @@ addEventListener("keydown", e => {
     return act({ act: "refresh", pane: f.id });
   }
   if (ctrl && k === "l") return take(); // the browser's address bar
+  if (!ctrl && !e.altKey && !e.metaKey && (e.key === "c" || e.key === "S")) {
+    take();
+    return begin(f.id, e.key === "c" ? "comment" : "review");
+  }
   const make = !ctrl && !e.altKey && !e.metaKey && FILE_KEYS[e.key];
   if (make) {
     take();
@@ -354,6 +440,7 @@ function showOverlay(text, button) {
   $("overlay-text").textContent = text;
   $("continue").hidden = !button;
   $("overlay").hidden = false;
+  document.activeElement?.blur();
 }
 $("continue").addEventListener("click", () => {
   $("overlay").hidden = true;
@@ -384,6 +471,15 @@ function connect() {
         $("help").innerHTML = m.help;
         break;
       case "layout":
+        // A draft open when the socket dropped: hold again and refocus its pane, or close it.
+        if (!laid && draft) {
+          if (m.panes.some(p => p.id === draft.pane)) {
+            send({ hold: true });
+            act({ act: "focus", pane: draft.pane });
+            m.focus = draft.pane;
+            draft.busy = false;
+          } else closeDraft();
+        }
         laid = true;
         onLayout(m);
         break;
@@ -394,7 +490,7 @@ function connect() {
       case "acted": {
         const then = acts.shift();
         if (!m.ok) showNotice(m.text, 5);
-        else then?.(m.text);
+        then?.(m);
         break;
       }
       case "notice":

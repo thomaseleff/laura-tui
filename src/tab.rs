@@ -125,10 +125,9 @@ pub enum UserAction {
     ClearHighlight {
         pane: PaneId,
     },
-    /// `c`; `Ok(Some(seed))`: the user's own comment to edit, else empty. `line` is 1-based source.
+    /// `c` on the cursor's line; `Ok(Some(seed))`: the user's own comment to edit, else empty.
     BeginComment {
         pane: PaneId,
-        line: u32,
     },
     /// `Shift+S`: `Ok` means the caller may open the review body.
     BeginReview {
@@ -325,12 +324,12 @@ impl Tab {
             }
             A::ClearHighlight { pane } => self.panel_mut(pane)?.clear_highlight(),
             A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
-            A::BeginComment { pane, line } => {
+            A::BeginComment { pane } => {
                 if !self.agent {
                     return Err(NEEDS_READY.into());
                 }
                 let p = self.panel_mut(pane)?;
-                p.set_cursor_line(line);
+                p.set_cursor_line(p.cursor_line()); // snaps to a markdown block's first row
                 return Ok(Some(p.begin_comment()));
             }
             A::Comment { pane, line, text } => {

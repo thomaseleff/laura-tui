@@ -20,12 +20,12 @@ body, .probe, button { font: 14px var(--font); }
 
 /* Every pane sits on Laura's cell grid: x/y/w/h are cells, --cw/--ch one cell in px. */
 .pane { position: absolute; box-sizing: border-box; }
-.pane::before {
+.pane::before, #draft::before {
   content: ""; position: absolute; pointer-events: none;
   inset: calc(var(--ch) / 2) calc(var(--cw) / 2);
   border: 1px solid var(--border); border-radius: 4px;
 }
-.pane.focused::before { border-color: var(--accent); }
+.pane.focused::before, #draft::before { border-color: var(--accent); }
 .title {
   position: absolute; left: var(--cw); top: 0; z-index: 1; max-width: calc(100% - 2 * var(--cw));
   height: var(--ch); line-height: var(--ch); white-space: pre; overflow: hidden;
@@ -46,6 +46,31 @@ body, .probe, button { font: 14px var(--font); }
   letter-spacing: calc(var(--cw) - var(--pw));
 }
 .g { user-select: none; }
+
+/* The focused file pane's `+` on the cursor row, and its actions on the bottom border. */
+.cbtn, .acts { display: none; position: absolute; z-index: 1; }
+.pane.file.focused .cbtn { display: block; }
+.pane.file.focused .acts { display: flex; }
+#ws.drafting .cbtn, #ws.drafting .acts { display: none; }
+.cbtn { left: 0; width: var(--cw); padding: 0; }
+.acts { bottom: 0; right: var(--cw); gap: var(--cw); padding: 0 2px; background: var(--bg); }
+.cbtn, .acts button {
+  height: var(--ch); line-height: var(--ch); color: var(--bg); background: var(--accent);
+  border: 0; border-radius: 4px; cursor: pointer;
+}
+.acts button { padding: 0 6px; }
+
+/* 2 to 6 rows, as in the TUI. */
+#draft {
+  position: fixed; z-index: 2; box-sizing: border-box; padding: var(--ch) var(--cw);
+  background: var(--bg);
+}
+#draft textarea {
+  display: block; box-sizing: border-box; width: 100%; margin: 0; padding: 0; border: 0;
+  outline: none; resize: none; background: none; color: var(--fg); font: inherit;
+  line-height: var(--ch); field-sizing: content;
+  min-height: calc(var(--ch) * 2); max-height: calc(var(--ch) * 6);
+}
 
 #hint, #notice {
   position: fixed; right: var(--cw); height: var(--ch); line-height: var(--ch); white-space: pre;

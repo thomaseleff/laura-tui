@@ -179,6 +179,8 @@ impl WebServer {
     pub fn sync(&mut self, tab: &mut Tab, changed: bool) -> bool {
         while let Ok((rx, tx)) = self.conns.try_recv() {
             if let Some(old) = self.view.take() {
+                // A takeover drops the old view's draft hold.
+                tab.hold = false;
                 let _ = old
                     .tx
                     .try_send(Outbound::Text(json!({"t": "moved"}).to_string()));
@@ -195,9 +197,11 @@ impl WebServer {
                 git_shown: false,
                 frozen: String::new(),
             };
-            let help: String = view::help_lines().iter().map(line_html).collect();
+            let help: String = view::help_lines(tab.web).iter().map(line_html).collect();
             v.text(json!({"t": "strings", "help": help, "moved": view::MOVED,
-                           "ended": view::ENDED}));
+                           "ended": view::ENDED,
+                           "draft": {"comment": view::DRAFT_COMMENT, "review": view::DRAFT_REVIEW,
+                                     "failed": crate::tab::SUBMIT_FAILED}}));
             if let Err(e) = &tab.editor
                 && e == crate::editor::NO_NVIM
             {
@@ -219,10 +223,32 @@ impl WebServer {
                     if msg.get("act").is_some() {
                         let res = serde_json::from_value::<UserAction>(msg)
                             .map_err(|e| e.to_string())
-                            .and_then(|a| tab.act(a));
+                            .and_then(|a| {
+                                let comment = match a {
+                                    UserAction::BeginComment { pane } => Some(pane),
+                                    _ => None,
+                                };
+                                let review = matches!(a, UserAction::BeginReview { .. });
+                                let seed = tab.act(a)?;
+                                // Laura holds the agent from here, before any drain, until the
+                                // browser closes the draft.
+                                tab.hold |= comment.is_some() || review;
+                                let line = comment
+                                    .and_then(|p| tab.panels.get(&p).map(Panel::cursor_line));
+                                let mode = match line {
+                                    Some(line) => Some(view::Hint::Comment {
+                                        line,
+                                        edit: seed.as_ref().is_some_and(|s| !s.is_empty()),
+                                    }),
+                                    None => review.then_some(view::Hint::Review),
+                                };
+                                Ok((seed, line, mode.map(|m| view::hint(tab, m))))
+                            });
                         acted |= res.is_ok();
                         v.text(match res {
-                            Ok(seed) => json!({"t": "acted", "ok": true, "text": seed}),
+                            Ok((seed, line, hint)) => {
+                                json!({"t": "acted", "ok": true, "text": seed, "line": line, "hint": hint})
+                            }
                             Err(e) => json!({"t": "acted", "ok": false, "text": e}),
                         });
                     } else if let Some(size) = msg.get("view") {
@@ -237,6 +263,8 @@ impl WebServer {
                         {
                             self.area = Some(Rect::new(0, 0, cols, rows));
                         }
+                    } else if let Some(hold) = msg.get("hold").and_then(Value::as_bool) {
+                        tab.hold = hold;
                     } else if msg.get("quit") == Some(&Value::Bool(true)) {
                         // Again, after the user's `y`: edits made since still block it.
                         match tab.act(UserAction::Quit) {
@@ -258,6 +286,7 @@ impl WebServer {
                 // The socket died (a closed tab): keep the workspace and its size.
                 Err(TryRecvError::Disconnected) => {
                     self.view = None;
+                    tab.hold = false;
                     return !quit;
                 }
             }
@@ -323,6 +352,7 @@ impl WebServer {
 
         if v.dead {
             self.view = None;
+            tab.hold = false;
         }
         !quit
     }
@@ -359,7 +389,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect) -> String {
         .map(|id| {
             let r = rects[id];
             let editor = tab.editors.get(id);
-            let (kind, title, frozen) = match tab.panels.get(id) {
+            let (kind, title, frozen, threads) = match tab.panels.get(id) {
                 Some(p) => {
                     let title: String = view::pane_title(*id, p, editor)
                         .spans
@@ -371,14 +401,15 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect) -> String {
                     } else {
                         "file"
                     };
-                    (kind, title, p.source_changed)
+                    (kind, title, p.source_changed, p.thread_count())
                 }
-                None => ("shell", format!("#{id} shell"), false),
+                None => ("shell", format!("#{id} shell"), false, 0),
             };
             // `pty`: the pane streams a terminal, in either view, so the browser keeps its xterm.
             let pty = *id == PTY_PANE || editor.is_some();
             json!({"id": id, "x": r.x, "y": r.y, "w": r.width, "h": r.height,
-                   "kind": kind, "pty": pty, "title": title, "frozen": frozen})
+                   "kind": kind, "pty": pty, "title": title, "frozen": frozen,
+                   "threads": threads})
         })
         .collect();
     let hints = json!({

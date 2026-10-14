@@ -116,7 +116,7 @@ fn inline_review_needs_ready() -> Result<()> {
     let (mut tab, _dir, _) = tab_with("a.rs", &five_lines())?;
     assert_eq!(tab.act(comment(3, "x")), Err(NEEDS_READY.into()));
     assert_eq!(
-        tab.act(UserAction::BeginComment { pane: 1, line: 3 }),
+        tab.act(UserAction::BeginComment { pane: 1 }),
         Err(NEEDS_READY.into())
     );
     assert_eq!(
@@ -135,7 +135,7 @@ fn comment_adds_edits_deletes_and_replies() -> Result<()> {
     let (mut tab, _dir, _) = tab_with("a.rs", &five_lines())?;
     drive(&mut tab, &["ready"]);
     tab.act(comment(2, "first"))?;
-    let begin = UserAction::BeginComment { pane: 1, line: 2 };
+    let begin = UserAction::BeginComment { pane: 1 };
     assert_eq!(tab.act(begin), Ok(Some("first".into())));
     tab.act(comment(2, "second"))?;
     let p = &tab.panels[&1];
@@ -147,7 +147,7 @@ fn comment_adds_edits_deletes_and_replies() -> Result<()> {
     assert_eq!(tab.panels[&1].thread_count(), 0);
     // On a thread the agent annotated last, the user's comment is a reply.
     drive(&mut tab, &["comment", "--pane", "1", "2", "x"]);
-    let begin = UserAction::BeginComment { pane: 1, line: 2 };
+    let begin = UserAction::BeginComment { pane: 1 };
     assert_eq!(tab.act(begin), Ok(Some(String::new())));
     tab.act(comment(2, "reply"))?;
     let t = &tab.panels[&1].threads[0];

@@ -314,8 +314,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 && let Some(pty_rect) = rect_map.get(&PTY_PANE)
             {
                 let title = match d {
-                    Draft::Comment { .. } => "comment",
-                    Draft::Review(..) => "review body",
+                    Draft::Comment { .. } => view::DRAFT_COMMENT,
+                    Draft::Review(..) => view::DRAFT_REVIEW,
                 };
                 render_draft_box(f, *pty_rect, title, d.editor(), !help);
             }
@@ -533,17 +533,16 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Char('d') => tab.act(UserAction::ToggleDiff { pane }),
                             KeyCode::Char('c') => {
                                 let line = tab.focused_panel().map_or(1, Panel::cursor_line);
-                                tab.act(UserAction::BeginComment { pane, line })
-                                    .map(|seed| {
-                                        let seed = seed.unwrap_or_default();
-                                        draft = Some(Draft::Comment {
-                                            pane,
-                                            line,
-                                            edit: !seed.is_empty(),
-                                            text: Editor::new(seed),
-                                        });
-                                        None
-                                    })
+                                tab.act(UserAction::BeginComment { pane }).map(|seed| {
+                                    let seed = seed.unwrap_or_default();
+                                    draft = Some(Draft::Comment {
+                                        pane,
+                                        line,
+                                        edit: !seed.is_empty(),
+                                        text: Editor::new(seed),
+                                    });
+                                    None
+                                })
                             }
                             KeyCode::Char('r') if ctrl => tab.act(UserAction::Refresh { pane }),
                             KeyCode::Char('r') => tab.act(UserAction::ToggleThread { pane }),
@@ -946,7 +945,7 @@ fn render_toast(f: &mut Frame, msg: &str) {
 
 /// Draw the help popup in a centered, bordered box.
 fn render_help(f: &mut Frame) {
-    let lines = view::help_lines();
+    let lines = view::help_lines(false);
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4; // + border, margin
     let height = lines.len() as u16 + 2; // + border
     let [area] = Layout::vertical([Constraint::Length(height)])

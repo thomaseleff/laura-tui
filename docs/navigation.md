@@ -91,7 +91,7 @@ A file pane with an unsubmitted inline review **freezes** when its file changes 
 | `←/→` | Move the cursor |
 | `Home/End` | Jump to the start / end of the line |
 | `Backspace/Delete` | Delete before / after the cursor |
-| `\`+`Enter` | Insert a newline |
+| `\`+`Enter` (`Shift+Enter` in the [web app](web-app.md)) | Insert a newline |
 | `Enter` | Add the comment, save the edit, or submit the review body |
 | `Esc` | Cancel |
 

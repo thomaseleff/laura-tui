@@ -125,7 +125,8 @@ impl Rig {
 
     fn with(cmd: portable_pty::CommandBuilder) -> Result<Rig> {
         isolate_home();
-        let tab = Tab::spawn(cmd, 24, 80)?;
+        let mut tab = Tab::spawn(cmd, 24, 80)?;
+        tab.web = true; // as `laura --web` sets it
         let web = WebServer::bind()?;
         let (port, token) = port_token(web.url());
         Ok(Rig {
@@ -187,31 +188,40 @@ impl Rig {
         self.until(ws, "acted", |f| f.is("acted")).json()
     }
 
-    /// Run `laura <args>` against the workspace, pumping until it exits.
-    fn run(&mut self, args: &[&str]) -> Output {
+    /// Start `laura <args>` against the workspace without pumping; its output once it exits.
+    fn start(&self, args: &[&str]) -> mpsc::Receiver<Output> {
         let name = self.tab.socket.clone();
         let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let (tx, rx) = mpsc::channel();
-        let h = thread::spawn(move || {
+        thread::spawn(move || {
             let out = Command::cargo_bin("laura")
                 .unwrap()
                 .args(&a)
                 .env("LAURA_TAB", &name)
                 .output()
                 .unwrap();
-            tx.send(out).unwrap();
+            let _ = tx.send(out);
         });
+        rx
+    }
+
+    /// Pump until the client behind `rx` exits; fail after 5 s.
+    fn wait(&mut self, rx: &mpsc::Receiver<Output>) -> Output {
         let start = Instant::now();
-        let out = loop {
+        loop {
             self.pump();
             if let Ok(out) = rx.try_recv() {
-                break out;
+                return out;
             }
             assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
             thread::sleep(Duration::from_millis(5));
-        };
-        h.join().unwrap();
-        out
+        }
+    }
+
+    /// Run `laura <args>` against the workspace, pumping until it exits.
+    fn run(&mut self, args: &[&str]) -> Output {
+        let rx = self.start(args);
+        self.wait(&rx)
     }
 
     /// `run`, asserting success; trimmed stdout.
@@ -773,9 +783,128 @@ fn quit_ends_the_loop_and_tells_the_view() -> Result<()> {
 }
 
 #[test]
+fn a_file_panes_threads_show_in_the_layout() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    let threads = |n: u64| move |f: &Frame| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][1]["threads"] == n);
+    rig.until(&mut ws, "no threads", threads(0));
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "2", "agent note"]);
+    rig.until(&mut ws, "one thread", threads(1));
+    Ok(())
+}
+
+#[test]
+fn comment_and_submit_from_the_browser() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.act(
+        &mut ws,
+        json!({"act": "move_cursor", "pane": 1, "delta": 1}),
+    );
+    let begin = json!({"act": "begin_comment", "pane": 1});
+    let acted = rig.act(&mut ws, begin.clone());
+    assert_eq!(acted["ok"], true, "{acted}");
+    assert_eq!(acted["text"], "", "{acted}");
+    assert_eq!(acted["line"], 2, "{acted}");
+    let hint = acted["hint"].as_str().unwrap_or("");
+    assert!(
+        hint.contains("L2") && hint.contains("Shift+Enter"),
+        "{hint}"
+    );
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 2, "text": "user note\nsecond line"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    assert_eq!(rig.tab.panels[&1].thread_count(), 1);
+    // A newline starts a new row inside the thread's card.
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"].clone();
+    let card = rows(html.as_str().unwrap_or(""));
+    assert!(
+        card.iter().all(|(_, t)| !t.contains('\n'))
+            && card
+                .iter()
+                .any(|(_, t)| t.contains("second line") && !t.contains("user note")),
+        "{card:?}"
+    );
+    // Again on the same line: the draft edits the user's comment.
+    let acted = rig.act(&mut ws, begin);
+    assert_eq!(acted["text"], "user note\nsecond line", "{acted}");
+    let hint = acted["hint"].as_str().unwrap_or("");
+    assert!(hint.contains("empty deletes"), "{hint}");
+    let acted = rig.act(&mut ws, json!({"act": "begin_review", "pane": 1}));
+    let hint = acted["hint"].as_str().unwrap_or("");
+    assert!(hint.contains("review body"), "{hint}");
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "submit", "pane": 1, "body": "overall"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.shell_shows("[laura review · ");
+    Ok(())
+}
+
+#[test]
+fn a_draft_holds_the_agent() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, a) = file("a.rs", &five_lines())?;
+    let (_dir_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    rig.drive(&["ready"]);
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    // A failed begin, here a review with no comments yet, keeps the open draft's hold.
+    let acted = rig.act(&mut ws, json!({"act": "begin_review", "pane": 1}));
+    assert_eq!(acted["ok"], false, "{acted}");
+    assert!(rig.tab.hold);
+    let open = rig.start(&["open", &b]);
+    for _ in 0..20 {
+        rig.pump();
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(rig.tab.focus, 1);
+    assert!(!rig.tab.panels.contains_key(&2));
+    assert!(open.try_recv().is_err(), "the agent's open didn't wait");
+    send(&mut ws, json!({"hold": false}));
+    assert!(rig.wait(&open).status.success());
+    assert!(rig.tab.panels.contains_key(&2));
+    Ok(())
+}
+
+#[test]
+fn a_takeover_or_a_closed_view_releases_the_hold() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut first = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.until(&mut first, "layout", |f| f.is("layout"));
+    send(&mut first, json!({"hold": true}));
+    rig.idle(&mut first, 5);
+    assert!(rig.tab.hold);
+    let highlight = rig.start(&["highlight", "--pane", "1", "2"]);
+    let mut second = rig.connect();
+    rig.until(&mut second, "layout", |f| f.is("layout"));
+    assert!(rig.wait(&highlight).status.success());
+    send(&mut second, json!({"hold": true}));
+    rig.idle(&mut second, 5);
+    assert!(rig.tab.hold);
+    second.close(None)?;
+    drop(second);
+    let highlight = rig.start(&["highlight", "--pane", "1", "3"]);
+    assert!(rig.wait(&highlight).status.success());
+    Ok(())
+}
+
+#[test]
 fn ready_lists_web() -> Result<()> {
     let mut rig = Rig::new()?;
-    rig.tab.web = true;
     let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
     assert_eq!(v["experimental"], json!(["web"]), "{v}");
     Ok(())

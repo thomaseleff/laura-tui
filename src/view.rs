@@ -268,6 +268,7 @@ pub enum Hint {
 /// The hint line's text for `mode`.
 pub fn hint(tab: &Tab, mode: Hint) -> String {
     let pty = tab.pane_pty(tab.focus).is_some();
+    let newline = newline_key(tab.web);
     let editor_focused = pty && tab.focus != PTY_PANE;
     match mode {
         Hint::Locked if editor_focused => {
@@ -277,14 +278,14 @@ pub fn hint(tab: &Tab, mode: Hint) -> String {
         Hint::Wizard => "  y yes, use Laura's theme · n no, keep mine · Esc not now".into(),
         Hint::Quit => "  quit? press y to confirm · any other keystroke cancels".into(),
         Hint::Comment { line, edit } => format!(
-            "  comment L{line} · \\+Enter newline · {} · Esc cancel",
+            "  comment L{line} · {newline} newline · {} · Esc cancel",
             if edit {
                 "Enter save (empty deletes)"
             } else {
                 "Enter add"
             }
         ),
-        Hint::Review => "  review body · \\+Enter newline · Enter submit · Esc cancel".into(),
+        Hint::Review => format!("  review body · {newline} newline · Enter submit · Esc cancel"),
         Hint::Panes => "  type a pane id · Enter pick · Esc dismiss".into(),
         Hint::Pane if !pty => {
             match (tab.agent, tab.editors.contains_key(&tab.focus)) {
@@ -302,8 +303,18 @@ pub fn hint(tab: &Tab, mode: Hint) -> String {
     }
 }
 
-/// The help popup's lines: keystrokes grouped by context, mirroring the hint line.
-pub fn help_lines() -> Vec<Line<'static>> {
+/// A draft's newline keystroke: the browser has `Shift+Enter`; a terminal can't tell it from `Enter`.
+fn newline_key(web: bool) -> &'static str {
+    if web { "Shift+Enter" } else { "\\+Enter" }
+}
+
+/// The draft box titles.
+pub const DRAFT_COMMENT: &str = "comment";
+pub const DRAFT_REVIEW: &str = "review body";
+
+/// The help popup's lines: keystrokes grouped by context, mirroring the hint line. `web` for the
+/// web app's keystrokes.
+pub fn help_lines(web: bool) -> Vec<Line<'static>> {
     let key = |k: &'static str, desc: &'static str| {
         Line::from(vec![
             Span::raw("  "),
@@ -349,7 +360,7 @@ pub fn help_lines() -> Vec<Line<'static>> {
         key("←/→", "move"),
         key("Home/End", "line start/end"),
         key("Backspace/Delete", "delete before/after"),
-        key("\\+Enter", "newline"),
+        key(newline_key(web), "newline"),
         key("Enter", "confirm / submit"),
         key("Enter", "on an empty edit: delete your comment"),
         key("Esc", "cancel"),
