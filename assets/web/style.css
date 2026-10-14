@@ -1,0 +1,104 @@
+/* Nord. The ANSI palette is the one place colors live: app.js hands it to xterm.js, and
+   `src/web.rs` styles pane rows with `var(--ansi-N)`. */
+:root {
+  --bg: #2e3440;
+  --fg: #d8dee9;
+  --border: #4c566a;
+  --accent: #88c0d0;
+  --sel: #434c5e;
+  --font: "Cascadia Mono", Consolas, Menlo, monospace;
+  --ansi-0: #3b4252; --ansi-1: #bf616a; --ansi-2: #a3be8c; --ansi-3: #ebcb8b;
+  --ansi-4: #81a1c1; --ansi-5: #b48ead; --ansi-6: #88c0d0; --ansi-7: #e5e9f0;
+  --ansi-8: #4c566a; --ansi-9: #bf616a; --ansi-10: #a3be8c; --ansi-11: #ebcb8b;
+  --ansi-12: #81a1c1; --ansi-13: #b48ead; --ansi-14: #8fbcbb; --ansi-15: #eceff4;
+}
+
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); }
+body, .probe, button { font: 14px var(--font); }
+.probe { position: absolute; visibility: hidden; white-space: pre; }
+/* Laura's cell grid, centered in the window. Not `transform`, which blurs xterm's WebGL canvas. */
+#grid {
+  position: absolute; inset: 0; margin: auto;
+  width: calc(var(--cw) * var(--cols)); height: calc(var(--ch) * var(--rows));
+}
+#ws { position: absolute; inset: 0; outline: none; }
+
+/* Every pane sits on Laura's cell grid: x/y/w/h are cells, --cw/--ch one cell in px. */
+.pane { position: absolute; box-sizing: border-box; }
+.pane::before, #draft::before {
+  content: ""; position: absolute; pointer-events: none;
+  inset: calc(var(--ch) / 2) calc(var(--cw) / 2);
+  border: 1px solid var(--border); border-radius: 4px;
+}
+.pane.focused::before, #draft::before { border-color: var(--accent); }
+.title {
+  position: absolute; left: var(--cw); top: 0; z-index: 1; max-width: calc(100% - 2 * var(--cw));
+  height: var(--ch); line-height: var(--ch); white-space: pre; overflow: hidden;
+  background: var(--bg); padding: 0 2px;
+}
+.title .warn { color: var(--ansi-3); }
+/* The right border cell is left to the scrollbar. */
+.term, .rows { position: absolute; left: var(--cw); top: var(--ch); bottom: var(--ch); }
+.term { right: var(--cw); overflow: hidden; }
+.rows { right: 0; overflow: hidden auto; scrollbar-width: thin; }
+/* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
+.pane.file .term { visibility: hidden; }
+.pane:not(.file) .rows { display: none; }
+/* A row is the pane's inner width, so its background stops at the border. */
+.row {
+  white-space: pre; height: var(--ch); line-height: var(--ch); cursor: default;
+  width: calc(var(--cw) * (var(--w) - 2));
+  letter-spacing: calc(var(--cw) - var(--pw));
+}
+.g { user-select: none; }
+
+/* The focused file pane's `+` at the end of the cursor row, and its actions on the bottom border. */
+.cbtn, .acts { display: none; position: absolute; z-index: 1; }
+.pane.file.focused .cbtn { display: block; }
+.pane.file.focused .acts { display: flex; }
+#ws.drafting .cbtn, #ws.drafting .acts { display: none; }
+.cbtn { right: var(--cw); }
+.acts { bottom: 0; right: var(--cw); gap: var(--cw); padding: 0 2px; background: var(--bg); }
+.cbtn, .acts button {
+  height: var(--ch); line-height: var(--ch); color: var(--bg); background: var(--accent);
+  border: 0; border-radius: 4px; cursor: pointer;
+}
+.cbtn, .acts button { padding: 0 6px; }
+
+/* 2 to 6 rows, as in the TUI. */
+#draft {
+  position: absolute; z-index: 2; box-sizing: border-box; padding: var(--ch) var(--cw);
+  background: var(--bg);
+}
+#draft textarea {
+  display: block; box-sizing: border-box; width: 100%; margin: 0; padding: 0; border: 0;
+  outline: none; resize: none; background: none; color: var(--fg); font: inherit;
+  line-height: var(--ch); field-sizing: content;
+  min-height: calc(var(--ch) * 2); max-height: calc(var(--ch) * 6);
+}
+
+#hint, #notice {
+  position: absolute; right: var(--cw); height: var(--ch); line-height: var(--ch); white-space: pre;
+}
+#hint { bottom: 0; left: 0; color: var(--ansi-8); overflow: hidden; }
+#notice { bottom: var(--ch); padding: 0 var(--cw); color: var(--ansi-3); background: var(--bg); z-index: 2; }
+#notice:empty { display: none; }
+
+.box {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3;
+  background: var(--bg); border: 1px solid var(--accent); border-radius: 4px;
+  padding: var(--ch) var(--cw); max-height: 80%; overflow: auto;
+}
+.box div { white-space: pre; line-height: var(--ch); min-height: var(--ch); }
+#popup .on { background: var(--sel); }
+.box .k { color: var(--ansi-6); font-weight: bold; }
+
+body.ended #ws { opacity: .4; }
+#overlay { position: fixed; inset: 0; z-index: 4; background: rgb(46 52 64 / .7); }
+#overlay .box { display: flex; flex-direction: column; align-items: center; gap: var(--ch); }
+#overlay p { margin: 0; }
+#overlay[hidden] { display: none; }
+#overlay button {
+  color: var(--bg); background: var(--accent); border: 0; border-radius: 4px; padding: 4px 12px;
+  cursor: pointer;
+}

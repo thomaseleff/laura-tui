@@ -10,6 +10,7 @@ nav = [
   { "Tutorial" = "tutorial.md" },
   { "Reference" = [
     { "Navigating the TUI" = "navigation.md" },
+    { "Web app" = "web-app.md" },
     { "Agent reference" = "agent-reference.md" },
     { "CLI reference" = "cli.md" },
     { "Protocol reference" = "protocol.md" },

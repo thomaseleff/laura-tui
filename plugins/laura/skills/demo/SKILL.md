@@ -229,7 +229,7 @@ laura open "$R/tokens.py" --diff --ratio 55   # focused, straight into the inlin
 >
 > 1. Press `d` to turn the diff view **off**. Laura shows the file with the gutter markers. Press `d` again to turn the diff view back on.
 >
-> The diff view still shows the file, so the same pane keys work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
+> In the diff view, press `↑`/`↓` to move and `Esc` to return to the chat. To comment, press `d` to turn the diff view off, then press `c`. Press `Shift+S` to submit. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
@@ -262,7 +262,7 @@ laura open "$D/tokens.diff" --ratio 55   # git absent — show the static patch 
 >
 > Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in the pane to the right. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff.
 >
-> The patch is still a file, so the same pane keys work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
+> The patch is still a file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
@@ -300,7 +300,7 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 >
 > I opened a source file in the pane to the right, ran the code, and piped its logs into a tail pane below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.
 >
-> A tail pane still shows a file, so the same pane keys work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
+> A tail pane still shows a file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
@@ -345,9 +345,9 @@ laura comment 2 "nice cap - should 60 be a setting?" --pane "$ED"
 
 **Say:**
 
-> I left a comment on L2. In the editor view, Neovim shows my comment as a `✎` sign on L2, and the pane's border shows `[review: 1]`. To read the whole thread, put the cursor on L2 and press `Ctrl+W` then `d`.
+> I left a comment on L2. In the editor view, Neovim shows my comment as a `✎` sign on L2, and the pane's border shows `[review: 1]`. To read the whole thread, press `]d`.
 >
-> 1. Press `Ctrl+L` to flip the pane to its **file view**. The file view shows the saved file, with my comment as a card, and takes the usual pane keys.
+> 1. Press `Ctrl+L` to flip the pane to its **file view**. The file view shows the saved file, with my comment as a card, and takes the usual pane keystrokes.
 > 2. On L2, press `c`, type a reply, then press `Enter`.
 > 3. Press `Shift+S`, then `Enter`, to submit. Laura submits the inline review into the chat and flips the pane back to the editor view.
 >

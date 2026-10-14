@@ -32,7 +32,8 @@ use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
     version,
     about,
     args_conflicts_with_subcommands = true,
-    after_help = "Experimental features (opt-in: set the variable before starting Laura; `laura ready` lists the ones on):\n  LAURA_EXPERIMENTAL_EDITOR=1  Editor panes: `laura open --edit <path>` runs Neovim in a pane (needs nvim on PATH)"
+    after_help = "Experimental features (opt-in: set the variable before starting Laura; `laura ready` lists the ones on):\n  LAURA_EXPERIMENTAL_EDITOR=1  Editor panes: `laura open --edit <path>` runs Neovim in a pane (needs nvim on PATH)
+  LAURA_EXPERIMENTAL_WEB=1     The web app: `laura --web` shows the workspace in a web browser instead of the terminal"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -40,6 +41,9 @@ struct Cli {
     /// Program to host in the workspace (after `--`); defaults to your shell.
     #[arg(last = true)]
     program: Vec<String>,
+    /// Show the workspace in a web browser instead of the terminal (experimental).
+    #[arg(long)]
+    web: bool,
 }
 
 #[derive(Subcommand)]
@@ -297,6 +301,7 @@ fn main() -> Result<()> {
             dir,
             ratio,
         }) => tail(title, follow, split, dir, ratio),
+        None if cli.web => web(cli.program),
         None => {
             let mut terminal = ratatui::init();
             // Capture the wheel so panes scroll and drags select; bracketed paste keeps a pasted
@@ -312,6 +317,35 @@ fn main() -> Result<()> {
             result
         }
     }
+}
+
+/// `laura --web`: host the workspace with no terminal UI until the shell exits or the user quits
+/// in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
+/// TUI's terminal does.
+/// ponytail: no signal handler; add one if leftover spools or lost Neovim edits get reported.
+fn web(program: Vec<String>) -> Result<()> {
+    if !laura::web::enabled() {
+        bail!(laura::web::FLAG_OFF);
+    }
+    let mut web = laura::web::WebServer::bind()?;
+    let area = laura::web::DEFAULT_AREA;
+    let mut tab = tui::spawn_tab(&program, area.height, area.width)?;
+    tab.web = true;
+    // The label goes to stderr, so stdout stays the URL alone for scripts.
+    eprintln!("Open this URL in a web browser:");
+    println!("{}", web.url());
+    loop {
+        let area = web.area().unwrap_or(laura::web::DEFAULT_AREA);
+        let changed = tab.drain(area);
+        tab.tick(area);
+        let quit = !web.sync(&mut tab, changed);
+        if quit || tab.pty.has_exited() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    web.close();
+    Ok(())
 }
 
 /// Send one request to the current workspace's socket ($LAURA_TAB) and print its response. Never touches ratatui.

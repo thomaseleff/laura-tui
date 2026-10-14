@@ -295,7 +295,34 @@ impl Panel {
     /// Move the line cursor by `delta`, clamped to `[0, line_count-1]`.
     pub fn move_cursor(&mut self, delta: isize) {
         let last = self.line_count() as isize - 1;
-        self.cursor = (self.cursor as isize + delta).clamp(0, last) as usize;
+        self.cursor = (self.cursor as isize).saturating_add(delta).clamp(0, last) as usize;
+    }
+
+    /// Put the cursor on 1-based source `line`'s first row; `0` and past-EOF clamp to the ends.
+    pub fn set_cursor_line(&mut self, line: u32) {
+        self.cursor = self.source_line_to_row(line);
+    }
+
+    /// The cursor row's first source line, 1-based: the `L<n>` an inline review quotes.
+    pub fn cursor_line(&self) -> u32 {
+        self.source.get(self.cursor).map_or(self.cursor, |s| s.0) as u32 + 1
+    }
+
+    /// A layout row's first source line, 1-based. Diff view tags rows with 0-based source lines,
+    /// not rendered lines, so `source` doesn't apply there.
+    pub fn row_source_line(&self, row: &PanelRow) -> u32 {
+        let line = if self.diff_view {
+            row.line
+        } else {
+            self.source.get(row.line).map_or(row.line, |s| s.0)
+        };
+        line as u32 + 1
+    }
+
+    /// Whether a fresh highlight still wants centering; clears it. The web app's counterpart to
+    /// `scroll_offset`'s centering.
+    pub fn take_recenter(&self) -> bool {
+        self.recenter.take()
     }
 
     /// Mouse wheel: scroll the view and carry the cursor along, both by `delta` lines.
@@ -311,7 +338,7 @@ impl Panel {
     /// its blank tail, but content can never scroll fully off. Make it avail-aware if the tail annoys.
     pub fn scroll_h(&mut self, delta: isize) {
         let max = self.max_nowrap_width().saturating_sub(1) as isize;
-        self.h_offset = (self.h_offset as isize + delta).clamp(0, max) as usize;
+        self.h_offset = (self.h_offset as isize).saturating_add(delta).clamp(0, max) as usize;
     }
 
     /// Widest nowrap line in chars (0 if none), the horizontal-scroll extent.
@@ -545,7 +572,7 @@ impl Panel {
     /// Card rows for the expanded thread keyed on line `key` (empty when none/collapsed), tagged
     /// `line: at` — the block's last row, so the card follows the whole block (#70). A rounded gray
     /// box grown to the widest note; human notes are inline-code chips, agent notes plain fg.
-    /// Emitted at column 0 — `render_panel` prefixes the decoration, so `pad_w` is only a wrap budget.
+    /// Emitted at column 0 — `view::panel_lines` prefixes the decoration, so `pad_w` is only a wrap budget.
     fn thread_rows(&self, key: usize, at: usize, inner_w: usize) -> Vec<PanelRow> {
         let Some(t) = self.thread_at(key).filter(|t| !t.collapsed) else {
             return vec![];
@@ -561,8 +588,8 @@ impl Panel {
             spans.iter().map(|s| s.content.chars().count()).sum()
         };
 
-        // Inner note lines: wrap the whole `{name} · body` as one unit; continuations align under the
-        // note's start (connector width only), not under the body.
+        // Inner note lines: wrap each line of `{name} · body`; continuations align under the note's
+        // start (connector width only), not under the body.
         let mut inner: Vec<Vec<Span<'static>>> = vec![];
         for (idx, note) in t.notes().enumerate() {
             let is_user = matches!(note.author, Author::User);
@@ -577,8 +604,9 @@ impl Panel {
             let cw = connector.chars().count();
             let chip_pad = if is_user { 2 } else { 0 }; // the chip pads one space each side
             let full = format!("{name} · {}", note.body);
-            for (j, seg) in wrap_line(&full, cap.saturating_sub(cw + chip_pad))
-                .into_iter()
+            for (j, seg) in full
+                .lines()
+                .flat_map(|l| wrap_line(l, cap.saturating_sub(cw + chip_pad)))
                 .enumerate()
             {
                 let mut spans = vec![];
@@ -600,7 +628,7 @@ impl Panel {
         }
 
         // Draw the rounded box, growing to the widest inner line. `line: at` so scroll/copy keep the
-        // card with the block's last row; `comment: true` so cosmetics skip it and render_panel indents it.
+        // card with the block's last row; `comment: true` so cosmetics skip it and `view::panel_lines` indents it.
         let w = inner.iter().map(|s| width(s)).max().unwrap_or(0);
         let mk = |spans: Vec<Span<'static>>| PanelRow {
             line: at,
@@ -637,7 +665,7 @@ impl Panel {
         // number exceed `styled.len()`.
         let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
-        // 5-cell gutter decoration (number · sep · change · sep · caret · sep · body); see render_panel.
+        // 5-cell gutter decoration (number · sep · change · sep · caret · sep · body); see `view::panel_lines`.
         let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
         let mut rows = vec![];
         let mut starts = vec![];

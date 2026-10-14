@@ -1,6 +1,7 @@
 /target
 /site
 /plans
+/tmp
 *.log
 
 # OS cruft

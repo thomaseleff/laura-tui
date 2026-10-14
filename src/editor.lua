@@ -10,6 +10,21 @@ vim.diagnostic.config({
   virtual_text = { prefix = '✎', format = function(d) return d.user_data.newest end },
   signs = { text = { [INFO] = '✎' } },
 }, ns)
+-- ]d / [d: the next / previous thread, in a float. Not jump's `float`, which 0.12 deprecates.
+local function jump(dir)
+  return function()
+    if not vim.diagnostic.jump then -- before 0.11
+      local go = dir > 0 and vim.diagnostic.goto_next or vim.diagnostic.goto_prev
+      return go({ namespace = ns, float = { scope = 'line', namespace = ns } })
+    end
+    if vim.diagnostic.jump({ count = dir * vim.v.count1, namespace = ns }) then
+      -- Scheduled: the jump's CursorMoved would close the float.
+      vim.schedule(function()
+        vim.diagnostic.open_float({ namespace = ns, scope = 'line', focus = false })
+      end)
+    end
+  end
+end
 -- Re-applied after a reload (`:e!`, a changed file): the reload leaves the tracking marks where
 -- the discarded edits put them.
 local last
@@ -46,6 +61,8 @@ function _G.laura_threads(json)
     vim.api.nvim_win_close(w, true)
   end
   vim.diagnostic.set(ns, buf, diags)
+  vim.keymap.set('n', ']d', jump(1), { buffer = buf, desc = 'Next Laura thread' })
+  vim.keymap.set('n', '[d', jump(-1), { buffer = buf, desc = 'Previous Laura thread' })
   return #diags
 end
 vim.api.nvim_create_autocmd('BufReadPost', {

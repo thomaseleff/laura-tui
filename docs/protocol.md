@@ -413,7 +413,7 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 </tr>
 </table>
 
-`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes, see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 ### `update`
 
@@ -445,11 +445,13 @@ Reserved for asking a file pane to reload. The `laura` CLI doesn't send `update`
 
 ## In-process interactions
 
-Laura handles the user's keys inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
+Laura handles the user's keystrokes inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
 
 - comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+S`), and refresh (`Ctrl+R`)
 - focus (`Ctrl+P`), scrolling, and diff toggle (`d`)
 
-See [navigating the TUI](navigation.md) for the in-TUI keys for all interactions.
+See [navigating the TUI](navigation.md) for the in-TUI keystrokes for all interactions.
+
+The user's actions in the TUI or the [web app](web-app.md) aren't protocol messages, and the agent can't send them.
 
 Until the workspace receives a `ready` message, the user can't comment or submit an inline review.

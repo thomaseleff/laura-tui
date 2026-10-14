@@ -1,5 +1,6 @@
-//! Editor panes through the CLI, with a fake `nvim`: the gate, the pane Neovim runs in, `--panel
-//! N --edit` keeping threads, and what an exit leaves behind. State, not pixels.
+//! Editor panes through the CLI, with a fake `nvim` (real Neovim for `]d`): the gate, the pane
+//! Neovim runs in, `--panel N --edit` keeping threads, and what an exit leaves behind. State, not
+//! pixels.
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -9,15 +10,21 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use assert_cmd::Command;
-use laura::{Rect, Tab};
+use laura::{Rect, Tab, UserAction};
 
-/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
+/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`, and a real `nvim` keeps its
+/// config, data and swap files there too. The flag only lets `editor::resolve()` find `nvim`: tabs
+/// still default to off.
 fn isolate_home() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     // SAFETY: once per binary; std's env lock serializes it with std's own readers (`Command` spawn, `env::var`).
     ONCE.call_once(|| unsafe {
         std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
         std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("XDG_CONFIG_HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("XDG_DATA_HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("XDG_STATE_HOME", env!("CARGO_TARGET_TMPDIR"));
+        std::env::set_var("LAURA_EXPERIMENTAL_EDITOR", "1");
     });
 }
 
@@ -249,6 +256,34 @@ fn open_edit_runs_neovim_in_a_pane_without_focus() -> Result<()> {
     Ok(())
 }
 
+/// Real Neovim: skipped when `nvim` isn't on `PATH`.
+#[test]
+fn bracket_d_opens_the_next_thread() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let Ok(nvim) = laura::editor::resolve() else {
+        eprintln!("skipped: nvim isn't on PATH");
+        return Ok(());
+    };
+    tab.editor = Ok(nvim);
+    let (_dir, path) = file();
+    drive(&mut tab, &["open", "--edit", &path]);
+    drive(&mut tab, &["comment", "--pane", "1", "3", "root note"]);
+    drive(&mut tab, &["comment", "--pane", "1", "3", "newest note"]);
+    assert_eq!(tab.panels[&1].thread_count(), 1);
+    let screen = |t: &Tab| t.editors[&1].pty.with_screen(|s| s.contents());
+    // The virtual text shows only the newest note; the root note is in the float alone.
+    drain_until(&mut tab, "threads pushed", |t| {
+        screen(t).contains("newest note")
+    });
+    assert!(!screen(&tab).contains("root note"), "{}", screen(&tab));
+    tab.editors[&1].pty.write(b"]d")?;
+    drain_until(&mut tab, "thread float", |t| {
+        screen(t).contains("root note")
+    });
+    assert!(!screen(&tab).contains("deprecated"), "{}", screen(&tab));
+    Ok(())
+}
+
 #[test]
 fn panel_edit_attaches_in_place_keeping_threads() -> Result<()> {
     fakes();
@@ -455,6 +490,59 @@ fn unsaved_edits_refuse_closing_the_tab() -> Result<()> {
 }
 
 #[test]
+fn user_actions_respect_an_editor_pane() -> Result<()> {
+    fakes();
+    let mut tab = spawn_tab()?;
+    tab.editor = Ok(fake("stay"));
+    let (_dir, path) = file();
+    drive(&mut tab, &["open", "--edit", &path]);
+    assert_eq!(
+        tab.act(UserAction::ToggleDiff { pane: 1 }),
+        Err(laura::tab::NO_DIFF_IN_EDITOR.into())
+    );
+    assert!(!tab.panels[&1].diff_view);
+    let input = || UserAction::Input {
+        pane: 1,
+        bytes: b"i".to_vec(),
+    };
+    let paste = || UserAction::Paste {
+        pane: 1,
+        text: "x".into(),
+    };
+    assert_eq!(tab.act(input()), Ok(None));
+    // Neovim takes the editor view's keys: the file pane takes no actions.
+    tab.agent = true;
+    let comment = || UserAction::Comment {
+        pane: 1,
+        line: 1,
+        text: "hi".into(),
+    };
+    let in_editor_view = Err("pane #1 is in its editor view".into());
+    assert_eq!(tab.act(comment()), in_editor_view);
+    assert_eq!(tab.act(UserAction::BeginReview { pane: 1 }), in_editor_view);
+    assert_eq!(tab.panels[&1].thread_count(), 0);
+    // The file view takes the keys itself: Neovim gets none.
+    assert_eq!(tab.act(UserAction::ToggleEditorView { pane: 1 }), Ok(None));
+    assert_eq!(tab.act(comment()), Ok(None));
+    assert_eq!(tab.panels[&1].thread_count(), 1);
+    assert!(tab.act(input()).is_err());
+    assert!(tab.act(paste()).is_err());
+    assert_eq!(tab.act(UserAction::ToggleEditorView { pane: 1 }), Ok(None));
+    assert_eq!(tab.act(UserAction::Quit), Ok(None));
+    // Stand in for Neovim: the fake can't run the bootstrap that keeps this marker.
+    let dirty = std::env::temp_dir().join(format!("{}-1.dirty", tab.socket));
+    std::fs::write(&dirty, "")?;
+    let quit = tab.act(UserAction::Quit);
+    std::fs::remove_file(&dirty)?;
+    assert!(
+        quit.as_ref()
+            .is_err_and(|m| m.starts_with("pane #1 has unsaved edits")),
+        "{quit:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn neovim_exiting_closes_its_pane() -> Result<()> {
     fakes();
     let mut tab = spawn_tab()?;
@@ -513,7 +601,12 @@ fn submit_in_the_file_view_returns_to_neovim() -> Result<()> {
     let p = tab.panels.get_mut(&1).unwrap();
     p.move_cursor(2);
     p.author_note("tighten this".into());
-    assert!(matches!(tab.submit_focused(""), Some(Ok(()))));
+    tab.agent = true;
+    let submit = UserAction::Submit {
+        pane: 1,
+        body: String::new(),
+    };
+    assert_eq!(tab.act(submit), Ok(None));
     assert_eq!(tab.focus, 0);
     assert!(tab.editors[&1].editor_view);
     assert_eq!(tab.panels[&1].thread_count(), 0);
@@ -599,7 +692,12 @@ fn threads_are_pushed_to_neovim() -> Result<()> {
     // Submitting empties the threads, which clears Neovim's diagnostics.
     tab.focus = 1;
     tab.editors.get_mut(&1).unwrap().editor_view = false;
-    assert!(matches!(tab.submit_focused(""), Some(Ok(()))));
+    tab.agent = true;
+    let submit = UserAction::Submit {
+        pane: 1,
+        body: String::new(),
+    };
+    assert_eq!(tab.act(submit), Ok(None));
     let comment = pushed(&tab, &["check this"]).unwrap();
     drain_until(&mut tab, "empty push after the comment", |t| {
         logged(t)

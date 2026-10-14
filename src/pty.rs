@@ -2,6 +2,7 @@
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -20,6 +21,11 @@ pub fn dsr_reply(chunk: &[u8]) -> Option<&'static [u8]> {
 const SCROLLBACK: usize = 10_000;
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
+/// Live copies of the PTY's raw bytes (the web app's terminals). Locked inside the parser lock.
+type Subscribers = Arc<Mutex<Vec<SyncSender<Vec<u8>>>>>;
+
+/// Chunks a subscriber may fall behind before the reader drops it, so a stalled view never blocks the shell.
+const SUBSCRIBER_BOUND: usize = 256;
 
 /// Floor a PTY/vt100 size to what vt100 can hold: a wide char needs ≥2 cols, and it
 /// panics (screen.rs wide-char path unwraps `None`) on a 0/1-col grid — reachable when
@@ -35,6 +41,7 @@ pub struct PtyTab {
     exited: Arc<AtomicBool>,
     killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
     master: Box<dyn portable_pty::MasterPty + Send>,
+    subscribers: Subscribers,
 }
 
 impl PtyTab {
@@ -57,7 +64,8 @@ impl PtyTab {
         let killer = child.clone_killer();
         let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK)));
 
-        spawn_reader(reader, parser.clone(), writer.clone());
+        let subscribers = Subscribers::default();
+        spawn_reader(reader, parser.clone(), writer.clone(), subscribers.clone());
 
         // ConPTY never returns EOF on child exit; detect it via child.wait().
         let exited = Arc::new(AtomicBool::new(false));
@@ -75,7 +83,27 @@ impl PtyTab {
             exited,
             killer,
             master: pair.master,
+            subscribers,
         })
+    }
+
+    /// The screen so far as escape codes, then every later byte. Taken under the parser lock so a
+    /// late joiner neither misses nor repeats bytes. The receiver disconnects once it falls
+    /// `SUBSCRIBER_BOUND` chunks behind; subscribe again for a fresh replay.
+    pub fn subscribe(&self) -> (Vec<u8>, Receiver<Vec<u8>>) {
+        let (tx, rx) = sync_channel(SUBSCRIBER_BOUND);
+        let mut p = self.parser.lock().expect("parser mutex poisoned");
+        let mut replay = scrollback_formatted(p.screen_mut());
+        let s = p.screen();
+        // vt100's state_formatted() doesn't emit the alt-screen switch.
+        if s.alternate_screen() {
+            replay.extend(b"\x1b[?1049h");
+        }
+        replay.extend(s.state_formatted());
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.push(tx);
+        }
+        (replay, rx)
     }
 
     /// True once the hosted child has exited.
@@ -174,11 +202,33 @@ impl Drop for PtyTab {
     }
 }
 
+/// The main screen's history as escape codes, oldest row first, then enough newlines to scroll it
+/// all off-screen, so the late joiner's own scrollback holds it. The alt screen keeps no history.
+fn scrollback_formatted(s: &mut vt100::Screen) -> Vec<u8> {
+    let (rows, cols) = s.size();
+    let cur = s.scrollback();
+    s.set_scrollback(usize::MAX);
+    let max = s.scrollback();
+    let mut out = vec![];
+    // ponytail: one set_scrollback per history row, fine at SCROLLBACK's 10k.
+    for off in (1..=max).rev() {
+        s.set_scrollback(off);
+        out.extend(s.rows_formatted(0, cols).next().unwrap_or_default());
+        out.extend(b"\x1b[m\r\n");
+    }
+    s.set_scrollback(cur);
+    if max > 0 {
+        out.extend(b"\r\n".repeat(rows.saturating_sub(1).into()));
+    }
+    out
+}
+
 // Feed every PTY byte into the vt100 parser and answer ConPTY's DSR query. No clean shutdown — ConPTY never EOFs, the loop ends with the process.
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     parser: Arc<Mutex<vt100::Parser>>,
     writer: SharedWriter,
+    subscribers: Subscribers,
 ) {
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
@@ -194,6 +244,13 @@ fn spawn_reader(
                     }
                     if let Ok(mut p) = parser.lock() {
                         p.process(&buf[..n]);
+                        // Drop a full or dead subscriber rather than wait on it.
+                        if let Ok(mut subs) = subscribers.lock() {
+                            subs.retain(|tx| match tx.try_send(buf[..n].to_vec()) {
+                                Ok(()) => true,
+                                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
+                            });
+                        }
                     }
                 }
                 Err(_) => break,

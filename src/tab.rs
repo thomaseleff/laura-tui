@@ -10,6 +10,7 @@ use anyhow::Result;
 use portable_pty::CommandBuilder;
 use ratatui::layout::{Margin, Rect};
 
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::editor::{self, Nvim};
@@ -85,6 +86,99 @@ pub fn overflow_warning(p: &PaneReport) -> Option<String> {
     }
 }
 
+/// `c` / `Shift+S` before `laura ready`. Trailing space: ⚠ renders width-2.
+pub const NEEDS_READY: &str = "⚠ inline review needs `laura ready` ";
+/// `Shift+S` on a pane without threads.
+pub const NO_THREADS: &str = "⚠ no comments to submit ";
+/// `d` on an editor pane.
+pub const NO_DIFF_IN_EDITOR: &str = "⚠ diff view isn't available in an editor pane ";
+/// `c` in diff view.
+pub const NO_COMMENT_IN_DIFF: &str = "⚠ comments aren't available in diff view ";
+pub const SUBMIT_FAILED: &str =
+    "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
+
+/// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
+/// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
+#[derive(Deserialize)]
+#[serde(tag = "act", rename_all = "snake_case")]
+pub enum UserAction {
+    Focus {
+        pane: PaneId,
+    },
+    MoveCursor {
+        pane: PaneId,
+        delta: isize,
+    },
+    ScrollH {
+        pane: PaneId,
+        delta: isize,
+    },
+    ToggleDiff {
+        pane: PaneId,
+    },
+    /// `r`: the cursor's thread, else all.
+    ToggleThread {
+        pane: PaneId,
+    },
+    JumpThread {
+        pane: PaneId,
+        next: bool,
+    },
+    ClearHighlight {
+        pane: PaneId,
+    },
+    /// `c` on the cursor's line; `Ok(Some(seed))`: the user's own comment to edit, else empty.
+    BeginComment {
+        pane: PaneId,
+    },
+    /// `Shift+S`: `Ok` means the caller may open the review body.
+    BeginReview {
+        pane: PaneId,
+    },
+    /// `line`: 1-based source line, as `L<n>`.
+    Comment {
+        pane: PaneId,
+        line: u32,
+        text: String,
+    },
+    Submit {
+        pane: PaneId,
+        body: String,
+    },
+    Refresh {
+        pane: PaneId,
+    },
+    Close {
+        pane: PaneId,
+    },
+    ToggleEditorView {
+        pane: PaneId,
+    },
+    /// A click on a file pane's row. `line` is 1-based source.
+    SetCursor {
+        pane: PaneId,
+        line: u32,
+    },
+    /// Keys to the shell, or an editor pane's Neovim in its editor view. The web app sends these
+    /// as binary frames, not JSON.
+    #[serde(skip)]
+    Input {
+        pane: PaneId,
+        bytes: Vec<u8>,
+    },
+    /// Always bracketed, whatever mode the child set.
+    Paste {
+        pane: PaneId,
+        text: String,
+    },
+    /// `Ctrl+Q`: `Ok` means the caller may ask `y` and end the workspace.
+    Quit,
+}
+
+fn no_pane(pane: PaneId) -> String {
+    format!("no pane #{pane}")
+}
+
 /// Per-tab counter for unique socket names; no clock/rng needed.
 static TAB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -141,6 +235,8 @@ pub struct Tab {
     pub editor: Result<PathBuf, String>,
     /// Editor panes use Laura's theme (the startup wizard's answer). The TUI sets it.
     pub editor_theme: bool,
+    /// Hosted by `laura --web`; `ready` lists `web` under `experimental`.
+    pub web: bool,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -176,6 +272,7 @@ impl Tab {
             editors: HashMap::new(),
             editor: Err(editor::FLAG_OFF.into()),
             editor_theme: false,
+            web: false,
             seq: n,
             next_pane: 1,
             rx,
@@ -191,12 +288,148 @@ impl Tab {
         }
     }
 
-    /// `Shift+S` → `Enter`: write the focused pane's inline review with `body` into the shell and
-    /// journal it. `None` without a focused file pane. A sent review returns focus to the shell,
-    /// and an editor pane to its editor view; a failed one keeps the threads for a retry (#72).
-    pub fn submit_focused(&mut self, body: &str) -> Option<std::io::Result<()>> {
+    /// Apply one user action. `Ok(Some(text))` only from `BeginComment`; `Err` carries the notice
+    /// text. Every field is untrusted.
+    pub fn act(&mut self, action: UserAction) -> Result<Option<String>, String> {
+        use UserAction as A;
+        match action {
+            A::Focus { pane } => {
+                if pane != PTY_PANE && !self.panels.contains_key(&pane) {
+                    return Err(no_pane(pane));
+                }
+                self.focus = pane;
+            }
+            A::MoveCursor { pane, delta } => self.panel_mut(pane)?.move_cursor(delta),
+            A::ScrollH { pane, delta } => self.panel_mut(pane)?.scroll_h(delta),
+            A::ToggleDiff { pane } => {
+                if self.editors.contains_key(&pane) {
+                    return Err(NO_DIFF_IN_EDITOR.into());
+                }
+                let p = self.panel_mut(pane)?;
+                let want = !p.diff_view;
+                p.set_diff_view(want)?;
+            }
+            A::ToggleThread { pane } => {
+                let p = self.panel_mut(pane)?;
+                if p.cursor_thread().is_some() {
+                    p.toggle_collapsed(p.cursor);
+                } else {
+                    let any_open = p.threads.iter().any(|t| !t.collapsed);
+                    p.set_all_collapsed(any_open);
+                }
+            }
+            A::JumpThread { pane, next } => {
+                let p = self.panel_mut(pane)?;
+                if let Some(row) = p.thread_jump(next) {
+                    p.cursor = row;
+                }
+            }
+            A::ClearHighlight { pane } => self.panel_mut(pane)?.clear_highlight(),
+            A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
+            A::BeginComment { pane } => {
+                if !self.agent {
+                    return Err(NEEDS_READY.into());
+                }
+                let p = self.panel_mut(pane)?;
+                if p.diff_view {
+                    return Err(NO_COMMENT_IN_DIFF.into());
+                }
+                p.set_cursor_line(p.cursor_line()); // snaps to a markdown block's first row
+                return Ok(Some(p.begin_comment()));
+            }
+            A::Comment { pane, line, text } => {
+                if !self.agent {
+                    return Err(NEEDS_READY.into());
+                }
+                let p = self.panel_mut(pane)?;
+                if p.diff_view {
+                    return Err(NO_COMMENT_IN_DIFF.into());
+                }
+                p.set_cursor_line(line);
+                p.author_note(text);
+            }
+            A::BeginReview { pane } => self.review_gate(pane)?,
+            A::Submit { pane, body } => self.submit(pane, &body)?,
+            A::Refresh { pane } => self.panel_mut(pane)?.discard_and_reload(),
+            A::Close { pane } => {
+                if let Response::Error { message } = self.close_pane(Some(pane)) {
+                    return Err(message);
+                }
+            }
+            A::ToggleEditorView { pane } => {
+                let e = self.editors.get_mut(&pane).ok_or_else(|| no_pane(pane))?;
+                e.editor_view = !e.editor_view;
+            }
+            A::Input { pane, bytes } => self.write_keys(pane, &bytes)?,
+            A::Paste { pane, text } => self.write_keys(pane, &bracketed_paste(&text, false))?,
+            A::Quit => {
+                if let Some(message) = self.unsaved_edits() {
+                    return Err(message);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Pane `pane`'s file pane, gated by `file_view`.
+    fn panel_mut(&mut self, pane: PaneId) -> Result<&mut Panel, String> {
+        self.file_view(pane)?;
+        self.panels.get_mut(&pane).ok_or_else(|| no_pane(pane))
+    }
+
+    /// Neovim takes an editor pane's keys in its editor view, so its file pane takes no actions.
+    fn file_view(&self, pane: PaneId) -> Result<(), String> {
+        if self.editors.get(&pane).is_some_and(|e| e.editor_view) {
+            return Err(format!("pane #{pane} is in its editor view"));
+        }
+        Ok(())
+    }
+
+    /// The terminal that takes pane `pane`'s keys: the shell, or an editor pane's Neovim in its
+    /// editor view. `None` for a file pane, or an editor pane in its file view.
+    pub fn pane_pty(&self, pane: PaneId) -> Option<&PtyTab> {
+        if pane == PTY_PANE {
+            return Some(&self.pty);
+        }
+        self.editors
+            .get(&pane)
+            .filter(|e| e.editor_view)
+            .map(|e| &e.pty)
+    }
+
+    /// Write `bytes` to pane `pane`'s terminal, snapping it to live.
+    fn write_keys(&self, pane: PaneId, bytes: &[u8]) -> Result<(), String> {
+        let pty = self
+            .pane_pty(pane)
+            .ok_or_else(|| format!("pane #{pane} doesn't take keystrokes"))?;
+        pty.to_live();
+        let _ = pty.write(bytes);
+        Ok(())
+    }
+
+    /// `Shift+S`'s gates, checked again on `Enter`.
+    fn review_gate(&self, pane: PaneId) -> Result<(), String> {
+        self.file_view(pane)?;
+        let p = self.panels.get(&pane).ok_or_else(|| no_pane(pane))?;
+        if !self.agent {
+            return Err(NEEDS_READY.into());
+        }
+        if p.thread_count() == 0 {
+            return Err(NO_THREADS.into());
+        }
+        Ok(())
+    }
+
+    /// `Shift+S` → `Enter`: write pane `pane`'s inline review with `body` into the shell and
+    /// journal it. A sent review returns focus to the shell, and an editor pane to its editor
+    /// view; a failed one keeps the threads for a retry.
+    fn submit(&mut self, pane: PaneId, body: &str) -> Result<(), String> {
+        self.review_gate(pane)?;
         let pty = &self.pty;
-        let p = self.panels.get_mut(&self.focus)?;
+        let p = self
+            .panels
+            .get_mut(&pane)
+            .expect("review_gate found the pane");
         // Read the count first: a sent review clears the threads.
         let (path, comments) = (p.path.clone(), p.thread_count());
         let res = p.submit_review(body, |r| pty.write(&bracketed_paste(r, true)));
@@ -205,13 +438,38 @@ impl Tab {
             event["error"] = json!(e.to_string());
         }
         self.log_event(event);
-        if res.is_ok() {
-            if let Some(e) = self.editors.get_mut(&self.focus) {
-                e.editor_view = true;
-            }
+        // The cause is in the journal; the notice stays fixed.
+        res.map_err(|_| SUBMIT_FAILED.to_string())?;
+        if let Some(e) = self.editors.get_mut(&pane) {
+            e.editor_view = true;
+        }
+        self.focus = PTY_PANE;
+        Ok(())
+    }
+
+    /// Per-frame upkeep before drawing `content`: take `pending_focus`, move focus off a closed
+    /// pane, resize the shell and each editor pane's Neovim to its rect. Returns the rects.
+    pub fn tick(&mut self, content: Rect) -> HashMap<PaneId, Rect> {
+        if let Some(id) = self.pending_focus.take() {
+            self.focus = id;
+        }
+        if self.focus != PTY_PANE && !self.panels.contains_key(&self.focus) {
             self.focus = PTY_PANE;
         }
-        Some(res)
+        let rect_map = rects(&self.layout, content);
+        let pty_inner = rect_map
+            .get(&PTY_PANE)
+            .copied()
+            .unwrap_or(content)
+            .inner(Margin::new(1, 1)); // shell sits inside its border box
+        self.resize_to(pty_inner.height, pty_inner.width);
+        for (id, e) in self.editors.iter_mut() {
+            if let Some(r) = rect_map.get(id) {
+                let inner = r.inner(Margin::new(1, 1));
+                e.resize(inner.height, inner.width);
+            }
+        }
+        rect_map
     }
 
     /// The focused panel, if a panel (not the PTY) has focus.
@@ -219,13 +477,6 @@ impl Tab {
         (self.focus != PTY_PANE)
             .then_some(self.focus)
             .and_then(|id| self.panels.get(&id))
-    }
-
-    /// The focused panel, if a panel (not the PTY) has focus.
-    pub fn focused_panel_mut(&mut self) -> Option<&mut Panel> {
-        (self.focus != PTY_PANE)
-            .then_some(self.focus)
-            .and_then(|id| self.panels.get_mut(&id))
     }
 
     /// Borrow every panel keyed by id (for `build_report`).
@@ -239,9 +490,10 @@ impl Tab {
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
-    pub fn drain(&mut self, area: Rect) {
+    /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
+    pub fn drain(&mut self, area: Rect) -> bool {
         if self.hold {
-            return;
+            return false;
         }
         // An exited Neovim closes its pane, unless it holds threads: then it stays a file pane.
         let exited: Vec<PaneId> = self
@@ -250,6 +502,7 @@ impl Tab {
             .filter(|(_, e)| e.pty.has_exited())
             .map(|(id, _)| *id)
             .collect();
+        let mut changed = !exited.is_empty();
         for id in exited {
             self.editors.remove(&id);
             if self.panels.get(&id).is_some_and(|p| p.thread_count() == 0) {
@@ -259,13 +512,16 @@ impl Tab {
         loop {
             // Catch up to disk before each message: one sent right after an edit must see the new content.
             for p in self.panels.values_mut() {
-                p.reload_if_changed();
+                // A freeze returns false, so compare `source_changed` too.
+                let frozen = p.source_changed;
+                changed |= p.reload_if_changed() || p.source_changed != frozen;
             }
             let Ok((msg, reply)) = self.rx.try_recv() else {
                 break;
             };
             let resp = self.apply(msg, area);
             reply.send(&resp);
+            changed = true;
         }
         // Every change to a thread (comment, submit, `Ctrl+R`, freeze) reaches Neovim from here.
         for (id, e) in &mut self.editors {
@@ -273,6 +529,7 @@ impl Tab {
                 e.push(p);
             }
         }
+        changed
     }
 
     /// Close a pane (default: the focused panel). Shared by the `close` verb and the `x` key, so
@@ -737,7 +994,14 @@ impl Tab {
                 let path = journal.path().to_string_lossy().into_owned();
                 journal.log(json!({"type": "ready"}));
                 self.journal = Some(journal);
-                let experimental = self.editor.iter().map(|_| "editor".to_string()).collect();
+                let experimental = [
+                    self.editor.is_ok().then_some("editor"),
+                    self.web.then_some("web"),
+                ]
+                .into_iter()
+                .flatten()
+                .map(String::from)
+                .collect();
                 Response::Ready {
                     journal: path,
                     experimental,

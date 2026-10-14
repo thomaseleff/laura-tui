@@ -29,6 +29,8 @@ Standard Rust. No house style on top of it.
 
 Run before calling anything done: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`.
 
+**Manual runs.** `tmp/` is gitignored scratch for manual checks. Build a binary to run by hand with `CARGO_TARGET_DIR=tmp/target cargo build`, so a Laura running from `target/` doesn't lock the build.
+
 ## Implementation requirements
 
 Implementation should always be comprehensive of code, tests, docs and skills.
@@ -44,7 +46,7 @@ New CLI verb, protocol message, keybinding, or journal event field → assume al
 
 For prose in `README.md`, `docs/`, and skills.
 
-- **Name the actor.** Laura, the user, or the agent is the subject of each sentence. A pane, key, file, command, gerund phrase or page doesn't act.
+- **Name the actor.** Laura, the user, or the agent is the subject of each sentence. A pane, keystroke, file, command, gerund phrase or page doesn't act.
 - **Use plain, literal verbs.** Say what happens ("returns an error", "shows a notice"), never "refused" or a figurative verb.
 - **Repeat the noun** instead of "it" when the reader could lose track of the subject.
 - **Write complete sentences** in a calm, direct voice. Use the imperative for instructions.
@@ -67,7 +69,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
 | **editor pane** | A pane where the user edits a file in an editor, over its file pane (`open --edit`, experimental). | editor (alone), nvim pane, vim pane |
-| **editor view** | An editor pane showing the editor, which takes the keys (the default). | Neovim view, nvim mode |
+| **editor view** | An editor pane showing the editor, which takes the keystrokes (the default). | Neovim view, nvim mode |
 | **file view** | An editor pane showing its file pane, flipped with `Ctrl+L`. | review view, review mode |
 | **Neovim** | The editor that editor panes run today. Name it only for Neovim's own behavior (`:w`, its config, diagnostics, its file-changed prompt). | nvim (in prose) |
 | **comment** (n., v.) | A single inline annotation on a pane, or an action the user takes (`c`). | note, annotation, mark up, in-line / in line comment |
@@ -84,9 +86,11 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **snapshot** | The content of a pane with an unsubmitted inline review. | reviewed content |
 | **highlight** (n., v.) | Lines marked by `laura highlight`. | spotlight |
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
-| **workspace** | The TUI, including all panes. | — |
+| **workspace** | The TUI or the web app, including all panes. | — |
+| **web app** | The browser view of a workspace (`laura --web`). | web UI, frontend |
 | **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
-| **hint line** | A bottom line in the workspace listing the keys for the current context. | footer |
+| **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
+| **keystroke** | A key or key combination the user presses (`c`, `Ctrl+L`, `]d`). | key |
 | **overflow** (n., v.) | Content taller than its pane, which the user scrolls to read in full. | clipped, below the fold, doesn't fit |
 | **the user** (`docs/`, README) / **your partner** (skills) | The developer / student. | human, developer, learner, pair-programmer, reader |
 

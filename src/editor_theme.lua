@@ -17,7 +17,7 @@ vim.api.nvim_create_autocmd('VimEnter', {
       -- Vim's Rust syntax names traits and enums apart from types; the file view colors them as types.
       rustTrait = { link = 'Type' },
       rustEnum = { link = 'Type' },
-      -- The file view's cursor band spans the gutter, its number stays dim (src/tui.rs BAND).
+      -- The file view's cursor band spans the gutter, its number stays dim (src/view.rs BAND).
       CursorLine = { bg = '#434C5E' },
       LineNr = { fg = dim },
       CursorLineNr = { fg = dim, bg = '#434C5E' },

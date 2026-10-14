@@ -2,12 +2,12 @@
 
 This reference describes the keystrokes for navigating the workspace and interacting with Laura. Use `Ctrl+H` within Laura to pull up the full keystroke reference.
 
-Laura passes keys it doesn't use to the shell, or to Neovim in an editor pane's editor view.
+Laura passes keystrokes it doesn't use to the shell, or to Neovim in an editor pane's editor view.
 
-## Global keys
+## Global keystrokes
 
-| Key | Action |
-|-----|--------|
+| Keystroke | Action |
+|-----------|--------|
 | `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress) |
 | `Ctrl+H` | Help |
 | `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
@@ -20,8 +20,12 @@ Laura passes keys it doesn't use to the shell, or to Neovim in an editor pane's 
 
 An editor pane (`laura open --edit`) supports two views, an **Editor view** and a **File view**. Use `Ctrl+L` to flip between the views.
 
-- **Editor view** (the default): edit the file in Neovim. Every key goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+H`, `Ctrl+Q` and `F12`. Comments show as an inline `✎` diagnostic; use `Ctrl+W` then `d` to read the whole thread and `]d` to jump to the next one. The editor view does not support comment interactions, so flip to the file view to comment or submit.
-- **File view**: comment on the saved file and submit the inline review, with the same keys as a file pane (below). Diff (`d`) and highlight (`h`) are not available.
+- **Editor view** (the default): edit the file in Neovim. Every keystroke goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+H`, `Ctrl+Q` and `F12`.
+  - Comments show as an inline `✎` diagnostic.
+  - Press `]d` to jump to the next thread and read it in full, or `[d` for the previous one. Laura maps these keystrokes to threads only and skips a language server's diagnostics.
+  - Press `Ctrl+W` then `d` to show the thread under the cursor.
+  - The editor view does not support comment interactions, so flip to the file view to comment or submit.
+- **File view**: comment on the saved file and submit the inline review, with the same keystrokes as a file pane (below). Diff (`d`) and highlight (`h`) are not available.
 
 The border shows the view (`· editor` or `· file`), `● unsaved` while Neovim has unsaved edits, and `[review: N]` when the pane has threads.
 
@@ -35,7 +39,7 @@ The file view has these limits:
 
 Laura never focuses an editor pane when it opens, so you can keep typing in the chat. To leave an editor pane, press `Ctrl+P` then a pane id (`0` is the shell).
 
-- If the agent turns the pane you're in into an editor pane, Laura opens it in the file view, so you keep using the file pane keys.
+- If the agent turns the pane you're in into an editor pane, Laura opens it in the file view, so you keep using the file pane keystrokes.
 - If the agent opens another file in the editor pane you're in, Laura keeps the pane's current view.
 - If the editor pane has unsaved edits, `x` in the file view shows a notice instead of closing the pane. Save (`:w`) or quit Neovim first.
 
@@ -47,8 +51,8 @@ Laura applies its theme to Neovim, including the file view's syntax colors (Nord
 
 ## In a focused pane
 
-| Key | Action |
-|-----|--------|
+| Keystroke | Action |
+|-----------|--------|
 | `↑/↓` | Move the cursor |
 | `n/N` | Jump the cursor to the next / previous thread |
 | `←/→` | Scroll pre-formatted lines sideways (code, diffs, markdown tables/fences/HTML) |
@@ -64,6 +68,13 @@ Laura applies its theme to Neovim, including the file view's syntax colors (Nord
 
 An inline review is a **call and response**. Comments and threads stay in the pane until you press `Shift+S` to submit the inline review. While you type a comment or review body, Laura holds the agent's commands until you press `Enter` or `Esc`.
 
+Laura shows a notice instead of acting when:
+
+- You press `c` or `Shift+S` before the agent runs `laura ready`: `` ⚠ inline review needs `laura ready` ``.
+- You press `Shift+S` on a pane with no comments: `⚠ no comments to submit`.
+- You press `d` in an editor pane's file view: `⚠ diff view isn't available in an editor pane`.
+- You press `c` in diff view: `⚠ comments aren't available in diff view`.
+
 A file pane's border shows:
 
 - `#<id>`, its pane id, so `Ctrl+P <id>` focuses it. The focused pane's border is bright, the others gray.
@@ -76,20 +87,22 @@ A file pane with an unsubmitted inline review **freezes** when its file changes 
 
 ## Typing a comment or review body
 
-| Key | Action |
-|-----|--------|
+| Keystroke | Action |
+|-----------|--------|
 | `←/→` | Move the cursor |
 | `Home/End` | Jump to the start / end of the line |
 | `Backspace/Delete` | Delete before / after the cursor |
-| `\`+`Enter` | Insert a newline |
+| `\`+`Enter` (`Shift+Enter` in the [web app](web-app.md)) | Insert a newline |
 | `Enter` | Add the comment, save the edit, or submit the review body |
 | `Esc` | Cancel |
 
 To delete your comment, press `c` on it, clear the text, and press `Enter`.
 
+While you type a comment, Laura shows `comment L<n>` in the hint line, where `<n>` is the file's line number. In a markdown block, `<n>` is the block's first line. When the block spans several rows, Laura moves the cursor to the block's first row.
+
 ## Scrolling
 
-In the shell, use `PageUp/PageDown` or the mouse wheel to scroll back through the shell's output. When a full-screen program runs in the shell (claude, vim, less), Laura passes those keys to the program, which handles its own scrolling, and Laura shows no scrollbar.
+In the shell, use `PageUp/PageDown` or the mouse wheel to scroll back through the shell's output. When a full-screen program runs in the shell (claude, vim, less), Laura passes those keystrokes to the program, which handles its own scrolling, and Laura shows no scrollbar.
 
 In a file pane, Laura scrolls only when the cursor reaches the top or bottom edge of the pane. Opening or collapsing a comment above the view doesn't scroll it. The mouse wheel scrolls the pane and moves the cursor with it. `laura highlight` scrolls its lines to the center once and moves the cursor to the first highlighted line, so pressing `c` right after a highlight comments there.
 
