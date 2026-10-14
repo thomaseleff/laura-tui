@@ -1,7 +1,8 @@
 # Releasing: dispatch this workflow with a version (Actions → Release, or
 # `gh workflow run release.yml -f version=0.7.0`). CI injects that version into
 # every versioned file, commits `Bump to vX.Y.Z` to main, tags that commit,
-# publishes to crates.io + PyPI, then cuts the GitHub release. No manual bump.
+# publishes to crates.io + PyPI, cuts the GitHub release, then publishes the
+# docs. No manual bump.
 name: Release
 
 on:
@@ -108,3 +109,13 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "v${{ inputs.version }}" --generate-notes
+
+  docs: # publish the docs at the release tag
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml
+    with:
+      ref: v${{ inputs.version }}
