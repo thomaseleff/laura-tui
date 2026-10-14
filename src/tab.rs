@@ -92,6 +92,8 @@ pub const NEEDS_READY: &str = "⚠ inline review needs `laura ready` ";
 pub const NO_THREADS: &str = "⚠ no comments to submit ";
 /// `d` on an editor pane.
 pub const NO_DIFF_IN_EDITOR: &str = "⚠ diff view isn't available in an editor pane ";
+/// `c` in diff view.
+pub const NO_COMMENT_IN_DIFF: &str = "⚠ comments aren't available in diff view ";
 pub const SUBMIT_FAILED: &str =
     "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
 
@@ -329,6 +331,9 @@ impl Tab {
                     return Err(NEEDS_READY.into());
                 }
                 let p = self.panel_mut(pane)?;
+                if p.diff_view {
+                    return Err(NO_COMMENT_IN_DIFF.into());
+                }
                 p.set_cursor_line(p.cursor_line()); // snaps to a markdown block's first row
                 return Ok(Some(p.begin_comment()));
             }
@@ -337,6 +342,9 @@ impl Tab {
                     return Err(NEEDS_READY.into());
                 }
                 let p = self.panel_mut(pane)?;
+                if p.diff_view {
+                    return Err(NO_COMMENT_IN_DIFF.into());
+                }
                 p.set_cursor_line(line);
                 p.author_note(text);
             }

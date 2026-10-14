@@ -1,13 +1,14 @@
 //! What the user does on the workspace goes through `Tab::act`: the gates, the source-line
 //! mapping, untrusted fields, and `tick`'s upkeep. State, not pixels.
 
-use std::process::Output;
+use std::path::Path;
+use std::process::{Command as StdCommand, Output};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
-use laura::tab::{NEEDS_READY, NO_THREADS};
+use laura::tab::{NEEDS_READY, NO_COMMENT_IN_DIFF, NO_THREADS};
 use laura::{Rect, Tab, UserAction};
 
 /// `act` errors are `String`s; a boxed error takes those, `io` and `anyhow` alike.
@@ -95,6 +96,23 @@ fn tab_with(name: &str, body: &str) -> Result<(Tab, tempfile::TempDir, String)> 
     Ok((tab, dir, path))
 }
 
+/// Run `git <args>` in `dir`, asserting success.
+fn git(dir: &Path, args: &[&str]) {
+    let out = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .output()
+        .expect("git spawns (test host needs git on PATH)");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 fn five_lines() -> String {
     (1..=5).map(|n| format!("line {n}\n")).collect()
 }
@@ -126,6 +144,39 @@ fn inline_review_needs_ready() -> Result<()> {
     assert_eq!(tab.panels[&1].thread_count(), 0);
     drive(&mut tab, &["ready"]);
     assert_eq!(tab.act(comment(3, "x")), Ok(None));
+    assert_eq!(tab.panels[&1].threads[0].line, 2);
+    Ok(())
+}
+
+/// Diff rows aren't source lines: a removed row would shift the cursor's line.
+#[test]
+fn comments_need_the_diff_view_off() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    git(dir.path(), &["init", "-q"]);
+    let file = dir.path().join("a.rs");
+    std::fs::write(&file, five_lines())?;
+    git(dir.path(), &["add", "a.rs"]);
+    git(dir.path(), &["commit", "-q", "-m", "init"]);
+    std::fs::write(
+        &file,
+        "line 1
+line 3
+line 4
+line 5
+",
+    )?;
+    let path = file.to_string_lossy().into_owned();
+    let mut tab = spawn_tab()?;
+    drive(&mut tab, &["open", "--no-focus", "--diff", &path]);
+    drive(&mut tab, &["ready"]);
+    assert_eq!(
+        tab.act(UserAction::BeginComment { pane: 1 }),
+        Err(NO_COMMENT_IN_DIFF.into())
+    );
+    assert_eq!(tab.act(comment(3, "x")), Err(NO_COMMENT_IN_DIFF.into()));
+    assert_eq!(tab.panels[&1].thread_count(), 0);
+    tab.act(UserAction::ToggleDiff { pane: 1 })?;
+    tab.act(comment(3, "x"))?;
     assert_eq!(tab.panels[&1].threads[0].line, 2);
     Ok(())
 }

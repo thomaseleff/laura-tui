@@ -229,7 +229,7 @@ laura open "$R/tokens.py" --diff --ratio 55   # focused, straight into the inlin
 >
 > 1. Press `d` to turn the diff view **off**. Laura shows the file with the gutter markers. Press `d` again to turn the diff view back on.
 >
-> The diff view still shows the file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
+> In the diff view, press `↑`/`↓` to move and `Esc` to return to the chat. To comment, press `d` to turn the diff view off, then press `c`. Press `Shift+S` to submit. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >

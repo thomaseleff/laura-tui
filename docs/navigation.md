@@ -73,6 +73,7 @@ Laura shows a notice instead of acting when:
 - You press `c` or `Shift+S` before the agent runs `laura ready`: `` ⚠ inline review needs `laura ready` ``.
 - You press `Shift+S` on a pane with no comments: `⚠ no comments to submit`.
 - You press `d` in an editor pane's file view: `⚠ diff view isn't available in an editor pane`.
+- You press `c` in diff view: `⚠ comments aren't available in diff view`.
 
 A file pane's border shows:
 
