@@ -372,7 +372,7 @@ impl Tab {
     }
 
     /// Pane `pane`'s file pane, gated by `file_view`.
-    fn panel_mut(&mut self, pane: PaneId) -> Result<&mut Panel, String> {
+    pub(crate) fn panel_mut(&mut self, pane: PaneId) -> Result<&mut Panel, String> {
         self.file_view(pane)?;
         self.panels.get_mut(&pane).ok_or_else(|| no_pane(pane))
     }

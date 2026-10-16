@@ -1,13 +1,16 @@
 //! file→styled: read a file and turn it into styled lines plus a plain-text projection.
 
-use std::sync::OnceLock;
+use std::cell::OnceCell;
+use std::ops::Range;
+use std::sync::{Arc, OnceLock};
 
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{BlockQuoteKind, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Highlighter, Theme, ThemeSet};
-use syntect::parsing::{Scope, SyntaxSet};
+use syntect::html::highlighted_html_for_string;
+use syntect::parsing::{Scope, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
 /// A rendered file: plain-text `content` plus styled lines, all 1:1 by line.
@@ -23,6 +26,42 @@ pub(crate) struct Rendered {
     pub(crate) source_lines: Vec<String>,
     /// Terse read error (stderr-bound), set only when the file couldn't be read. `None` on success.
     pub(crate) error: Option<String>,
+    /// Markdown only: each top-level block (or list item) for the web app (#89). Empty otherwise,
+    /// and on a degraded render.
+    pub(crate) blocks: Vec<Block>,
+}
+
+/// A rendered markdown block: the `styled` rows it covers, its source and, unless it's code or
+/// HTML, the file's reference definitions. HTML is built on first use.
+pub(crate) struct Block {
+    pub(crate) rows: Range<usize>,
+    md: String,
+    defs: Option<Arc<str>>,
+    html: OnceCell<String>,
+}
+
+impl Block {
+    /// The block as HTML. A panic in `md_html` shows the source as escaped text instead.
+    pub(crate) fn html(&self) -> &str {
+        self.html.get_or_init(|| {
+            let md = format!("{}{}", self.md, self.defs.as_deref().unwrap_or(""));
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| md_html(&md))).unwrap_or_else(
+                |_| {
+                    let mut html = String::new();
+                    pulldown_cmark::html::push_html(
+                        &mut html,
+                        [
+                            Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)),
+                            Event::Text(self.md.as_str().into()),
+                            Event::End(TagEnd::CodeBlock),
+                        ]
+                        .into_iter(),
+                    );
+                    html
+                },
+            )
+        })
+    }
 }
 
 /// Identity map for a verbatim file: row `i` is source line `i`, `source_lines` = `content.lines()`.
@@ -72,6 +111,7 @@ fn plain(content: String) -> Rendered {
         source,
         source_lines,
         error: None,
+        blocks: vec![],
     }
 }
 
@@ -112,6 +152,7 @@ fn render_diff(raw: &str) -> Rendered {
         source,
         source_lines,
         error: None,
+        blocks: vec![],
     }
 }
 
@@ -139,6 +180,7 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
                 source,
                 source_lines,
                 error: None,
+                blocks: vec![],
             }
         }
         _ => plain(raw.to_string()),
@@ -202,20 +244,20 @@ pub fn nord_hex(scope: &str) -> String {
 ///
 /// ponytail: `tui-markdown =0.3.9` is a pre-1.0 PoC — `catch_unwind` degrades a pathological doc to
 /// raw text (identity ranges, so numbering stays honest); pinned because gutter math keys off its shape.
-/// ponytail: a ref-def used across blocks won't resolve after slicing, and a 2+ blank-line gap keeps
-/// its blank rows rather than collapsing to one — both accepted for the block-map.
+/// ponytail: a 2+ blank-line gap keeps its blank rows rather than collapsing to one — accepted for the block-map.
+/// ponytail: a footnote whose definition is in another block shows as `[^n]` after slicing.
 fn render_markdown(md: &str) -> Rendered {
     let source_lines: Vec<String> = md.lines().map(str::to_string).collect();
     let assembled =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assemble_markdown(md)));
-    let (styled, source) = assembled.unwrap_or_else(|_| {
+    let (styled, source, blocks) = assembled.unwrap_or_else(|_| {
         // Degrade to raw text with identity ranges: rendered row i == source line i.
         let styled: Vec<Line<'static>> = md
             .lines()
             .map(|l| Line::from(Span::raw(l.to_string())))
             .collect();
         let source = (0..styled.len()).map(|i| (i, i)).collect();
-        (styled, source)
+        (styled, source, vec![])
     });
     let content = styled.iter().map(line_text).collect::<Vec<_>>().join("\n");
     let nowrap = classify_nowrap(&styled);
@@ -226,20 +268,33 @@ fn render_markdown(md: &str) -> Rendered {
         source,
         source_lines,
         error: None,
+        blocks,
     }
 }
 
 /// Slice markdown into top-level blocks, render each through `tui-markdown`, and tag every resulting
-/// line with its block's 0-based source range. Blank source lines gap-fill to blank rows, so every
-/// source line has a row.
-fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
-    let defs = ref_defs(md); // appended to each slice so reference links still resolve
+/// line with its block's 0-based source range. Blank source lines, and the lines of a block that
+/// renders no rows, gap-fill to blank rows; only a code block's hidden fences have no row. Each slice
+/// is also a `Block` of the rows it rendered; gap-fill rows belong to none.
+fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<Block>) {
+    let defs: Arc<str> = ref_defs(md).into(); // appended to linked slices so reference links still resolve
     let line_of = line_indexer(md);
     let lines: Vec<&str> = md.lines().collect();
     let total_lines = lines.len();
     let opts = tui_markdown::Options::new(LauraStyleSheet);
     let mut styled: Vec<Line<'static>> = vec![];
     let mut source: Vec<(usize, usize)> = vec![];
+    let mut out_blocks: Vec<Block> = vec![];
+    let mut push_block = |rows: Range<usize>, md: &str, linked: bool| {
+        if !rows.is_empty() {
+            out_blocks.push(Block {
+                rows,
+                md: md.to_string(),
+                defs: linked.then(|| defs.clone()),
+                html: OnceCell::new(),
+            });
+        }
+    };
     let mut cursor = 0usize; // next source line still needing a row
     for (b0, b1, kind) in blocks(md) {
         let l0 = line_of(b0);
@@ -267,13 +322,16 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
                     while e > s && lines.get(e).is_some_and(|l| l.trim().is_empty()) {
                         e -= 1;
                     }
-                    let slice = format!("{}{defs}", lines[s..=end].join("\n"));
+                    let item = lines[s..=end].join("\n");
+                    let slice = format!("{item}{defs}");
                     let text = tui_markdown::from_str_with_options(&slice, &opts);
                     let rows: Vec<_> = text.lines.iter().map(owned_line).map(refine_line).collect();
+                    let first = styled.len();
                     for (row, range) in align_rows(rows, &lines[s..=e], s) {
                         styled.push(row);
                         source.push(range);
                     }
+                    push_block(first..styled.len(), &item, true);
                     for j in e + 1..=end {
                         styled.push(Line::default());
                         source.push((j, j));
@@ -284,9 +342,24 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
             }
             // else: empty item scan → fall through, tagging the whole block (today's honest collapse).
         }
-        let slice = format!("{}{defs}", &md[b0..b1]);
-        let text = tui_markdown::from_str_with_options(&slice, &opts);
+        // Code and HTML hold no links, and an unclosed one would swallow the defs.
+        let linked = !matches!(kind, BlockKind::Code { .. } | BlockKind::Html);
+        let slice = if linked {
+            format!("{}{defs}", &md[b0..b1])
+        } else {
+            md[b0..b1].to_string()
+        };
+        let fenced_slice;
+        let src = match kind {
+            BlockKind::Code { .. } => {
+                fenced_slice = fence_code(&slice);
+                &fenced_slice
+            }
+            _ => &slice,
+        };
+        let text = tui_markdown::from_str_with_options(src, &opts);
         let rows: Vec<_> = text.lines.iter().map(owned_line).map(refine_line).collect();
+        let first = styled.len();
         // Prose reflows, so it maps 1:1 only when its shape matches the source (#34, #70). List
         // reaches here only on the fallback: map it like prose.
         if let BlockKind::Prose | BlockKind::List = kind {
@@ -294,7 +367,10 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
                 styled.push(row);
                 source.push(range);
             }
-            cursor = cursor.max(l1 + 1);
+            push_block(first..styled.len(), &md[b0..b1], linked);
+            if styled.len() > first {
+                cursor = cursor.max(l1 + 1);
+            }
             continue;
         }
         let n = rows.len();
@@ -302,8 +378,8 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
             // Verbatim blocks render one row per source line, so each row owns a single real line.
             let range = match kind {
                 BlockKind::Prose | BlockKind::List => (l0, l1), // handled above
-                BlockKind::Code => {
-                    let s = (l0 + 1 + k).min(l1); // +1 skips the hidden opening fence
+                BlockKind::Code { fenced } => {
+                    let s = (l0 + usize::from(fenced) + k).min(l1); // skips the hidden opening fence
                     (s, s)
                 }
                 BlockKind::Html => {
@@ -315,23 +391,170 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
             styled.push(line);
             source.push(range);
         }
-        cursor = cursor.max(l1 + 1);
+        push_block(first..styled.len(), &md[b0..b1], linked);
+        if styled.len() > first {
+            cursor = cursor.max(l1 + 1);
+        }
     }
     while cursor < total_lines {
         styled.push(Line::default());
         source.push((cursor, cursor));
         cursor += 1;
     }
-    (styled, source)
+    (styled, source, out_blocks)
+}
+
+/// A code block as an unindented fence with no info string. tui-markdown runs an indented block's,
+/// or an indented fence's, lines into one row; a bare fence keeps one row per line.
+fn fence_code(slice: &str) -> String {
+    let mut body: String = Parser::new(slice)
+        .filter_map(|ev| match ev {
+            Event::Text(t) => Some(t.into_string()),
+            _ => None,
+        })
+        .collect();
+    if !body.is_empty() && !body.ends_with('\n') {
+        body.push('\n');
+    }
+    // Longer than any backtick run in the code, so no line closes the fence.
+    let run = body.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(run.max(2) + 1);
+    format!("{fence}\n{body}{fence}\n")
+}
+
+/// tui-markdown's options, so block bounds and the browser match the TUI: no smart quotes, no wikilinks.
+fn md_opts() -> Options {
+    Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_HEADING_ATTRIBUTES
+        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+        | Options::ENABLE_MATH
+        | Options::ENABLE_GFM
+        | Options::ENABLE_DEFINITION_LIST
+        | Options::ENABLE_SUPERSCRIPT
+        | Options::ENABLE_SUBSCRIPT
+}
+
+/// One markdown slice as HTML for the web app (#89). The file is untrusted: raw HTML shows as
+/// text, only `http(s)` links keep their `href`, and headings drop `{#id .class}` attributes, so
+/// nothing in the file can script the page or restyle Laura's own markup.
+fn md_html(slice: &str) -> String {
+    let mut out: Vec<Event> = vec![];
+    let mut links: Vec<bool> = vec![]; // per open link: whether its tags are kept
+    let mut code: Option<(&SyntaxReference, String)> = None;
+    let mut label: Option<String> = None; // a footnote definition's `[n]: `, put in its first paragraph
+    for ev in Parser::new_ext(slice, md_opts()) {
+        if let Some((syntax, mut buf)) = code.take() {
+            if let Event::End(TagEnd::CodeBlock) = ev {
+                match highlighted_html_for_string(&buf, syntax_set(), syntax, nord_theme()) {
+                    Ok(html) => out.push(Event::Html(html.into())),
+                    Err(_) => out.extend([
+                        Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)),
+                        Event::Text(buf.into()),
+                        ev,
+                    ]),
+                }
+            } else {
+                if let Event::Text(t) = ev {
+                    buf.push_str(&t);
+                }
+                code = Some((syntax, buf));
+            }
+            continue;
+        }
+        if let Some(l) = label.take() {
+            if let Event::Start(Tag::Paragraph) = ev {
+                out.extend([ev, Event::Text(l.into())]);
+                continue;
+            }
+            out.extend([
+                Event::Start(Tag::Paragraph),
+                Event::Text(l.into()),
+                Event::End(TagEnd::Paragraph),
+            ]);
+        }
+        match ev {
+            Event::Html(t) | Event::InlineHtml(t) => out.push(Event::Text(t)),
+            Event::Start(Tag::HtmlBlock | Tag::MetadataBlock(_)) => {
+                out.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)))
+            }
+            Event::End(TagEnd::HtmlBlock | TagEnd::MetadataBlock(_)) => {
+                out.push(Event::End(TagEnd::CodeBlock))
+            }
+            Event::Start(Tag::Heading { level, .. }) => out.push(Event::Start(Tag::Heading {
+                level,
+                id: None,
+                classes: vec![],
+                attrs: vec![],
+            })),
+            Event::Start(Tag::Link { ref dest_url, .. }) => {
+                let url = dest_url.to_ascii_lowercase();
+                let keep = url.starts_with("http:") || url.starts_with("https:");
+                links.push(keep);
+                if keep {
+                    out.push(ev);
+                }
+            }
+            Event::End(TagEnd::Link) => {
+                if links.pop().unwrap_or(false) {
+                    out.push(ev);
+                }
+            }
+            Event::FootnoteReference(n) => out.push(Event::Text(format!("[{n}]").into())),
+            Event::InlineMath(t) => out.push(Event::Text(format!("${t}$").into())),
+            Event::DisplayMath(t) => out.push(Event::Text(format!("$${t}$$").into())),
+            // The TUI's label, as text, instead of `push_html`'s `<sup>` and `id`.
+            Event::Start(Tag::FootnoteDefinition(n)) => label = Some(format!("[{n}]: ")),
+            Event::Start(Tag::BlockQuote(Some(k))) => {
+                use tui_markdown::{AlertKind as A, StyleSheet as _};
+                let k = match k {
+                    BlockQuoteKind::Note => A::Note,
+                    BlockQuoteKind::Tip => A::Tip,
+                    BlockQuoteKind::Important => A::Important,
+                    BlockQuoteKind::Warning => A::Warning,
+                    BlockQuoteKind::Caution => A::Caution,
+                };
+                let title = format!(
+                    "{} {}",
+                    LauraStyleSheet.alert_icon(k),
+                    LauraStyleSheet.alert_label(k)
+                );
+                out.extend([
+                    ev,
+                    Event::Start(Tag::Paragraph),
+                    Event::Start(Tag::Strong),
+                    Event::Text(title.into()),
+                    Event::End(TagEnd::Strong),
+                    Event::End(TagEnd::Paragraph),
+                ]);
+            }
+            Event::Start(Tag::Image { .. })
+            | Event::End(TagEnd::FootnoteDefinition | TagEnd::Image) => {}
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info))) => {
+                let token = info.split_whitespace().next().unwrap_or("");
+                // An unknown language drops its info string: `push_html` would make it a `class`.
+                match syntax_set().find_syntax_by_token(token) {
+                    Some(syntax) if !token.is_empty() => code = Some((syntax, String::new())),
+                    _ => out.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Indented))),
+                }
+            }
+            ev => out.push(ev),
+        }
+    }
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, out.into_iter());
+    html
 }
 
 /// How a top-level block maps source lines to rendered rows: `Prose` (incl. quotes and callouts)
 /// maps 1:1 when it renders one row per line, else whole range per row (`align_rows`); `Code`
-/// (fenced only) and `Html` render 1:1, one row per source line.
+/// and `Html` render 1:1, one row per source line.
 #[derive(Clone, Copy)]
 enum BlockKind {
     Prose,
-    Code,
+    Code { fenced: bool },
     Html,
     List,
     Table,
@@ -344,13 +567,16 @@ fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
     let mut depth = 0i32;
     let mut start = 0usize;
     let mut kind = BlockKind::Prose;
-    for (ev, range) in Parser::new_ext(md, Options::all()).into_offset_iter() {
+    for (ev, range) in Parser::new_ext(md, md_opts()).into_offset_iter() {
         match ev {
             Event::Start(tag) => {
                 if depth == 0 {
-                    start = range.start;
+                    // From the line start: an indented code block's range begins after its indent.
+                    start = md[..range.start].rfind('\n').map_or(0, |i| i + 1);
                     kind = match tag {
-                        Tag::CodeBlock(k) if k.is_fenced() => BlockKind::Code,
+                        Tag::CodeBlock(k) => BlockKind::Code {
+                            fenced: k.is_fenced(),
+                        },
                         Tag::HtmlBlock => BlockKind::Html,
                         Tag::List(_) => BlockKind::List,
                         Tag::Table(_) => BlockKind::Table,
@@ -379,7 +605,7 @@ fn top_item_lines(slice: &str, l0: usize) -> Vec<usize> {
     let line_of = line_indexer(slice);
     let mut out = vec![];
     let mut depth = 0i32;
-    for (ev, range) in Parser::new_ext(slice, Options::all()).into_offset_iter() {
+    for (ev, range) in Parser::new_ext(slice, md_opts()).into_offset_iter() {
         match ev {
             Event::Start(Tag::List(_)) => depth += 1,
             Event::End(TagEnd::List(_)) => depth -= 1,
@@ -454,13 +680,20 @@ fn align_rows(
         .collect()
 }
 
-/// Reference definitions as blank-line-separated `[label]: dest` lines, appended to each block slice
-/// so a ref link still resolves. `\n\n` because a single `\n` folds the def into the prior paragraph.
+/// Reference definitions as blank-line-separated `[label]: <dest>` lines, appended to each linked
+/// slice so a ref link still resolves. `\n\n` because a single `\n` folds the def into the prior paragraph.
 fn ref_defs(md: &str) -> String {
-    let parser = Parser::new_ext(md, Options::all());
+    let parser = Parser::new_ext(md, md_opts());
     let mut out = String::new();
     for (label, def) in parser.reference_definitions().iter() {
-        out.push_str(&format!("\n\n[{label}]: {}", def.dest));
+        // `dest` comes back decoded: re-escape it so spaces, `<>`, `&amp;` and an empty dest survive.
+        let dest = def
+            .dest
+            .replace('\\', r"\\")
+            .replace('<', r"\<")
+            .replace('>', r"\>")
+            .replace('&', r"\&");
+        out.push_str(&format!("\n\n[{label}]: <{dest}>"));
     }
     out
 }

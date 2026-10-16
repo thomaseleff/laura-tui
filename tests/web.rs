@@ -310,6 +310,24 @@ fn rows(html: &str) -> Vec<(u32, String)> {
         .collect()
 }
 
+/// Each rendered markdown block in a `pane` frame's HTML: its `data-line` and its HTML, up to the
+/// next row.
+fn blocks(html: &str) -> Vec<(u32, String)> {
+    html.split(r#"<div class="blk"#)
+        .skip(1)
+        .map(|blk| {
+            let blk = blk.split(r#"<div class="row"#).next().unwrap_or("");
+            let line = blk
+                .split(r#"data-line=""#)
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .and_then(|s| s.parse().ok())
+                .expect("data-line");
+            (line, blk.to_string())
+        })
+        .collect()
+}
+
 /// The first `pane` frame for pane `id`.
 fn pane_frame(rig: &mut Rig, ws: &mut Ws, id: u64) -> Value {
     rig.until(
@@ -509,6 +527,558 @@ fn a_markdown_diff_view_tags_each_row_with_its_source_line() -> Result<()> {
     assert_eq!(line_of("# Title"), 1);
     assert_eq!(line_of("alpha"), 3);
     assert_eq!(line_of("beta CHANGED"), 4);
+    Ok(())
+}
+
+#[test]
+fn a_markdown_pane_sends_each_block_as_html() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "doc.md",
+        "# Title\n\nalpha\nbeta\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n",
+    )?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let blocks = blocks(&html);
+    let lines: Vec<u32> = blocks.iter().map(|(l, _)| *l).collect();
+    assert_eq!(lines, [1, 3, 6, 7, 10], "{html}");
+    assert!(blocks[0].1.contains("<h1>Title</h1>"), "{html}");
+    assert!(blocks[1].1.contains("alpha\nbeta"), "{html}");
+    // A fenced block in a known language is syntax-highlighted.
+    assert!(blocks[4].1.contains("<pre style="), "{html}");
+    Ok(())
+}
+
+#[test]
+fn a_comment_on_a_block_lands_on_its_first_line() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# Title\n\nalpha\nbeta\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    // `set_cursor` on a folded paragraph's second line lands on its first.
+    let acted = rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 3, "{acted}");
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 3, "text": "block note"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let acted = rig.act(&mut ws, json!({"act": "submit", "pane": 1, "body": ""}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.shell_shows("L3-4");
+    Ok(())
+}
+
+#[test]
+fn arrow_keys_reach_every_row_of_a_markdown_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "doc.md",
+        "# T\n\n```rust\nfn a() {}\nfn b() {}\n```\n\nafter\n\n",
+    )?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    let acted = rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let mut lines = vec![];
+    for delta in [1, 1, 1, 1, 1, -1, -1, -1, -1] {
+        let acted = rig.act(
+            &mut ws,
+            json!({"act": "move_cursor", "pane": 1, "delta": delta}),
+        );
+        assert_eq!(acted["ok"], true, "{acted}");
+        let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+        lines.push(acted["line"].clone());
+    }
+    assert_eq!(lines, [7, 8, 9, 9, 9, 8, 7, 4, 2], "{lines:?}");
+    Ok(())
+}
+
+#[test]
+fn a_highlight_marks_markdown_blocks() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = file("doc.md", "# T\n\nalpha\nbeta\n\nafter\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["highlight", "--pane", "1", "4"]);
+    // A view that connects now gets the highlighted pane whole, not as a `rows` diff.
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let blocks = blocks(&html);
+    let class = |line| {
+        let (_, b) = blocks.iter().find(|(l, _)| *l == line).expect("block");
+        b.split('"').next().unwrap_or("").to_string()
+    };
+    assert!(class(3).ends_with(" hl"), "{html}");
+    assert_eq!(class(1), " dim", "{html}");
+    assert_eq!(class(6), " dim", "{html}");
+    Ok(())
+}
+
+#[test]
+fn a_highlight_inside_a_block_lights_its_number() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = file("doc.md", "# T\n\n```rust\nfn a() {}\nfn b() {}\n```\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["highlight", "--pane", "1", "5"]);
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let blocks = blocks(&html);
+    let gutter = |line| {
+        let (_, b) = blocks.iter().find(|(l, _)| *l == line).expect("block");
+        let g = b.split(r#"<span class="g">"#).nth(1).unwrap_or("");
+        g.split(r#"<div class="md">"#)
+            .next()
+            .unwrap_or("")
+            .to_string()
+    };
+    assert!(gutter(4).contains("color:#d8dee9"), "{html}");
+    assert!(!gutter(1).contains("color:#d8dee9"), "{html}");
+    Ok(())
+}
+
+#[test]
+fn markdown_html_is_sanitized() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "doc.md",
+        "# T {#overlay .row data-line=1}\n\n<script>alert(1)</script>\n\n\
+         <b>x</b> [x](javascript:alert(1)) [y](https://example.com) note[^1]\n\n[^1]: foot\n\n```x\trow\ncode\n```\n",
+    )?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(html.contains("&lt;script&gt;"), "{html}");
+    assert!(html.contains("&lt;b&gt;"), "{html}");
+    assert!(!html.contains("<script") && !html.contains("<b>"), "{html}");
+    // Only the `https` link keeps an `href`; the footnote reference is text.
+    assert_eq!(html.matches("href=").count(), 1, "{html}");
+    assert!(html.contains(r#"href="https://example.com""#), "{html}");
+    assert!(html.contains("note[^1]"), "{html}");
+    assert!(html.contains("[1]: foot"), "{html}");
+    let heading = &blocks(&html)[0].1;
+    assert!(!heading.contains("id="), "{heading}");
+    assert!(!heading.contains(r#"class="row""#), "{heading}");
+    assert_eq!(heading.matches("data-line").count(), 1, "{heading}");
+    // An unknown fence language can't add a class.
+    assert!(!html.contains("language-"), "{html}");
+    Ok(())
+}
+
+#[test]
+fn footnotes_and_math_read_as_in_the_tui() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "> x[^q]\n>\n> [^q]: foot\n\n$a+b$\n")?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(html.contains("x[q]"), "{html}");
+    assert!(html.contains("$a+b$"), "{html}");
+    assert!(!html.contains(r#"class="math"#), "{html}");
+    Ok(())
+}
+
+#[test]
+fn a_reference_link_resolves_in_a_markdown_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "doc.md",
+        "- see [x][r] and [y][s]\n\n```\n[r]\n```\n\n\
+         [r]: <https://example.com/a b>\n[s]: https://example.com/?b=1&amp;amp;c=2\n",
+    )?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let hrefs = |h: &str| -> Vec<String> {
+        h.split(r#"href=""#)
+            .skip(1)
+            .filter_map(|s| s.split('"').next())
+            .map(str::to_string)
+            .collect()
+    };
+    // The entity decodes once, as in a render of the whole file.
+    assert_eq!(
+        hrefs(&html),
+        [
+            "https://example.com/a%20b",
+            "https://example.com/?b=1&amp;amp;c=2"
+        ],
+        "{html}"
+    );
+    // The code block shows its own text, not the file's reference definitions.
+    assert_eq!(html.matches("https://example.com").count(), 2, "{html}");
+    Ok(())
+}
+
+#[test]
+fn a_thread_on_an_inner_line_shows_under_its_block() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# Title\n\n> one\n>\n> two\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "5", "agent note"]);
+    let frame = rig
+        .until(&mut ws, "the card", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
+                && v["html"].as_str().is_some_and(|h| h.contains("agent note")))
+        })
+        .json();
+    assert_eq!(frame["cursor"], 0, "{frame}");
+    let html = frame["html"].as_str().unwrap_or("");
+    let quote = html.find(r#"data-line="3""#).expect("the quote's block");
+    let card = html.find("agent note").expect("the card");
+    assert!(quote < card, "{html}");
+    assert!(
+        rows(html)
+            .iter()
+            .any(|(l, t)| *l == 5 && t.contains("agent note")),
+        "{html}"
+    );
+    // The quote's block shows the thread's caret.
+    assert!(blocks(html)[1].1.contains('▾'), "{html}");
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "jump_thread", "pane": 1, "next": true}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    // The cursor shows on the thread's card, below the quote's block.
+    rig.until(&mut ws, "the cursor on the card", |f| {
+        matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1 && v["cursor"] == 3)
+    });
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        html.contains(r#"<div class="row cur" data-line="5""#),
+        "{html}"
+    );
+    let (_, quote) = blocks(&html)
+        .into_iter()
+        .find(|(l, _)| *l == 3)
+        .expect("the quote's block");
+    assert!(
+        !quote.split('>').next().unwrap_or("").contains(" cur"),
+        "{quote}"
+    );
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "move_cursor", "pane": 1, "delta": 1}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    // `↓` in the last block keeps the thread's row.
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 5, "{acted}");
+    // `↑` from the card goes to its block.
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "move_cursor", "pane": 1, "delta": -1}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 3, "{acted}");
+    Ok(())
+}
+
+#[test]
+fn a_comment_beside_a_collapsed_thread_goes_on_the_blocks_first_line() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# T\n\n```\na\nb\nc\n```\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["comment", "--pane", "1", "5", "note"]);
+    rig.drive(&["ready"]);
+    for act in [
+        json!({"act": "jump_thread", "pane": 1, "next": true}),
+        json!({"act": "toggle_thread", "pane": 1}),
+    ] {
+        let acted = rig.act(&mut ws, act);
+        assert_eq!(acted["ok"], true, "{acted}");
+    }
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 4, "{acted}");
+    Ok(())
+}
+
+#[test]
+fn a_highlight_deep_in_a_block_marks_its_place() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    // L1 opens the fence, L2-41 are code, L44 is a one-line paragraph.
+    let code: String = (1..=40).map(|n| format!("c{n}\n")).collect();
+    let (_dir, path) = file("doc.md", &format!("```\n{code}```\n\ntail\n"))?;
+    rig.drive(&["open", &path]);
+    pane_frame(&mut rig, &mut ws, 1);
+    let mut at = |rig: &mut Rig, line: &str| -> f64 {
+        rig.drive(&["highlight", line, "--pane", "1"]);
+        let frame = rig
+            .until(&mut ws, "an hl block", |f| {
+                matches!(f, Frame::Json(v) if v["id"] == 1 && v.to_string().contains("data-at"))
+            })
+            .json()
+            .to_string();
+        frame
+            .split(r#"data-at=\""#)
+            .nth(1)
+            .and_then(|s| s.split('\\').next())
+            .and_then(|s| s.parse().ok())
+            .expect("data-at")
+    };
+    let deep = at(&mut rig, "30");
+    assert!((0.6..0.8).contains(&deep), "{deep}");
+    assert_eq!(at(&mut rig, "44"), 0.5);
+    Ok(())
+}
+
+/// The index of the first row with `data-line` `line` among the units (blocks and rows) of a
+/// `pane` frame's HTML.
+fn unit_of(html: &str, line: u32) -> usize {
+    let at = html
+        .find(&format!(r#"data-line="{line}""#))
+        .expect("a row on the line");
+    let head = &html[..at];
+    head.matches(r#"<div class="blk"#).count() + head.matches(r#"<div class="row"#).count() - 1
+}
+
+#[test]
+fn jump_thread_between_threads_in_one_block_moves_to_its_card() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "x\n\n```\na\nb\nc\n```\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "5", "first"]);
+    rig.drive(&["comment", "--pane", "1", "6", "second"]);
+    let frame = rig
+        .until(&mut ws, "both cards", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
+                && v["html"].as_str().is_some_and(|h| h.contains("second")))
+        })
+        .json();
+    let html = frame["html"].as_str().unwrap_or("");
+    for (needle, line) in [("first", 5), ("second", 6)] {
+        let want = unit_of(html, line);
+        let acted = rig.act(
+            &mut ws,
+            json!({"act": "jump_thread", "pane": 1, "next": true}),
+        );
+        assert_eq!(acted["ok"], true, "{acted}");
+        rig.until(&mut ws, needle, |f| {
+            matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1 && v["cursor"] == want)
+        });
+    }
+    Ok(())
+}
+
+#[test]
+fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "doc.md",
+        "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nafter\n",
+    )?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "3", "t1"]);
+    rig.drive(&["comment", "--pane", "1", "4", "t2"]);
+    rig.drive(&["comment", "--pane", "1", "6", "out"]);
+    pane_frame(&mut rig, &mut ws, 1);
+    let collapsed = |rig: &Rig| -> Vec<(String, bool)> {
+        rig.tab.panels[&1]
+            .threads
+            .iter()
+            .map(|t| (t.root.body.clone(), t.collapsed))
+            .collect()
+    };
+    let caret = |rig: &mut Rig, ws: &mut Ws| {
+        blocks(pane_frame(rig, ws, 1)["html"].as_str().unwrap_or(""))[0]
+            .1
+            .clone()
+    };
+    let toggle = json!({"act": "toggle_thread", "pane": 1});
+
+    // The cursor starts on the table's block.
+    rig.act(&mut ws, toggle.clone());
+    assert_eq!(
+        collapsed(&rig),
+        [
+            ("t1".into(), true),
+            ("t2".into(), true),
+            ("out".into(), false)
+        ]
+    );
+    let table = caret(&mut rig, &mut ws);
+    assert!(table.contains('▸') && !table.contains('▾'), "{table}");
+
+    rig.act(&mut ws, toggle.clone());
+    assert!(collapsed(&rig).iter().all(|(_, c)| !c));
+    let table = caret(&mut rig, &mut ws);
+    assert!(table.contains('▾'), "{table}");
+
+    // On the second table thread's card, `r` toggles only that thread; the open caret wins.
+    for _ in 0..2 {
+        rig.act(
+            &mut ws,
+            json!({"act": "jump_thread", "pane": 1, "next": true}),
+        );
+    }
+    rig.act(&mut ws, toggle.clone());
+    assert_eq!(
+        collapsed(&rig),
+        [
+            ("t1".into(), false),
+            ("t2".into(), true),
+            ("out".into(), false)
+        ]
+    );
+    let table = caret(&mut rig, &mut ws);
+    assert!(table.contains('▾') && !table.contains('▸'), "{table}");
+
+    // On a blank line, `r` collapses every thread, as in the TUI.
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
+    rig.act(&mut ws, toggle);
+    assert!(collapsed(&rig).iter().all(|(_, c)| *c));
+    Ok(())
+}
+
+#[test]
+fn a_comment_in_a_followed_markdown_pane_lands_on_the_blocks_first_line() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# T\n\n```\na\nb\nc\n```\n")?;
+    rig.drive(&["open", "--follow", &path]);
+    rig.drive(&["ready"]);
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 4, "{acted}");
+    Ok(())
+}
+
+#[test]
+fn a_thread_on_a_blank_line_shows_in_a_markdown_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# Title\n\nalpha\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "2", "gap note"]);
+    rig.until(
+        &mut ws,
+        "the card",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v.to_string().contains("gap note")),
+    );
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "jump_thread", "pane": 1, "next": true}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.until(&mut ws, "the cursor on the blank line", |f| {
+        matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1 && v["cursor"] == 1)
+    });
+    Ok(())
+}
+
+#[test]
+fn a_markdown_pane_keeps_the_files_text() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "doc.md",
+        "---\ntitle: x\n---\n\nRun --web \"q\" it's...\n\n> [!NOTE]\n> hi\n\n    indented\n\n[^2]: - item\n\nend\n",
+    )?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(html.contains("title: x"), "{html}");
+    assert!(html.contains(r#"Run --web "q" it's..."#), "{html}");
+    // The alert keeps the TUI's title; indented code stays code.
+    assert!(html.contains("Note</strong>"), "{html}");
+    assert!(html.contains("<pre><code>indented"), "{html}");
+    // A footnote that opens with a list keeps its label out of the next paragraph.
+    assert!(html.contains("[2]: "), "{html}");
+    assert!(!html.contains("[2]: end"), "{html}");
+    Ok(())
+}
+
+#[test]
+fn a_markdown_block_shows_its_removed_lines_above_it() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = changed_file(
+        "doc.md",
+        "# T\n\na\nb\nc\nd\n\n```rust\nx\ny\nz\n```\n",
+        "# T\n\nA\nb\nd\n\n```rust\nx\nz\n```\n",
+    )?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    // One row above the modified paragraph, one above the code block it was inside.
+    let gaps: Vec<usize> = html
+        .match_indices("1 line removed")
+        .map(|(i, _)| i)
+        .collect();
+    let at = |s: &str| html.find(s).unwrap_or_else(|| panic!("no {s}: {html}"));
+    assert_eq!(gaps.len(), 2, "{html}");
+    assert!(gaps[0] < at("<p>A") && at("<p>A") < gaps[1], "{html}");
+    assert!(gaps[1] < at("<pre"), "{html}");
+    // A block's `data-row` can't equal a row's, so copy keeps them on separate lines.
+    assert!(
+        html.split(r#"<div class="blk"#).skip(1).all(|b| b
+            .split('>')
+            .next()
+            .unwrap_or("")
+            .contains(r#"data-row="b"#)),
+        "{html}"
+    );
+    Ok(())
+}
+
+#[test]
+fn arrow_up_from_an_inner_row_leaves_the_block() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# T\n\n```rust\nfn a() {}\nfn b() {}\n```\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    // The highlight puts the cursor on the block's second row.
+    rig.drive(&["highlight", "--pane", "1", "5"]);
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "move_cursor", "pane": 1, "delta": -1}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 2, "{acted}");
     Ok(())
 }
 

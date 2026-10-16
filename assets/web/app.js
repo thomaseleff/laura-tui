@@ -164,7 +164,7 @@ function makePane(p) {
     if (draft) return followFocus(true);
     if (pane(p.id)?.kind !== "file") return;
     if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
-    const row = e.target.closest(".row");
+    const row = e.target.closest("[data-line]");
     if (row) act({ act: "set_cursor", pane: p.id, line: +row.dataset.line });
   });
   return el;
@@ -252,7 +252,7 @@ function placeBtn(id) {
   if (!btn) return;
   const row = rows.children[rows.dataset.cursor];
   const top = row ? row.offsetTop - rows.scrollTop : -1;
-  btn.style.visibility = top >= 0 && top + row.offsetHeight <= rows.clientHeight ? "" : "hidden";
+  btn.style.visibility = top >= 0 && top + ch <= rows.clientHeight ? "" : "hidden";
   btn.style.top = `calc(var(--ch) + ${top}px)`;
 }
 
@@ -279,8 +279,11 @@ function onPane(m) {
   } else {
     Idiomorph.morph(rows, m.html, { morphStyle: "innerHTML" });
   }
-  if (m.recenter) rows.querySelector(".hl")?.scrollIntoView({ block: "center" });
-  else if (String(m.cursor) !== rows.dataset.cursor) rows.children[m.cursor]?.scrollIntoView({ block: "nearest" });
+  if (m.recenter) {
+    // ponytail: row-proportional, exact for code, approximate for wrapped prose
+    const h = rows.querySelector(".hl");
+    if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
+  } else if (String(m.cursor) !== rows.dataset.cursor) rows.children[m.cursor]?.scrollIntoView({ block: "nearest" });
   rows.dataset.cursor = String(m.cursor);
   placeBtn(m.id);
 }
@@ -404,8 +407,8 @@ addEventListener("keydown", e => {
   }
 });
 
-// Selecting copies on release, as in the TUI. A file pane copies clean source: no gutter, and the
-// wrapped rows of one line joined with a space, as `mouse::extract_panel` does.
+// Selecting copies on release, as in the TUI. A file pane copies its text without the gutter,
+// joining the wrapped rows of one line with a space, as `mouse::extract_panel` does.
 addEventListener("mouseup", e => {
   const el = e.target.closest?.(".pane");
   if (!el) return;
@@ -429,8 +432,10 @@ addEventListener("mouseup", e => {
       if (row.contains(range.endContainer)) r.setEnd(range.endContainer, range.endOffset);
       const frag = r.cloneContents();
       frag.querySelectorAll(".g").forEach(g => g.remove());
+      frag.querySelectorAll("td + td, th + th").forEach(c => c.prepend("\t"));
       if (prev !== null) out += row.dataset.row === prev ? " " : "\n";
-      out += frag.textContent.trimEnd();
+      // ponytail: strips push_html's leading newline, and with it a code block's leading blank lines
+      out += frag.textContent.replace(/^\n+/, "").trimEnd();
       prev = row.dataset.row;
     }
     if (out) navigator.clipboard?.writeText(out);

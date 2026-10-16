@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::ops::Range;
 use std::sync::mpsc::{
     Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, channel, sync_channel,
 };
@@ -20,6 +21,7 @@ use tungstenite::Message;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::{HeaderValue, StatusCode};
 
+use crate::panel::PanelLayout;
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
@@ -230,7 +232,25 @@ impl WebServer {
                                     _ => None,
                                 };
                                 let review = matches!(a, UserAction::BeginReview { .. });
-                                let seed = tab.act(a)?;
+                                // A new comment goes on the block's first line; on a thread's card,
+                                // it joins that thread.
+                                if let Some(pane) = comment
+                                    && let Ok(p) = tab.panel_mut(pane)
+                                    && let Some(b) = cursor_block(p)
+                                    && !on_card(p, &b)
+                                {
+                                    p.cursor = b.start;
+                                }
+                                let handled = match a {
+                                    UserAction::MoveCursor { pane, delta } => {
+                                        step(tab.panel_mut(pane)?, delta)
+                                    }
+                                    UserAction::ToggleThread { pane } => {
+                                        toggle_block_threads(tab.panel_mut(pane)?)
+                                    }
+                                    _ => false,
+                                };
+                                let seed = if handled { None } else { tab.act(a)? };
                                 // Laura holds the agent from here, before any drain, until the
                                 // browser closes the draft.
                                 tab.hold |= comment.is_some() || review;
@@ -437,17 +457,22 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>) {
         let width = r.width.saturating_sub(2) as usize;
         let layout = panel.layout(width);
         let lines = view::panel_lines(panel, &layout, tab.focus == id, width);
-        let rows: Vec<String> = layout
-            .rows
-            .iter()
-            .zip(&lines)
-            .map(|(row, line)| row_html(panel, row, line))
-            .collect();
-        // The row `panel_lines` draws the band on.
-        let cursor = layout
-            .rows
-            .iter()
-            .position(|r| !r.comment && r.line == panel.cursor);
+        let (rows, cursor) = if !panel.diff_view && !panel.blocks().is_empty() {
+            block_units(panel, &layout, &lines, tab.focus == id)
+        } else {
+            let rows: Vec<String> = layout
+                .rows
+                .iter()
+                .zip(&lines)
+                .map(|(row, line)| row_html(panel, row, line))
+                .collect();
+            // The row `panel_lines` draws the band on.
+            let cursor = layout
+                .rows
+                .iter()
+                .position(|r| !r.comment && r.line == panel.cursor);
+            (rows, cursor)
+        };
         let recenter = panel.take_recenter();
         let msg = match v.panes.get(&id) {
             Some((old, old_cursor)) if old.len() == rows.len() => {
@@ -492,6 +517,185 @@ fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
     spans_html(&mut h, &line.spans[gutter..]);
     h.push_str("</div>");
     h
+}
+
+/// The rows of the markdown block holding the cursor; `None` in diff view or between blocks.
+fn cursor_block(p: &Panel) -> Option<Range<usize>> {
+    if p.diff_view {
+        return None;
+    }
+    p.blocks()
+        .iter()
+        .find(|b| b.rows.contains(&p.cursor))
+        .map(|b| b.rows.clone())
+}
+
+/// Whether the cursor shows on an open thread's card below block `b`, not on the block.
+fn on_card(p: &Panel, b: &Range<usize>) -> bool {
+    p.cursor != b.start && p.cursor_thread().is_some_and(|t| !t.collapsed)
+}
+
+/// `↑`/`↓` in rendered markdown: one block, card or blank row per keystroke. False in diff view or
+/// for a file without blocks, so `Tab::act` moves the cursor.
+fn step(p: &mut Panel, delta: isize) -> bool {
+    if p.diff_view || p.blocks().is_empty() {
+        return false;
+    }
+    let before = p.cursor;
+    if let Some(b) = cursor_block(p) {
+        if delta < 0 && on_card(p, &b) {
+            p.cursor = b.start;
+            return true;
+        }
+        p.cursor = if delta > 0 { b.end - 1 } else { b.start };
+    }
+    p.move_cursor(delta);
+    // A move into a block goes to its first row; at either end of the file, the cursor keeps its row.
+    if let Some(b) = cursor_block(p) {
+        p.cursor = if b.contains(&before) { before } else { b.start };
+    }
+    true
+}
+
+/// Collapse the cursor block's threads if any is open, else expand them. False off a block, on a
+/// thread's card, or with no threads in the block.
+fn toggle_block_threads(p: &mut Panel) -> bool {
+    let Some(b) = cursor_block(p) else {
+        return false;
+    };
+    if on_card(p, &b) {
+        return false;
+    }
+    let Some(open) = p
+        .threads
+        .iter()
+        .filter(|t| b.contains(&t.line))
+        .map(|t| !t.collapsed)
+        .max()
+    else {
+        return false;
+    };
+    for t in p.threads.iter_mut().filter(|t| b.contains(&t.line)) {
+        t.collapsed = open;
+    }
+    true
+}
+
+/// A markdown pane as one unit per rendered block (#89): the removed-lines rows inside it go above
+/// it, the thread cards below. A block's `data-line` is its first source line. An `hl` block's
+/// `data-at` places the highlight within it, as a fraction of its rows. A block's `data-row` starts
+/// with `b`, so copy never joins it to a row.
+fn block_units(
+    panel: &Panel,
+    layout: &PanelLayout,
+    lines: &[Line],
+    focused: bool,
+) -> (Vec<String>, Option<usize>) {
+    let blank = |s: &Span| s.content.trim().is_empty();
+    let rows = |span: Range<usize>, units: &mut Vec<String>, cursor: &mut Option<usize>| {
+        for j in span {
+            let row = &layout.rows[j];
+            if !row.comment && row.line == panel.cursor {
+                *cursor = Some(units.len());
+            }
+            units.push(row_html(panel, row, &lines[j]));
+        }
+    };
+    let mut units = vec![];
+    let mut cursor = None;
+    let mut next = 0;
+    for b in panel.blocks() {
+        let Some(&first) = layout.starts.get(b.rows.start) else {
+            continue;
+        };
+        rows(next..first, &mut units, &mut cursor);
+        let end = layout.rows[first..]
+            .iter()
+            .position(|r| r.line >= b.rows.end)
+            .map_or(layout.rows.len(), |k| first + k);
+        let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
+        let mut cards = vec![];
+        let card_cursor = on_card(panel, &b.rows);
+        let mut card = None;
+        for (i, (row, line)) in layout.rows[first..end]
+            .iter()
+            .zip(&lines[first..end])
+            .enumerate()
+        {
+            if !row.comment {
+                // The highlighted number, the change cell and the caret show if any row of the block has one.
+                // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
+                if panel
+                    .highlight
+                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&row.line))
+                    && let (Some(n), Some(s)) = (gutter.get_mut(0), line.spans.first())
+                {
+                    n.style = s.style;
+                }
+                // The first non-blank span wins, except that an open caret wins over a closed one.
+                for k in [2, 4] {
+                    if let Some(g) = gutter.get_mut(k)
+                        && let Some(s) = line.spans.get(k).filter(|s| !blank(s))
+                        && (blank(g) || (k == 4 && s.content == "▾"))
+                    {
+                        *g = s.clone();
+                    }
+                }
+            } else if first + i > layout.starts[row.line] {
+                let mut h = row_html(panel, row, line);
+                if card_cursor && panel.row_source_line(row) == panel.cursor_line() {
+                    card.get_or_insert(cards.len());
+                    if focused {
+                        h = h.replacen(r#"class="row"#, r#"class="row cur"#, 1);
+                    }
+                }
+                cards.push(h);
+            } else {
+                units.push(row_html(panel, row, line));
+            }
+        }
+        let has_cursor = b.rows.contains(&panel.cursor);
+        let cur = focused && has_cursor && card.is_none();
+        let hl = panel
+            .highlight
+            .is_some_and(|(lo, hi)| lo < b.rows.end && hi >= b.rows.start);
+        let cls = if cur {
+            " cur"
+        } else if panel.highlight.is_some() && !hl {
+            " dim"
+        } else {
+            ""
+        };
+        if has_cursor {
+            cursor = Some(units.len() + card.map_or(0, |k| k + 1));
+        }
+        // The highlight's midpoint, so the browser centers it rather than the whole block.
+        let at = match panel.highlight {
+            Some((lo, hi)) if hl => {
+                let mid = (lo.max(b.rows.start) + hi.min(b.rows.end - 1)) as f64 / 2.0 + 0.5;
+                let at = (mid - b.rows.start as f64) / b.rows.len() as f64;
+                format!(r#" data-at="{at:.3}""#)
+            }
+            _ => String::new(),
+        };
+        let mut h = String::with_capacity(b.html().len() + 200);
+        let _ = write!(
+            h,
+            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}"{at}><span class="g">"#,
+            if hl { " hl" } else { "" },
+            panel.row_source_line(&layout.rows[first]),
+            b.rows.start
+        );
+        spans_html(&mut h, &gutter);
+        h.push_str(r#"</span><div class="md">"#);
+        h.push_str(b.html());
+        h.push_str("</div></div>");
+        units.push(h);
+        units.extend(cards);
+        next = end;
+    }
+    rows(next..layout.rows.len(), &mut units, &mut cursor);
+    (units, cursor)
 }
 
 fn line_html(line: &Line) -> String {

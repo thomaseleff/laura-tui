@@ -47,7 +47,7 @@ laura -- claude "/laura:demo"
 
 **4. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 
-Laura reloads a file pane when its file changes. Laura renders markdown with terminal styling, shows other files with syntax colours, and marks the lines changed since git `HEAD` in the gutter.
+Laura reloads a file pane when its file changes. Laura renders markdown with terminal styling in the TUI and as rendered markdown in the [web app](docs/web-app.md#markdown-files), shows other files with syntax colours, and marks the lines changed since git `HEAD` in the gutter.
 
 See the [tutorial](docs/tutorial.md) for a first session, and [navigating the TUI](docs/navigation.md) for the workspace keystrokes. For reference, see the [CLI reference](docs/cli.md) for every command and flag, the [protocol reference](docs/protocol.md) for the message format, and the [agent reference](docs/agent-reference.md) for how your agent uses the `laura` CLI.
 

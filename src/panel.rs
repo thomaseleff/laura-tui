@@ -7,7 +7,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::gitdiff::{self, ChangeKind, DiffOutcome};
-use crate::render::{CODE_BG, RULE_SENTINEL, Rendered, render};
+use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, render};
 
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
 pub struct Panel {
@@ -25,6 +25,8 @@ pub struct Panel {
     /// The raw file split into lines — what diff-view renders as a `+`/`-` patch.
     /// `== content.lines()` for non-markdown; the un-joined source for markdown.
     source_lines: Vec<String>,
+    /// Markdown's rendered blocks for the web app; see `Rendered::blocks`.
+    blocks: Vec<Block>,
     /// Horizontal scroll offset (chars) applied to nowrap lines; clamped in `scroll_h`.
     pub h_offset: usize,
     /// Selected line, 0-based; where a new comment pins.
@@ -142,6 +144,7 @@ impl Panel {
             source,
             source_lines,
             error,
+            blocks,
         } = render(&path);
         let sig = stat_sig(&path);
         let mut panel = Panel {
@@ -151,6 +154,7 @@ impl Panel {
             nowrap,
             source,
             source_lines,
+            blocks,
             h_offset: 0,
             cursor: 0,
             highlight: None,
@@ -227,7 +231,7 @@ impl Panel {
     /// Highlight the rows covering source lines `start..=end` (1-based); the next frame centers them once.
     /// Lights *every* rendered row whose source range intersects the request, so a collapsed block
     /// (table/list/alert — many rows sharing one range) lights whole, not just its first row.
-    /// A fully out-of-range request pins to the last row.
+    /// A request that no row covers goes to the row `source_line_to_row` picks.
     pub fn set_highlight(&mut self, start: u32, end: u32) {
         let s0 = start.min(end).saturating_sub(1) as usize;
         let s1 = start.max(end).saturating_sub(1) as usize;
@@ -241,8 +245,8 @@ impl Panel {
         ) {
             (Some(lo), Some(hi)) => (lo, hi),
             _ => {
-                let last = self.source.len().saturating_sub(1);
-                (last, last)
+                let r = self.source_line_to_row(s0 as u32 + 1);
+                (r, r)
             }
         };
         self.highlight = Some((lo, hi));
@@ -317,6 +321,10 @@ impl Panel {
             self.source.get(row.line).map_or(row.line, |s| s.0)
         };
         line as u32 + 1
+    }
+
+    pub(crate) fn blocks(&self) -> &[Block] {
+        &self.blocks
     }
 
     /// Whether a fresh highlight still wants centering; clears it. The web app's counterpart to
@@ -460,13 +468,14 @@ impl Panel {
         Ok(())
     }
 
-    /// First rendered row whose source range holds 1-based file `line`; clamps to the last row when
-    /// out of range. The single-point form of `set_highlight`'s intersect (agent may send `line: 0`).
+    /// First rendered row at or after 1-based file `line`, so a hidden fence line goes to the next row;
+    /// clamps to the last row past the end. ponytail: a closing fence goes to the row after its block,
+    /// not the block's last row.
     fn source_line_to_row(&self, line: u32) -> usize {
         let s = line.saturating_sub(1) as usize;
         self.source
             .iter()
-            .position(|&(a, b)| a <= s && b >= s)
+            .position(|&(_, b)| b >= s)
             .unwrap_or_else(|| self.source.len().saturating_sub(1))
     }
 
@@ -885,9 +894,11 @@ impl Panel {
             source,
             source_lines,
             error,
+            blocks,
         } = render(&self.path);
         self.content = content;
         self.styled = styled;
+        self.blocks = blocks;
         self.nowrap = nowrap;
         self.source = source;
         self.source_lines = source_lines;

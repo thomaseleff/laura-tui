@@ -223,11 +223,7 @@ Highlight a range of lines in a pane and scroll the lines into view.
 
 On a frozen pane, Laura returns `error` for a `range` but still clears the highlight for `range: null`. On an editor pane, Laura returns `error` for both, so annotate the lines with [`comment`](#comment) instead.
 
-Line numbers are the file's source lines, matching the gutter and the inline review's `L<n>`. In markdown:
-
-- List items, blockquote lines, and callout lines keep one number per line, including blank lines.
-- Laura shows a hand-wrapped paragraph as one block, and highlights the whole block for any of the paragraph's lines.
-- Laura does the same for a fenced block or table inside a list item or blockquote.
+Line numbers are the file's source lines, matching the gutter and the inline review's `L<n>`. In markdown, Laura maps source lines to rows as the [agent reference](agent-reference.md#highlight-a-section-for-the-user) describes.
 
 The highlight stays until one of these happens:
 
