@@ -1005,14 +1005,23 @@ fn box_fenced(rows: &mut [PanelRow], styled: &[Line<'static>], nowrap: &[bool]) 
     };
     let mut i = 0;
     while i < rows.len() {
-        // Card rows carry a pre-sized rounded box; boxing them would double-wrap it.
         if rows[i].comment || !fenced(&rows[i]) {
             i += 1;
             continue;
         }
-        let end = i + rows[i..].iter().take_while(|r| fenced(r)).count();
-        let w = rows[i..end].iter().map(width).max().unwrap_or(0);
-        for r in &mut rows[i..end] {
+        // A card inside the block keeps one box around the code. Card rows carry a pre-sized
+        // rounded box; boxing them would double-wrap it.
+        let end = i + rows[i..]
+            .iter()
+            .take_while(|r| r.comment || fenced(r))
+            .count();
+        let w = rows[i..end]
+            .iter()
+            .filter(|r| !r.comment)
+            .map(width)
+            .max()
+            .unwrap_or(0);
+        for r in rows[i..end].iter_mut().filter(|r| !r.comment) {
             // Pad cells carry the row's own code style, so they dim/band exactly like the block.
             let style = code_style(&r.spans)
                 .or_else(|| code_style(src(r)))

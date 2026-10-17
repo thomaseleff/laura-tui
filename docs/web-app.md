@@ -51,15 +51,16 @@ While the box is open, Laura [holds the agent's commands](navigation.md#in-a-foc
 Laura shows a markdown file in a file pane as rendered markdown: headings, lists, tables, quotes and syntax-colored code.
 
 - Press `↑` or `↓` to move the cursor one block at a time, or click a block to move the cursor to it. A block is a heading, a paragraph, a list item, a table, a quote, a code block, or another top-level part of the file such as a horizontal rule.
+- In a code block, a table or a list, press `↑` or `↓` to move the cursor to each code line, table row and nested list item, or click one to move the cursor to it. When the user comments on one of these lines, Laura puts the comment on that line. Laura shows `▾` in the gutter beside each of these lines that has a thread, or `▸` when the user collapses the thread.
 - Laura shows the blank lines between blocks as rows, so the user can move the cursor to a blank line and comment on the line.
-- When the user comments on a block, Laura puts the comment on the block's first line. When the cursor is on a thread below the block, Laura adds the comment to that thread.
-- Laura shows a block's threads below the block. Press `n` or `N` to move the cursor to a thread. Press `r` on a block to collapse or expand the block's threads, or on a thread to collapse or expand only that thread. On a block or a blank line without threads, `r` collapses or expands every thread in the file, as in the TUI.
+- When the user comments anywhere else in a block, Laura puts the comment on the block's first line. When the cursor is on a thread below the block, Laura adds the comment to that thread.
+- Laura shows a block's threads below the block. Press `n` or `N` to move the cursor to a thread. Press `r` on a block to collapse or expand the block's threads, or on a thread to collapse or expand only that thread. On a line with a thread, `r` collapses or expands only that line's thread. On a block or a blank line without threads, `r` collapses or expands every thread in the file, as in the TUI.
 - When the agent highlights a line inside a block, Laura highlights the whole block and dims the other blocks.
 - Laura shows a [`── N lines removed ──` row](agent-reference.md#show-what-changed) above the block where the lines were deleted.
 - Laura opens an `http` or `https` link in a new browser tab when the user clicks the link. Laura shows any other link as plain text.
 - Laura shows an image's alt text instead of the image.
 - To read a wide table or code block, scroll the table or code block sideways with the mouse or trackpad. In a markdown file, Laura doesn't scroll on `←` or `→`.
-- Laura shows the file's HTML and front matter as text.
+- Laura shows an HTML block and front matter as a code block, and other HTML as text.
 - To see the changes as source lines, press `d` to show the inline diff view.
 - When the user copies from a markdown file, Laura copies the rendered text without list markers or link addresses, and separates table cells with tabs.
 

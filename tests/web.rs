@@ -598,7 +598,7 @@ fn arrow_keys_reach_every_row_of_a_markdown_pane() -> Result<()> {
         let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
         lines.push(acted["line"].clone());
     }
-    assert_eq!(lines, [7, 8, 9, 9, 9, 8, 7, 4, 2], "{lines:?}");
+    assert_eq!(lines, [5, 7, 8, 9, 9, 8, 7, 5, 4], "{lines:?}");
     Ok(())
 }
 
@@ -659,7 +659,7 @@ fn markdown_html_is_sanitized() -> Result<()> {
     let (_dir, path) = file(
         "doc.md",
         "# T {#overlay .row data-line=1}\n\n<script>alert(1)</script>\n\n\
-         <b>x</b> [x](javascript:alert(1)) [y](https://example.com) note[^1]\n\n[^1]: foot\n\n```x\trow\ncode\n```\n",
+         <b>x</b> [x](javascript:alert(1)) [y](https://example.com) note[^1]\n\n[^1]: foot\n\n```x\trow\ncode data-line=\"1\">\n```\n",
     )?;
     rig.drive(&["open", &path]);
     let html = pane_frame(&mut rig, &mut ws, 1)["html"]
@@ -678,8 +678,9 @@ fn markdown_html_is_sanitized() -> Result<()> {
     assert!(!heading.contains("id="), "{heading}");
     assert!(!heading.contains(r#"class="row""#), "{heading}");
     assert_eq!(heading.matches("data-line").count(), 1, "{heading}");
-    // An unknown fence language can't add a class.
+    // An unknown fence language can't add a class, and code can't fake a line's attribute.
     assert!(!html.contains("language-"), "{html}");
+    assert!(html.contains("data-line=&quot;1&quot;&gt;"), "{html}");
     Ok(())
 }
 
@@ -810,7 +811,7 @@ fn a_thread_on_an_inner_line_shows_under_its_block() -> Result<()> {
 fn a_comment_beside_a_collapsed_thread_goes_on_the_blocks_first_line() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
-    let (_dir, path) = file("doc.md", "# T\n\n```\na\nb\nc\n```\n")?;
+    let (_dir, path) = file("doc.md", "# T\n\n> a\n>\n> b\n")?;
     rig.drive(&["open", &path]);
     rig.drive(&["comment", "--pane", "1", "5", "note"]);
     rig.drive(&["ready"]);
@@ -822,7 +823,7 @@ fn a_comment_beside_a_collapsed_thread_goes_on_the_blocks_first_line() -> Result
         assert_eq!(acted["ok"], true, "{acted}");
     }
     let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 4, "{acted}");
+    assert_eq!(acted["line"], 3, "{acted}");
     Ok(())
 }
 
@@ -870,11 +871,11 @@ fn unit_of(html: &str, line: u32) -> usize {
 fn jump_thread_between_threads_in_one_block_moves_to_its_card() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
-    let (_dir, path) = file("doc.md", "x\n\n```\na\nb\nc\n```\n")?;
+    let (_dir, path) = file("doc.md", "x\n\n> a\n>\n> b\n>\n> c\n")?;
     rig.drive(&["open", &path]);
     rig.drive(&["ready"]);
     rig.drive(&["comment", "--pane", "1", "5", "first"]);
-    rig.drive(&["comment", "--pane", "1", "6", "second"]);
+    rig.drive(&["comment", "--pane", "1", "7", "second"]);
     let frame = rig
         .until(&mut ws, "both cards", |f| {
             matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
@@ -882,7 +883,7 @@ fn jump_thread_between_threads_in_one_block_moves_to_its_card() -> Result<()> {
         })
         .json();
     let html = frame["html"].as_str().unwrap_or("");
-    for (needle, line) in [("first", 5), ("second", 6)] {
+    for (needle, line) in [("first", 5), ("second", 7)] {
         let want = unit_of(html, line);
         let acted = rig.act(
             &mut ws,
@@ -917,7 +918,7 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
             .map(|t| (t.root.body.clone(), t.collapsed))
             .collect()
     };
-    let caret = |rig: &mut Rig, ws: &mut Ws| {
+    let table = |rig: &mut Rig, ws: &mut Ws| {
         blocks(pane_frame(rig, ws, 1)["html"].as_str().unwrap_or(""))[0]
             .1
             .clone()
@@ -934,15 +935,19 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
             ("out".into(), false)
         ]
     );
-    let table = caret(&mut rig, &mut ws);
-    assert!(table.contains('▸') && !table.contains('▾'), "{table}");
+    let t = table(&mut rig, &mut ws);
+    assert!(t.contains(r#"<tr data-line="3" class="th shut">"#), "{t}");
+    assert!(t.contains(r#"<tr data-line="4" class="th shut">"#), "{t}");
+    // A stop's caret shows on its row, not in the block's gutter.
+    assert!(!t.contains('▸') && !t.contains('▾'), "{t}");
 
     rig.act(&mut ws, toggle.clone());
     assert!(collapsed(&rig).iter().all(|(_, c)| !c));
-    let table = caret(&mut rig, &mut ws);
-    assert!(table.contains('▾'), "{table}");
+    let t = table(&mut rig, &mut ws);
+    assert!(t.contains(r#"<tr data-line="3" class="th">"#), "{t}");
+    assert!(t.contains(r#"<tr data-line="4" class="th">"#), "{t}");
 
-    // On the second table thread's card, `r` toggles only that thread; the open caret wins.
+    // On the second table thread's row, `r` toggles only that thread.
     for _ in 0..2 {
         rig.act(
             &mut ws,
@@ -958,8 +963,12 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
             ("out".into(), false)
         ]
     );
-    let table = caret(&mut rig, &mut ws);
-    assert!(table.contains('▾') && !table.contains('▸'), "{table}");
+    let t = table(&mut rig, &mut ws);
+    assert!(t.contains(r#"<tr data-line="3" class="th">"#), "{t}");
+    assert!(
+        t.contains(r#"<tr data-line="4" class="cur th shut">"#),
+        "{t}"
+    );
 
     // On a blank line, `r` collapses every thread, as in the TUI.
     rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
@@ -972,11 +981,11 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
 fn a_comment_in_a_followed_markdown_pane_lands_on_the_blocks_first_line() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
-    let (_dir, path) = file("doc.md", "# T\n\n```\na\nb\nc\n```\n")?;
+    let (_dir, path) = file("doc.md", "# T\n\n> a\n>\n> b\n")?;
     rig.drive(&["open", "--follow", &path]);
     rig.drive(&["ready"]);
     let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 4, "{acted}");
+    assert_eq!(acted["line"], 3, "{acted}");
     Ok(())
 }
 
@@ -1017,11 +1026,14 @@ fn a_markdown_pane_keeps_the_files_text() -> Result<()> {
         .as_str()
         .unwrap_or("")
         .to_string();
-    assert!(html.contains("title: x"), "{html}");
+    assert!(html.contains(r#"<span data-line="2">title: x"#), "{html}");
     assert!(html.contains(r#"Run --web "q" it's..."#), "{html}");
     // The alert keeps the TUI's title; indented code stays code.
     assert!(html.contains("Note</strong>"), "{html}");
-    assert!(html.contains("<pre><code>indented"), "{html}");
+    assert!(
+        html.contains(r#"<pre><code><span data-line="10">indented"#),
+        "{html}"
+    );
     // A footnote that opens with a list keeps its label out of the next paragraph.
     assert!(html.contains("[2]: "), "{html}");
     assert!(!html.contains("[2]: end"), "{html}");
@@ -1067,10 +1079,10 @@ fn a_markdown_block_shows_its_removed_lines_above_it() -> Result<()> {
 fn arrow_up_from_an_inner_row_leaves_the_block() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
-    let (_dir, path) = file("doc.md", "# T\n\n```rust\nfn a() {}\nfn b() {}\n```\n")?;
+    let (_dir, path) = file("doc.md", "# T\n\n> a\n>\n> b\n")?;
     rig.drive(&["open", &path]);
     rig.drive(&["ready"]);
-    // The highlight puts the cursor on the block's second row.
+    // The highlight puts the cursor on the quote's last row, which isn't a stop.
     rig.drive(&["highlight", "--pane", "1", "5"]);
     let acted = rig.act(
         &mut ws,
@@ -1079,6 +1091,161 @@ fn arrow_up_from_an_inner_row_leaves_the_block() -> Result<()> {
     assert_eq!(acted["ok"], true, "{acted}");
     let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
     assert_eq!(acted["line"], 2, "{acted}");
+    Ok(())
+}
+
+#[test]
+fn a_code_line_is_its_own_unit() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "# T\n\n```rust\na\nb\nc\n```\n\nafter\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    for line in 4..=6 {
+        let span = format!(r#"<span data-line="{line}">"#);
+        assert!(blocks(&html)[1].1.contains(&span), "{html}");
+    }
+    let acted = rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let mut lines = vec![];
+    for delta in [1, 1, 1, -1] {
+        rig.act(
+            &mut ws,
+            json!({"act": "move_cursor", "pane": 1, "delta": delta}),
+        );
+        let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+        lines.push(acted["line"].clone());
+    }
+    assert_eq!(lines, [5, 6, 8, 6], "{lines:?}");
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 5, "{acted}");
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 5, "text": "line note"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 1}));
+    rig.act(
+        &mut ws,
+        json!({"act": "jump_thread", "pane": 1, "next": true}),
+    );
+    // The cursor and the thread show on the code line, not on the block.
+    let mut view = rig.connect();
+    let html = pane_frame(&mut rig, &mut view, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let code = &blocks(&html)[1].1;
+    assert!(
+        code.contains(r#"<span data-line="5" class="cur th">"#),
+        "{code}"
+    );
+    assert!(
+        !code.split('>').next().unwrap_or("").contains(" cur"),
+        "{code}"
+    );
+    // The line keeps its cursor while another pane has focus, so the browser doesn't scroll.
+    // A new view takes over from the old one and gets every pane fresh.
+    rig.act(&mut view, json!({"act": "focus", "pane": 0}));
+    let mut view = rig.connect();
+    let html = pane_frame(&mut rig, &mut view, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        blocks(&html)[1]
+            .1
+            .contains(r#"<span data-line="5" class="cur th">"#),
+        "{html}"
+    );
+    let acted = rig.act(&mut view, json!({"act": "submit", "pane": 1, "body": ""}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.shell_shows("L5  b");
+    Ok(())
+}
+
+#[test]
+fn a_table_row_is_its_own_unit() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "| a | b |\n|---|:-:|\n| 1 | 2 |\n| 3 | 4 |\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let table = &blocks(&html)[0].1;
+    let head = table.split("<tbody>").next().unwrap_or("");
+    assert!(!head.contains("<tr data-line"), "{table}");
+    assert!(table.contains(r#"<tr data-line="3">"#), "{table}");
+    // The second row keeps the column's alignment.
+    assert!(
+        table.contains(r#"<tr data-line="4"><td>3</td><td style="text-align: center">4</td>"#),
+        "{table}"
+    );
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
+    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    assert_eq!(acted["line"], 4, "{acted}");
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 4, "text": "row note"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let acted = rig.act(&mut ws, json!({"act": "submit", "pane": 1, "body": ""}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.shell_shows("L4  | 3 | 4 |");
+    Ok(())
+}
+
+#[test]
+fn a_nested_item_is_its_own_unit() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "- a\n  - b\n\n- c\n  - d\n    e\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "2", "note"]);
+    let frame = rig
+        .until(&mut ws, "the thread", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
+                && v["html"].as_str().is_some_and(|h| h.contains("note")))
+        })
+        .json();
+    let html = frame["html"].as_str().unwrap_or("");
+    assert!(html.contains(r#"<li data-line="2" class="th">"#), "{html}");
+    // The item's caret shows on the item, not in the block's gutter.
+    assert!(!html.contains('▾'), "{html}");
+    // A hand-wrapped item renders on one row in the TUI, so it has no line of its own.
+    assert!(!html.contains(r#"<li data-line="5""#), "{html}");
+    rig.act(
+        &mut ws,
+        json!({"act": "jump_thread", "pane": 1, "next": true}),
+    );
+    let mut view = rig.connect();
+    let html = pane_frame(&mut rig, &mut view, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        html.contains(r#"<li data-line="2" class="cur th">"#),
+        "{html}"
+    );
+    rig.act(&mut view, json!({"act": "toggle_thread", "pane": 1}));
+    let mut view = rig.connect();
+    let html = pane_frame(&mut rig, &mut view, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        html.contains(r#"<li data-line="2" class="cur th shut">"#),
+        "{html}"
+    );
     Ok(())
 }
 

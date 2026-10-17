@@ -4,12 +4,16 @@ use std::cell::OnceCell;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
-use pulldown_cmark::{BlockQuoteKind, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+    Alignment, BlockQuoteKind, CodeBlockKind, Event, Options, Parser, Tag, TagEnd,
+};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Highlighter, Theme, ThemeSet};
-use syntect::html::highlighted_html_for_string;
+use syntect::html::{
+    IncludeBackground, start_highlighted_html_snippet, styled_line_to_highlighted_html,
+};
 use syntect::parsing::{Scope, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
@@ -36,30 +40,55 @@ pub(crate) struct Rendered {
 pub(crate) struct Block {
     pub(crate) rows: Range<usize>,
     md: String,
+    /// The slice's first 0-based source line.
+    l0: usize,
+    /// Each 0-based source line a row maps to alone, with its first row.
+    own: Vec<(usize, usize)>,
     defs: Option<Arc<str>>,
-    html: OnceCell<String>,
+    /// The HTML and its stops.
+    html: OnceCell<(String, Vec<(usize, u32)>)>,
 }
 
 impl Block {
     /// The block as HTML. A panic in `md_html` shows the source as escaped text instead.
     pub(crate) fn html(&self) -> &str {
+        &self.built().0
+    }
+
+    /// `(row, 1-based line)` for each line inside the block with its own row and its own
+    /// `data-line`: a code line, a table body row or a list item. The first row isn't one.
+    pub(crate) fn stops(&self) -> &[(usize, u32)] {
+        &self.built().1
+    }
+
+    fn built(&self) -> &(String, Vec<(usize, u32)>) {
         self.html.get_or_init(|| {
             let md = format!("{}{}", self.md, self.defs.as_deref().unwrap_or(""));
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| md_html(&md))).unwrap_or_else(
-                |_| {
-                    let mut html = String::new();
-                    pulldown_cmark::html::push_html(
-                        &mut html,
-                        [
-                            Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)),
-                            Event::Text(self.md.as_str().into()),
-                            Event::End(TagEnd::CodeBlock),
-                        ]
-                        .into_iter(),
-                    );
-                    html
-                },
-            )
+            let lines: Vec<usize> = self.own.iter().map(|&(l, _)| l).collect();
+            let (html, anchored) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                md_html(&md, self.l0, &lines)
+            }))
+            .unwrap_or_else(|_| {
+                let mut html = String::new();
+                pulldown_cmark::html::push_html(
+                    &mut html,
+                    [
+                        Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)),
+                        Event::Text(self.md.as_str().into()),
+                        Event::End(TagEnd::CodeBlock),
+                    ]
+                    .into_iter(),
+                );
+                (html, vec![])
+            });
+            let stops = self
+                .own
+                .iter()
+                .filter(|&&(_, row)| row != self.rows.start)
+                .map(|&(line, row)| (row, line as u32 + 1))
+                .filter(|(_, n)| anchored.contains(n))
+                .collect();
+            (html, stops)
         })
     }
 }
@@ -285,16 +314,27 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
     let mut styled: Vec<Line<'static>> = vec![];
     let mut source: Vec<(usize, usize)> = vec![];
     let mut out_blocks: Vec<Block> = vec![];
-    let mut push_block = |rows: Range<usize>, md: &str, linked: bool| {
-        if !rows.is_empty() {
+    let mut push_block =
+        |source: &[(usize, usize)], rows: Range<usize>, l0: usize, md: &str, linked: bool| {
+            if rows.is_empty() {
+                return;
+            }
+            let mut own: Vec<(usize, usize)> = vec![];
+            for r in rows.clone() {
+                let (a, b) = source[r];
+                if a == b && own.last().is_none_or(|&(l, _)| l != a) {
+                    own.push((a, r));
+                }
+            }
             out_blocks.push(Block {
                 rows,
                 md: md.to_string(),
+                l0,
+                own,
                 defs: linked.then(|| defs.clone()),
                 html: OnceCell::new(),
             });
-        }
-    };
+        };
     let mut cursor = 0usize; // next source line still needing a row
     for (b0, b1, kind) in blocks(md) {
         let l0 = line_of(b0);
@@ -331,7 +371,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                         styled.push(row);
                         source.push(range);
                     }
-                    push_block(first..styled.len(), &item, true);
+                    push_block(&source, first..styled.len(), s, &item, true);
                     for j in e + 1..=end {
                         styled.push(Line::default());
                         source.push((j, j));
@@ -367,7 +407,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                 styled.push(row);
                 source.push(range);
             }
-            push_block(first..styled.len(), &md[b0..b1], linked);
+            push_block(&source, first..styled.len(), l0, &md[b0..b1], linked);
             if styled.len() > first {
                 cursor = cursor.max(l1 + 1);
             }
@@ -391,7 +431,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             styled.push(line);
             source.push(range);
         }
-        push_block(first..styled.len(), &md[b0..b1], linked);
+        push_block(&source, first..styled.len(), l0, &md[b0..b1], linked);
         if styled.len() > first {
             cursor = cursor.max(l1 + 1);
         }
@@ -440,27 +480,41 @@ fn md_opts() -> Options {
 /// One markdown slice as HTML for the web app (#89). The file is untrusted: raw HTML shows as
 /// text, only `http(s)` links keep their `href`, and headings drop `{#id .class}` attributes, so
 /// nothing in the file can script the page or restyle Laura's own markup.
-fn md_html(slice: &str) -> String {
+///
+/// A code line, a table body row or a list item on a 0-based source line in `own` (the lines the
+/// TUI gives their own row) carries its own `data-line`. Returns the HTML and those 1-based lines.
+fn md_html(slice: &str, l0: usize, own: &[usize]) -> (String, Vec<u32>) {
+    let line_of = line_indexer(slice);
+    let mut anchored: Vec<u32> = vec![];
+    let mut anchor = |line: usize| {
+        own.contains(&line).then(|| {
+            let n = line as u32 + 1;
+            anchored.push(n);
+            n
+        })
+    };
     let mut out: Vec<Event> = vec![];
     let mut links: Vec<bool> = vec![]; // per open link: whether its tags are kept
-    let mut code: Option<(&SyntaxReference, String)> = None;
+    // An open code, HTML or front matter block: its language, first source line and text.
+    let mut code: Option<(Option<&SyntaxReference>, Option<usize>, String)> = None;
     let mut label: Option<String> = None; // a footnote definition's `[n]: `, put in its first paragraph
-    for ev in Parser::new_ext(slice, md_opts()) {
-        if let Some((syntax, mut buf)) = code.take() {
-            if let Event::End(TagEnd::CodeBlock) = ev {
-                match highlighted_html_for_string(&buf, syntax_set(), syntax, nord_theme()) {
-                    Ok(html) => out.push(Event::Html(html.into())),
-                    Err(_) => out.extend([
-                        Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)),
-                        Event::Text(buf.into()),
-                        ev,
-                    ]),
+    let mut aligns: Vec<Alignment> = vec![];
+    let (mut in_head, mut cell) = (false, 0);
+    for (ev, range) in Parser::new_ext(slice, md_opts()).into_offset_iter() {
+        if let Some((syntax, mut first, mut buf)) = code.take() {
+            match ev {
+                Event::End(TagEnd::CodeBlock | TagEnd::HtmlBlock | TagEnd::MetadataBlock(_)) => {
+                    let first = first.unwrap_or(l0);
+                    let html = code_html(&buf, syntax, |k| anchor(first + k));
+                    out.push(Event::Html(html.into()));
                 }
-            } else {
-                if let Event::Text(t) = ev {
-                    buf.push_str(&t);
+                ev => {
+                    if let Event::Text(t) | Event::Html(t) = ev {
+                        first.get_or_insert(l0 + line_of(range.start));
+                        buf.push_str(&t);
+                    }
+                    code = Some((syntax, first, buf));
                 }
-                code = Some((syntax, buf));
             }
             continue;
         }
@@ -477,11 +531,49 @@ fn md_html(slice: &str) -> String {
         }
         match ev {
             Event::Html(t) | Event::InlineHtml(t) => out.push(Event::Text(t)),
-            Event::Start(Tag::HtmlBlock | Tag::MetadataBlock(_)) => {
-                out.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)))
+            Event::Start(
+                Tag::HtmlBlock | Tag::MetadataBlock(_) | Tag::CodeBlock(CodeBlockKind::Indented),
+            ) => code = Some((None, None, String::new())),
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info))) => {
+                let token = info.split_whitespace().next().unwrap_or("");
+                // An unknown language drops its info string: `push_html` would make it a `class`.
+                let syntax = syntax_set()
+                    .find_syntax_by_token(token)
+                    .filter(|_| !token.is_empty());
+                code = Some((syntax, None, String::new()));
             }
-            Event::End(TagEnd::HtmlBlock | TagEnd::MetadataBlock(_)) => {
-                out.push(Event::End(TagEnd::CodeBlock))
+            Event::Start(Tag::Item) => match anchor(l0 + line_of(range.start)) {
+                Some(n) => out.push(Event::Html(format!(r#"<li data-line="{n}">"#).into())),
+                None => out.push(ev),
+            },
+            Event::Start(Tag::Table(ref a)) => {
+                aligns = a.clone();
+                out.push(ev);
+            }
+            Event::Start(Tag::TableHead) | Event::End(TagEnd::TableHead) => {
+                in_head = matches!(ev, Event::Start(_));
+                out.push(ev);
+            }
+            // A body row and its cells as `push_html` writes them, plus the row's `data-line`.
+            Event::Start(Tag::TableRow) if !in_head => {
+                cell = 0;
+                out.push(Event::Html(
+                    match anchor(l0 + line_of(range.start)) {
+                        Some(n) => format!(r#"<tr data-line="{n}">"#),
+                        None => "<tr>".to_string(),
+                    }
+                    .into(),
+                ));
+            }
+            Event::Start(Tag::TableCell) if !in_head => {
+                let align = match aligns.get(cell) {
+                    Some(Alignment::Left) => r#" style="text-align: left""#,
+                    Some(Alignment::Center) => r#" style="text-align: center""#,
+                    Some(Alignment::Right) => r#" style="text-align: right""#,
+                    _ => "",
+                };
+                cell += 1;
+                out.push(Event::Html(format!("<td{align}>").into()));
             }
             Event::Start(Tag::Heading { level, .. }) => out.push(Event::Start(Tag::Heading {
                 level,
@@ -532,20 +624,71 @@ fn md_html(slice: &str) -> String {
             }
             Event::Start(Tag::Image { .. })
             | Event::End(TagEnd::FootnoteDefinition | TagEnd::Image) => {}
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info))) => {
-                let token = info.split_whitespace().next().unwrap_or("");
-                // An unknown language drops its info string: `push_html` would make it a `class`.
-                match syntax_set().find_syntax_by_token(token) {
-                    Some(syntax) if !token.is_empty() => code = Some((syntax, String::new())),
-                    _ => out.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Indented))),
-                }
-            }
             ev => out.push(ev),
         }
     }
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, out.into_iter());
-    html
+    (html, anchored)
+}
+
+/// A code block's text as HTML, syntax-colored when `syntax` is known, else escaped. Line `k`
+/// goes in a `data-line` span when `anchor(k)` gives one; the newline stays outside the span.
+fn code_html(
+    buf: &str,
+    syntax: Option<&SyntaxReference>,
+    mut anchor: impl FnMut(usize) -> Option<u32>,
+) -> String {
+    let colored = syntax.and_then(|syntax| {
+        let (open, bg) = start_highlighted_html_snippet(nord_theme());
+        let mut h = HighlightLines::new(syntax, nord_theme());
+        let lines = LinesWithEndings::from(buf)
+            .map(|line| {
+                let regions: Vec<_> = h
+                    .highlight_line(line, syntax_set())
+                    .ok()?
+                    .into_iter()
+                    .map(|(s, t)| (s, t.trim_end_matches(['\n', '\r'])))
+                    .collect();
+                styled_line_to_highlighted_html(&regions, IncludeBackground::IfDifferent(bg)).ok()
+            })
+            .collect::<Option<Vec<String>>>()?;
+        Some((open, lines, "</pre>\n"))
+    });
+    let (mut out, lines, close) = colored.unwrap_or_else(|| {
+        let lines = buf.lines().map(|l| {
+            let mut h = String::new();
+            escape(&mut h, l);
+            h
+        });
+        (
+            "<pre><code>".to_string(),
+            lines.collect(),
+            "</code></pre>\n",
+        )
+    });
+    for (k, line) in lines.iter().enumerate() {
+        match anchor(k) {
+            Some(n) => out.push_str(&format!(r#"<span data-line="{n}">{line}</span>"#)),
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out.push_str(close);
+    out
+}
+
+/// `s` as HTML text, safe in an element or a quoted attribute.
+pub(crate) fn escape(h: &mut String, s: &str) {
+    for c in s.chars() {
+        match c {
+            '&' => h.push_str("&amp;"),
+            '<' => h.push_str("&lt;"),
+            '>' => h.push_str("&gt;"),
+            '"' => h.push_str("&quot;"),
+            c => h.push(c),
+        }
+    }
 }
 
 /// How a top-level block maps source lines to rendered rows: `Prose` (incl. quotes and callouts)

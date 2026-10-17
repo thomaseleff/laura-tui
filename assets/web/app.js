@@ -246,12 +246,19 @@ function closeDraft() {
   followFocus(true);
 }
 
+// The cursor's row or block, or the line inside the block that the cursor is on.
+function cursorEl(rows) {
+  const unit = rows.children[rows.dataset.cursor];
+  return unit?.querySelector(".md .cur") ?? unit;
+}
+
 // The `+` button rides the focused file pane's cursor row, hidden while that row is out of view.
 function placeBtn(id) {
   const el = $("p" + id), rows = el?.querySelector(".rows"), btn = el?.querySelector(".cbtn");
   if (!btn) return;
-  const row = rows.children[rows.dataset.cursor];
-  const top = row ? row.offsetTop - rows.scrollTop : -1;
+  const row = cursorEl(rows);
+  // Not `offsetTop`: a table row's offset parent is its table.
+  const top = row ? row.getBoundingClientRect().top - rows.getBoundingClientRect().top : -1;
   btn.style.visibility = top >= 0 && top + ch <= rows.clientHeight ? "" : "hidden";
   btn.style.top = `calc(var(--ch) + ${top}px)`;
 }
@@ -279,12 +286,15 @@ function onPane(m) {
   } else {
     Idiomorph.morph(rows, m.html, { morphStyle: "innerHTML" });
   }
+  rows.dataset.cursor = String(m.cursor);
+  // A step inside a block keeps the block's index, so the key adds the line.
+  const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line}`;
   if (m.recenter) {
     // ponytail: row-proportional, exact for code, approximate for wrapped prose
     const h = rows.querySelector(".hl");
     if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
-  } else if (String(m.cursor) !== rows.dataset.cursor) rows.children[m.cursor]?.scrollIntoView({ block: "nearest" });
-  rows.dataset.cursor = String(m.cursor);
+  } else if (key !== rows.dataset.key) cur?.scrollIntoView({ block: "nearest" });
+  rows.dataset.key = key;
   placeBtn(m.id);
 }
 

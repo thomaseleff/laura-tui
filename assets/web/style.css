@@ -53,7 +53,7 @@ body, .probe, button { font: 14px var(--font); }
 .g { user-select: none; }
 
 /* A rendered markdown block: the gutter on the grid, the block in a proportional font beside it. */
-.blk { display: flex; width: calc(var(--cw) * (var(--w) - 2)); cursor: default; }
+.blk { position: relative; display: flex; width: calc(var(--cw) * (var(--w) - 2)); cursor: default; --blk: var(--bg); }
 .blk .g {
   white-space: pre; flex: none; line-height: var(--ch);
   letter-spacing: calc(var(--cw) - var(--pw));
@@ -63,8 +63,19 @@ body, .probe, button { font: 14px var(--font); }
   font-family: system-ui, sans-serif; line-height: 1.4; padding-right: var(--cw);
   overflow-wrap: anywhere;
 }
-.blk.cur { background: var(--sel); }
+.blk.cur { background: var(--sel); --blk: var(--sel); }
 .row.cur { background: var(--sel); }
+/* A code line. Inline-block, not block: a copied code block keeps single
+   newlines. Top-aligned, so a blank line isn't taller than the rest. */
+.md pre [data-line] { display: inline-block; min-width: 100%; min-height: 1lh; vertical-align: top; }
+.pane.focused .md .cur { background: var(--sel); }
+/* A stop's thread caret, in the block's gutter on the stop's line (src/view.rs caret_cell). */
+.md :is(li, pre [data-line]).th::before, .md tr.th > :first-child::before {
+  content: "▾"; position: absolute; left: calc(var(--cw) * var(--caret)); font-family: var(--font);
+}
+.md :is(li, pre [data-line]).th.shut::before, .md tr.th.shut > :first-child::before { content: "▸"; }
+/* A list item's cursor band stops at its nested list. */
+.md li.cur > :is(ul, ol) { background: var(--blk); }
 .blk.dim .md { opacity: .5; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }

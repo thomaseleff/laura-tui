@@ -782,6 +782,37 @@ fn fenced_block_stays_one_rectangle_across_an_empty_line() -> Result<()> {
     Ok(())
 }
 
+/// A card under a code line keeps no code bg, and the code around it stays one rectangle.
+#[test]
+fn a_card_inside_a_fenced_block_is_not_boxed() -> Result<()> {
+    let (_f, p) = write_doc(
+        "```
+ab
+longer line
+cd
+```
+",
+    )?;
+    let mut panel = Panel::open(p);
+    note_on(&mut panel, "ab");
+    let layout = panel.layout(80);
+    let card: Vec<&PanelRow> = layout.rows.iter().filter(|r| r.comment).collect();
+    assert!(!card.is_empty(), "the card shows");
+    for r in &card {
+        assert!(
+            r.spans
+                .iter()
+                .all(|s| s.style.bg.is_none() || !s.content.trim().is_empty()),
+            "no code bg pad: {:?}",
+            r.text()
+        );
+    }
+    let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| !r.comment).collect();
+    assert_eq!(code.len(), 3);
+    assert!(code.iter().all(|r| row_width(r) == row_width(code[0])));
+    Ok(())
+}
+
 /// #51: an inline `code` run is bracketed by full-cell caps (`█`) colored with the code bg.
 #[test]
 fn inline_code_gets_half_cell_caps() -> Result<()> {

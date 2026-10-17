@@ -23,6 +23,7 @@ use tungstenite::http::{HeaderValue, StatusCode};
 
 use crate::panel::PanelLayout;
 use crate::protocol::{PTY_PANE, PaneId};
+use crate::render::{Block, escape};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
 /// The error when `LAURA_EXPERIMENTAL_WEB` isn't set.
@@ -232,14 +233,15 @@ impl WebServer {
                                     _ => None,
                                 };
                                 let review = matches!(a, UserAction::BeginReview { .. });
-                                // A new comment goes on the block's first line; on a thread's card,
-                                // it joins that thread.
+                                // A new comment goes on the block's first line; on a stop, on that
+                                // line; on a thread's card, it joins that thread.
                                 if let Some(pane) = comment
                                     && let Ok(p) = tab.panel_mut(pane)
-                                    && let Some(b) = cursor_block(p)
-                                    && !on_card(p, &b)
+                                    && let Some(start) = cursor_block(p)
+                                        .filter(|b| !on_card(p, b) && !on_stop(p, b))
+                                        .map(|b| b.rows.start)
                                 {
-                                    p.cursor = b.start;
+                                    p.cursor = start;
                                 }
                                 let handled = match a {
                                     UserAction::MoveCursor { pane, delta } => {
@@ -519,53 +521,83 @@ fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
     h
 }
 
-/// The rows of the markdown block holding the cursor; `None` in diff view or between blocks.
-fn cursor_block(p: &Panel) -> Option<Range<usize>> {
+/// The markdown block holding the cursor; `None` in diff view or between blocks.
+fn cursor_block(p: &Panel) -> Option<&Block> {
     if p.diff_view {
         return None;
     }
-    p.blocks()
-        .iter()
-        .find(|b| b.rows.contains(&p.cursor))
-        .map(|b| b.rows.clone())
+    p.blocks().iter().find(|b| b.rows.contains(&p.cursor))
+}
+
+/// Whether the cursor is on one of block `b`'s [`Block::stops`].
+fn on_stop(p: &Panel, b: &Block) -> bool {
+    b.stops().iter().any(|&(row, _)| row == p.cursor)
 }
 
 /// Whether the cursor shows on an open thread's card below block `b`, not on the block.
-fn on_card(p: &Panel, b: &Range<usize>) -> bool {
-    p.cursor != b.start && p.cursor_thread().is_some_and(|t| !t.collapsed)
+fn on_card(p: &Panel, b: &Block) -> bool {
+    p.cursor != b.rows.start && !on_stop(p, b) && p.cursor_thread().is_some_and(|t| !t.collapsed)
 }
 
-/// `↑`/`↓` in rendered markdown: one block, card or blank row per keystroke. False in diff view or
-/// for a file without blocks, so `Tab::act` moves the cursor.
+/// `↑`/`↓` in rendered markdown: one block, stop, card or blank row per keystroke. False in diff
+/// view or for a file without blocks, so `Tab::act` moves the cursor.
 fn step(p: &mut Panel, delta: isize) -> bool {
     if p.diff_view || p.blocks().is_empty() {
         return false;
     }
     let before = p.cursor;
     if let Some(b) = cursor_block(p) {
-        if delta < 0 && on_card(p, &b) {
-            p.cursor = b.start;
-            return true;
+        let rows = b.rows.clone();
+        let stops: Vec<usize> = b.stops().iter().map(|&(row, _)| row).collect();
+        if on_card(p, b) {
+            if delta < 0 {
+                p.cursor = rows.start;
+                return true;
+            }
+        } else {
+            let at = if stops.contains(&p.cursor) {
+                p.cursor
+            } else {
+                rows.start
+            };
+            let next = if delta > 0 {
+                stops.iter().copied().find(|&r| r > at)
+            } else {
+                let start = (at > rows.start).then_some(rows.start);
+                stops.iter().copied().rfind(|&r| r < at).or(start)
+            };
+            if let Some(r) = next {
+                p.cursor = r;
+                return true;
+            }
         }
-        p.cursor = if delta > 0 { b.end - 1 } else { b.start };
+        p.cursor = if delta > 0 { rows.end - 1 } else { rows.start };
     }
     p.move_cursor(delta);
-    // A move into a block goes to its first row; at either end of the file, the cursor keeps its row.
+    // A move into a block goes to its first row, or `↑` to its last stop; at either end of the
+    // file, the cursor keeps its row.
     if let Some(b) = cursor_block(p) {
-        p.cursor = if b.contains(&before) { before } else { b.start };
+        p.cursor = if b.rows.contains(&before) {
+            before
+        } else if delta < 0 {
+            b.stops().last().map_or(b.rows.start, |&(row, _)| row)
+        } else {
+            b.rows.start
+        };
     }
     true
 }
 
 /// Collapse the cursor block's threads if any is open, else expand them. False off a block, on a
-/// thread's card, or with no threads in the block.
+/// thread's card, on a stop with a thread, or with no threads in the block.
 fn toggle_block_threads(p: &mut Panel) -> bool {
     let Some(b) = cursor_block(p) else {
         return false;
     };
-    if on_card(p, &b) {
+    if on_card(p, b) || (on_stop(p, b) && p.cursor_thread().is_some()) {
         return false;
     }
+    let b = b.rows.clone();
     let Some(open) = p
         .threads
         .iter()
@@ -582,8 +614,9 @@ fn toggle_block_threads(p: &mut Panel) -> bool {
 }
 
 /// A markdown pane as one unit per rendered block (#89): the removed-lines rows inside it go above
-/// it, the thread cards below. A block's `data-line` is its first source line. An `hl` block's
-/// `data-at` places the highlight within it, as a fraction of its rows. A block's `data-row` starts
+/// it, the thread cards below. A block's `data-line` is its first source line. Each of the
+/// block's [`Block::stops`] carries its own `data-line`. An `hl` block's `data-at` places the
+/// highlight within it, as a fraction of its rows. A block's `data-row` starts
 /// with `b`, so copy never joins it to a row.
 fn block_units(
     panel: &Panel,
@@ -615,7 +648,7 @@ fn block_units(
             .map_or(layout.rows.len(), |k| first + k);
         let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
         let mut cards = vec![];
-        let card_cursor = on_card(panel, &b.rows);
+        let card_cursor = on_card(panel, b);
         let mut card = None;
         for (i, (row, line)) in layout.rows[first..end]
             .iter()
@@ -623,7 +656,8 @@ fn block_units(
             .enumerate()
         {
             if !row.comment {
-                // The highlighted number, the change cell and the caret show if any row of the block has one.
+                // The highlighted number, the change cell and the caret show if any row of the block
+                // has one. A stop's caret shows on the stop instead.
                 // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
                 if panel
                     .highlight
@@ -633,7 +667,8 @@ fn block_units(
                     n.style = s.style;
                 }
                 // The first non-blank span wins, except that an open caret wins over a closed one.
-                for k in [2, 4] {
+                let stop = b.stops().iter().any(|&(r, _)| r == row.line);
+                for k in [2, 4].into_iter().filter(|&k| k == 2 || !stop) {
                     if let Some(g) = gutter.get_mut(k)
                         && let Some(s) = line.spans.get(k).filter(|s| !blank(s))
                         && (blank(g) || (k == 4 && s.content == "▾"))
@@ -654,8 +689,25 @@ fn block_units(
                 units.push(row_html(panel, row, line));
             }
         }
+        // A stop with the cursor or a thread is marked inside the block, focused or not, so the
+        // browser's scroll target doesn't change with focus. The file's text can't fake
+        // ` data-line="N">`: every `>` in it is escaped.
+        let mut md = b.html().to_string();
+        for &(row, n) in b.stops() {
+            let thread = panel.threads.iter().find(|t| t.line == row);
+            let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
+                (true, Some(false)) => "cur th",
+                (true, Some(true)) => "cur th shut",
+                (true, None) => "cur",
+                (false, Some(false)) => "th",
+                (false, Some(true)) => "th shut",
+                (false, None) => continue,
+            };
+            let attr = format!(r#" data-line="{n}">"#);
+            md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
+        }
         let has_cursor = b.rows.contains(&panel.cursor);
-        let cur = focused && has_cursor && card.is_none();
+        let cur = focused && has_cursor && card.is_none() && !on_stop(panel, b);
         let hl = panel
             .highlight
             .is_some_and(|(lo, hi)| lo < b.rows.end && hi >= b.rows.start);
@@ -678,17 +730,23 @@ fn block_units(
             }
             _ => String::new(),
         };
-        let mut h = String::with_capacity(b.html().len() + 200);
+        // The gutter's caret column, where a stop's caret shows.
+        let caret: usize = gutter
+            .iter()
+            .take(4)
+            .map(|s| s.content.chars().count())
+            .sum();
+        let mut h = String::with_capacity(md.len() + 200);
         let _ = write!(
             h,
-            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}"{at}><span class="g">"#,
+            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}" style="--caret:{caret}"{at}><span class="g">"#,
             if hl { " hl" } else { "" },
             panel.row_source_line(&layout.rows[first]),
             b.rows.start
         );
         spans_html(&mut h, &gutter);
         h.push_str(r#"</span><div class="md">"#);
-        h.push_str(b.html());
+        h.push_str(&md);
         h.push_str("</div></div>");
         units.push(h);
         units.extend(cards);
@@ -710,18 +768,6 @@ fn spans_html(h: &mut String, spans: &[Span]) {
         let _ = write!(h, "<span{}>", style_attr(s.style));
         escape(h, &s.content);
         h.push_str("</span>");
-    }
-}
-
-fn escape(h: &mut String, s: &str) {
-    for c in s.chars() {
-        match c {
-            '&' => h.push_str("&amp;"),
-            '<' => h.push_str("&lt;"),
-            '>' => h.push_str("&gt;"),
-            '"' => h.push_str("&quot;"),
-            c => h.push(c),
-        }
     }
 }
 
