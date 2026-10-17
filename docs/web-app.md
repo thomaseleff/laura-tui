@@ -58,7 +58,11 @@ Laura shows a markdown file in a file pane as rendered markdown: headings, lists
 - When the agent highlights a line inside a block, Laura highlights the whole block and dims the other blocks.
 - Laura shows a [`── N lines removed ──` row](agent-reference.md#show-what-changed) above the block where the lines were deleted.
 - Laura opens an `http` or `https` link in a new browser tab when the user clicks the link. Laura shows any other link as plain text.
-- Laura shows an image's alt text instead of the image.
+- Laura shows an image that the markdown file references by a relative path, such as `![Flow](img/flow.png)`:
+  - Laura shows PNG, JPEG, GIF, SVG, WebP, AVIF and ICO images.
+  - When the markdown file sits below the folder Laura started in, outside hidden folders, the image must sit below the folder Laura started in. Otherwise, the image must sit in the markdown file's folder or below it.
+  - Below that folder, Laura doesn't show a hidden image or an image in a hidden folder. A hidden file or folder has a name that starts with `.`.
+- Laura shows the alt text of an image that the markdown file references by an absolute path or a remote URL.
 - To read a wide table or code block, scroll the table or code block sideways with the mouse or trackpad. In a markdown file, Laura doesn't scroll on `←` or `→`.
 - Laura shows an HTML block and front matter as a code block, and other HTML as text.
 - To see the changes as source lines, press `d` to show the inline diff view.

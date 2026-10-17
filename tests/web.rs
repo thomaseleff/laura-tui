@@ -1393,6 +1393,141 @@ fn long_headers_still_get_the_page() -> Result<()> {
     Ok(())
 }
 
+/// `GET path` without the token; the raw response.
+fn get(port: u16, path: &str) -> Result<String> {
+    let mut s = TcpStream::connect(("127.0.0.1", port))?;
+    write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")?;
+    let mut resp = vec![];
+    s.read_to_end(&mut resp)?;
+    Ok(String::from_utf8_lossy(&resp).into_owned())
+}
+
+/// `docs/a.md` holding `md`, beside `img/s.png`, in a fresh dir under the crate's `tmp/`, below
+/// the folder the tests run in, which Laura serves from.
+fn image_doc(md: &str) -> Result<(tempfile::TempDir, String)> {
+    let tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("tmp");
+    std::fs::create_dir_all(&tmp)?;
+    let dir = tempfile::Builder::new().prefix("web").tempdir_in(tmp)?;
+    std::fs::create_dir_all(dir.path().join("docs"))?;
+    std::fs::create_dir_all(dir.path().join("img"))?;
+    std::fs::write(dir.path().join("img/s.png"), "PNGBYTES")?;
+    let path = dir.path().join("docs/a.md");
+    std::fs::write(&path, md)?;
+    Ok((dir, path.to_string_lossy().into_owned()))
+}
+
+/// Pane 1's first frame's HTML, and its first `<img>`'s `src`.
+fn img_src(rig: &mut Rig, ws: &mut Ws) -> (String, String) {
+    let html = pane_frame(rig, ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let src = html
+        .split(r#"<img src=""#)
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap_or("")
+        .to_string();
+    (html, src)
+}
+
+#[test]
+fn a_markdown_image_loads_through_the_file_route() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) =
+        image_doc("![a\n<b>shot $$x$$](../img/s.png)\n\n![x](https://e.com/x.png)\n\na\0b\n")?;
+    rig.drive(&["open", &path]);
+    let (html, src) = img_src(&mut rig, &mut ws);
+    assert!(src.starts_with("/f/"), "{html}");
+    assert!(src.ends_with("/docs/../img/s.png"), "{html}");
+    assert!(!src.contains("t="), "{html}");
+    assert!(html.contains(r#"alt="a &lt;b&gt;shot $$x$$""#), "{html}");
+    // A remote image shows its alt text; a NUL in the file can't pose as the route.
+    assert_eq!(html.matches("<img").count(), 1, "{html}");
+    assert!(html.contains("<p>x</p>"), "{html}");
+    assert!(html.contains("a\u{FFFD}b"), "{html}");
+    let resp = get(rig.port, &src.replace("/docs/../", "/"))?;
+    assert!(resp.starts_with("HTTP/1.1 200"), "{resp}");
+    assert!(resp.contains("Content-Type: image/png\r\n"), "{resp}");
+    assert!(
+        resp.contains("X-Content-Type-Options: nosniff\r\n"),
+        "{resp}"
+    );
+    assert!(
+        resp.contains("Content-Security-Policy: sandbox\r\n"),
+        "{resp}"
+    );
+    assert!(resp.ends_with("\r\n\r\nPNGBYTES"), "{resp}");
+    Ok(())
+}
+
+#[test]
+fn the_file_route_serves_only_images_in_the_root() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (dir, path) = image_doc("![shot](../img/s.png)\n")?;
+    std::fs::create_dir_all(dir.path().join(".git"))?;
+    for f in ["x.png", ".x.png", ".git/x.png", "notes.txt"] {
+        std::fs::write(dir.path().join(f), "x")?;
+    }
+    rig.drive(&["open", &path]);
+    let (html, src) = img_src(&mut rig, &mut ws);
+    // `/f/<nonce>/<the dir below the root>/`
+    let base = src
+        .strip_suffix("docs/../img/s.png")
+        .expect(&html)
+        .to_string();
+    let port = rig.port;
+    let status = |p: &str| get(port, &format!("{base}{p}")).map(|r| r[..12].to_string());
+    assert_eq!(status("x.png")?, "HTTP/1.1 200");
+    // Without the checks, each of these would reach a file.
+    for p in [
+        ".x.png",
+        ".git/x.png",
+        "docs/%2e%2e/x.png",
+        "docs/..%2fx.png",
+        "notes.txt",
+    ] {
+        assert_eq!(status(p)?, "HTTP/1.1 404", "{p}");
+    }
+    let n = base.split('/').nth(2).expect("a nonce");
+    let other = base.replacen(n, &"0".repeat(n.len()), 1);
+    assert!(get(rig.port, &format!("{other}x.png"))?.starts_with("HTTP/1.1 404"));
+    #[cfg(unix)]
+    {
+        let out = tempfile::NamedTempFile::with_suffix(".png")?;
+        std::os::unix::fs::symlink(out.path(), dir.path().join("link.png"))?;
+        assert_eq!(status("link.png")?, "HTTP/1.1 404");
+        std::os::unix::fs::symlink(".git/x.png", dir.path().join("hid.png"))?;
+        std::os::unix::fs::symlink("notes.txt", dir.path().join("txt.png"))?;
+        for p in ["hid.png", "txt.png"] {
+            assert_eq!(status(p)?, "HTTP/1.1 404", "{p}");
+        }
+    }
+    rig.drive(&["close", "1"]);
+    rig.idle(&mut ws, 2);
+    assert_eq!(status("x.png")?, "HTTP/1.1 404");
+    Ok(())
+}
+
+#[test]
+fn a_markdown_file_in_a_hidden_folder_shows_images_beside_it() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (dir, _) = image_doc("")?;
+    std::fs::create_dir_all(dir.path().join(".hid"))?;
+    std::fs::write(dir.path().join(".hid/s.png"), "PNGBYTES")?;
+    let path = dir.path().join(".hid/a.md");
+    std::fs::write(&path, "![s](s.png)\n")?;
+    rig.drive(&["open", &path.to_string_lossy()]);
+    let (html, src) = img_src(&mut rig, &mut ws);
+    // `/f/<nonce>/s.png`: the root is the file's own folder.
+    assert_eq!(src.split('/').count(), 4, "{html}");
+    assert!(get(rig.port, &src)?.ends_with("\r\n\r\nPNGBYTES"), "{html}");
+    Ok(())
+}
+
 #[test]
 fn a_silent_socket_does_not_block_a_second_connection() -> Result<()> {
     let mut rig = Rig::new()?;

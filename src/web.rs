@@ -8,9 +8,11 @@ use std::fmt::Write as _;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::ops::Range;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{
     Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, channel, sync_channel,
 };
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
@@ -89,6 +91,24 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The image types the file route serves, by lowercased extension.
+const IMAGES: &[(&str, &str)] = &[
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("svg", "image/svg+xml"),
+    ("webp", "image/webp"),
+    ("avif", "image/avif"),
+    ("ico", "image/x-icon"),
+];
+
+/// The file route's folders by nonce, shared by `sync` and the connection threads.
+type Files = Arc<Mutex<HashMap<String, PathBuf>>>;
+
+/// Each markdown pane's path, its file route's nonce and the route's URL for the file's folder.
+type Bases = HashMap<PaneId, (String, String, String)>;
+
 enum Inbound {
     Text(String),
     Bytes(Vec<u8>),
@@ -137,6 +157,10 @@ pub struct WebServer {
     conns: Receiver<Conn>,
     view: Option<View>,
     area: Option<Rect>,
+    /// The folder Laura started in, canonical.
+    root: PathBuf,
+    files: Files,
+    bases: Bases,
 }
 
 impl WebServer {
@@ -144,17 +168,18 @@ impl WebServer {
     pub fn bind() -> Result<WebServer> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let port = listener.local_addr()?.port();
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness for the token: {e}"))?;
-        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let token = nonce(32)?;
         let url = format!("http://127.0.0.1:{port}/?t={token}");
+        let root = std::env::current_dir()?.canonicalize()?;
+        let files = Files::default();
         let (join, conns) = channel();
+        let shared = files.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let (join, token) = (join.clone(), token.clone());
+                let (join, token, files) = (join.clone(), token.clone(), shared.clone());
                 // A thread per connection: a socket that sends nothing can't block the rest.
                 std::thread::spawn(move || {
-                    let _ = serve(stream, &token, port, &join);
+                    let _ = serve(stream, &token, port, &join, &files);
                 });
             }
         });
@@ -163,6 +188,9 @@ impl WebServer {
             conns,
             view: None,
             area: None,
+            root,
+            files,
+            bases: HashMap::new(),
         })
     }
 
@@ -354,7 +382,8 @@ impl WebServer {
         }
 
         if changed || acted || v.focus != tab.focus || v.area != area {
-            send_panes(v, tab, &rects);
+            reconcile(&mut self.bases, &self.files, &self.root, tab);
+            send_panes(v, tab, &rects, &self.bases);
             (v.focus, v.area) = (tab.focus, area);
         }
 
@@ -395,6 +424,93 @@ impl WebServer {
             }
         }
     }
+}
+
+/// `n` random bytes as hex.
+fn nonce(n: usize) -> Result<String> {
+    let mut bytes = vec![0u8; n];
+    getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Give each markdown pane a file route, and drop the route of a pane that closed or changed
+/// file. The route serves the folder Laura started in when the file sits below it, outside hidden
+/// folders, else the file's folder, so `../` reaches no further than one of those.
+fn reconcile(bases: &mut Bases, files: &Files, root: &Path, tab: &Tab) {
+    let mut files = files.lock().unwrap_or_else(PoisonError::into_inner);
+    bases.retain(|id, (path, n, _)| {
+        let keep = tab.panels.get(id).is_some_and(|p| p.path == *path);
+        if !keep {
+            files.remove(n);
+        }
+        keep
+    });
+    for (id, p) in &tab.panels {
+        if bases.contains_key(id) || p.blocks().is_empty() {
+            continue;
+        }
+        let Some(dir) = Path::new(&p.path)
+            .canonicalize()
+            .ok()
+            .and_then(|f| f.parent().map(Path::to_path_buf))
+        else {
+            continue;
+        };
+        let Ok(n) = nonce(16) else {
+            continue;
+        };
+        let segs: Option<Vec<&str>> = dir.strip_prefix(root).ok().and_then(|rel| {
+            rel.iter()
+                .map(|c| c.to_str().filter(|c| segment(c)))
+                .collect()
+        });
+        let (served, segs) = match segs {
+            Some(segs) => (root.to_path_buf(), segs),
+            None => (dir.clone(), vec![]),
+        };
+        let mut base = format!("/f/{n}/");
+        for s in segs {
+            base.push_str(&pct_encode(s));
+            base.push('/');
+        }
+        files.insert(n.clone(), served);
+        bases.insert(*id, (p.path.clone(), n, base));
+    }
+}
+
+/// A path segment the file route serves: not empty, not hidden, no separator, drive or NUL.
+fn segment(s: &str) -> bool {
+    !s.is_empty() && !s.starts_with('.') && !s.contains(['/', '\\', ':', '\0'])
+}
+
+/// `s` with every byte but `A-Za-z0-9-._~` percent-encoded.
+fn pct_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            b => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// `s` percent-decoded; `None` on a bad escape or bytes that aren't UTF-8.
+fn pct_decode(s: &str) -> Option<String> {
+    let (b, mut out, mut i) = (s.as_bytes(), vec![], 0);
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hex = b
+                .get(i + 1..i + 3)
+                .filter(|h| h.iter().all(u8::is_ascii_hexdigit))?;
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// A PTY chunk for the browser: the pane id as 8 big-endian bytes, then the bytes.
@@ -448,7 +564,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect) -> String {
 
 /// Send each file-rendered pane's rows that changed since the view last saw them: `rows` when the
 /// row count holds, else the whole `pane`.
-fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>) {
+fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Bases) {
     let shown: Vec<(PaneId, &Panel, Rect)> = rects
         .iter()
         .filter(|(id, _)| !tab.editors.get(id).is_some_and(|e| e.editor_view))
@@ -460,7 +576,9 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>) {
         let layout = panel.layout(width);
         let lines = view::panel_lines(panel, &layout, tab.focus == id, width);
         let (rows, cursor) = if !panel.diff_view && !panel.blocks().is_empty() {
-            block_units(panel, &layout, &lines, tab.focus == id)
+            // No route (no randomness, a missing file): `/f/-/` finds nothing.
+            let base = bases.get(&id).map_or("/f/-/", |b| b.2.as_str());
+            block_units(panel, &layout, &lines, tab.focus == id, base)
         } else {
             let rows: Vec<String> = layout
                 .rows
@@ -617,12 +735,14 @@ fn toggle_block_threads(p: &mut Panel) -> bool {
 /// it, the thread cards below. A block's `data-line` is its first source line. Each of the
 /// block's [`Block::stops`] carries its own `data-line`. An `hl` block's `data-at` places the
 /// highlight within it, as a fraction of its rows. A block's `data-row` starts
-/// with `b`, so copy never joins it to a row.
+/// with `b`, so copy never joins it to a row. `base` is the pane's file route URL for the file's
+/// folder, which a relative image's `src` starts with.
 fn block_units(
     panel: &Panel,
     layout: &PanelLayout,
     lines: &[Line],
     focused: bool,
+    base: &str,
 ) -> (Vec<String>, Option<usize>) {
     let blank = |s: &Span| s.content.trim().is_empty();
     let rows = |span: Range<usize>, units: &mut Vec<String>, cursor: &mut Option<usize>| {
@@ -692,7 +812,7 @@ fn block_units(
         // A stop with the cursor or a thread is marked inside the block, focused or not, so the
         // browser's scroll target doesn't change with focus. The file's text can't fake
         // ` data-line="N">`: every `>` in it is escaped.
-        let mut md = b.html().to_string();
+        let mut md = b.html().replace('\0', base);
         for &(row, n) in b.stops() {
             let thread = panel.threads.iter().find(|t| t.line == row);
             let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
@@ -837,8 +957,14 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// One connection: a static file, or the websocket view.
-fn serve(mut stream: TcpStream, token: &str, port: u16, join: &Sender<Conn>) -> Result<()> {
+/// One connection: a static file, a file beside a pane, or the websocket view.
+fn serve(
+    mut stream: TcpStream,
+    token: &str,
+    port: u16,
+    join: &Sender<Conn>,
+    files: &Files,
+) -> Result<()> {
     stream.set_read_timeout(Some(HEAD_TIMEOUT))?;
     // Peek, so tungstenite can still read the head for `/ws`.
     let deadline = Instant::now() + HEAD_TIMEOUT;
@@ -866,10 +992,60 @@ fn serve(mut stream: TcpStream, token: &str, port: u16, join: &Sender<Conn>) -> 
         return view_conn(stream, token, port, join);
     }
     stream.read_exact(&mut buf[..head])?;
+    // No token, so an image URL can't leak it.
+    if let Some(rest) = path.strip_prefix("/f/") {
+        return match file(rest, files) {
+            Some((mime, body)) => respond_file(&mut stream, mime, &body),
+            None => respond(&mut stream, "404 Not Found", None),
+        };
+    }
     match ASSETS.iter().find(|(p, ..)| *p == path) {
         Some((_, mime, body)) => respond(&mut stream, "200 OK", Some((mime, body))),
         None => respond(&mut stream, "404 Not Found", None),
     }
+}
+
+/// `<nonce>/<path>` from the file route: an image below the nonce's folder, with its type.
+fn file(rest: &str, files: &Files) -> Option<(&'static str, Vec<u8>)> {
+    let (n, rest) = rest.split_once('/')?;
+    let root = files
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(n)?
+        .clone();
+    let segs = rest
+        .split('/')
+        .map(pct_decode)
+        .collect::<Option<Vec<_>>>()?;
+    if !segs.iter().all(|s| segment(s)) {
+        return None;
+    }
+    // A symlink or a Windows short name (`GIT~1`) gets past those checks: check the real path.
+    let path = segs
+        .iter()
+        .fold(root.clone(), |p, s| p.join(s))
+        .canonicalize()
+        .ok()?;
+    let real = path.strip_prefix(&root).ok()?;
+    if !real.iter().all(|c| c.to_str().is_some_and(segment)) {
+        return None;
+    }
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let mime = IMAGES.iter().find(|(e, _)| *e == ext)?.1;
+    Some((mime, std::fs::read(path).ok()?))
+}
+
+/// A file from the file route. `sandbox`: an SVG opened on its own can't run script.
+fn respond_file(stream: &mut TcpStream, mime: &str, body: &[u8]) -> Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\n\
+         X-Content-Type-Options: nosniff\r\nContent-Security-Policy: sandbox\r\n\
+         Referrer-Policy: {REFERRER_POLICY}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    )?;
+    stream.write_all(body)?;
+    Ok(())
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: Option<(&str, &str)>) -> Result<()> {

@@ -50,7 +50,8 @@ pub(crate) struct Block {
 }
 
 impl Block {
-    /// The block as HTML. A panic in `md_html` shows the source as escaped text instead.
+    /// The block as HTML. A relative image's `src` starts with `\0`, which the caller replaces
+    /// with the pane's file route. A panic in `md_html` shows the source as escaped text instead.
     pub(crate) fn html(&self) -> &str {
         &self.built().0
     }
@@ -74,7 +75,7 @@ impl Block {
                     &mut html,
                     [
                         Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)),
-                        Event::Text(self.md.as_str().into()),
+                        Event::Text(self.md.replace('\0', "\u{FFFD}").into()),
                         Event::End(TagEnd::CodeBlock),
                     ]
                     .into_iter(),
@@ -484,6 +485,8 @@ fn md_opts() -> Options {
 /// A code line, a table body row or a list item on a 0-based source line in `own` (the lines the
 /// TUI gives their own row) carries its own `data-line`. Returns the HTML and those 1-based lines.
 fn md_html(slice: &str, l0: usize, own: &[usize]) -> (String, Vec<u32>) {
+    // `\0` marks a relative image's file route (below), so the file can't hold one.
+    let slice = &slice.replace('\0', "\u{FFFD}");
     let line_of = line_indexer(slice);
     let mut anchored: Vec<u32> = vec![];
     let mut anchor = |line: usize| {
@@ -498,6 +501,7 @@ fn md_html(slice: &str, l0: usize, own: &[usize]) -> (String, Vec<u32>) {
     // An open code, HTML or front matter block: its language, first source line and text.
     let mut code: Option<(Option<&SyntaxReference>, Option<usize>, String)> = None;
     let mut label: Option<String> = None; // a footnote definition's `[n]: `, put in its first paragraph
+    let mut img: Option<(String, String)> = None; // an open relative image: its dest and alt text
     let mut aligns: Vec<Alignment> = vec![];
     let (mut in_head, mut cell) = (false, 0);
     for (ev, range) in Parser::new_ext(slice, md_opts()).into_offset_iter() {
@@ -514,6 +518,29 @@ fn md_html(slice: &str, l0: usize, own: &[usize]) -> (String, Vec<u32>) {
                         buf.push_str(&t);
                     }
                     code = Some((syntax, first, buf));
+                }
+            }
+            continue;
+        }
+        if let Some((dest, mut alt)) = img.take() {
+            match ev {
+                Event::End(TagEnd::Image) => {
+                    let mut h = String::from("<img src=\"\0");
+                    escape(&mut h, &dest);
+                    h.push_str("\" alt=\"");
+                    escape(&mut h, &alt);
+                    h.push_str("\">");
+                    out.push(Event::Html(h.into()));
+                }
+                ev => {
+                    match ev {
+                        Event::Text(t) | Event::Code(t) | Event::InlineHtml(t) => alt.push_str(&t),
+                        Event::InlineMath(t) => alt.push_str(&format!("${t}$")),
+                        Event::DisplayMath(t) => alt.push_str(&format!("$${t}$$")),
+                        Event::SoftBreak | Event::HardBreak => alt.push(' '),
+                        _ => {}
+                    }
+                    img = Some((dest, alt));
                 }
             }
             continue;
@@ -622,6 +649,10 @@ fn md_html(slice: &str, l0: usize, own: &[usize]) -> (String, Vec<u32>) {
                     Event::End(TagEnd::Paragraph),
                 ]);
             }
+            Event::Start(Tag::Image { ref dest_url, .. }) if relative(dest_url) => {
+                img = Some((dest_url.to_string(), String::new()));
+            }
+            // Any other image shows its alt text.
             Event::Start(Tag::Image { .. })
             | Event::End(TagEnd::FootnoteDefinition | TagEnd::Image) => {}
             ev => out.push(ev),
@@ -630,6 +661,16 @@ fn md_html(slice: &str, l0: usize, own: &[usize]) -> (String, Vec<u32>) {
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, out.into_iter());
     (html, anchored)
+}
+
+/// Whether an image's `dest` is a path beside the file: no scheme, not rooted, not a fragment.
+fn relative(dest: &str) -> bool {
+    let scheme = dest.split_once(':').is_some_and(|(s, _)| {
+        s.starts_with(|c: char| c.is_ascii_alphabetic())
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+    });
+    !dest.is_empty() && !scheme && !dest.starts_with(['/', '\\', '#'])
 }
 
 /// A code block's text as HTML, syntax-colored when `syntax` is known, else escaped. Line `k`

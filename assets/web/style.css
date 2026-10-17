@@ -89,6 +89,7 @@ body, .probe, button { font: 14px var(--font); }
 .md ul, .md ol { padding-left: 1.5em; }
 .md blockquote { padding-left: 1em; border-left: 2px solid var(--border); color: #969696; font-style: italic; }
 .md pre, .md table { overflow-x: auto; }
+.md img { max-width: 100%; }
 .md pre, .md code { font-family: var(--font); }
 /* !important: over syntect's inline Nord background */
 .md pre { padding: .3em .6em; border-radius: 4px; background: #2d2d2d !important; }
