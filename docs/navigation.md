@@ -55,7 +55,7 @@ Laura applies its theme to Neovim, including the file view's syntax colors (Nord
 |-----------|--------|
 | `↑/↓` | Move the cursor |
 | `n/N` | Jump the cursor to the next / previous thread |
-| `←/→` | Scroll pre-formatted lines sideways (code, diffs, markdown tables/fences/HTML) |
+| `←/→` | Scroll pre-formatted lines sideways (code, diffs, markdown tables/code blocks/HTML) |
 | `c` | Comment on a line: start a thread, edit or delete your last comment, or reply (needs `laura ready`) |
 | `r` | Collapse/expand the cursor's thread — or, off a thread, all of them |
 | `Shift+S` | Submit the inline review (needs `laura ready`) |

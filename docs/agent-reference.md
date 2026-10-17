@@ -82,7 +82,7 @@ laura highlight --off                     # clear the highlight (the user can al
 
 In markdown:
 
-- Fenced code and HTML blocks, list items, blockquote lines, and callout lines keep one number per line, including blank lines.
+- Code blocks, HTML blocks, list items, blockquote lines, and callout lines keep one number per line, including blank lines.
 - Laura shows a hand-wrapped paragraph as one block, and highlights the whole block for any of the paragraph's lines.
 - Laura does the same for a fenced block or table inside a list item or blockquote.
 

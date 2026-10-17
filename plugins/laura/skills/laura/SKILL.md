@@ -24,6 +24,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
   - `journal`: the journal path.
   - `experimental`: the experimental features enabled in this workspace. Use only those.
     - `web` means your partner is using the workspace in a browser tab instead of the terminal. Every `laura` command works the same.
+      - In a markdown file, your partner sees rendered markdown and moves the cursor one block at a time (a heading, paragraph, list item, table, quote or code block), and one line at a time through code lines, table rows and nested list items. When your partner comments on one of those lines, Laura puts the comment on that line. Anywhere else in a block, Laura puts the comment on the block's first line. `laura highlight` on any line of a block highlights the whole block. To show your partner an image, save the image and the markdown file below the folder Laura started in, outside hidden folders, and reference the image by relative path, such as `![Flow](img/flow.png)`. Laura shows only the alt text of an image referenced by an absolute path or a remote URL.
   - `layout`: what's already open. `laura close` anything no longer relevant. If `layout` is `null`, run `laura layout`.
 - **Run `laura layout`** before later opens or closes to see what's open, and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
