@@ -315,7 +315,7 @@ _Then **wait for `Next`**, and `laura close --all`._
 
 ### Edit together (experimental)
 
-_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` returns an error, skip straight to **Recording feedback** without mentioning it. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` returns an error, skip to the next beat without mentioning it. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
 
 **Do:**
 
@@ -354,6 +354,57 @@ laura comment 2 "nice cap - should 60 be a setting?" --pane "$ED"
 > **Suggested prompts**
 >
 > - `/laura:laura Open retry.py in an editor pane so I can fix it`
+>
+> Submit your inline review with `Shift+S` to continue.
+
+_Then **wait** for the `[laura review · …]` block, and `laura close --all`._
+
+---
+
+### See a page (experimental)
+
+_Run this beat only if `laura ready` listed `web` under `experimental`. Otherwise, skip straight to **Recording feedback** without mentioning it._
+
+**Do:**
+
+```bash
+cat > "$D/page.html" <<'EOF'
+<!DOCTYPE html>
+<html>
+<head><link rel="stylesheet" href="style.css"></head>
+<body>
+<h1>Retry settings</h1>
+<button onclick="this.textContent = 'Saved'">Save</button>
+<p><a href="notes.md">Read the notes</a></p>
+</body>
+</html>
+EOF
+cat > "$D/style.css" <<'EOF'
+body { font-family: sans-serif; margin: 2em; }
+button { padding: 0.5em 1em; }
+EOF
+cat > "$D/notes.md" <<'EOF'
+# Notes
+
+The cap on retries is 60 seconds.
+EOF
+laura open "$D/page.html" --ratio 55
+```
+
+**Say:**
+
+> **Bonus · See a page**
+>
+> I opened `page.html` in the pane to the right. Laura shows the page with its stylesheet and runs its script when you click **Save**.
+>
+> 1. Click **Save**. Laura moves the cursor to the button's line.
+> 2. Press `c`, type a comment, then press `Enter`.
+> 3. Click **Read the notes**. Laura opens `notes.md` in a new pane.
+> 4. Click the page again, press `Shift+S`, then `Enter`, to submit. Laura quotes the button's line from `page.html` in the inline review.
+>
+> **Suggested prompts**
+>
+> - `/laura:laura Build a settings page and open it so I can comment on it`
 >
 > Submit your inline review with `Shift+S` to continue.
 

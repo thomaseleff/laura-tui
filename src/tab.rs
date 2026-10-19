@@ -1,7 +1,7 @@
 //! One workspace: a PTY, its panels, the split tree, and the socket that ties them together.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
@@ -21,6 +21,7 @@ use crate::protocol::{
     self, Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,
 };
 use crate::pty::PtyTab;
+use crate::web;
 
 /// Walk `layout`'s rects and, for each panel, measure content vs. visible rows to fill a `LayoutReport`.
 fn build_report(
@@ -159,6 +160,11 @@ pub enum UserAction {
         pane: PaneId,
         line: u32,
     },
+    /// A relative link the user clicked in a rendered file.
+    OpenLink {
+        pane: PaneId,
+        href: String,
+    },
     /// Keys to the shell, or an editor pane's Neovim in its editor view. The web app sends these
     /// as binary frames, not JSON.
     #[serde(skip)]
@@ -242,6 +248,8 @@ pub struct Tab {
     next_pane: PaneId,
     rx: Receiver<(Message, Reply)>,
     pty_size: (u16, u16),
+    /// The last draw area `drain` saw; `OpenLink` splits against it.
+    area: Rect,
 }
 
 impl Tab {
@@ -277,6 +285,7 @@ impl Tab {
             next_pane: 1,
             rx,
             pty_size: (rows, cols),
+            area: Rect::default(),
         })
     }
 
@@ -326,6 +335,7 @@ impl Tab {
             }
             A::ClearHighlight { pane } => self.panel_mut(pane)?.clear_highlight(),
             A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
+            A::OpenLink { pane, href } => self.open_link(pane, &href)?,
             A::BeginComment { pane } => {
                 if !self.agent {
                     return Err(NEEDS_READY.into());
@@ -372,7 +382,7 @@ impl Tab {
     }
 
     /// Pane `pane`'s file pane, gated by `file_view`.
-    fn panel_mut(&mut self, pane: PaneId) -> Result<&mut Panel, String> {
+    pub(crate) fn panel_mut(&mut self, pane: PaneId) -> Result<&mut Panel, String> {
         self.file_view(pane)?;
         self.panels.get_mut(&pane).ok_or_else(|| no_pane(pane))
     }
@@ -395,6 +405,70 @@ impl Tab {
             .get(&pane)
             .filter(|e| e.editor_view)
             .map(|e| &e.pty)
+    }
+
+    /// Open `href`'s file, without its `?query`, beside pane `pane`'s, as `laura open` would, or move to the pane already
+    /// showing it, and put the cursor on its `#heading`. A bare `#heading` moves pane `pane`'s
+    /// cursor.
+    fn open_link(&mut self, pane: PaneId, href: &str) -> Result<(), String> {
+        let missing = || format!("⚠ {href} doesn't exist");
+        let (path, heading) = href.split_once('#').unwrap_or((href, ""));
+        let path = path.split_once('?').map_or(path, |(p, _)| p);
+        let (path, heading) = (
+            web::pct_decode(path).ok_or_else(missing)?,
+            web::pct_decode(heading).ok_or_else(missing)?,
+        );
+        let mut target = pane;
+        let dir = Path::new(&self.panel_mut(pane)?.path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        if !path.is_empty() {
+            // A root or drive (`/x`, `//host/share`, `C:x`) would replace the folder in `join`.
+            let rel = Path::new(&path);
+            if !rel.components().all(|c| {
+                matches!(
+                    c,
+                    Component::Normal(_) | Component::CurDir | Component::ParentDir
+                )
+            }) {
+                return Err(missing());
+            }
+            // As `laura open` names it, so `..` and `/` match the CLI's path on Windows.
+            let file = std::path::absolute(dir.join(rel)).map_err(|_| missing())?;
+            if file.is_dir() {
+                return Err(format!("⚠ {href} is a folder"));
+            }
+            if !file.is_file() {
+                return Err(missing());
+            }
+            let file = file.to_string_lossy().into_owned();
+            if let Some(id) = self.showing(&file, PTY_PANE) {
+                self.focus = id;
+                target = id;
+            } else {
+                let msg = serde_json::from_value(json!({"type": "open", "path": file}))
+                    .expect("a path-only open always parses");
+                match self.apply(msg, self.area) {
+                    Response::Opened { pane, .. } => target = pane,
+                    Response::Error { message } => return Err(message),
+                    _ => {}
+                }
+            }
+        }
+        // Not `panel_mut`: an editor pane in its editor view keeps the heading for its file view.
+        let p = self
+            .panels
+            .get_mut(&target)
+            .ok_or_else(|| no_pane(target))?;
+        if !heading.is_empty() && !p.blocks().is_empty() {
+            let line = p.heading_line(&heading).ok_or_else(|| {
+                let name = Path::new(&p.path).file_name().unwrap_or_default();
+                format!("⚠ no heading #{heading} in {}", name.to_string_lossy())
+            })?;
+            p.set_cursor_line(line);
+        }
+        Ok(())
     }
 
     /// Write `bytes` to pane `pane`'s terminal, snapping it to live.
@@ -492,6 +566,7 @@ impl Tab {
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
     /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
     pub fn drain(&mut self, area: Rect) -> bool {
+        self.area = area;
         if self.hold {
             return false;
         }
@@ -649,15 +724,19 @@ impl Tab {
         Some(message)
     }
 
-    /// Warn if `path` is already open in a pane other than `except` (lowest id wins).
-    fn already_open(&self, path: &str, except: PaneId) -> Option<String> {
+    /// The lowest-id pane other than `except` that shows `path`.
+    fn showing(&self, path: &str, except: PaneId) -> Option<PaneId> {
         let this = normalized(path);
-        let n = self
-            .panels
+        self.panels
             .iter()
             .filter(|(id, p)| **id != except && normalized(&p.path) == this)
             .map(|(id, _)| *id)
-            .min()?;
+            .min()
+    }
+
+    /// Warn if `path` is already open in a pane other than `except` (lowest id wins).
+    fn already_open(&self, path: &str, except: PaneId) -> Option<String> {
+        let n = self.showing(path, except)?;
         // Suggest reuse verbs only where they work: not under review, nor on an editor pane (it refuses highlight; a bare --panel quits Neovim).
         Some(if self.panels[&n].thread_count() > 0 {
             format!("already open in pane #{n}, which has an unsubmitted inline review")

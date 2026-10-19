@@ -782,6 +782,37 @@ fn fenced_block_stays_one_rectangle_across_an_empty_line() -> Result<()> {
     Ok(())
 }
 
+/// A card under a code line keeps no code bg, and the code around it stays one rectangle.
+#[test]
+fn a_card_inside_a_fenced_block_is_not_boxed() -> Result<()> {
+    let (_f, p) = write_doc(
+        "```
+ab
+longer line
+cd
+```
+",
+    )?;
+    let mut panel = Panel::open(p);
+    note_on(&mut panel, "ab");
+    let layout = panel.layout(80);
+    let card: Vec<&PanelRow> = layout.rows.iter().filter(|r| r.comment).collect();
+    assert!(!card.is_empty(), "the card shows");
+    for r in &card {
+        assert!(
+            r.spans
+                .iter()
+                .all(|s| s.style.bg.is_none() || !s.content.trim().is_empty()),
+            "no code bg pad: {:?}",
+            r.text()
+        );
+    }
+    let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| !r.comment).collect();
+    assert_eq!(code.len(), 3);
+    assert!(code.iter().all(|r| row_width(r) == row_width(code[0])));
+    Ok(())
+}
+
 /// #51: an inline `code` run is bracketed by full-cell caps (`█`) colored with the code bg.
 #[test]
 fn inline_code_gets_half_cell_caps() -> Result<()> {
@@ -939,5 +970,95 @@ fn trailing_blank_row_is_reachable() -> Result<()> {
             "thread on last line is reachable: {doc:?}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn indented_code_maps_per_line() -> Result<()> {
+    // The ``` line can't close the fence Laura renders the block with.
+    let (_f, p) = write_doc("para\n\n    code1\n    ```\n    code2")?;
+    let panel = Panel::open(p);
+    let rows = panel.layout(80).rows;
+    let gutter_of = |needle: &str| {
+        rows.iter()
+            .find(|r| r.text().contains(needle))
+            .and_then(|r| r.gutter)
+    };
+    assert_eq!(gutter_of("code1"), Some(3));
+    assert_eq!(gutter_of("```"), Some(4));
+    assert_eq!(gutter_of("code2"), Some(5));
+    assert!(rows.iter().all(|r| !r.text().contains("code2`")));
+    Ok(())
+}
+
+#[test]
+fn an_unclosed_fence_keeps_reference_definitions_out() -> Result<()> {
+    let (_f, p) = write_doc("see [x][r]\n\n[r]: http://y\n\n```\nunclosed\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    assert!(rows.iter().any(|r| r.text().contains("unclosed")));
+    assert!(rows.iter().all(|r| !r.text().contains("[r]:")));
+    Ok(())
+}
+
+#[test]
+fn a_reference_definition_with_spaces_shows_only_its_link() -> Result<()> {
+    let (_f, p) = write_doc("see [x][r]\n\npara two\n\n[r]: <https://a b>\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    let texts: Vec<String> = rows.iter().map(|r| r.text()).collect();
+    assert!(
+        texts.iter().any(|t| t.contains("x (https://a b)")),
+        "{texts:?}"
+    );
+    assert!(texts.iter().all(|t| !t.contains("[r]:")), "{texts:?}");
+    Ok(())
+}
+
+#[test]
+fn a_footnote_keeps_its_second_paragraph() -> Result<()> {
+    let (_f, p) = write_doc("x[^m]\n\n[^m]: first\n\n    second\n\nend\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    let second = rows
+        .iter()
+        .find(|r| r.text().contains("second"))
+        .expect("the second paragraph's row");
+    assert!(!is_code_row(second), "{:?}", second.text());
+    Ok(())
+}
+
+#[test]
+fn an_indented_fence_maps_per_line() -> Result<()> {
+    let (_f, p) = write_doc("  ```\n  a\n    b\n  ```\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    let gutter_of = |needle: &str| {
+        rows.iter()
+            .find(|r| r.text().trim_end().ends_with(needle))
+            .and_then(|r| r.gutter)
+    };
+    assert_eq!(gutter_of(" a"), Some(2));
+    assert_eq!(gutter_of("  b"), Some(3));
+    Ok(())
+}
+
+#[test]
+fn a_quote_holding_only_a_definition_keeps_its_line() -> Result<()> {
+    let (_f, p) = write_doc("> [r]: http://y.com\n\nsee [r]\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    assert!(rows.iter().any(|r| r.gutter == Some(1)));
+    Ok(())
+}
+
+#[test]
+fn a_fence_line_goes_to_the_code() -> Result<()> {
+    let (_f, p) = write_doc(CODE_DOC)?;
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &p, "--no-focus"]).parse()?;
+    let id_s = id.to_string();
+    let code = row_of(&tab, id, "let a = 1;");
+
+    // L3 is the hidden opening fence.
+    drive(&mut tab, &["highlight", "3", "--pane", &id_s]);
+    assert_eq!(tab.panels[&id].highlight, Some((code, code)));
+    drive(&mut tab, &["comment", "3", "x", "--pane", &id_s]);
+    assert!(tab.panels[&id].thread_at(code).is_some());
     Ok(())
 }
