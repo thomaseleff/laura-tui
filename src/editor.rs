@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -235,11 +235,18 @@ fn pusher(nvim: PathBuf, addr: String) -> Sender<String> {
     let (tx, rx) = channel::<String>();
     std::thread::spawn(move || {
         while let Ok(mut expr) = rx.recv() {
-            while let Ok(newer) = rx.try_recv() {
-                expr = newer;
-            }
+            // Generous: `push` sends a payload once, so one dropped here never reaches Neovim, and
+            // a heavy config or a loaded host can keep its server down for seconds.
             let t0 = Instant::now();
-            while t0.elapsed() < Duration::from_secs(5) {
+            while t0.elapsed() < Duration::from_secs(30) {
+                loop {
+                    match rx.try_recv() {
+                        Ok(newer) => expr = newer,
+                        Err(TryRecvError::Empty) => break,
+                        // The pane closed: no Neovim left to push to.
+                        Err(TryRecvError::Disconnected) => return,
+                    }
+                }
                 let mut c = Command::new(&nvim);
                 c.args(["--headless", "--server", &addr, "--remote-expr", &expr]);
                 #[cfg(windows)]

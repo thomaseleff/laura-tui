@@ -38,6 +38,11 @@ fn area() -> Rect {
     Rect::new(0, 0, 120, 40)
 }
 
+/// How long a client or a fake may take. Every step spawns processes (`laura`, `cmd.exe` in a
+/// ConPTY, the fake's `ping` retry), and on a loaded Windows host 21 tests doing so at once take
+/// up to ~9 s; a hang still fails, just later.
+const TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Run `laura <args>` against a real tab, draining (and replying) until it exits.
 fn run(tab: &mut Tab, args: &[&str]) -> Output {
     let name = tab.socket.clone();
@@ -50,7 +55,8 @@ fn run(tab: &mut Tab, args: &[&str]) -> Output {
             .env("LAURA_TAB", &name)
             .output()
             .unwrap();
-        tx.send(out).unwrap();
+        // Gone once `run` timed out: that panic is the failure, not this one.
+        let _ = tx.send(out);
     });
     let start = Instant::now();
     let out = loop {
@@ -58,7 +64,7 @@ fn run(tab: &mut Tab, args: &[&str]) -> Output {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < TIMEOUT, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
@@ -76,14 +82,11 @@ fn drive(tab: &mut Tab, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-/// Drain until `done` holds, or fail after 5 s.
+/// Drain until `done` holds, or fail after `TIMEOUT`.
 fn drain_until(tab: &mut Tab, what: &str, done: impl Fn(&Tab) -> bool) {
     let start = Instant::now();
     while !done(tab) {
-        assert!(
-            start.elapsed() < Duration::from_secs(5),
-            "timed out: {what}"
-        );
+        assert!(start.elapsed() < TIMEOUT, "timed out: {what}");
         tab.drain(area());
         thread::sleep(Duration::from_millis(20));
     }
@@ -152,9 +155,11 @@ fn fake(kind: &str) -> PathBuf {
         .join(if cfg!(windows) { "nvim.cmd" } else { "nvim" })
 }
 
-/// A ten-line file to edit, under the target dir like the fakes.
+/// A ten-line file to edit, under the target dir like the fakes. Absolutized as `laura open` does
+/// (a `CARGO_TARGET_DIR=tmp/target` leaves a `/` in the path that Windows' `absolute` turns to `\`).
 fn file() -> (tempfile::TempDir, String) {
-    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let tmp = std::path::absolute(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let dir = tempfile::tempdir_in(tmp).unwrap();
     let path = dir.path().join("a.rs");
     let body: String = (1..=10).map(|n| format!("line {n}\n")).collect();
     std::fs::write(&path, body).unwrap();
