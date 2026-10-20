@@ -5,11 +5,15 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::ops::Range;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{
     Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, channel, sync_channel,
 };
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
@@ -20,7 +24,9 @@ use tungstenite::Message;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::{HeaderValue, StatusCode};
 
+use crate::panel::PanelLayout;
 use crate::protocol::{PTY_PANE, PaneId};
+use crate::render::{Block, escape};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
 /// The error when `LAURA_EXPERIMENTAL_WEB` isn't set.
@@ -86,6 +92,42 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The image types the file route serves, by lowercased extension.
+const IMAGES: &[(&str, &str)] = &[
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("svg", "image/svg+xml"),
+    ("webp", "image/webp"),
+    ("avif", "image/avif"),
+    ("ico", "image/x-icon"),
+];
+
+/// What else an HTML page loads from its folder, by lowercased extension.
+const PAGE_FILES: &[(&str, &str)] = &[
+    ("css", "text/css"),
+    ("js", "text/javascript"),
+    ("mjs", "text/javascript"),
+    ("woff", "font/woff"),
+    ("woff2", "font/woff2"),
+    ("ttf", "font/ttf"),
+    ("otf", "font/otf"),
+];
+
+/// What one nonce serves: a folder, and for an HTML pane, the page's file name and tagged HTML.
+struct Served {
+    root: PathBuf,
+    page: Option<(String, String)>,
+}
+
+/// The file route's nonces, shared by `sync` and the connection threads.
+type Files = Arc<Mutex<HashMap<String, Served>>>;
+
+/// Each routed pane's path, its file route's nonce and its URL: the file's folder for markdown,
+/// the page for HTML.
+type Bases = HashMap<PaneId, (String, String, String)>;
+
 enum Inbound {
     Text(String),
     Bytes(Vec<u8>),
@@ -110,6 +152,8 @@ struct View {
     layout: String,
     /// Each file-rendered pane's rows and cursor row, for `rows` diffs.
     panes: HashMap<PaneId, (Vec<String>, Option<usize>)>,
+    /// Each HTML pane's last `page` frame.
+    pages: HashMap<PaneId, String>,
     focus: PaneId,
     area: Rect,
     git_shown: bool,
@@ -134,6 +178,10 @@ pub struct WebServer {
     conns: Receiver<Conn>,
     view: Option<View>,
     area: Option<Rect>,
+    /// The folder Laura started in, canonical.
+    root: PathBuf,
+    files: Files,
+    bases: Bases,
 }
 
 impl WebServer {
@@ -141,17 +189,18 @@ impl WebServer {
     pub fn bind() -> Result<WebServer> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let port = listener.local_addr()?.port();
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness for the token: {e}"))?;
-        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let token = nonce(32)?;
         let url = format!("http://127.0.0.1:{port}/?t={token}");
+        let root = std::env::current_dir()?.canonicalize()?;
+        let files = Files::default();
         let (join, conns) = channel();
+        let shared = files.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let (join, token) = (join.clone(), token.clone());
+                let (join, token, files) = (join.clone(), token.clone(), shared.clone());
                 // A thread per connection: a socket that sends nothing can't block the rest.
                 std::thread::spawn(move || {
-                    let _ = serve(stream, &token, port, &join);
+                    let _ = serve(stream, &token, port, &join, &files);
                 });
             }
         });
@@ -160,6 +209,9 @@ impl WebServer {
             conns,
             view: None,
             area: None,
+            root,
+            files,
+            bases: HashMap::new(),
         })
     }
 
@@ -193,6 +245,7 @@ impl WebServer {
                 ptys: HashMap::new(),
                 layout: String::new(),
                 panes: HashMap::new(),
+                pages: HashMap::new(),
                 focus: tab.focus,
                 area: Rect::default(),
                 git_shown: false,
@@ -230,7 +283,26 @@ impl WebServer {
                                     _ => None,
                                 };
                                 let review = matches!(a, UserAction::BeginReview { .. });
-                                let seed = tab.act(a)?;
+                                // A new comment goes on the block's first line; on a stop, on that
+                                // line; on a thread's card, it joins that thread.
+                                if let Some(pane) = comment
+                                    && let Ok(p) = tab.panel_mut(pane)
+                                    && let Some(start) = cursor_block(p)
+                                        .filter(|b| !on_card(p, b) && !on_stop(p, b))
+                                        .map(|b| b.rows.start)
+                                {
+                                    p.cursor = start;
+                                }
+                                let handled = match a {
+                                    UserAction::MoveCursor { pane, delta } => {
+                                        step(tab.panel_mut(pane)?, delta)
+                                    }
+                                    UserAction::ToggleThread { pane } => {
+                                        toggle_block_threads(tab.panel_mut(pane)?)
+                                    }
+                                    _ => false,
+                                };
+                                let seed = if handled { None } else { tab.act(a)? };
                                 // Laura holds the agent from here, before any drain, until the
                                 // browser closes the draft.
                                 tab.hold |= comment.is_some() || review;
@@ -295,7 +367,12 @@ impl WebServer {
 
         let area = self.area.unwrap_or(DEFAULT_AREA);
         let rects = crate::rects(&tab.layout, area);
-        let layout = layout_json(tab, &rects, area);
+        let dirty = changed || acted || v.focus != tab.focus || v.area != area;
+        // Before `layout`, whose hint depends on a page's route.
+        if dirty {
+            reconcile(&mut self.bases, &self.files, &self.root, tab);
+        }
+        let layout = layout_json(tab, &rects, area, &self.bases);
         if v.layout != layout {
             v.send(Outbound::Text(layout.clone()));
             v.layout = layout;
@@ -331,8 +408,8 @@ impl WebServer {
             v.send(Outbound::Bytes(c));
         }
 
-        if changed || acted || v.focus != tab.focus || v.area != area {
-            send_panes(v, tab, &rects);
+        if dirty {
+            send_panes(v, tab, &rects, &self.bases);
             (v.focus, v.area) = (tab.focus, area);
         }
 
@@ -375,6 +452,235 @@ impl WebServer {
     }
 }
 
+/// `n` random bytes as hex.
+fn nonce(n: usize) -> Result<String> {
+    let mut bytes = vec![0u8; n];
+    getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Give each markdown and HTML pane a file route, and drop the route of a pane that closed or
+/// changed file. A markdown route serves the folder Laura started in when the file sits below it,
+/// outside hidden folders, else the file's folder, so `../` reaches no further than one of those.
+/// A page's route serves only the page's folder, which its scripts can read.
+fn reconcile(bases: &mut Bases, files: &Files, root: &Path, tab: &Tab) {
+    let mut files = files.lock().unwrap_or_else(PoisonError::into_inner);
+    bases.retain(|id, (path, n, _)| {
+        let keep = tab.panels.get(id).is_some_and(|p| p.path == *path);
+        if !keep {
+            files.remove(n);
+        }
+        keep
+    });
+    for (id, p) in &tab.panels {
+        if bases.contains_key(id) || (!is_page(p) && p.blocks().is_empty()) {
+            continue;
+        }
+        let Some(dir) = Path::new(&p.path)
+            .canonicalize()
+            .ok()
+            .and_then(|f| f.parent().map(Path::to_path_buf))
+        else {
+            continue;
+        };
+        let Ok(n) = nonce(16) else {
+            continue;
+        };
+        let segs: Option<Vec<&str>> = dir
+            .strip_prefix(root)
+            .ok()
+            .filter(|_| !is_page(p))
+            .and_then(|rel| {
+                rel.iter()
+                    .map(|c| c.to_str().filter(|c| segment(c)))
+                    .collect()
+            });
+        let (served, segs) = match segs {
+            Some(segs) => (root.to_path_buf(), segs),
+            None => (dir.clone(), vec![]),
+        };
+        let mut base = format!("/f/{n}/");
+        for s in segs {
+            base.push_str(&pct_encode(s));
+            base.push('/');
+        }
+        files.insert(
+            n.clone(),
+            Served {
+                root: served,
+                page: None,
+            },
+        );
+        bases.insert(*id, (p.path.clone(), n, base));
+    }
+    // The URL changes with the content, so the frame reloads. A frozen pane's content is its
+    // snapshot, so its page holds until `Ctrl+R`.
+    for (id, p) in tab.panels.iter().filter(|(_, p)| is_page(p)) {
+        let Some((_, n, url)) = bases.get_mut(id) else {
+            continue;
+        };
+        let Some(served) = files.get_mut(n.as_str()) else {
+            continue;
+        };
+        let Some(name) = Path::new(&p.path).file_name().and_then(|f| f.to_str()) else {
+            continue;
+        };
+        let mut h = DefaultHasher::new();
+        p.content.hash(&mut h);
+        let page = format!("/f/{n}/{}?v={:016x}", pct_encode(name), h.finish());
+        if *url != page {
+            let html = tag_lines(
+                &p.content,
+                &format!("<script>{}</script>", include_str!("../assets/web/page.js")),
+            );
+            served.page = Some((name.to_string(), html));
+            *url = page;
+        }
+    }
+}
+
+/// An HTML file, which the web app shows as a page.
+fn is_page(p: &Panel) -> bool {
+    Path::new(&p.path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
+}
+
+/// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
+/// so a click on an element reports the line the TUI shows its tag on. Comments, CDATA and
+/// raw text aren't scanned for tags. `tail` goes at the end, or before an unclosed comment, tag,
+/// raw-text element or unclosed template, past nested ones, which would hide it.
+/// ponytail: a hand scanner, not a parser; a malformed page only misplaces a click's line. Swap in
+/// a tokenizer with source positions if that bites.
+fn tag_lines(html: &str, tail: &str) -> String {
+    let b = html.as_bytes();
+    // The index of `pat` at or after `from`, any case.
+    let find = |from: usize, pat: &str| {
+        b.get(from..)?
+            .windows(pat.len())
+            .position(|w| w.eq_ignore_ascii_case(pat.as_bytes()))
+            .map(|k| from + k)
+    };
+    // Whether the template open at `from` closes, past the nested templates inside it.
+    let closes = |mut from: usize| {
+        let mut depth = 1;
+        while let Some(j) = find(from, "template") {
+            from = j + 8;
+            if !b
+                .get(from)
+                .is_some_and(|c| c.is_ascii_whitespace() || matches!(c, b'/' | b'>'))
+            {
+                continue;
+            }
+            if b[..j].ends_with(b"</") {
+                depth -= 1;
+            } else if b[..j].ends_with(b"<") {
+                depth += 1;
+            }
+            if depth == 0 {
+                return true;
+            }
+        }
+        false
+    };
+    let mut out = String::with_capacity(html.len() + html.len() / 4);
+    let (mut i, mut copied, mut line, mut counted, mut cut) = (0, 0, 1, 0, None);
+    while let Some(k) = b[i..].iter().position(|&c| c == b'<') {
+        i += k;
+        // Where `i` lands in `out`.
+        let at = out.len() + i - copied;
+        let rest = &html[i..];
+        // `None`: the rest of the page is a comment, a tag, text or a template's content, so `tail`
+        // goes at `at`.
+        let next = if rest.starts_with("<!--") {
+            // A browser ends `<!-->` and `<!--->` at their own `>`.
+            find(i + 2, "-->").map(|e| e + 3)
+        } else if rest.starts_with("<![CDATA[") {
+            find(i + 9, "]]>").map(|e| e + 3)
+        } else if b.get(i + 1).is_some_and(u8::is_ascii_alphabetic) {
+            let end = b[i + 1..]
+                .iter()
+                .position(|c| c.is_ascii_whitespace() || matches!(c, b'/' | b'>'))
+                .map_or(b.len(), |e| i + 1 + e);
+            line += html[counted..i].matches('\n').count();
+            counted = i;
+            out.push_str(&html[copied..end]);
+            let _ = write!(out, r#" data-laura-line="{line}""#);
+            copied = end;
+            let name = html[i + 1..end].to_ascii_lowercase();
+            // The tag's `>`, past quoted values: a `<` or `>` in `title="a>b <i>"` is text. A quote
+            // opens only after `=`, so `title=it's` is a plain value.
+            let (mut quote, mut eq) = (None, false);
+            i = end;
+            while let Some(&c) = b.get(i) {
+                match quote {
+                    None if c == b'>' => break,
+                    None if eq && (c == b'"' || c == b'\'') => quote = Some(c),
+                    Some(q) if c == q => quote = None,
+                    _ => {}
+                }
+                eq = quote.is_none() && (c == b'=' || (eq && c.is_ascii_whitespace()));
+                i += 1;
+            }
+            match name.as_str() {
+                _ if i == b.len() => None,
+                "plaintext" => None,
+                "template" if !closes(i) => None,
+                "script" | "style" | "textarea" | "title" | "xmp" | "noscript" | "iframe"
+                | "noembed" | "noframes" => find(i, &format!("</{name}")),
+                _ => Some(i),
+            }
+        } else {
+            Some(i + 1)
+        };
+        let Some(next) = next else {
+            cut = Some(at);
+            break;
+        };
+        i = next;
+    }
+    out.push_str(&html[copied..]);
+    out.insert_str(cut.unwrap_or(out.len()), tail);
+    out
+}
+
+/// A path segment the file route serves: not empty, not hidden, no separator, drive or NUL.
+fn segment(s: &str) -> bool {
+    !s.is_empty() && !s.starts_with('.') && !s.contains(['/', '\\', ':', '\0'])
+}
+
+/// `s` with every byte but `A-Za-z0-9-._~` percent-encoded.
+fn pct_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            b => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// `s` percent-decoded; a `%` without two hex digits stays as is, as in a browser. `None` on bytes
+/// that aren't UTF-8.
+pub(crate) fn pct_decode(s: &str) -> Option<String> {
+    let (b, mut out, mut i) = (s.as_bytes(), vec![], 0);
+    while i < b.len() {
+        let hex = b
+            .get(i + 1..i + 3)
+            .filter(|h| b[i] == b'%' && h.iter().all(u8::is_ascii_hexdigit));
+        if let Some(hex) = hex {
+            out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 /// A PTY chunk for the browser: the pane id as 8 big-endian bytes, then the bytes.
 fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
     let mut out = id.to_be_bytes().to_vec();
@@ -382,7 +688,7 @@ fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
     out
 }
 
-fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect) -> String {
+fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bases) -> String {
     let mut ids: Vec<_> = rects.keys().copied().collect();
     ids.sort();
     let panes: Vec<Value> = ids
@@ -413,8 +719,18 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect) -> String {
                    "threads": threads})
         })
         .collect();
+    let mut pane = view::hint(tab, view::Hint::Pane);
+    // A page doesn't take the arrows (app.js); the TUI, and a page with no route, show rows.
+    if tab
+        .panels
+        .get(&tab.focus)
+        .is_some_and(|p| is_page(p) && !p.diff_view)
+        && bases.contains_key(&tab.focus)
+    {
+        pane = pane.replacen("↑/↓ move · ", "", 1);
+    }
     let hints = json!({
-        "pane": view::hint(tab, view::Hint::Pane),
+        "pane": pane,
         "locked": view::hint(tab, view::Hint::Locked),
         "quit": view::hint(tab, view::Hint::Quit),
         "panes": view::hint(tab, view::Hint::Panes),
@@ -425,29 +741,69 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect) -> String {
 }
 
 /// Send each file-rendered pane's rows that changed since the view last saw them: `rows` when the
-/// row count holds, else the whole `pane`.
-fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>) {
+/// row count holds, else the whole `pane`. A page sends `page` when its frame changes.
+fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Bases) {
     let shown: Vec<(PaneId, &Panel, Rect)> = rects
         .iter()
         .filter(|(id, _)| !tab.editors.get(id).is_some_and(|e| e.editor_view))
         .filter_map(|(id, r)| tab.panels.get(id).map(|p| (*id, p, *r)))
         .collect();
     v.panes.retain(|id, _| shown.iter().any(|(s, ..)| s == id));
+    v.pages.retain(|id, _| shown.iter().any(|(s, ..)| s == id));
     for (id, panel, r) in shown {
         let width = r.width.saturating_sub(2) as usize;
         let layout = panel.layout(width);
         let lines = view::panel_lines(panel, &layout, tab.focus == id, width);
-        let rows: Vec<String> = layout
-            .rows
-            .iter()
-            .zip(&lines)
-            .map(|(row, line)| row_html(panel, row, line))
-            .collect();
-        // The row `panel_lines` draws the band on.
-        let cursor = layout
-            .rows
-            .iter()
-            .position(|r| !r.comment && r.line == panel.cursor);
+        // No route (a missing file) falls back to rows.
+        if is_page(panel)
+            && !panel.diff_view
+            && let Some((_, _, page)) = bases.get(&id)
+        {
+            let cards: String = layout
+                .rows
+                .iter()
+                .zip(&lines)
+                .enumerate()
+                .filter(|(i, (row, _))| {
+                    row.comment && row.line == panel.cursor && *i > layout.starts[row.line]
+                })
+                .map(|(_, (row, line))| row_html(panel, row, line))
+                .collect();
+            let threads: Vec<usize> = panel.threads.iter().map(|t| t.line + 1).collect();
+            let highlight = panel.highlight.map(|(lo, hi)| [lo + 1, hi + 1]);
+            let cursor = (tab.focus == id).then(|| panel.cursor_line());
+            let msg = json!({"t": "page", "id": id, "page": page, "cursor": cursor,
+                             "threads": threads, "highlight": highlight, "cards": cards})
+            .to_string();
+            // A later `d` sends the whole `pane`, not a `rows` diff, and doesn't jump to the
+            // highlight the page already scrolled to.
+            v.panes.remove(&id);
+            panel.take_recenter();
+            if v.pages.get(&id) != Some(&msg) {
+                v.send(Outbound::Text(msg.clone()));
+                v.pages.insert(id, msg);
+            }
+            continue;
+        }
+        v.pages.remove(&id);
+        let (rows, cursor) = if !panel.diff_view && !panel.blocks().is_empty() {
+            // No route (no randomness, a missing file): `/f/-/` finds nothing.
+            let base = bases.get(&id).map_or("/f/-/", |b| b.2.as_str());
+            block_units(panel, &layout, &lines, tab.focus == id, base)
+        } else {
+            let rows: Vec<String> = layout
+                .rows
+                .iter()
+                .zip(&lines)
+                .map(|(row, line)| row_html(panel, row, line))
+                .collect();
+            // The row `panel_lines` draws the band on.
+            let cursor = layout
+                .rows
+                .iter()
+                .position(|r| !r.comment && r.line == panel.cursor);
+            (rows, cursor)
+        };
         let recenter = panel.take_recenter();
         let msg = match v.panes.get(&id) {
             Some((old, old_cursor)) if old.len() == rows.len() => {
@@ -494,6 +850,243 @@ fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
     h
 }
 
+/// The markdown block holding the cursor; `None` in diff view or between blocks.
+fn cursor_block(p: &Panel) -> Option<&Block> {
+    if p.diff_view {
+        return None;
+    }
+    p.blocks().iter().find(|b| b.rows.contains(&p.cursor))
+}
+
+/// Whether the cursor is on one of block `b`'s [`Block::stops`].
+fn on_stop(p: &Panel, b: &Block) -> bool {
+    b.stops().iter().any(|&(row, _)| row == p.cursor)
+}
+
+/// Whether the cursor shows on an open thread's card below block `b`, not on the block.
+fn on_card(p: &Panel, b: &Block) -> bool {
+    p.cursor != b.rows.start && !on_stop(p, b) && p.cursor_thread().is_some_and(|t| !t.collapsed)
+}
+
+/// `↑`/`↓` in rendered markdown: one block, stop, card or blank row per keystroke. False in diff
+/// view or for a file without blocks, so `Tab::act` moves the cursor.
+fn step(p: &mut Panel, delta: isize) -> bool {
+    if p.diff_view || p.blocks().is_empty() {
+        return false;
+    }
+    let before = p.cursor;
+    if let Some(b) = cursor_block(p) {
+        let rows = b.rows.clone();
+        let stops: Vec<usize> = b.stops().iter().map(|&(row, _)| row).collect();
+        if on_card(p, b) {
+            if delta < 0 {
+                p.cursor = rows.start;
+                return true;
+            }
+        } else {
+            let at = if stops.contains(&p.cursor) {
+                p.cursor
+            } else {
+                rows.start
+            };
+            let next = if delta > 0 {
+                stops.iter().copied().find(|&r| r > at)
+            } else {
+                let start = (at > rows.start).then_some(rows.start);
+                stops.iter().copied().rfind(|&r| r < at).or(start)
+            };
+            if let Some(r) = next {
+                p.cursor = r;
+                return true;
+            }
+        }
+        p.cursor = if delta > 0 { rows.end - 1 } else { rows.start };
+    }
+    p.move_cursor(delta);
+    // A move into a block goes to its first row, or `↑` to its last stop; at either end of the
+    // file, the cursor keeps its row.
+    if let Some(b) = cursor_block(p) {
+        p.cursor = if b.rows.contains(&before) {
+            before
+        } else if delta < 0 {
+            b.stops().last().map_or(b.rows.start, |&(row, _)| row)
+        } else {
+            b.rows.start
+        };
+    }
+    true
+}
+
+/// Collapse the cursor block's threads if any is open, else expand them. False off a block, on a
+/// thread's card, on a stop with a thread, or with no threads in the block.
+fn toggle_block_threads(p: &mut Panel) -> bool {
+    let Some(b) = cursor_block(p) else {
+        return false;
+    };
+    if on_card(p, b) || (on_stop(p, b) && p.cursor_thread().is_some()) {
+        return false;
+    }
+    let b = b.rows.clone();
+    let Some(open) = p
+        .threads
+        .iter()
+        .filter(|t| b.contains(&t.line))
+        .map(|t| !t.collapsed)
+        .max()
+    else {
+        return false;
+    };
+    for t in p.threads.iter_mut().filter(|t| b.contains(&t.line)) {
+        t.collapsed = open;
+    }
+    true
+}
+
+/// A markdown pane as one unit per rendered block (#89): the removed-lines rows inside it go above
+/// it, the thread cards below. A block's `data-line` is its first source line. Each of the
+/// block's [`Block::stops`] carries its own `data-line`. An `hl` block's `data-at` places the
+/// highlight within it, as a fraction of its rows. A block's `data-row` starts
+/// with `b`, so copy never joins it to a row. `base` is the pane's file route URL for the file's
+/// folder, which a relative image's `src` starts with.
+fn block_units(
+    panel: &Panel,
+    layout: &PanelLayout,
+    lines: &[Line],
+    focused: bool,
+    base: &str,
+) -> (Vec<String>, Option<usize>) {
+    let blank = |s: &Span| s.content.trim().is_empty();
+    let rows = |span: Range<usize>, units: &mut Vec<String>, cursor: &mut Option<usize>| {
+        for j in span {
+            let row = &layout.rows[j];
+            if !row.comment && row.line == panel.cursor {
+                *cursor = Some(units.len());
+            }
+            units.push(row_html(panel, row, &lines[j]));
+        }
+    };
+    let mut units = vec![];
+    let mut cursor = None;
+    let mut next = 0;
+    for b in panel.blocks() {
+        let Some(&first) = layout.starts.get(b.rows.start) else {
+            continue;
+        };
+        rows(next..first, &mut units, &mut cursor);
+        let end = layout.rows[first..]
+            .iter()
+            .position(|r| r.line >= b.rows.end)
+            .map_or(layout.rows.len(), |k| first + k);
+        let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
+        let mut cards = vec![];
+        let card_cursor = on_card(panel, b);
+        let mut card = None;
+        for (i, (row, line)) in layout.rows[first..end]
+            .iter()
+            .zip(&lines[first..end])
+            .enumerate()
+        {
+            if !row.comment {
+                // The highlighted number, the change cell and the caret show if any row of the block
+                // has one. A stop's caret shows on the stop instead.
+                // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
+                if panel
+                    .highlight
+                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&row.line))
+                    && let (Some(n), Some(s)) = (gutter.get_mut(0), line.spans.first())
+                {
+                    n.style = s.style;
+                }
+                // The first non-blank span wins, except that an open caret wins over a closed one.
+                let stop = b.stops().iter().any(|&(r, _)| r == row.line);
+                for k in [2, 4].into_iter().filter(|&k| k == 2 || !stop) {
+                    if let Some(g) = gutter.get_mut(k)
+                        && let Some(s) = line.spans.get(k).filter(|s| !blank(s))
+                        && (blank(g) || (k == 4 && s.content == "▾"))
+                    {
+                        *g = s.clone();
+                    }
+                }
+            } else if first + i > layout.starts[row.line] {
+                let mut h = row_html(panel, row, line);
+                if card_cursor && panel.row_source_line(row) == panel.cursor_line() {
+                    card.get_or_insert(cards.len());
+                    if focused {
+                        h = h.replacen(r#"class="row"#, r#"class="row cur"#, 1);
+                    }
+                }
+                cards.push(h);
+            } else {
+                units.push(row_html(panel, row, line));
+            }
+        }
+        // A stop with the cursor or a thread is marked inside the block, focused or not, so the
+        // browser's scroll target doesn't change with focus. The file's text can't fake
+        // ` data-line="N">`: every `>` in it is escaped.
+        let mut md = b.html().replace('\0', base);
+        for &(row, n) in b.stops() {
+            let thread = panel.threads.iter().find(|t| t.line == row);
+            let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
+                (true, Some(false)) => "cur th",
+                (true, Some(true)) => "cur th shut",
+                (true, None) => "cur",
+                (false, Some(false)) => "th",
+                (false, Some(true)) => "th shut",
+                (false, None) => continue,
+            };
+            let attr = format!(r#" data-line="{n}">"#);
+            md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
+        }
+        let has_cursor = b.rows.contains(&panel.cursor);
+        let cur = focused && has_cursor && card.is_none() && !on_stop(panel, b);
+        let hl = panel
+            .highlight
+            .is_some_and(|(lo, hi)| lo < b.rows.end && hi >= b.rows.start);
+        let cls = if cur {
+            " cur"
+        } else if panel.highlight.is_some() && !hl {
+            " dim"
+        } else {
+            ""
+        };
+        if has_cursor {
+            cursor = Some(units.len() + card.map_or(0, |k| k + 1));
+        }
+        // The highlight's midpoint, so the browser centers it rather than the whole block.
+        let at = match panel.highlight {
+            Some((lo, hi)) if hl => {
+                let mid = (lo.max(b.rows.start) + hi.min(b.rows.end - 1)) as f64 / 2.0 + 0.5;
+                let at = (mid - b.rows.start as f64) / b.rows.len() as f64;
+                format!(r#" data-at="{at:.3}""#)
+            }
+            _ => String::new(),
+        };
+        // The gutter's caret column, where a stop's caret shows.
+        let caret: usize = gutter
+            .iter()
+            .take(4)
+            .map(|s| s.content.chars().count())
+            .sum();
+        let mut h = String::with_capacity(md.len() + 200);
+        let _ = write!(
+            h,
+            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}" style="--caret:{caret}"{at}><span class="g">"#,
+            if hl { " hl" } else { "" },
+            panel.row_source_line(&layout.rows[first]),
+            b.rows.start
+        );
+        spans_html(&mut h, &gutter);
+        h.push_str(r#"</span><div class="md">"#);
+        h.push_str(&md);
+        h.push_str("</div></div>");
+        units.push(h);
+        units.extend(cards);
+        next = end;
+    }
+    rows(next..layout.rows.len(), &mut units, &mut cursor);
+    (units, cursor)
+}
+
 fn line_html(line: &Line) -> String {
     let mut h = format!("<div{}>", style_attr(line.style));
     spans_html(&mut h, &line.spans);
@@ -506,18 +1099,6 @@ fn spans_html(h: &mut String, spans: &[Span]) {
         let _ = write!(h, "<span{}>", style_attr(s.style));
         escape(h, &s.content);
         h.push_str("</span>");
-    }
-}
-
-fn escape(h: &mut String, s: &str) {
-    for c in s.chars() {
-        match c {
-            '&' => h.push_str("&amp;"),
-            '<' => h.push_str("&lt;"),
-            '>' => h.push_str("&gt;"),
-            '"' => h.push_str("&quot;"),
-            c => h.push(c),
-        }
     }
 }
 
@@ -587,8 +1168,14 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// One connection: a static file, or the websocket view.
-fn serve(mut stream: TcpStream, token: &str, port: u16, join: &Sender<Conn>) -> Result<()> {
+/// One connection: a static file, a file beside a pane, or the websocket view.
+fn serve(
+    mut stream: TcpStream,
+    token: &str,
+    port: u16,
+    join: &Sender<Conn>,
+    files: &Files,
+) -> Result<()> {
     stream.set_read_timeout(Some(HEAD_TIMEOUT))?;
     // Peek, so tungstenite can still read the head for `/ws`.
     let deadline = Instant::now() + HEAD_TIMEOUT;
@@ -609,17 +1196,98 @@ fn serve(mut stream: TcpStream, token: &str, port: u16, join: &Sender<Conn>) -> 
         }
         std::thread::sleep(Duration::from_millis(5));
     };
-    let text = String::from_utf8_lossy(&buf[..head]);
+    let text = String::from_utf8_lossy(&buf[..head]).into_owned();
     let target = text.split(' ').nth(1).unwrap_or("/");
     let path = target.split('?').next().unwrap_or("/").to_string();
     if path == "/ws" {
         return view_conn(stream, token, port, join);
     }
     stream.read_exact(&mut buf[..head])?;
+    // No token, so a page or image URL can't leak it.
+    if let Some(rest) = path.strip_prefix("/f/") {
+        return match file(rest, files) {
+            Some((mime, body, page_root)) => respond_file(&mut stream, mime, &body, page_root),
+            None => respond(&mut stream, "404 Not Found", None),
+        };
+    }
+    // A page's `/style.css` is the page's, not the workspace's: a subresource from another site (a
+    // page's opaque origin) gets none of these.
+    let header = |name: &str| {
+        text.lines().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
+        })
+    };
+    let site = header("Sec-Fetch-Site").unwrap_or("");
+    if (site.eq_ignore_ascii_case("cross-site") || site.eq_ignore_ascii_case("same-site"))
+        && !header("Sec-Fetch-Mode").is_some_and(|m| m.eq_ignore_ascii_case("navigate"))
+    {
+        return respond(&mut stream, "404 Not Found", None);
+    }
     match ASSETS.iter().find(|(p, ..)| *p == path) {
         Some((_, mime, body)) => respond(&mut stream, "200 OK", Some((mime, body))),
         None => respond(&mut stream, "404 Not Found", None),
     }
+}
+
+/// `<nonce>/<path>` from the file route: the nonce's page, or an image below its folder, or for a
+/// page, a stylesheet, script or font too. Returns the file's type, its bytes, and whether a
+/// page's folder served it.
+fn file(rest: &str, files: &Files) -> Option<(&'static str, Vec<u8>, bool)> {
+    let (n, rest) = rest.split_once('/')?;
+    let segs = rest
+        .split('/')
+        .map(pct_decode)
+        .collect::<Option<Vec<_>>>()?;
+    let (root, page_root) = {
+        let files = files.lock().unwrap_or_else(PoisonError::into_inner);
+        let served = files.get(n)?;
+        if let Some((name, html)) = &served.page
+            && segs.len() == 1
+            && segs[0] == *name
+        {
+            return Some(("text/html; charset=utf-8", html.clone().into_bytes(), true));
+        }
+        (served.root.clone(), served.page.is_some())
+    };
+    if !segs.iter().all(|s| segment(s)) {
+        return None;
+    }
+    // A symlink or a Windows short name (`GIT~1`) gets past those checks: check the real path.
+    let path = segs
+        .iter()
+        .fold(root.clone(), |p, s| p.join(s))
+        .canonicalize()
+        .ok()?;
+    let real = path.strip_prefix(&root).ok()?;
+    if !real.iter().all(|c| c.to_str().is_some_and(segment)) {
+        return None;
+    }
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let page_files = if page_root { PAGE_FILES } else { &[] };
+    let mime = IMAGES.iter().chain(page_files).find(|(e, _)| *e == ext)?.1;
+    Some((mime, std::fs::read(path).ok()?, page_root))
+}
+
+/// A file from the file route. `sandbox`: an SVG opened on its own can't run script, and a page's
+/// scripts and forms run in an opaque origin, away from the workspace. That origin needs CORS to
+/// load a page's module scripts and fonts.
+fn respond_file(stream: &mut TcpStream, mime: &str, body: &[u8], page_root: bool) -> Result<()> {
+    let policy = if page_root {
+        "Content-Security-Policy: sandbox allow-scripts allow-forms; frame-ancestors 'self'\r\n\
+         Access-Control-Allow-Origin: *"
+    } else {
+        "Content-Security-Policy: sandbox"
+    };
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\n\
+         X-Content-Type-Options: nosniff\r\n{policy}\r\n\
+         Referrer-Policy: {REFERRER_POLICY}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    )?;
+    stream.write_all(body)?;
+    Ok(())
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: Option<(&str, &str)>) -> Result<()> {

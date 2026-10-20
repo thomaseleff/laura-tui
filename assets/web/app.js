@@ -1,6 +1,6 @@
 // The web app (#88). One websocket: JSON text frames for layout, panes and replies; binary frames
 // `[pane id, 8 bytes BE][bytes]` for each terminal. Every string from a frame goes in as text; only
-// `pane`/`rows` HTML and `strings.help`, which Laura escapes, go in as markup.
+// `pane`/`rows` HTML, a `page`'s `cards` and `strings.help`, which Laura escapes, go in as markup.
 const css = getComputedStyle(document.documentElement);
 const v = name => css.getPropertyValue(name).trim();
 const $ = id => document.getElementById(id);
@@ -164,8 +164,10 @@ function makePane(p) {
     if (draft) return followFocus(true);
     if (pane(p.id)?.kind !== "file") return;
     if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
-    const row = e.target.closest(".row");
+    const row = e.target.closest("[data-line]");
     if (row) act({ act: "set_cursor", pane: p.id, line: +row.dataset.line });
+    const a = e.target.closest("a[data-href]");
+    if (a) act({ act: "open_link", pane: p.id, href: a.dataset.href });
   });
   return el;
 }
@@ -246,13 +248,20 @@ function closeDraft() {
   followFocus(true);
 }
 
+// The cursor's row or block, or the line inside the block that the cursor is on.
+function cursorEl(rows) {
+  const unit = rows.children[rows.dataset.cursor];
+  return unit?.querySelector(".md .cur") ?? unit;
+}
+
 // The `+` button rides the focused file pane's cursor row, hidden while that row is out of view.
 function placeBtn(id) {
   const el = $("p" + id), rows = el?.querySelector(".rows"), btn = el?.querySelector(".cbtn");
   if (!btn) return;
-  const row = rows.children[rows.dataset.cursor];
-  const top = row ? row.offsetTop - rows.scrollTop : -1;
-  btn.style.visibility = top >= 0 && top + row.offsetHeight <= rows.clientHeight ? "" : "hidden";
+  const row = cursorEl(rows);
+  // Not `offsetTop`: a table row's offset parent is its table.
+  const top = row ? row.getBoundingClientRect().top - rows.getBoundingClientRect().top : -1;
+  btn.style.visibility = top >= 0 && top + ch <= rows.clientHeight ? "" : "hidden";
   btn.style.top = `calc(var(--ch) + ${top}px)`;
 }
 
@@ -264,6 +273,8 @@ function followFocus(force) {
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
   if (draft && !locked) return draftText.focus();
+  // A click in a page's text field keeps the field's focus.
+  if (document.activeElement === frameOf(f.id)) return;
   const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
@@ -273,17 +284,71 @@ function followFocus(force) {
 function onPane(m) {
   const rows = document.querySelector(`#p${m.id} .rows`);
   if (!rows) return;
+  frameOf(m.id)?.remove();
   if (m.t === "rows") {
     // Only the changed rows, by index: a cursor move swaps two rows instead of morphing them all.
     for (const [i, html] of m.rows) if (rows.children[i]) rows.children[i].outerHTML = html;
   } else {
     Idiomorph.morph(rows, m.html, { morphStyle: "innerHTML" });
   }
-  if (m.recenter) rows.querySelector(".hl")?.scrollIntoView({ block: "center" });
-  else if (String(m.cursor) !== rows.dataset.cursor) rows.children[m.cursor]?.scrollIntoView({ block: "nearest" });
   rows.dataset.cursor = String(m.cursor);
+  // A step inside a block keeps the block's index, so the key adds the line.
+  const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line}`;
+  if (m.recenter) {
+    // ponytail: row-proportional, exact for code, approximate for wrapped prose
+    const h = rows.querySelector(".hl");
+    if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
+  } else if (key !== rows.dataset.key) cur?.scrollIntoView({ block: "nearest" });
+  rows.dataset.key = key;
   placeBtn(m.id);
 }
+
+const frameOf = id => $("p" + id)?.querySelector("iframe");
+
+// An HTML file's page in a sandboxed frame over the pane's body, and the cursor's thread below it.
+function onPage(m) {
+  const el = $("p" + m.id), rows = el?.querySelector(".rows");
+  if (!rows) return;
+  let f = frameOf(m.id);
+  if (!f) {
+    f = document.createElement("iframe");
+    f.setAttribute("sandbox", "allow-scripts allow-forms");
+    // The first post can come before the page's script listens.
+    f.addEventListener("load", () => f.contentWindow?.postMessage(f.state, "*"));
+    el.insertBefore(f, rows);
+  }
+  // Setting `src` reloads the page, so only when the page changed.
+  if (f.getAttribute("src") !== m.page) f.src = m.page;
+  // Target "*": the frame's origin is opaque, and line numbers aren't secret.
+  f.state = { cursor: m.cursor, threads: m.threads, highlight: m.highlight };
+  f.contentWindow?.postMessage(f.state, "*");
+  rows.innerHTML = m.cards;
+  rows.dataset.cursor = "";
+  f.style.setProperty("--cards", `${rows.scrollHeight}px`);
+  placeBtn(m.id);
+}
+
+// A page's click, link or Esc. Only from a frame Laura made; the page's own script can post these
+// too, which only does what a click on the page could.
+addEventListener("message", e => {
+  const f = [...root.querySelectorAll(".pane iframe")].find(f => f.contentWindow === e.source);
+  const m = e.data;
+  if (!f || !layout || typeof m !== "object" || !m) return;
+  const id = +f.parentElement.id.slice(1);
+  if (pane(id)?.kind !== "file") return;
+  if (draft) return followFocus(true);
+  if (m.laura === "line") {
+    if (layout.focus !== id) act({ act: "focus", pane: id });
+    if (Number.isInteger(m.line)) act({ act: "set_cursor", pane: id, line: m.line });
+    // A text field or a selection keeps the keystrokes; anything else gives them back to Laura.
+    if (!m.editable) root.focus();
+  } else if (m.laura === "esc") root.focus();
+  else if (m.laura === "link" && typeof m.href === "string") {
+    // The workspace's policy lets a frame load only the workspace's own URLs.
+    if (/^https?:/i.test(m.href)) open(m.href, "_blank", "noopener");
+    else act({ act: "open_link", pane: id, href: m.href });
+  }
+});
 
 function paintPopup() {
   const box = $("popup");
@@ -397,6 +462,8 @@ addEventListener("keydown", e => {
     take();
     return begin(f.id, e.key === "c" ? "comment" : "review");
   }
+  // The arrows don't move the cursor in a page, which has no rows.
+  if (e.key.startsWith("Arrow") && frameOf(f.id)) return;
   const make = !ctrl && !e.altKey && !e.metaKey && FILE_KEYS[e.key];
   if (make) {
     take();
@@ -404,8 +471,8 @@ addEventListener("keydown", e => {
   }
 });
 
-// Selecting copies on release, as in the TUI. A file pane copies clean source: no gutter, and the
-// wrapped rows of one line joined with a space, as `mouse::extract_panel` does.
+// Selecting copies on release, as in the TUI. A file pane copies its text without the gutter,
+// joining the wrapped rows of one line with a space, as `mouse::extract_panel` does.
 addEventListener("mouseup", e => {
   const el = e.target.closest?.(".pane");
   if (!el) return;
@@ -429,8 +496,10 @@ addEventListener("mouseup", e => {
       if (row.contains(range.endContainer)) r.setEnd(range.endContainer, range.endOffset);
       const frag = r.cloneContents();
       frag.querySelectorAll(".g").forEach(g => g.remove());
+      frag.querySelectorAll("td + td, th + th").forEach(c => c.prepend("\t"));
       if (prev !== null) out += row.dataset.row === prev ? " " : "\n";
-      out += frag.textContent.trimEnd();
+      // ponytail: strips push_html's leading newline, and with it a code block's leading blank lines
+      out += frag.textContent.replace(/^\n+/, "").trimEnd();
       prev = row.dataset.row;
     }
     if (out) navigator.clipboard?.writeText(out);
@@ -491,6 +560,9 @@ function connect() {
       case "pane":
       case "rows":
         onPane(m);
+        break;
+      case "page":
+        onPage(m);
         break;
       case "acted": {
         const then = acts.shift();
