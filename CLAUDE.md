@@ -38,7 +38,7 @@ Implementation should always be comprehensive of code, tests, docs and skills.
 - **Code** — the feature itself.
 - **Tests** — integration coverage per the workstream's *Done when* (see Testing).
 - **Docs** — `README.md` + `docs/` reflect the new verbs, flags, protocol messages, keybindings.
-- **Skills** — `plugins/laura/skills/` teach the agent the new surface; revise `skills/demo/` when a user-facing capability is worth demoing.
+- **Skills** — `plugins/laura/skills/` teach the agent the new surface. Revise `skills/demo/` when the demo must show a new user-facing capability. Record a demo (`/record-demo`) only when the user asks. A change to `skills/demo/` is not a request to record the README demo. The user asks for the video after the feature works.
 
 New CLI verb, protocol message, keybinding, or journal event field → assume all four apply and say so if you're skipping one. Docs and skills drift silently otherwise: nothing fails to compile when they fall behind.
 

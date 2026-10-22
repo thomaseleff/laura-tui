@@ -8,9 +8,12 @@ extra_css = ["stylesheets/extra.css"]
 nav = [
   { "Home" = "index.md" },
   { "Tutorial" = "tutorial.md" },
+  { "How-to guides" = [
+    { "Web app" = "web-app.md" },
+  ] },
   { "Reference" = [
     { "Navigating the TUI" = "navigation.md" },
-    { "Web app" = "web-app.md" },
+    { "Navigating the web app" = "web-app-navigation.md" },
     { "Agent reference" = "agent-reference.md" },
     { "CLI reference" = "cli.md" },
     { "Protocol reference" = "protocol.md" },

@@ -8,7 +8,7 @@ Laura passes keystrokes it doesn't use to the shell, or to Neovim in an editor p
 
 | Keystroke | Action |
 |-----------|--------|
-| `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress). In the web app, the [pane selector](web-app.md#keystrokes-and-clicks) also finds a pane by file name. |
+| `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress). In the web app, the [pane selector](web-app-navigation.md#keystrokes-and-clicks) also finds a pane by file name. |
 | `Ctrl+H` | Help |
 | `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
 | `F12` | Lock all input to the shell, or to the focused editor pane |

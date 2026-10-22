@@ -209,7 +209,10 @@ kbd {
 
 /* The right border cell is left to the scrollbar. */
 .term, .rows { position: absolute; left: var(--cw); top: calc(3 * var(--ch) - 6px + var(--bn, 0px)); bottom: 6px; }
-.term { right: var(--cw); overflow: hidden; }
+/* Use clip, not hidden. When a hidden box gets the focus, the browser scrolls the box to the input
+   textarea of xterm. After the pane becomes narrower, the textarea can be past the right edge. Then
+   the scroll moves the terminal out of view. */
+.term { right: var(--cw); overflow: clip; }
 .rows { right: 6px; overflow: hidden auto; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
 /* xterm's own scrollbar, as `.rows` draws one. !important: over xterm's inline sizes and colors. */
 .xterm .xterm-scrollable-element > .scrollbar.vertical { width: 10px !important; }
