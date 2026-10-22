@@ -304,6 +304,7 @@ fn main() -> Result<()> {
         None if cli.web => web(cli.program),
         None => {
             let mut terminal = ratatui::init();
+            abort_unguarded();
             // Capture the wheel so panes scroll and drags select; bracketed paste keeps a pasted
             // multi-line block one unit instead of a submit per newline.
             let _ = execute!(std::io::stdout(), EnableMouseCapture);
@@ -319,11 +320,23 @@ fn main() -> Result<()> {
     }
 }
 
+/// Keep a caught render panic quiet; any other panic still ends Laura, as `panic = "abort"` did.
+fn abort_unguarded() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |i| {
+        if !laura::render::in_guard() {
+            prev(i);
+            std::process::abort();
+        }
+    }));
+}
+
 /// `laura --web`: host the workspace with no terminal UI until the shell exits or the user quits
 /// in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
 /// TUI's terminal does.
 /// ponytail: no signal handler; add one if leftover spools or lost Neovim edits get reported.
 fn web(program: Vec<String>) -> Result<()> {
+    abort_unguarded();
     if !laura::web::enabled() {
         bail!(laura::web::FLAG_OFF);
     }

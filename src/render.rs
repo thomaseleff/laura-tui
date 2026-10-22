@@ -1,6 +1,6 @@
 //! file→styled: read a file and turn it into styled lines plus a plain-text projection.
 
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
@@ -17,6 +17,21 @@ use syntect::html::{
 };
 use syntect::parsing::{Scope, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
+
+thread_local! { static GUARDED: Cell<bool> = const { Cell::new(false) }; }
+
+/// `catch_unwind` that also keeps the panic hook quiet, so ratatui doesn't restore the terminal.
+pub(crate) fn guarded<T>(f: impl FnOnce() -> T) -> std::thread::Result<T> {
+    let outer = GUARDED.replace(true);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    GUARDED.set(outer);
+    r
+}
+
+/// True inside `guarded` on this thread; the panic hook reads it.
+pub fn in_guard() -> bool {
+    GUARDED.get()
+}
 
 /// A rendered file: plain-text `content` plus styled lines, all 1:1 by line.
 pub(crate) struct Rendered {
@@ -67,10 +82,7 @@ impl Block {
         self.html.get_or_init(|| {
             let md = format!("{}{}", self.md, self.defs.as_deref().unwrap_or(""));
             let lines: Vec<usize> = self.own.iter().map(|&(l, _)| l).collect();
-            let (html, anchored) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                md_html(&md, self.l0, &lines)
-            }))
-            .unwrap_or_else(|_| {
+            let (html, anchored) = guarded(|| md_html(&md, self.l0, &lines)).unwrap_or_else(|_| {
                 let mut html = String::new();
                 pulldown_cmark::html::push_html(
                     &mut html,
@@ -197,9 +209,7 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
         return plain(raw.to_string());
     }
     // syntect over untrusted bytes: degrade a highlight panic to raw text, don't crash.
-    let styled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        highlight_lines(raw, syntax, syntaxes)
-    }));
+    let styled = guarded(|| highlight_lines(raw, syntax, syntaxes));
     match styled {
         Ok(Some(styled)) => {
             let nowrap = vec![true; styled.len()]; // recognized code is pre-formatted
@@ -291,8 +301,7 @@ pub fn nord_hex(scope: &str) -> String {
 /// ponytail: a footnote whose definition is in another block shows as `[^n]` after slicing.
 fn render_markdown(md: &str) -> Rendered {
     let source_lines: Vec<String> = md.lines().map(str::to_string).collect();
-    let assembled =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assemble_markdown(md)));
+    let assembled = guarded(|| assemble_markdown(md));
     let (styled, source, blocks) = assembled.unwrap_or_else(|_| {
         // Degrade to raw text with identity ranges: rendered row i == source line i.
         let styled: Vec<Line<'static>> = md
