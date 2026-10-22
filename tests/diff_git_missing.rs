@@ -3,6 +3,8 @@
 //! (the socket server that spawns git) races nothing. Toast is UI — assert the
 //! warning channel, not pixels, per CLAUDE.md.
 
+mod common;
+
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -44,7 +46,7 @@ fn git_absent_warns_the_agent() -> Result<()> {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

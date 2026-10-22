@@ -2,6 +2,8 @@
 //! seam (binary → socket → `Tab::drain`); assert on `panel.diff_view` + laid-out rows,
 //! not pixels, per CLAUDE.md.
 
+mod common;
+
 use std::path::Path;
 use std::process::{Command as StdCommand, Output};
 use std::sync::mpsc;
@@ -41,7 +43,7 @@ fn run(tab: &mut Tab, args: &[&str]) -> Output {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

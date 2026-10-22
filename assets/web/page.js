@@ -1,17 +1,103 @@
 // Laura's script in an HTML file pane's page (#89). A click reports its element's start-tag line
 // (`data-laura-line`) to the workspace, which moves the cursor there; the workspace sends back the
-// cursor's, the threads' and the highlight's lines, which this script outlines.
+// cursor's, the threads' and the highlight's lines, which this script outlines. In comment mode, a
+// click picks an element to comment on instead, and the page's own handlers don't run.
 (() => {
   const post = m => parent.postMessage(m, "*");
   const TEXT = "textarea, select, input:not([type=checkbox], [type=radio], [type=button],"
     + " [type=submit], [type=reset], [type=image], [type=file], [type=color])";
   // A malformed escape keeps its raw text, as the browser's own fragment lookup does.
   const decode = h => { try { return decodeURIComponent(h); } catch { return h; } };
+  // Comment mode (#108): the workspace's pane header turns it on; a click picks an element.
+  let comment = false, hov = null, anchor = null, raf = 0;
+  // An element the user can pick: not the document's own `html`, `head` or `body`.
+  const real = el => (el && !el.matches("html, body, head") ? el : null);
+  const pick = t => real(t?.closest?.("[data-laura-line]"));
+  // An element's name, as the workspace's thread labels read it.
+  const label = el => `<${el.tagName.toLowerCase()}${el.id ? "#" + el.id : el.classList[0] ? "." + el.classList[0] : ""}>`;
+  // The hovered element's and the cursor's element's line and name, above their outlines.
+  const mkTag = () => {
+    const t = document.createElement("div");
+    t.style.cssText = "all: initial; position: fixed; z-index: 2147483647; pointer-events: none; display: none;"
+      + " padding: 0 6px; border-radius: 4px 4px 4px 0; font: 500 11px/16px monospace; color: #fff;"
+      + " background: #4f5bd5; white-space: nowrap;";
+    document.documentElement.append(t);
+    return t;
+  };
+  const tag = mkTag(), curTag = mkTag();
+  // An element's box, or null when it shows nowhere, such as inside a closed `<dialog>`.
+  const box = el => (el?.getClientRects().length ? el.getBoundingClientRect() : null);
+  const place = (t, el) => {
+    const h = box(el);
+    t.style.display = h ? "block" : "none";
+    if (!h) return;
+    t.textContent = `L${el.dataset.lauraLine} ${label(el)}`;
+    t.style.left = h.left - 4 + "px";
+    t.style.top = Math.max(0, h.top - 20) + "px";
+  };
+  // Each thread's pin: its authors and comment count, at its element's top-right corner. A click on
+  // a pin opens its thread and reaches none of the page's handlers.
+  const pinLayer = document.createElement("div");
+  pinLayer.setAttribute("data-laura-pin", "");
+  pinLayer.style.cssText = "all: initial; position: fixed; inset: 0; z-index: 2147483646; pointer-events: none;";
+  document.documentElement.append(pinLayer);
+  let pins = [], cur = null;
+  const pinOf = t => t instanceof Element ? t.closest("[data-laura-pin] > [data-line]") : null;
+  // Once a frame: the tags and pins follow their elements, and the workspace floats the cursor's
+  // thread beside the cursor's element.
+  const sync = () => raf ||= requestAnimationFrame(() => {
+    raf = 0;
+    place(tag, hov);
+    place(curTag, comment || cur === hov ? null : cur);
+    for (const [el, pin] of pins) {
+      const h = box(el);
+      pin.style.display = h ? "flex" : "none";
+      if (!h) continue;
+      pin.style.left = Math.max(0, Math.min(h.right - 8, innerWidth - 60)) + "px";
+      pin.style.top = Math.max(0, h.top - 12) + "px";
+    }
+    const r = box(anchor);
+    post(r ? { laura: "rect", top: r.top, left: r.left, bottom: r.bottom, right: r.right } : { laura: "rect" });
+  });
+  const hover = el => {
+    hov?.removeAttribute("data-laura-hov");
+    hov = el;
+    el?.setAttribute("data-laura-hov", "");
+    sync();
+  };
+  addEventListener("mouseover", e => comment && hover(pick(e.target)), true);
+  addEventListener("mouseout", e => comment && !e.relatedTarget && hover(null), true);
+  addEventListener("scroll", sync, true);
+  addEventListener("resize", sync);
+  // The page moves its elements without a scroll: a script's DOM change, an image that loads, a
+  // transition that ends. Laura's tags and pins sit outside `body`, so they don't trigger this.
+  // ponytail: a pin lags during a CSS transition and moves at its end; sync each frame while one runs if that shows.
+  if (document.body) new MutationObserver(sync).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  for (const type of ["load", "transitionend", "animationend"]) addEventListener(type, sync, true);
+  // In comment mode, a press moves no focus, selects nothing, and reaches no handler of the page's.
+  // ponytail: a page's own capture listener on `window`, added before this script, still runs;
+  // inject this script at the start of `<head>` if a page needs it.
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick"]) {
+    addEventListener(type, e => (comment || pinOf(e.target)) && (e.preventDefault(), e.stopImmediatePropagation()), true);
+  }
   let down;
   addEventListener("mousedown", e => (down = [e.screenX, e.screenY]), true);
   addEventListener("click", e => {
     if (!e.isTrusted) return;
+    const pin = pinOf(e.target);
+    if (pin) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return post({ laura: "line", line: +pin.dataset.line, pin: true });
+    }
     const t = e.target instanceof Element ? e.target : e.target.parentElement;
+    if (comment) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const el = pick(t);
+      if (el) post({ laura: "line", line: (last = +el.dataset.lauraLine), pick: true });
+      return;
+    }
     const el = t?.closest("[data-laura-line]");
     const href = t?.closest("a[href], area[href]")?.getAttribute("href")?.trim();
     // A page's `<base href>` changes where its links point, as in a browser.
@@ -61,14 +147,19 @@
   // Gives the keystrokes back to the workspace after a click in a text field.
   addEventListener("keydown", e => e.isTrusted && e.key === "Escape" && post({ laura: "esc" }), true);
   const style = document.createElement("style");
-  style.textContent = "[data-laura-th] { outline: 2px dashed #ebcb8b; outline-offset: 2px; }"
+  style.textContent = "[data-laura-th] { outline: 1.5px dashed #9aa2ea; outline-offset: 2px; }"
     + " [data-laura-hl] { outline: 2px solid #ebcb8b; background: #ebcb8b22; outline-offset: 2px; }"
-    + " [data-laura-cur] { outline: 2px solid #88c0d0; outline-offset: 2px; }";
+    + " [data-laura-cur] { outline: 1.5px solid #4f5bd5; outline-offset: 2px; }"
+    + " [data-laura-cm], [data-laura-cm] * { cursor: crosshair !important; }"
+    + " [data-laura-hov] { outline: 2px solid #4f5bd5; background: #4f5bd510; outline-offset: 2px; }";
   (document.head ?? document.documentElement).append(style);
   let last, lastHl;
   addEventListener("message", e => {
     if (e.source !== parent || typeof e.data !== "object" || !e.data) return;
     const { cursor, threads, highlight } = e.data;
+    comment = !!e.data.comment;
+    document.documentElement.toggleAttribute("data-laura-cm", comment);
+    if (!comment && hov) hover(null);
     for (const el of document.querySelectorAll("[data-laura-cur], [data-laura-th], [data-laura-hl]")) {
       el.removeAttribute("data-laura-cur");
       el.removeAttribute("data-laura-th");
@@ -81,7 +172,31 @@
       const top = tagged.reduce((m, el) => (line(el) <= n ? Math.max(m, line(el)) : m), 0);
       return tagged.find(el => line(el) === top);
     };
-    for (const n of threads ?? []) at(n)?.setAttribute("data-laura-th", "");
+    pins = [];
+    pinLayer.replaceChildren();
+    for (const t of threads ?? []) {
+      const el = at(t.line);
+      if (!el) continue;
+      el.setAttribute("data-laura-th", "");
+      const pin = document.createElement("div");
+      pin.dataset.line = t.line;
+      pin.title = "L" + t.line;
+      pin.style.cssText = "all: initial; position: fixed; pointer-events: auto; cursor: pointer; display: flex;"
+        + " align-items: center; gap: 3px; padding: 2px 6px 2px 2px; border-radius: 12px 12px 12px 2px;"
+        + " background: #fff; box-shadow: 0 1px 2px rgb(16 24 40 / .08), 0 4px 14px rgb(16 24 40 / .14);"
+        + " font: 600 11px system-ui, sans-serif; color: #686d78;";
+      for (const [i, [initial, agent]] of (t.who ?? []).entries()) {
+        const av = document.createElement("span");
+        av.textContent = initial;
+        av.style.cssText = "all: initial; width: 20px; height: 20px; display: grid; place-items: center;"
+          + ` border-radius: 50%; font: 600 10px system-ui, sans-serif; color: #fff; background: ${agent ? "#4f5bd5" : "#3d4250"};`
+          + (i ? " margin-left: -6px; box-shadow: 0 0 0 2px #fff;" : "");
+        pin.append(av);
+      }
+      pin.append(String(t.n));
+      pinLayer.append(pin);
+      pins.push([el, pin]);
+    }
     // ponytail: a start-tag approximation of the highlighted lines; an element that starts above
     // the range isn't marked when another element starts inside it.
     let hl = [];
@@ -94,11 +209,15 @@
       if (!hl.length && at(lo)) hl = [at(lo)];
       for (const el of hl) el.setAttribute("data-laura-hl", "");
     }
-    const cur = cursor == null ? null : at(cursor);
+    cur = cursor == null ? null : real(at(cursor));
     cur?.setAttribute("data-laura-cur", "");
     if (cursor !== last) cur?.scrollIntoView({ block: "nearest" });
     last = cursor;
-    if (String(highlight) !== lastHl) hl[0]?.scrollIntoView({ block: "center" });
+    // `scroll`: a click on the pane header's highlight chip.
+    if (e.data.scroll || String(highlight) !== lastHl) hl[0]?.scrollIntoView({ block: "center" });
     lastHl = String(highlight);
+    // The panel's cursor line, even when the pane doesn't have the focus.
+    anchor = Number.isInteger(e.data.line) ? real(at(e.data.line)) : null;
+    sync();
   });
 })();

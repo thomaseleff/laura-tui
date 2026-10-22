@@ -3,6 +3,8 @@
 //! source line, not the rendered index. State through the real seam (binary → socket → `Tab::drain`)
 //! for the `highlight` verb; direct `Panel` for the review-payload format, per CLAUDE.md.
 
+mod common;
+
 use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
@@ -42,7 +44,7 @@ fn drive(tab: &mut Tab, args: &[&str]) -> String {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

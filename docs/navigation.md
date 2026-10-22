@@ -8,7 +8,7 @@ Laura passes keystrokes it doesn't use to the shell, or to Neovim in an editor p
 
 | Keystroke | Action |
 |-----------|--------|
-| `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress) |
+| `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress). In the web app, the [pane selector](web-app.md#keystrokes-and-clicks) also finds a pane by file name. |
 | `Ctrl+H` | Help |
 | `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
 | `F12` | Lock all input to the shell, or to the focused editor pane |
@@ -98,7 +98,7 @@ A file pane with an unsubmitted inline review **freezes** when its file changes 
 
 To delete your comment, press `c` on it, clear the text, and press `Enter`.
 
-While you type a comment, Laura shows `comment L<n>` in the hint line, where `<n>` is the file's line number. In a markdown block, `<n>` is the block's first line. When the block spans several rows, Laura moves the cursor to the block's first row.
+While you type a comment, Laura shows `Comment L<n>` in the hint line, where `<n>` is the file's line number. In a markdown block, `<n>` is the block's first line. When the block spans several rows, Laura moves the cursor to the block's first row.
 
 ## Scrolling
 

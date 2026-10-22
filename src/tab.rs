@@ -24,18 +24,22 @@ use crate::pty::PtyTab;
 use crate::web;
 
 /// Walk `layout`'s rects and, for each panel, measure content vs. visible rows to fill a `LayoutReport`.
+/// `web`: the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell takes a
+/// column (`web::GAP`).
 fn build_report(
     layout: &Layout,
     panels: &HashMap<PaneId, &Panel>,
     editors: &HashMap<PaneId, Nvim>,
     area: Rect,
+    web: bool,
 ) -> LayoutReport {
     let mut panes: Vec<PaneReport> = rects(layout, area)
         .into_iter()
         .map(|(id, rect)| {
-            let visible_rows = rect.height.saturating_sub(2) as usize; // minus border
-            let inner_w = rect.width.saturating_sub(2).max(1) as usize;
-            let too_small = rect.width < 3 || rect.height < 3;
+            let border = if web { 3 } else { 2 };
+            let visible_rows = rect.height.saturating_sub(border) as usize;
+            let inner_w = rect.width.saturating_sub(if web { 3 } else { 2 }).max(1) as usize;
+            let too_small = rect.width < 3 || rect.height < border + 1;
             let (kind, path, content_rows) = if id == PTY_PANE {
                 (PaneKind::Pty, None, None)
             } else if editors.contains_key(&id) {
@@ -97,6 +101,9 @@ pub const NO_DIFF_IN_EDITOR: &str = "⚠ diff view isn't available in an editor 
 pub const NO_COMMENT_IN_DIFF: &str = "⚠ comments aren't available in diff view ";
 pub const SUBMIT_FAILED: &str =
     "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
+/// `SUBMIT_FAILED` in the web app, whose review popover names the keystrokes on its buttons.
+pub const SUBMIT_FAILED_WEB: &str =
+    "⚠ inline review submission failed. Laura kept the threads and the review body.";
 
 /// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
 /// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
@@ -117,9 +124,12 @@ pub enum UserAction {
     ToggleDiff {
         pane: PaneId,
     },
-    /// `r`: the cursor's thread, else all.
+    /// `r`: the cursor's thread, else all. `line`: a card's 1-based line; the browser toggles that
+    /// thread alone.
     ToggleThread {
         pane: PaneId,
+        #[serde(default)]
+        line: Option<u32>,
     },
     JumpThread {
         pane: PaneId,
@@ -318,8 +328,11 @@ impl Tab {
                 let want = !p.diff_view;
                 p.set_diff_view(want)?;
             }
-            A::ToggleThread { pane } => {
+            A::ToggleThread { pane, line } => {
                 let p = self.panel_mut(pane)?;
+                if let Some(l) = line {
+                    p.set_cursor_line(l);
+                }
                 if p.cursor_thread().is_some() {
                     p.toggle_collapsed(p.cursor);
                 } else {
@@ -531,19 +544,30 @@ impl Tab {
             self.focus = PTY_PANE;
         }
         let rect_map = rects(&self.layout, content);
-        let pty_inner = rect_map
-            .get(&PTY_PANE)
-            .copied()
-            .unwrap_or(content)
-            .inner(Margin::new(1, 1)); // shell sits inside its border box
+        let pty_inner = self.inner(rect_map.get(&PTY_PANE).copied().unwrap_or(content));
         self.resize_to(pty_inner.height, pty_inner.width);
-        for (id, e) in self.editors.iter_mut() {
-            if let Some(r) = rect_map.get(id) {
-                let inner = r.inner(Margin::new(1, 1));
+        for (id, r) in &rect_map {
+            let inner = self.inner(*r);
+            if let Some(e) = self.editors.get_mut(id) {
                 e.resize(inner.height, inner.width);
             }
         }
         rect_map
+    }
+
+    /// Inside pane rect `r`'s border. The web app's pane header takes two rows, so there the
+    /// border is 2 rows on top and 1 below; the TUI's is 1 and 1.
+    fn inner(&self, r: Rect) -> Rect {
+        if self.web {
+            Rect {
+                x: r.x + 1,
+                y: r.y + 2,
+                width: r.width.saturating_sub(2),
+                height: r.height.saturating_sub(3),
+            }
+        } else {
+            r.inner(Margin::new(1, 1))
+        }
     }
 
     /// The focused panel, if a panel (not the PTY) has focus.
@@ -560,7 +584,13 @@ impl Tab {
 
     /// Current geometry + overflow at draw area `area`.
     pub fn report(&self, area: Rect) -> LayoutReport {
-        build_report(&self.layout, &self.panel_refs(), &self.editors, area)
+        build_report(
+            &self.layout,
+            &self.panel_refs(),
+            &self.editors,
+            area,
+            self.web,
+        )
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
@@ -760,7 +790,7 @@ impl Tab {
         let was = self.editors.remove(&id).map(|e| e.editor_view);
         let inner = rects(&self.layout, area)
             .get(&id)
-            .map(|r| r.inner(Margin::new(1, 1)))
+            .map(|r| self.inner(*r))
             .unwrap_or_default();
         let mut e = Nvim::spawn(
             &nvim,
@@ -1119,7 +1149,7 @@ impl Tab {
         let temp = Panel::open(path.to_string());
         let mut refs = self.panel_refs();
         refs.insert(new, &temp);
-        Response::Report(build_report(&layout, &refs, &self.editors, area))
+        Response::Report(build_report(&layout, &refs, &self.editors, area, self.web))
     }
 
     /// Resize the PTY only when its draw area changed, else the shell wraps wrong.

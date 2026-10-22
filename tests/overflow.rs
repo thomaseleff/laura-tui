@@ -1,5 +1,7 @@
 //! A panel with known long content reports overflow in a small rect and none in a large one, through `Tab::report` (which drives `rects` + `Panel::layout`).
 
+mod common;
+
 use std::io::Write;
 use std::process::Output;
 use std::sync::mpsc;
@@ -40,7 +42,7 @@ fn try_drive(tab: &mut Tab, args: &[&str]) -> Output {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

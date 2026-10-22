@@ -12,7 +12,7 @@ Run a **live walkthrough** of Laura, where you lay out the panes using the `laur
 **Rules**
 - **Run Setup's `laura ready` first.** If it fails, tell your partner you're not running in a Laura workspace and stop.
 - **After each numbered beat, stop and wait** — your partner advances by sending `Next` (beat 2 advances **only** when their inline review arrives). Don't run ahead.
-- **If `laura close --all` errors with `unsubmitted inline review`**, send only: "Submit (`Shift+S`) or refresh (`Ctrl+R`) pane #N to continue.", then wait. **If it errors with `unsaved edits`**, send only: "Save (`:w`) or quit Neovim in pane #N to continue.", then wait. These only happen after your partner comments or edits, and they are the only messages you may send outside the script.
+- **If `laura close --all` errors with `unsubmitted inline review`**, send only: "Submit (`Shift+S`) or refresh (`Ctrl+R`) pane #N to continue.", then wait. **If it errors with `unsaved edits`**, send only: "Save (`:w`) or quit Neovim in pane #N to continue.", then wait. These only happen after your partner comments or edits. **If `laura open --edit` returns an error**, send only: "The editor pane didn't open: `<error>`. Moving on.", then continue to the next beat. These are the only messages you may send outside the script.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt
 
@@ -65,7 +65,7 @@ laura close --all
 >
 > Send `Next` to get started.
 
-_Then **wait for `Next`.**_
+_If `laura ready` listed `editor` or `web` under `experimental`, add "You have experimental features on, so I'll show those too." before "Read the docs…". Then **wait for `Next`.**_
 
 ---
 
@@ -183,7 +183,7 @@ EOF
 >
 > Your threads add up to one inline review. When you submit with `Shift+S`, Laura writes the whole inline review into the chat and clears the threads from the pane.
 >
-> If I edit a file while you have an unsubmitted inline review on its pane, Laura freezes the pane. The frozen pane keeps showing the snapshot, so your comments stay on the original lines, and Laura shows ⚠ on the pane's bottom border. To continue, submit with `Shift+S`, or press `Ctrl+R` to refresh: Laura discards the unsubmitted inline review and reloads the file.
+> If I edit a file while you have an unsubmitted inline review on its pane, Laura freezes the pane. The frozen pane keeps showing the snapshot, so your comments stay on the original lines. In the terminal, Laura shows ⚠ on the pane's bottom border. In the browser, Laura shows **Frozen** in the pane header and a banner with **Submit review** and **Refresh**. To continue, submit with `Shift+S`, or press `Ctrl+R` to refresh: Laura discards the unsubmitted inline review and reloads the file.
 >
 > Your agent can also have subagents annotate the pane, for extra opinions before you submit.
 >
@@ -309,13 +309,13 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 >
 > Send `Next` to learn how to record feedback.
 
-_Then **wait for `Next`**, and `laura close --all`._
+_If `laura ready` listed `editor` or `web` under `experimental`, end with "Send `Next` to try the experimental features." instead. Then **wait for `Next`**, and `laura close --all`._
 
 ---
 
 ### Edit together (experimental)
 
-_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, or if `laura open --edit` returns an error, skip to the next beat without mentioning it. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, skip to the next beat without mentioning it. If `laura open --edit` returns an error, follow the Rules. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
 
 **Do:**
 
@@ -398,15 +398,15 @@ laura open "$D/page.html" --ratio 55
 > I opened `page.html` in the pane to the right. Laura shows the page with its stylesheet and runs its script when you click **Save**.
 >
 > 1. Click **Save**. Laura moves the cursor to the button's line.
-> 2. Press `c`, type a comment, then press `Enter`.
+> 2. Click the comment-mode button in the pane's header, then click **Save**. Laura shows the comment box below the button. Type a comment, press `Enter`, then click **Done** to leave comment mode.
 > 3. Click **Read the notes**. Laura opens `notes.md` in a new pane.
-> 4. Click the page again, press `Shift+S`, then `Enter`, to submit. Laura quotes the button's line from `page.html` in the inline review.
+> 4. Click **Submit review** in the header of page.html's pane, or click the page and press `Shift+S`. Then press `Enter` to submit. Laura quotes the button's line from `page.html` in the inline review.
 >
 > **Suggested prompts**
 >
 > - `/laura:laura Build a settings page and open it so I can comment on it`
 >
-> Submit your inline review with `Shift+S` to continue.
+> Click the page and submit your inline review with `Shift+S` to continue.
 
 _Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
@@ -459,6 +459,6 @@ rm -rf "$D"
 > **The demo is finished!** Here are a few workspace ideas for your first task:
 >
 > - **Doc or plan review** — a plan on one side, which your agent revises as you comment.
-> - **Debug dashboard** — source code next to a tail pane, like you just saw.
+> - **Debug dashboard** — source code next to a tail pane, like the one in step 4.
 > - **Diff review** — review changes in place before you commit them.
 > - **Data analysis** — a markdown report, with headings and lists, in a pane.

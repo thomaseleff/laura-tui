@@ -54,3 +54,5 @@ See the [tutorial](docs/tutorial.md) for a first session, and [navigating the TU
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+The web app bundles the Inter and JetBrains Mono fonts under the SIL Open Font License — see [OFL.txt](assets/web/fonts/OFL.txt).

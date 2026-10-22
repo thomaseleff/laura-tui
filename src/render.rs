@@ -160,7 +160,7 @@ fn render_diff(raw: &str) -> Rendered {
             {
                 Some(Color::Rgb(120, 120, 120))
             } else if l.starts_with("@@") {
-                Some(Color::Rgb(129, 161, 193)) // nord blue
+                Some(Color::Rgb(94, 129, 172)) // nord10
             } else if l.starts_with('+') {
                 Some(Color::Rgb(163, 190, 140)) // nord green
             } else if l.starts_with('-') {
@@ -257,6 +257,18 @@ fn nord_theme() -> &'static Theme {
         let mut cursor = std::io::Cursor::new(include_str!("../assets/nord.tmTheme"));
         ThemeSet::load_from_reader(&mut cursor)
             .expect("bundled nord.tmTheme is a valid TextMate theme")
+    })
+}
+
+/// syntect's bundled light theme, for the web app's markdown code blocks. Bundled by the
+/// `default-themes` feature, so `.expect` guards a build-time invariant.
+fn light_theme() -> &'static Theme {
+    static THEME: OnceLock<Theme> = OnceLock::new();
+    THEME.get_or_init(|| {
+        ThemeSet::load_defaults()
+            .themes
+            .remove("InspiredGitHub")
+            .expect("syntect bundles InspiredGitHub")
     })
 }
 
@@ -737,8 +749,8 @@ fn code_html(
     mut anchor: impl FnMut(usize) -> Option<u32>,
 ) -> String {
     let colored = syntax.and_then(|syntax| {
-        let (open, bg) = start_highlighted_html_snippet(nord_theme());
-        let mut h = HighlightLines::new(syntax, nord_theme());
+        let (open, bg) = start_highlighted_html_snippet(light_theme());
+        let mut h = HighlightLines::new(syntax, light_theme());
         let lines = LinesWithEndings::from(buf)
             .map(|line| {
                 let regions: Vec<_> = h

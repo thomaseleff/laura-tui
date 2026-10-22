@@ -2,6 +2,8 @@
 //! flips the vt100 mode, observed through the public `PtyTab` surface. ponytail: real child, no
 //! test-only parser seam; encoder correctness rides the `src/mouse.rs` unit tests.
 
+mod common;
+
 use std::time::{Duration, Instant};
 
 use laura::PtyTab;
@@ -22,10 +24,7 @@ fn spawn_emitting(seq: &str) -> PtyTab {
 fn settle(tab: &PtyTab) {
     let start = Instant::now();
     while !tab.has_exited() {
-        assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "child never exited"
-        );
+        assert!(start.elapsed() < common::DEADLINE, "child never exited");
         std::thread::sleep(Duration::from_millis(20));
     }
     std::thread::sleep(Duration::from_millis(150));

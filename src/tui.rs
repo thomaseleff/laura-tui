@@ -307,7 +307,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             } else {
                 Hint::Pane
             };
-            f.render_widget(Paragraph::new(view::hint(&tab, hint)).dim(), rows[1]);
+            f.render_widget(
+                Paragraph::new(view::hint_text(&view::hint(&tab, hint))).dim(),
+                rows[1],
+            );
             // A live draft grows a bordered input box over the bottom of the shell pane — never over
             // a panel, so the file under review stays visible.
             if let Some(d) = &draft
@@ -545,7 +548,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                 })
                             }
                             KeyCode::Char('r') if ctrl => tab.act(UserAction::Refresh { pane }),
-                            KeyCode::Char('r') => tab.act(UserAction::ToggleThread { pane }),
+                            KeyCode::Char('r') => {
+                                tab.act(UserAction::ToggleThread { pane, line: None })
+                            }
                             KeyCode::Char('n') | KeyCode::Char('N') => {
                                 tab.act(UserAction::JumpThread {
                                     pane,
@@ -776,7 +781,7 @@ fn render_panel(
 ) {
     let inner_w = area.width.saturating_sub(2) as usize; // minus borders
     let layout = panel.layout(inner_w);
-    let rows = view::panel_lines(panel, &layout, focused, inner_w);
+    let rows = view::panel_lines(panel, &layout, focused, inner_w, false);
     // The offset is remembered across frames (scrolls only at the edges); see `scroll_offset`.
     let height = area.height.saturating_sub(2) as usize;
     let total_rows = rows.len();
@@ -909,7 +914,7 @@ fn render_panes(f: &mut Frame, tab: &Tab, buf: &str) {
     } else {
         format!("typed: {buf}")
     };
-    lines.push(key(typed, "Enter pick · Esc dismiss".into()));
+    lines.push(key(typed, "Enter focus · Esc close".into()));
 
     let width = 40u16;
     let height = lines.len() as u16 + 2; // + border
@@ -945,7 +950,7 @@ fn render_toast(f: &mut Frame, msg: &str) {
 
 /// Draw the help popup in a centered, bordered box.
 fn render_help(f: &mut Frame) {
-    let lines = view::help_lines(false);
+    let lines = view::help_lines();
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4; // + border, margin
     let height = lines.len() as u16 + 2; // + border
     let [area] = Layout::vertical([Constraint::Length(height)])

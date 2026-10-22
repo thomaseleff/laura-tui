@@ -1,5 +1,7 @@
 //! Child exit is detected without reader EOF (ConPTY never sends one); `PtyTab` catches it via `child.wait()`.
 
+mod common;
+
 use std::time::{Duration, Instant};
 
 use laura::PtyTab;
@@ -19,7 +21,7 @@ fn detects_child_exit() {
     let start = Instant::now();
     while !tab.has_exited() {
         assert!(
-            start.elapsed() < Duration::from_secs(10),
+            start.elapsed() < common::DEADLINE,
             "child exit not detected within 10s"
         );
         std::thread::sleep(Duration::from_millis(20));

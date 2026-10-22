@@ -1,5 +1,7 @@
 //! `laura tail` spools into a per-user temp dir, and the spool goes with its pane: on `close` and on quit.
 
+mod common;
+
 use std::io::Write;
 use std::path::Path;
 use std::process::Output;
@@ -62,7 +64,7 @@ fn drive_tab_env(tab: &mut Tab, args: &[&str], stdin: &str, env: &[(&str, &str)]
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
@@ -159,7 +161,7 @@ fn the_shell_gets_the_hosts_spool_dir() -> Result<()> {
     let start = Instant::now();
     while !tab.pty.with_screen(|s| s.contents()).contains(&want) {
         assert!(
-            start.elapsed() < Duration::from_secs(5),
+            start.elapsed() < common::DEADLINE,
             "shell never printed {want}: {}",
             tab.pty.with_screen(|s| s.contents())
         );

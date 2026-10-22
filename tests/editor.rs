@@ -2,6 +2,8 @@
 //! Neovim runs in, `--panel N --edit` keeping threads, and what an exit leaves behind. State, not
 //! pixels.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::{OnceLock, mpsc};
@@ -38,11 +40,6 @@ fn area() -> Rect {
     Rect::new(0, 0, 120, 40)
 }
 
-/// How long a client or a fake may take. Every step spawns processes (`laura`, `cmd.exe` in a
-/// ConPTY, the fake's `ping` retry), and on a loaded Windows host 21 tests doing so at once take
-/// up to ~9 s; a hang still fails, just later.
-const TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Run `laura <args>` against a real tab, draining (and replying) until it exits.
 fn run(tab: &mut Tab, args: &[&str]) -> Output {
     let name = tab.socket.clone();
@@ -64,7 +61,7 @@ fn run(tab: &mut Tab, args: &[&str]) -> Output {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < TIMEOUT, "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
@@ -82,11 +79,11 @@ fn drive(tab: &mut Tab, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-/// Drain until `done` holds, or fail after `TIMEOUT`.
+/// Drain until `done` holds, or fail after `common::DEADLINE`.
 fn drain_until(tab: &mut Tab, what: &str, done: impl Fn(&Tab) -> bool) {
     let start = Instant::now();
     while !done(tab) {
-        assert!(start.elapsed() < TIMEOUT, "timed out: {what}");
+        assert!(start.elapsed() < common::DEADLINE, "timed out: {what}");
         tab.drain(area());
         thread::sleep(Duration::from_millis(20));
     }

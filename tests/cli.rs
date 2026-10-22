@@ -1,5 +1,7 @@
 //! The `open`/`close`/`ready` verbs cross the real seam (binary → tab socket → `Tab::drain` → response) and land the right state; `--help`/`--version` work. State, not pixels.
 
+mod common;
+
 use std::io::Write;
 use std::process::Output;
 use std::sync::mpsc;
@@ -44,7 +46,7 @@ fn send_and_recv(args: &[&str]) -> Result<Message> {
             .assert()
             .success();
     });
-    let (msg, reply) = rx.recv_timeout(Duration::from_secs(5))?;
+    let (msg, reply) = rx.recv_timeout(common::DEADLINE)?;
     reply.send(&Response::Ok);
     h.join().unwrap();
     Ok(msg)
@@ -70,7 +72,7 @@ fn drive_tab(tab: &mut Tab, args: &[&str]) -> Output {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

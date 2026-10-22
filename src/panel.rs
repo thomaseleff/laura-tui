@@ -9,6 +9,10 @@ use ratatui::text::{Line, Span};
 use crate::gitdiff::{self, ChangeKind, DiffOutcome};
 use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, render};
 
+/// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
+pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
+pub(crate) const DIFF_DEL: Color = Color::Rgb(191, 97, 106); // nord red
+
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
 pub struct Panel {
     pub path: String,
@@ -310,6 +314,18 @@ impl Panel {
     /// The cursor row's first source line, 1-based: the `L<n>` an inline review quotes.
     pub fn cursor_line(&self) -> u32 {
         self.source.get(self.cursor).map_or(self.cursor, |s| s.0) as u32 + 1
+    }
+
+    /// The highlight's first and last source lines, 1-based: the lines the pane header names.
+    pub fn highlight_lines(&self) -> Option<[u32; 2]> {
+        let line = |row: usize, end: bool| {
+            self.source
+                .get(row)
+                .map_or(row, |s| if end { s.1 } else { s.0 }) as u32
+                + 1
+        };
+        self.highlight
+            .map(|(lo, hi)| [line(lo, false), line(hi, true)])
     }
 
     /// A layout row's first source line, 1-based. Diff view tags rows with 0-based source lines,
@@ -780,8 +796,8 @@ impl Panel {
         let gutter_width = total.to_string().len();
         // Match `layout`'s 5-cell decoration budget; diff view renders those cells as blanks.
         let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
-        let green = Style::default().fg(Color::Rgb(163, 190, 140)); // nord green
-        let red = Style::default().fg(Color::Rgb(191, 97, 106)); // nord red
+        let green = Style::default().fg(DIFF_ADD);
+        let red = Style::default().fg(DIFF_DEL);
         let line_count = self.source_lines.len().max(1);
         let lines: Vec<&str> = self.source_lines.iter().map(String::as_str).collect();
         let mut rows = vec![];

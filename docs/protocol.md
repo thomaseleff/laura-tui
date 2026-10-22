@@ -366,7 +366,7 @@ Return the current layout without changing anything.
 </tr>
 </table>
 
-The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. `kind` is `pty` (the shell), `panel` (a file pane), or `editor` (an editor pane, with its `path`). Editor panes report `content_rows: null`, because Neovim sizes its own content.
+The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. In the web app, a pane's border takes three rows, so `visible_rows` is the pane's height minus three. `kind` is `pty` (the shell), `panel` (a file pane), or `editor` (an editor pane, with its `path`). Editor panes report `content_rows: null`, because Neovim sizes its own content.
 
 ### `ready`
 

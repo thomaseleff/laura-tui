@@ -1,6 +1,8 @@
 //! `ready --session` names a journal; a later `open` tees an event into that session's NDJSON.
 //! Drives the real seam (binary → socket → `Tab::drain`) with `HOME` pointed at a tempdir.
 
+mod common;
+
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -30,7 +32,7 @@ fn drive_tab(tab: &mut Tab, args: &[&str]) {
         if let Ok(ok) = rx.try_recv() {
             break ok;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

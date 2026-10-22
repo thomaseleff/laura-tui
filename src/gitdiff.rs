@@ -163,7 +163,7 @@ fn parse_new_start(rest: &str) -> Option<usize> {
 
 /// Windows `canonicalize` yields `\\?\C:\…` verbatim paths git can't parse; drop
 /// the drive-letter prefix. (UNC shares are left alone — an accepted edge.)
-fn strip_verbatim(p: PathBuf) -> PathBuf {
+pub(crate) fn strip_verbatim(p: PathBuf) -> PathBuf {
     #[cfg(windows)]
     if let Some(rest) = p.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
         && !rest.starts_with("UNC\\")
