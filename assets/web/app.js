@@ -705,18 +705,21 @@ function popClick(id, e) {
     paintPop(id);
     if (layout.focus !== id) act({ act: "focus", pane: id });
     // The cursor may already be on the thread's line and send no frame, so the reply scrolls too.
-    $("p" + id).goTh = b.dataset.th;
+    $("p" + id).goTh = { th: b.dataset.th, block: "center" };
     return act({ act: "set_cursor", pane: id, line: +b.dataset.th }, () => goThread(id));
   }
   if (b?.dataset.act === "cancel") closeDraft();
   else if (b?.dataset.act === "save") confirmDraft();
 }
-// After a click in the thread list, the pane scrolls the thread's card into view.
+// After a click in the thread list or a new comment, the pane scrolls the card of the thread into
+// view. The pane keeps the request until the card shows, because the thread of a new comment can
+// arrive after the reply.
 function goThread(id) {
-  const el = $("p" + id), th = el?.goTh;
-  if (!th) return;
+  const el = $("p" + id), go = el?.goTh;
+  const card = go && el.querySelector(`.card[data-th="${go.th}"]`);
+  if (!card) return;
   el.goTh = null;
-  el.querySelector(`.card[data-th="${th}"]`)?.scrollIntoView({ block: "center" });
+  card.scrollIntoView({ block: go.block });
 }
 // A click outside the thread list or **More** closes it.
 addEventListener("mousedown", e => {
@@ -770,7 +773,12 @@ function confirmDraft() {
   paintStatus();
   act(d.kind === "comment" ? { act: "comment", pane: d.pane, line: d.line, text: d.text } : { act: "submit", pane: d.pane, body: d.text },
     r => {
-      if (r.ok) return closeDraft();
+      if (r.ok) {
+        // The saved card is taller than the draft, so the saved card can overflow the bottom edge of the pane.
+        if (d.kind === "comment") $("p" + d.pane).goTh = { th: d.line, block: "nearest" };
+        closeDraft();
+        return goThread(d.pane);
+      }
       if (draft !== d) return;
       d.busy = false;
       d.failed = true;
