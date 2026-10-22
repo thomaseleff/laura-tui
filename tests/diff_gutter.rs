@@ -2,6 +2,8 @@
 //! real seam (binary → socket → `Tab::drain`); assert on `panel.changes` state, not
 //! pixels, per CLAUDE.md.
 
+mod common;
+
 use std::path::Path;
 use std::process::Command as StdCommand;
 use std::sync::mpsc;
@@ -41,7 +43,7 @@ fn drive(tab: &mut Tab, args: &[&str]) -> String {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

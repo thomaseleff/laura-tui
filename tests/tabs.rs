@@ -1,5 +1,7 @@
 //! Two workspaces run independent shells; a `laura open` in workspace A never appears in workspace B. Through the `laura open` binary → workspace socket → `drain()`. State, not pixels.
 
+mod common;
+
 use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
@@ -41,7 +43,7 @@ fn drive_tab(tab: &mut Tab, args: &[&str]) {
         if let Ok(ok) = rx.try_recv() {
             break ok;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

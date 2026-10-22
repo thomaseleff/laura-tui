@@ -1,5 +1,7 @@
 //! The agent composes a frame through the CLI: split panes, read their ids, introspect with `layout`, prove `--dry-run` commits nothing, and close panes individually or `--all`. State, not pixels.
 
+mod common;
+
 use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
@@ -38,7 +40,7 @@ fn drive(tab: &mut Tab, args: &[&str]) -> String {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
@@ -120,7 +122,7 @@ fn try_drive(tab: &mut Tab, args: &[&str]) -> bool {
         if let Ok(out) = rx.try_recv() {
             break out;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

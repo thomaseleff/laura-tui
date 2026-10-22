@@ -3,6 +3,8 @@
 //! already on screen warns and points at the existing pane. Drives the real seam
 //! (binary → socket → `Tab::drain`) and reads pane state back off the tab.
 
+mod common;
+
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -33,7 +35,7 @@ fn run_tab(tab: &mut Tab, args: &[&str]) -> bool {
         if let Ok(ok) = rx.try_recv() {
             break ok;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
@@ -59,7 +61,7 @@ fn request_tab(tab: &mut Tab, msg: Message, settle: Duration) -> Response {
         if let Ok(r) = rx.try_recv() {
             break r;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();
@@ -320,7 +322,7 @@ fn agent_request_waits_for_the_users_draft() -> Result<()> {
         if let Ok(r) = rx.try_recv() {
             break r;
         }
-        assert!(start.elapsed() < Duration::from_secs(5), "client timed out");
+        assert!(start.elapsed() < common::DEADLINE, "client timed out");
         thread::sleep(Duration::from_millis(5));
     };
     h.join().unwrap();

@@ -2,6 +2,8 @@
 //! view receives, the user's actions as `act` frames, and `laura --web` end to end. State and
 //! frames, not pixels.
 
+mod common;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
@@ -20,10 +22,6 @@ use tungstenite::client::IntoClientRequest;
 use tungstenite::{Message, WebSocket};
 
 type Ws = WebSocket<TcpStream>;
-
-/// How long a wait lasts before it fails. The binary's tests each spawn a shell at once, which
-/// stalls a small CI runner for seconds; a passing wait returns as soon as its frame arrives.
-const DEADLINE: Duration = Duration::from_secs(15);
 
 /// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
 fn isolate_home() {
@@ -157,7 +155,7 @@ impl Rig {
         connect_to(self.port, Some(&self.token), Some(&self.origin())).expect("view connects")
     }
 
-    /// Pump and read `ws` until a frame matches `want`; fail after [`DEADLINE`].
+    /// Pump and read `ws` until a frame matches `want`; fail after [`common::DEADLINE`].
     fn until(&mut self, ws: &mut Ws, what: &str, want: impl Fn(&Frame) -> bool) -> Frame {
         let start = Instant::now();
         loop {
@@ -167,7 +165,7 @@ impl Rig {
                     return f;
                 }
             }
-            assert!(start.elapsed() < DEADLINE, "timed out: {what}");
+            assert!(start.elapsed() < common::DEADLINE, "timed out: {what}");
         }
     }
 
@@ -206,7 +204,7 @@ impl Rig {
         rx
     }
 
-    /// Pump until the client behind `rx` exits; fail after [`DEADLINE`].
+    /// Pump until the client behind `rx` exits; fail after [`common::DEADLINE`].
     fn wait(&mut self, rx: &mpsc::Receiver<Output>) -> Output {
         let start = Instant::now();
         loop {
@@ -214,7 +212,7 @@ impl Rig {
             if let Ok(out) = rx.try_recv() {
                 return out;
             }
-            assert!(start.elapsed() < DEADLINE, "client timed out");
+            assert!(start.elapsed() < common::DEADLINE, "client timed out");
             thread::sleep(Duration::from_millis(5));
         }
     }
@@ -241,7 +239,7 @@ impl Rig {
         let start = Instant::now();
         while !self.tab.pty.with_screen(|s| s.contents()).contains(text) {
             assert!(
-                start.elapsed() < Duration::from_secs(10),
+                start.elapsed() < common::DEADLINE,
                 "shell never showed {text}"
             );
             self.pump();
@@ -373,11 +371,11 @@ fn first_frames_carry_the_layout_and_the_replay() -> Result<()> {
     rig.shell_shows("webmark");
     let mut ws = rig.connect();
     let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
-    assert!(
-        strings["help"]
-            .as_str()
-            .is_some_and(|h| h.contains("Ctrl+P"))
-    );
+    let groups = strings["help"].as_array().expect("help groups");
+    assert!(groups.iter().any(|g| {
+        g[1].as_array()
+            .is_some_and(|keys| keys.iter().any(|k| k[0] == "Ctrl+P"))
+    }));
     let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
     assert_eq!(layout["focus"], 0);
     assert_eq!(layout["panes"][0]["kind"], "shell");
@@ -415,6 +413,108 @@ fn open_focuses_the_new_pane_and_sends_its_lines_once() -> Result<()> {
         !idle.iter().any(|f| f.is("pane") || f.is("rows")),
         "an idle frame resent rows: {idle:?}"
     );
+    Ok(())
+}
+
+#[test]
+fn the_layout_describes_each_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = changed_file(
+        "a.rs",
+        &five_lines(),
+        &five_lines().replace("line 2", "line 2 CHANGED"),
+    )?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["highlight", "--pane", "1", "2", "3"]);
+    let acted = rig.act(&mut ws, json!({"act": "toggle_diff", "pane": 1}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let layout = rig
+        .until(
+            &mut ws,
+            "diff view",
+            |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][1]["diff"] == true),
+        )
+        .json();
+    let p = &layout["panes"][1];
+    assert_eq!(p["name"], "a.rs", "{p}");
+    assert!(
+        p["path"].as_str().is_some_and(|s| s.ends_with("a.rs")),
+        "{p}"
+    );
+    assert_eq!(p["added"], 1, "{p}");
+    assert_eq!(p["removed"], 1, "{p}");
+    assert_eq!(p["highlight"], json!([2, 3]), "{p}");
+    assert_eq!(layout["panes"][0]["name"], "shell");
+    Ok(())
+}
+
+/// A markdown pane's header names the highlight's source lines, not its rendered rows.
+#[test]
+fn a_markdown_highlight_names_its_source_lines() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "a.md",
+        "# Title\n\nIntro.\n\n```rust\nfn a() {}\nfn b() {}\n```\n\nTarget.\n",
+    )?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["highlight", "--pane", "1", "10", "10"]);
+    let layout = rig
+        .until(&mut ws, "highlight", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "layout" && !v["panes"][1]["highlight"].is_null())
+        })
+        .json();
+    assert_eq!(layout["panes"][1]["highlight"], json!([10, 10]), "{layout}");
+    Ok(())
+}
+
+/// The web app's pane header takes the border's top two rows, so a pane shows its height minus three.
+#[test]
+fn the_web_border_is_three_rows() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    for p in report["panes"].as_array().expect("panes") {
+        let h = p["rect"]["height"].as_u64().expect("height");
+        assert_eq!(p["visible_rows"].as_u64(), Some(h - 3), "{p}");
+    }
+    let shell = &report["panes"][0]["rect"];
+    let size = rig.tab.pty.with_screen(|s| s.size());
+    let want = (
+        shell["height"].as_u64().unwrap_or(0) as u16 - 3,
+        shell["width"].as_u64().unwrap_or(0) as u16 - 2,
+    );
+    assert_eq!(size, want, "{shell}");
+    Ok(())
+}
+
+/// The web app wraps a file pane's line inside the border, less the gutter's blank cell, and
+/// `laura layout` counts its rows at that width.
+#[test]
+fn web_layout_counts_the_gutter_column() -> Result<()> {
+    let mut rig = Rig::new()?;
+    // Plain text wraps; code clips.
+    let (_dir, path) = file("a.txt", "x\n")?;
+    rig.drive(&["open", &path]);
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    let w = report["panes"][1]["rect"]["width"].as_u64().expect("width") as usize;
+    // Fills the TUI's text width exactly: the border's two columns, then a one-digit line number
+    // and the gutter's five cells (`Panel::layout`).
+    std::fs::write(&path, format!("{}\n", "y".repeat(w - 2 - 6)))?;
+    let start = Instant::now();
+    while !rig.tab.panels[&1].content.contains('y') {
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "the pane never reloaded"
+        );
+        rig.pump();
+        thread::sleep(Duration::from_millis(10));
+    }
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    assert_eq!(report["panes"][1]["content_rows"], 2, "{report}");
     Ok(())
 }
 
@@ -529,6 +629,30 @@ fn a_markdown_diff_view_tags_each_row_with_its_source_line() -> Result<()> {
     assert_eq!(line_of("# Title"), 1);
     assert_eq!(line_of("alpha"), 3);
     assert_eq!(line_of("beta CHANGED"), 4);
+    Ok(())
+}
+
+#[test]
+fn a_diff_row_names_its_change() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = changed_file("a.txt", "keep\nold\n", "keep\nnew\n")?;
+    rig.drive(&["open", &path]);
+    pane_frame(&mut rig, &mut ws, 1);
+    rig.act(&mut ws, json!({"act": "toggle_diff", "pane": 1}));
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let row = |text: &str| {
+        html.split("<div class=\"row")
+            .find(|r| r.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text}: {html}"))
+            .to_string()
+    };
+    assert!(row("+new").contains(r#"data-diff="add""#), "{html}");
+    assert!(row("-old").contains(r#"data-diff="del""#), "{html}");
+    assert!(!row("keep").contains("data-diff"), "{html}");
     Ok(())
 }
 
@@ -649,8 +773,221 @@ fn a_highlight_inside_a_block_lights_its_number() -> Result<()> {
             .unwrap_or("")
             .to_string()
     };
-    assert!(gutter(4).contains("color:#d8dee9"), "{html}");
-    assert!(!gutter(1).contains("color:#d8dee9"), "{html}");
+    assert!(gutter(4).contains("color:#1d1f24"), "{html}");
+    assert!(!gutter(1).contains("color:#1d1f24"), "{html}");
+    Ok(())
+}
+
+/// The Nord theme's code colors, which the light web app never shows.
+const NORD: [&str; 7] = [
+    "#81a1c1", "#a3be8c", "#8fbcbb", "#88c0d0", "#b48ead", "#616e88", "#d8dee9",
+];
+
+const RUST: &str = "fn main() {\n    let s = \"hi\";\n}\n";
+
+#[test]
+fn a_code_pane_shows_light_colors() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", RUST)?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    // `fn` in the light keyword red.
+    assert!(html.contains("color:#cf222e"), "{html}");
+    for nord in NORD {
+        assert!(!html.contains(nord), "{nord}: {html}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_markdown_code_block_shows_light_colors() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", &format!("# T\n\n```rust\n{RUST}```\n"))?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let (_, code) = blocks(&html)
+        .into_iter()
+        .find(|(_, b)| b.contains("<pre"))
+        .expect("a code block");
+    assert!(code.contains("color:#"), "{code}");
+    for nord in NORD {
+        assert!(!code.contains(nord), "{nord}: {code}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_highlighted_code_row_keeps_its_colors() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = file("a.rs", RUST)?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    // The cursor goes to line 1, so line 2 is a highlighted row off the cursor.
+    rig.drive(&["highlight", "--pane", "1", "1", "2"]);
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let row = html
+        .split(r#"<div class="row"#)
+        .find(|r| r.starts_with(r#" hl" data-line="2""#))
+        .expect("highlighted line 2");
+    // `let` in the light keyword red, as without the highlight.
+    assert!(row.contains("color:#cf222e"), "{row}");
+    Ok(())
+}
+
+#[test]
+fn the_cursor_keeps_the_highlights_band() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = file("a.rs", RUST)?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["highlight", "--pane", "1", "1", "2"]);
+    assert_eq!(rig.tab.focus, 1);
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let tag = |line: u32| {
+        html.split("<div ")
+            .find(|r| r.contains(&format!(r#"data-line="{line}""#)))
+            .and_then(|r| r.split('>').next())
+            .unwrap_or_else(|| panic!("no row {line}: {html}"))
+            .to_string()
+    };
+    // No inline background on the cursor's row, so the highlight's band shows through.
+    let first = tag(1);
+    assert!(first.starts_with(r#"class="row hl cur""#), "{first}");
+    assert!(!first.contains("background:"), "{first}");
+    assert!(tag(2).starts_with(r#"class="row hl""#), "{}", tag(2));
+    Ok(())
+}
+
+#[test]
+fn a_diff_hunk_shows_blue_in_light_colors() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.diff", "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n")?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let hunk = html
+        .split(r#"<div class="row"#)
+        .find(|r| r.contains("@@"))
+        .unwrap_or_else(|| panic!("no hunk row: {html}"));
+    assert!(hunk.contains("color:#0550ae"), "{hunk}");
+    assert!(!hunk.contains("#cf222e"), "{hunk}");
+    Ok(())
+}
+
+#[test]
+fn the_layout_names_each_panes_icon() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_p, page) = file("p.html", "<p>hi</p>\n")?;
+    let (_m, md) = file("m.md", "# hi\n")?;
+    rig.drive(&["open", &page]);
+    rig.drive(&["open", &md]);
+    let out = rig.run(&["tail", "--title", "t"]);
+    assert!(out.status.success());
+    let layout = rig
+        .until(&mut ws, "four panes", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"].as_array().is_some_and(|p| p.len() == 4))
+        })
+        .json();
+    let icons: Vec<_> = layout["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            (
+                p["name"].as_str().unwrap_or("").to_string(),
+                p["icon"].clone(),
+            )
+        })
+        .collect();
+    let icon = |name: &str| {
+        icons
+            .iter()
+            .find(|(n, _)| n.as_str() == name)
+            .map(|(_, i)| i.clone())
+    };
+    assert_eq!(icon("p.html"), Some(json!("page")), "{icons:?}");
+    assert_eq!(icon("m.md"), Some(Value::Null), "{icons:?}");
+    assert_eq!(icon("shell"), Some(Value::Null), "{icons:?}");
+    assert!(icons.iter().any(|(_, i)| i == "log"), "{icons:?}");
+    Ok(())
+}
+
+#[test]
+fn the_pane_selector_hint_names_its_keystrokes() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
+    let hint = pairs(&layout["hints"]["panes"]);
+    assert_eq!(
+        hint, "↑ ↓ select · Enter focus · type an id to focus at once · Esc close",
+        "{layout}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_help_names_the_mockups_groups() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
+    let groups: Vec<&str> = strings["help"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| g[0].as_str())
+        .collect();
+    for g in [
+        "Workspace",
+        "In a focused file pane",
+        "In an editor pane",
+        "Typing a comment or review body",
+    ] {
+        assert!(groups.contains(&g), "{groups:?}");
+    }
+    assert!(
+        strings["help_note"]
+            .as_str()
+            .is_some_and(|n| n.contains("Hover a button to see its keystroke")),
+        "{strings}"
+    );
+    Ok(())
+}
+
+#[test]
+fn comment_mode_names_its_keystrokes() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
+    let group = strings["help"]
+        .as_array()
+        .and_then(|gs| gs.iter().find(|g| g[0] == "Comment mode on an HTML page"))
+        .expect("a comment mode group");
+    assert!(
+        group[1]
+            .as_array()
+            .is_some_and(|keys| keys.iter().any(|k| k[0] == "Esc"))
+    );
+    let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
+    assert!(pairs(&layout["hints"]["comment_mode"]).contains("Esc leave comment mode"));
     Ok(())
 }
 
@@ -750,43 +1087,35 @@ fn a_thread_on_an_inner_line_shows_under_its_block() -> Result<()> {
     rig.drive(&["open", &path]);
     rig.drive(&["ready"]);
     rig.drive(&["comment", "--pane", "1", "5", "agent note"]);
-    let frame = rig
-        .until(&mut ws, "the card", |f| {
-            matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
-                && v["html"].as_str().is_some_and(|h| h.contains("agent note")))
-        })
-        .json();
+    rig.until(
+        &mut ws,
+        "the thread",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["line"] == 5),
+    );
+    let mut ws = rig.connect();
+    let frame = pane_frame(&mut rig, &mut ws, 1);
     assert_eq!(frame["cursor"], 0, "{frame}");
     let html = frame["html"].as_str().unwrap_or("");
-    let quote = html.find(r#"data-line="3""#).expect("the quote's block");
-    let card = html.find("agent note").expect("the card");
-    assert!(quote < card, "{html}");
-    assert!(
-        rows(html)
-            .iter()
-            .any(|(l, t)| *l == 5 && t.contains("agent note")),
-        "{html}"
-    );
+    // The browser draws the thread; the rows don't hold it.
+    assert!(!html.contains("agent note"), "{html}");
     // The quote's block shows the thread's caret.
     assert!(blocks(html)[1].1.contains('▾'), "{html}");
+    let quote = unit_of(html, 3);
     let acted = rig.act(
         &mut ws,
         json!({"act": "jump_thread", "pane": 1, "next": true}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
-    // The cursor shows on the thread's card, below the quote's block.
+    // The cursor is on the thread's card, below the quote's block.
     rig.until(&mut ws, "the cursor on the card", |f| {
-        matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1 && v["cursor"] == 3)
+        matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1
+            && v["card"] == 5 && v["cursor"] == quote)
     });
     let mut ws = rig.connect();
-    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-    assert!(
-        html.contains(r#"<div class="row cur" data-line="5""#),
-        "{html}"
-    );
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(frame["card"], 5, "{frame}");
+    let html = frame["html"].as_str().unwrap_or("").to_string();
+    assert!(!html.contains("agent note"), "{html}");
     let (_, quote) = blocks(&html)
         .into_iter()
         .find(|(l, _)| *l == 3)
@@ -883,22 +1212,25 @@ fn jump_thread_between_threads_in_one_block_moves_to_its_card() -> Result<()> {
     rig.drive(&["ready"]);
     rig.drive(&["comment", "--pane", "1", "5", "first"]);
     rig.drive(&["comment", "--pane", "1", "7", "second"]);
-    let frame = rig
-        .until(&mut ws, "both cards", |f| {
-            matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
-                && v["html"].as_str().is_some_and(|h| h.contains("second")))
-        })
-        .json();
-    let html = frame["html"].as_str().unwrap_or("");
-    for (needle, line) in [("first", 5), ("second", 7)] {
-        let want = unit_of(html, line);
+    rig.until(&mut ws, "both threads", |f| {
+        matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"].as_array().map(Vec::len) == Some(2))
+    });
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    // Both cards sit below the quote's block, so the cursor stays on its index.
+    let want = unit_of(&html, 3);
+    for line in [5, 7] {
         let acted = rig.act(
             &mut ws,
             json!({"act": "jump_thread", "pane": 1, "next": true}),
         );
         assert_eq!(acted["ok"], true, "{acted}");
-        rig.until(&mut ws, needle, |f| {
-            matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1 && v["cursor"] == want)
+        rig.until(&mut ws, "the cursor on the card", |f| {
+            matches!(f, Frame::Json(v) if (v["t"] == "rows" || v["t"] == "pane") && v["id"] == 1
+                && v["card"] == line && v["cursor"] == want)
         });
     }
     Ok(())
@@ -918,39 +1250,43 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
     rig.drive(&["comment", "--pane", "1", "4", "t2"]);
     rig.drive(&["comment", "--pane", "1", "6", "out"]);
     pane_frame(&mut rig, &mut ws, 1);
-    let collapsed = |rig: &Rig| -> Vec<(String, bool)> {
-        rig.tab.panels[&1]
-            .threads
-            .iter()
-            .map(|t| (t.root.body.clone(), t.collapsed))
-            .collect()
-    };
-    let table = |rig: &mut Rig, ws: &mut Ws| {
-        blocks(pane_frame(rig, ws, 1)["html"].as_str().unwrap_or(""))[0]
-            .1
-            .clone()
+    // A fresh view's pane frame: the table's block, and each thread's body and state.
+    let view = |rig: &mut Rig, ws: &mut Ws| -> (String, Vec<(String, bool)>) {
+        *ws = rig.connect();
+        let frame = pane_frame(rig, ws, 1);
+        let threads = frame["threads"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|t| {
+                let body = t["notes"][0]["body"].as_str().unwrap_or("").to_string();
+                (body, t["collapsed"] == true)
+            })
+            .collect();
+        let table = blocks(frame["html"].as_str().unwrap_or(""))[0].1.clone();
+        (table, threads)
     };
     let toggle = json!({"act": "toggle_thread", "pane": 1});
 
     // The cursor starts on the table's block.
     rig.act(&mut ws, toggle.clone());
+    let (t, collapsed) = view(&mut rig, &mut ws);
     assert_eq!(
-        collapsed(&rig),
+        collapsed,
         [
             ("t1".into(), true),
             ("t2".into(), true),
             ("out".into(), false)
         ]
     );
-    let t = table(&mut rig, &mut ws);
     assert!(t.contains(r#"<tr data-line="3" class="th shut">"#), "{t}");
     assert!(t.contains(r#"<tr data-line="4" class="th shut">"#), "{t}");
     // A stop's caret shows on its row, not in the block's gutter.
     assert!(!t.contains('▸') && !t.contains('▾'), "{t}");
 
     rig.act(&mut ws, toggle.clone());
-    assert!(collapsed(&rig).iter().all(|(_, c)| !c));
-    let t = table(&mut rig, &mut ws);
+    let (t, collapsed) = view(&mut rig, &mut ws);
+    assert!(collapsed.iter().all(|(_, c)| !c));
     assert!(t.contains(r#"<tr data-line="3" class="th">"#), "{t}");
     assert!(t.contains(r#"<tr data-line="4" class="th">"#), "{t}");
 
@@ -962,15 +1298,15 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
         );
     }
     rig.act(&mut ws, toggle.clone());
+    let (t, collapsed) = view(&mut rig, &mut ws);
     assert_eq!(
-        collapsed(&rig),
+        collapsed,
         [
             ("t1".into(), false),
             ("t2".into(), true),
             ("out".into(), false)
         ]
     );
-    let t = table(&mut rig, &mut ws);
     assert!(t.contains(r#"<tr data-line="3" class="th">"#), "{t}");
     assert!(
         t.contains(r#"<tr data-line="4" class="cur th shut">"#),
@@ -980,7 +1316,7 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
     // On a blank line, `r` collapses every thread, as in the TUI.
     rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
     rig.act(&mut ws, toggle);
-    assert!(collapsed(&rig).iter().all(|(_, c)| *c));
+    assert!(view(&mut rig, &mut ws).1.iter().all(|(_, c)| *c));
     Ok(())
 }
 
@@ -1004,11 +1340,15 @@ fn a_thread_on_a_blank_line_shows_in_a_markdown_pane() -> Result<()> {
     rig.drive(&["open", &path]);
     rig.drive(&["ready"]);
     rig.drive(&["comment", "--pane", "1", "2", "gap note"]);
-    rig.until(
+    let Frame::Json(v) = rig.until(
         &mut ws,
-        "the card",
-        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v.to_string().contains("gap note")),
-    );
+        "the thread",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["line"] == 2),
+    ) else {
+        unreachable!()
+    };
+    // The browser draws the card from `threads`; the rows hold no copy of it.
+    assert!(!v["html"].to_string().contains("gap note"), "{v}");
     let acted = rig.act(
         &mut ws,
         json!({"act": "jump_thread", "pane": 1, "next": true}),
@@ -1218,12 +1558,13 @@ fn a_nested_item_is_its_own_unit() -> Result<()> {
     rig.drive(&["open", &path]);
     rig.drive(&["ready"]);
     rig.drive(&["comment", "--pane", "1", "2", "note"]);
-    let frame = rig
-        .until(&mut ws, "the thread", |f| {
-            matches!(f, Frame::Json(v) if v["t"] == "pane" && v["id"] == 1
-                && v["html"].as_str().is_some_and(|h| h.contains("note")))
-        })
-        .json();
+    rig.until(
+        &mut ws,
+        "the thread",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["line"] == 2),
+    );
+    let mut ws = rig.connect();
+    let frame = pane_frame(&mut rig, &mut ws, 1);
     let html = frame["html"].as_str().unwrap_or("");
     assert!(html.contains(r#"<li data-line="2" class="th">"#), "{html}");
     // The item's caret shows on the item, not in the block's gutter.
@@ -1316,7 +1657,24 @@ fn an_editor_pane_streams_its_terminal_and_refuses_diff() -> Result<()> {
 }
 
 #[test]
-fn a_frozen_pane_shows_in_the_layout_and_a_notice() -> Result<()> {
+fn an_editor_panes_layout_marks_unsaved_edits() -> Result<()> {
+    let mut rig = Rig::new()?;
+    rig.tab.editor = Ok(fake_nvim());
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", "--edit", &path]);
+    let unsaved = |want: bool| move |f: &Frame| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][1]["unsaved"] == want);
+    rig.until(&mut ws, "saved", unsaved(false));
+    // Neovim's marker for unsaved edits (src/editor.rs `modified`).
+    let dirty = std::env::temp_dir().join(format!("{}-1.dirty", rig.tab.socket));
+    std::fs::write(&dirty, "")?;
+    rig.until(&mut ws, "unsaved", unsaved(true));
+    std::fs::remove_file(&dirty)?;
+    Ok(())
+}
+
+#[test]
+fn a_frozen_pane_shows_in_the_layout_without_a_notice() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     let (_dir, path) = file("a.rs", &five_lines())?;
@@ -1336,13 +1694,123 @@ fn a_frozen_pane_shows_in_the_layout_and_a_notice() -> Result<()> {
         "frozen layout",
         |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][1]["frozen"] == true),
     );
-    let notice = rig.until(
+    // The web app shows a banner on the pane in place of the TUI's notice.
+    let frames = rig.idle(&mut ws, 10);
+    assert!(!frames.iter().any(|f| f.is("notice")));
+    Ok(())
+}
+
+#[test]
+fn the_layout_says_when_the_agent_is_ready() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
+    assert_eq!(layout["agent"], false, "{layout}");
+    rig.drive(&["ready"]);
+    rig.until(
         &mut ws,
-        "frozen notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["frozen"] == true),
+        "ready layout",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["agent"] == true),
     );
-    let text = notice.json()["text"].as_str().unwrap_or("").to_string();
-    assert!(text.contains("a.rs"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn a_reload_marks_the_pane_frame() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    pane_frame(&mut rig, &mut ws, 1);
+    // A cursor move rewrites rows, but the file didn't change.
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "move_cursor", "pane": 1, "delta": 1}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let rows = rig
+        .until(
+            &mut ws,
+            "rows frame",
+            |f| matches!(f, Frame::Json(v) if v["t"] == "rows" && v["id"] == 1),
+        )
+        .json();
+    assert_eq!(rows["reloaded"], false, "{rows}");
+    std::fs::write(&path, "changed on disk\n")?;
+    rig.until(&mut ws, "reloaded frame", |f| {
+        matches!(f, Frame::Json(v) if (v["t"] == "pane" || v["t"] == "rows") && v["id"] == 1 && v["reloaded"] == true)
+    });
+    Ok(())
+}
+
+/// A `pane` or `rows` frame for pane `id`.
+fn rows_frame(f: &Frame, id: u64) -> bool {
+    matches!(f, Frame::Json(v) if (v["t"] == "pane" || v["t"] == "rows") && v["id"] == id)
+}
+
+#[test]
+fn a_swapped_file_is_not_a_reload() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines().replace("line", "bee"))?;
+    rig.drive(&["open", &a]);
+    pane_frame(&mut rig, &mut ws, 1);
+    rig.drive(&["open", &b, "--panel", "1"]);
+    let swapped = rig
+        .until(&mut ws, "b's rows", |f| {
+            rows_frame(f, 1) && matches!(f, Frame::Json(v) if v.to_string().contains("bee"))
+        })
+        .json();
+    assert_eq!(swapped["reloaded"], false, "{swapped}");
+    std::fs::write(&b, "bee changed\n")?;
+    rig.until(&mut ws, "b reloaded", |f| {
+        rows_frame(f, 1) && matches!(f, Frame::Json(v) if v["reloaded"] == true)
+    });
+    Ok(())
+}
+
+#[test]
+fn a_tail_pane_reloads_on_new_output() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    let name = rig.tab.socket.clone();
+    let rx = {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let out = Command::cargo_bin("laura")
+                .unwrap()
+                .args(["tail", "--title", "t"])
+                .env("LAURA_TAB", &name)
+                .write_stdin("hello\n")
+                .output()
+                .unwrap();
+            let _ = tx.send(out);
+        });
+        rx
+    };
+    assert!(rig.wait(&rx).status.success());
+    rig.until(&mut ws, "tail rows", |f| rows_frame(f, 1));
+    let spool = rig.tab.panels[&1].path.clone();
+    let mut out = std::fs::OpenOptions::new().append(true).open(&spool)?;
+    writeln!(out, "more output")?;
+    drop(out);
+    let mut frames = vec![];
+    let start = Instant::now();
+    while !frames
+        .iter()
+        .any(|f: &Value| f.to_string().contains("more output"))
+    {
+        assert!(start.elapsed() < common::DEADLINE, "no new output");
+        frames.extend(
+            rig.idle(&mut ws, 1)
+                .into_iter()
+                .filter(|f| rows_frame(f, 1))
+                .map(Frame::json),
+        );
+    }
+    assert!(frames.iter().any(|f| f["reloaded"] == true), "{frames:?}");
     Ok(())
 }
 
@@ -1585,6 +2053,24 @@ fn page_frame(rig: &mut Rig, ws: &mut Ws, id: u64, want: impl Fn(&Value) -> bool
     .json()
 }
 
+/// A hint's `[keystroke, label]` pairs as one line: `key label · label`.
+fn pairs(v: &Value) -> String {
+    let items: Vec<String> = v
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            let (k, l) = (p[0].as_str().unwrap_or(""), p[1].as_str().unwrap_or(""));
+            if k.is_empty() {
+                l.to_string()
+            } else {
+                format!("{k} {l}")
+            }
+        })
+        .collect();
+    items.join(" · ")
+}
+
 /// A `GET`'s body.
 fn body(resp: &str) -> &str {
     resp.split_once("\r\n\r\n").map_or("", |(_, b)| b)
@@ -1600,7 +2086,7 @@ fn an_html_pane_shows_its_page() -> Result<()> {
     let hint = |arrows: bool| {
         move |f: &Frame| {
             matches!(f, Frame::Json(v) if v["t"] == "layout" && v["focus"] == 1
-                && v["hints"]["pane"].as_str().is_some_and(|h| h.contains("↑/↓") == arrows))
+                && pairs(&v["hints"]["pane"]).contains(if arrows { "↑ ↓" } else { "Click an element" }))
         }
     };
     rig.until(&mut ws, "hint without arrows", hint(false));
@@ -1720,7 +2206,7 @@ fn a_missing_html_file_shows_rows_with_the_arrows() -> Result<()> {
     // No route, so the pane shows rows, which take the arrows.
     rig.until(&mut ws, "hint with arrows", |f| {
         matches!(f, Frame::Json(v) if v["t"] == "layout" && v["focus"] == 1
-            && v["hints"]["pane"].as_str().is_some_and(|h| h.contains("↑/↓")))
+            && pairs(&v["hints"]["pane"]).contains("↑ ↓"))
     });
     pane_frame(&mut rig, &mut ws, 1);
     Ok(())
@@ -1799,6 +2285,18 @@ fn a_page_loads_its_own_assets() -> Result<()> {
 }
 
 #[test]
+fn the_fonts_are_served() -> Result<()> {
+    let rig = Rig::new()?;
+    for font in ["/fonts/Inter.woff2", "/fonts/JetBrainsMono.woff2"] {
+        let resp = get(rig.port, font)?;
+        assert!(resp.starts_with("HTTP/1.1 200"), "{font}");
+        assert!(resp.contains("Content-Type: font/woff2\r\n"), "{font}");
+        assert!(body(&resp).starts_with("wOF2"), "{font}");
+    }
+    Ok(())
+}
+
+#[test]
 fn a_frozen_page_serves_its_snapshot() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
@@ -1810,7 +2308,7 @@ fn a_frozen_page_serves_its_snapshot() -> Result<()> {
         json!({"act": "comment", "pane": 1, "line": 4, "text": "q"}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
-    let url = page_frame(&mut rig, &mut ws, 1, |v| v["threads"] == json!([4]))["page"]
+    let url = page_frame(&mut rig, &mut ws, 1, |v| v["threads"][0]["line"] == 4)["page"]
         .as_str()
         .unwrap_or("")
         .to_string();
@@ -1850,14 +2348,42 @@ fn a_comment_on_an_element_quotes_its_tag() -> Result<()> {
         &mut ws,
         json!({"act": "comment", "pane": 1, "line": 4, "text": "q"}),
     );
-    let frame = page_frame(&mut rig, &mut ws, 1, |v| v["threads"] == json!([4]));
+    let frame = page_frame(&mut rig, &mut ws, 1, |v| v["threads"][0]["line"] == 4);
     assert_eq!(frame["cursor"], 4, "{frame}");
-    let cards = rows(frame["cards"].as_str().unwrap_or(""));
-    assert!(cards.iter().any(|(_, t)| t.contains('q')), "{frame}");
+    assert_eq!(frame["threads"][0]["notes"][0]["body"], "q", "{frame}");
+    assert_eq!(frame["card"], 4, "{frame}");
     rig.act(&mut ws, json!({"act": "begin_review", "pane": 1}));
     let acted = rig.act(&mut ws, json!({"act": "submit", "pane": 1, "body": ""}));
     assert_eq!(acted["ok"], true, "{acted}");
     rig.shell_shows(r#"L4  <button id="b""#);
+    Ok(())
+}
+
+#[test]
+fn a_thread_names_its_block() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, md) = file("doc.md", "# Title\n\nSome prose.\n")?;
+    rig.drive(&["open", &md]);
+    rig.drive(&["comment", "--pane", "1", "3", "on prose"]);
+    rig.until(
+        &mut ws,
+        "the paragraph's label",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["label"] == "paragraph"),
+    );
+    let (_dir2, page) = file("page.html", PAGE)?;
+    rig.drive(&["open", &page]);
+    rig.drive(&["comment", "--pane", "2", "4", "on the button"]);
+    page_frame(&mut rig, &mut ws, 2, |v| {
+        v["threads"][0]["label"] == "<button#b>"
+    });
+    // An attribute after a tab; `data-id` isn't `id`.
+    let (_dir3, tabbed) = file("tabbed.html", "<p data-id=\"x\"\tclass=\"c\">x</p>\n")?;
+    rig.drive(&["open", &tabbed]);
+    rig.drive(&["comment", "--pane", "3", "1", "on the paragraph"]);
+    page_frame(&mut rig, &mut ws, 3, |v| {
+        v["threads"][0]["label"] == "<p.c>"
+    });
     Ok(())
 }
 
@@ -1878,10 +2404,7 @@ fn a_stalled_view_never_blocks_the_shell() -> Result<()> {
     // Each keystroke echoes as its own chunk; type until the reader has sent well past the bound.
     let (mut chunks, start) = (0, Instant::now());
     while chunks < 400 {
-        assert!(
-            start.elapsed() < Duration::from_secs(30),
-            "only {chunks} chunks"
-        );
+        assert!(start.elapsed() < common::DEADLINE, "only {chunks} chunks");
         rig.tab.pty.write(b"x")?;
         thread::sleep(Duration::from_millis(2));
         chunks += counter.try_iter().count();
@@ -1894,10 +2417,7 @@ fn a_stalled_view_never_blocks_the_shell() -> Result<()> {
         .with_screen(|s| s.contents())
         .contains("stallmark")
     {
-        assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "the shell stalled"
-        );
+        assert!(start.elapsed() < common::DEADLINE, "the shell stalled");
         thread::sleep(Duration::from_millis(10));
     }
     let mut left = 0;
@@ -1968,7 +2488,10 @@ fn quit_ends_the_loop_and_tells_the_view() -> Result<()> {
     send(&mut ws, json!({"quit": true}));
     let start = Instant::now();
     while rig.pump() {
-        assert!(start.elapsed() < DEADLINE, "quit didn't end the loop");
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "quit didn't end the loop"
+        );
         thread::sleep(Duration::from_millis(5));
     }
     let Rig { web, .. } = rig;
@@ -1978,7 +2501,7 @@ fn quit_ends_the_loop_and_tells_the_view() -> Result<()> {
         match read(&mut ws) {
             Some(f) if f.is("exit") => break,
             Some(Frame::Closed) => panic!("closed before exit"),
-            _ => assert!(start.elapsed() < DEADLINE, "no exit frame"),
+            _ => assert!(start.elapsed() < common::DEADLINE, "no exit frame"),
         }
     }
     Ok(())
@@ -1999,6 +2522,144 @@ fn a_file_panes_threads_show_in_the_layout() -> Result<()> {
 }
 
 #[test]
+fn a_thread_shows_as_data() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready", "--agent", "claude"]);
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 4, "text": "user note"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.drive(&["comment", "--pane", "1", "2", "agent note"]);
+    let mut ws = rig.connect();
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(
+        frame["threads"],
+        json!([
+            {"line": 2, "collapsed": false, "label": null, "notes": [{"author": "claude", "body": "agent note"}]},
+            {"line": 4, "collapsed": false, "label": null, "notes": [{"author": null, "body": "user note"}]},
+        ]),
+        "{frame}"
+    );
+    let html = frame["html"].as_str().unwrap_or("");
+    assert!(
+        rows(html).iter().all(|(_, t)| !t.contains("note")),
+        "{html}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_collapsed_thread_says_so() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "2", "agent note"]);
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 2}));
+    rig.until(
+        &mut ws,
+        "the cursor on the thread",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v["card"] == 2),
+    );
+    let acted = rig.act(&mut ws, json!({"act": "toggle_thread", "pane": 1}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.until(&mut ws, "a collapsed thread", |f| {
+        matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["collapsed"] == true && v["card"].is_null())
+    });
+    Ok(())
+}
+
+#[test]
+fn a_thread_in_a_block_toggles_alone() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("q.md", "# T\n\n> one\n>\n> two\n>\n> three\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    for line in ["3", "5", "7"] {
+        rig.drive(&["comment", "--pane", "1", line, "agent note"]);
+    }
+    let collapsed = |rig: &Rig| -> Vec<bool> {
+        rig.tab.panels[&1]
+            .threads
+            .iter()
+            .map(|t| t.collapsed)
+            .collect()
+    };
+    // `r` on a thread off the block's first line toggles that thread, both ways.
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
+    rig.act(&mut ws, json!({"act": "toggle_thread", "pane": 1}));
+    assert_eq!(collapsed(&rig), [false, true, false]);
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
+    rig.act(&mut ws, json!({"act": "toggle_thread", "pane": 1}));
+    assert_eq!(collapsed(&rig), [false, false, false]);
+    // A card's button toggles its thread alone, even on the block's first line.
+    rig.act(
+        &mut ws,
+        json!({"act": "toggle_thread", "pane": 1, "line": 3}),
+    );
+    assert_eq!(collapsed(&rig), [true, false, false]);
+    // `r` on the block toggles every thread in the block.
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 3}));
+    rig.act(&mut ws, json!({"act": "toggle_thread", "pane": 1}));
+    assert_eq!(collapsed(&rig), [true, true, true]);
+    Ok(())
+}
+
+#[test]
+fn an_unfocused_page_keeps_its_cursor_line() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file(
+        "page.html",
+        "<!doctype html>\n<html>\n<body>\n<p>four</p>\n</body>\n</html>\n",
+    )?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "4", "agent note"]);
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    // The browser shows the cursor's thread below the page; the frame's band follows the focus.
+    page_frame(&mut rig, &mut ws, 1, |v| {
+        v["cursor"].is_null() && v["line"] == 4
+    });
+    Ok(())
+}
+
+/// **Delete** on the user's own last comment saves it empty, which removes the comment and its thread.
+#[test]
+fn an_empty_comment_deletes_your_last_comment() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 2, "text": "user note"}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    // A new view gets the pane's current frame.
+    let mut ws = rig.connect();
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(frame["threads"][0]["line"], 2, "{frame}");
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 2, "text": ""}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let mut ws = rig.connect();
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(frame["threads"], json!([]), "{frame}");
+    Ok(())
+}
+
+#[test]
 fn comment_and_submit_from_the_browser() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
@@ -2014,7 +2675,7 @@ fn comment_and_submit_from_the_browser() -> Result<()> {
     assert_eq!(acted["ok"], true, "{acted}");
     assert_eq!(acted["text"], "", "{acted}");
     assert_eq!(acted["line"], 2, "{acted}");
-    let hint = acted["hint"].as_str().unwrap_or("");
+    let hint = pairs(&acted["hint"]);
     assert!(
         hint.contains("L2") && hint.contains("Shift+Enter"),
         "{hint}"
@@ -2025,24 +2686,26 @@ fn comment_and_submit_from_the_browser() -> Result<()> {
     );
     assert_eq!(acted["ok"], true, "{acted}");
     assert_eq!(rig.tab.panels[&1].thread_count(), 1);
-    // A newline starts a new row inside the thread's card.
-    let html = pane_frame(&mut rig, &mut ws, 1)["html"].clone();
-    let card = rows(html.as_str().unwrap_or(""));
+    // The comment keeps its newline, and the rows don't hold it.
+    let mut ws = rig.connect();
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(
+        frame["threads"][0]["notes"][0]["body"], "user note\nsecond line",
+        "{frame}"
+    );
+    let html = frame["html"].as_str().unwrap_or("");
     assert!(
-        card.iter().all(|(_, t)| !t.contains('\n'))
-            && card
-                .iter()
-                .any(|(_, t)| t.contains("second line") && !t.contains("user note")),
-        "{card:?}"
+        rows(html).iter().all(|(_, t)| !t.contains("user note")),
+        "{html}"
     );
     // Again on the same line: the draft edits the user's comment.
     let acted = rig.act(&mut ws, begin);
     assert_eq!(acted["text"], "user note\nsecond line", "{acted}");
-    let hint = acted["hint"].as_str().unwrap_or("");
+    let hint = pairs(&acted["hint"]);
     assert!(hint.contains("empty deletes"), "{hint}");
     let acted = rig.act(&mut ws, json!({"act": "begin_review", "pane": 1}));
-    let hint = acted["hint"].as_str().unwrap_or("");
-    assert!(hint.contains("review body"), "{hint}");
+    let hint = pairs(&acted["hint"]);
+    assert!(hint.contains("Review body"), "{hint}");
     let acted = rig.act(
         &mut ws,
         json!({"act": "submit", "pane": 1, "body": "overall"}),
@@ -2133,13 +2796,14 @@ impl Drop for Kill {
     }
 }
 
-#[test]
-fn laura_web_serves_a_workspace_until_the_user_quits() -> Result<()> {
+/// `laura --web` started in `dir`, and a view connected to it.
+fn laura_web(dir: &Path) -> Result<(Kill, Ws)> {
     isolate_home();
     let program = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
     let mut child = Kill(
         StdCommand::new(env!("CARGO_BIN_EXE_laura"))
             .args(["--web", "--", program])
+            .current_dir(dir)
             .env("LAURA_EXPERIMENTAL_WEB", "1")
             .env_remove("LAURA_TAB")
             .stdin(Stdio::null())
@@ -2154,16 +2818,56 @@ fn laura_web_serves_a_workspace_until_the_user_quits() -> Result<()> {
         let _ = BufReader::new(stdout).read_line(&mut line);
         let _ = tx.send(line);
     });
-    let url = rx.recv_timeout(Duration::from_secs(10))?;
+    let url = rx.recv_timeout(common::DEADLINE)?;
     let (port, token) = port_token(url.trim());
-    let mut ws = connect_to(
+    let ws = connect_to(
         port,
         Some(&token),
         Some(&format!("http://localhost:{port}")),
     )?;
+    Ok((child, ws))
+}
+
+#[test]
+fn the_strings_carry_the_root_path() -> Result<()> {
+    isolate_home();
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    let (_child, mut ws) = laura_web(dir.path())?;
+    let start = Instant::now();
+    let strings = loop {
+        if let Some(f) = read(&mut ws).filter(|f| f.is("strings")) {
+            break f.json();
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no strings");
+    };
+    let name = dir.path().file_name().expect("a named folder");
+    assert_eq!(
+        strings["root"],
+        format!("~/{}", name.to_string_lossy()),
+        "{strings}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_strings_carry_the_web_failed_text() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
+    // The web app's review popover names the keystrokes on its buttons, so its text names none.
+    assert_eq!(
+        strings["draft"]["failed"],
+        "⚠ inline review submission failed. Laura kept the threads and the review body."
+    );
+    Ok(())
+}
+
+#[test]
+fn laura_web_serves_a_workspace_until_the_user_quits() -> Result<()> {
+    let (mut child, mut ws) = laura_web(Path::new(env!("CARGO_MANIFEST_DIR")))?;
     let start = Instant::now();
     while !read(&mut ws).is_some_and(|f| f.is("layout")) {
-        assert!(start.elapsed() < DEADLINE, "no layout");
+        assert!(start.elapsed() < common::DEADLINE, "no layout");
     }
     send(&mut ws, json!({"quit": true}));
     let start = Instant::now();
@@ -2172,7 +2876,7 @@ fn laura_web_serves_a_workspace_until_the_user_quits() -> Result<()> {
             break s;
         }
         assert!(
-            start.elapsed() < Duration::from_secs(10),
+            start.elapsed() < common::DEADLINE,
             "laura --web kept running"
         );
         let _ = read(&mut ws);

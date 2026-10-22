@@ -1,7 +1,8 @@
 //! A request sent by `laura open` from a separate process is framed, decoded, and answered by an in-process listener (request → response).
 
+mod common;
+
 use std::thread;
-use std::time::Duration;
 
 use anyhow::Result;
 use assert_cmd::Command;
@@ -24,7 +25,7 @@ fn open_round_trips_across_processes() -> Result<()> {
             .success();
     });
 
-    let (got, reply) = rx.recv_timeout(Duration::from_secs(5))?;
+    let (got, reply) = rx.recv_timeout(common::DEADLINE)?;
     reply.send(&Response::Opened {
         pane: 1,
         warnings: vec![],

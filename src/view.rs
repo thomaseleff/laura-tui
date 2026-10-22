@@ -67,7 +67,7 @@ pub fn pane_title(id: PaneId, panel: &Panel, editor: Option<&Nvim>) -> Line<'sta
 }
 
 /// A pane title's path: relative to Laura's cwd, so `[review: N]` fits a half-width pane.
-fn display_path(path: &str) -> String {
+pub(crate) fn display_path(path: &str) -> String {
     std::env::current_dir()
         .ok()
         .and_then(|cwd| {
@@ -144,12 +144,15 @@ fn dim_span(mut s: Span<'static>) -> Span<'static> {
 }
 
 /// A file pane's styled rows over `layout` (pre-wrapped to `width`): gutter, agent-highlight
-/// spotlight, and the cursor band when `focused`.
+/// spotlight, and the cursor band when `focused`. `web` keeps a highlighted row's colors, since the web
+/// app's highlight is a light band that brightened text washes out, and leaves the band's padding to
+/// the browser, which paints the band across the row.
 pub fn panel_lines(
     panel: &Panel,
     layout: &PanelLayout,
     focused: bool,
     width: usize,
+    web: bool,
 ) -> Vec<Line<'static>> {
     let gw = layout.gutter_width;
     let spotlight = panel.highlight.is_some();
@@ -207,7 +210,9 @@ pub fn panel_lines(
                 let mut body: Vec<Span> = r.spans.to_vec();
                 if !on_cursor {
                     if highlighted {
-                        body = body.into_iter().map(bright_span).collect();
+                        if !web {
+                            body = body.into_iter().map(bright_span).collect();
+                        }
                     } else if spotlight {
                         body = body.into_iter().map(dim_span).collect();
                     }
@@ -233,7 +238,7 @@ pub fn panel_lines(
                             s.style.fg = Some(CODE_ON_BAND);
                         }
                     }
-                    if pad > 0 {
+                    if pad > 0 && !web {
                         spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
                     }
                     Line::from(spans).bg(BAND)
@@ -263,44 +268,143 @@ pub enum Hint {
     Panes,
     /// No popup or draft: the focused pane's keystrokes.
     Pane,
+    /// The web app's comment mode on an HTML page.
+    CommentMode,
+    /// The web app's focused HTML page, which takes clicks in place of the arrows.
+    Page,
 }
 
-/// The hint line's text for `mode`.
-pub fn hint(tab: &Tab, mode: Hint) -> String {
+/// A hint line: `(keystroke, label)` pairs. An empty keystroke is plain text.
+pub type Pairs = Vec<(&'static str, String)>;
+
+/// The hint line's pairs for `mode`.
+pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
     let pty = tab.pane_pty(tab.focus).is_some();
     let newline = newline_key(tab.web);
     let editor_focused = pty && tab.focus != PTY_PANE;
-    match mode {
-        Hint::Locked if editor_focused => {
-            "  🔒 locked — every keystroke goes to Neovim · F12 unlock".into()
+    let editor = tab.editors.contains_key(&tab.focus);
+    let v: Vec<(&'static str, &str)> = match mode {
+        Hint::Locked if editor_focused => vec![
+            ("", "🔒 locked — every keystroke goes to Neovim"),
+            ("F12", "unlock"),
+        ],
+        Hint::Locked => vec![
+            ("", "🔒 locked — every keystroke goes to the shell"),
+            ("F12", "unlock"),
+        ],
+        Hint::Wizard => vec![
+            ("y", "yes, use Laura's theme"),
+            ("n", "no, keep mine"),
+            ("Esc", "not now"),
+        ],
+        Hint::Quit => vec![("", "quit? press y to confirm · any other keystroke cancels")],
+        Hint::Comment { line, edit } => {
+            let mut v: Pairs = vec![
+                ("", format!("Comment L{line}")),
+                (
+                    "Enter",
+                    if edit {
+                        "save (empty deletes)"
+                    } else {
+                        "comment"
+                    }
+                    .into(),
+                ),
+                (newline, "new line".into()),
+                ("Esc", "cancel".into()),
+            ];
+            if tab.web {
+                v.push(("", "Click any pane to select text to paste".into()));
+            }
+            return v;
         }
-        Hint::Locked => "  🔒 locked — every keystroke goes to the shell · F12 unlock".into(),
-        Hint::Wizard => "  y yes, use Laura's theme · n no, keep mine · Esc not now".into(),
-        Hint::Quit => "  quit? press y to confirm · any other keystroke cancels".into(),
-        Hint::Comment { line, edit } => format!(
-            "  comment L{line} · {newline} newline · {} · Esc cancel",
-            if edit {
-                "Enter save (empty deletes)"
+        Hint::Review => vec![
+            ("", "Review body"),
+            ("Enter", "submit"),
+            (newline, "new line"),
+            ("Esc", "cancel"),
+        ],
+        // The TUI's popup doesn't take the arrows.
+        Hint::Panes if tab.web => vec![
+            ("↑ ↓", "select"),
+            ("Enter", "focus"),
+            ("", "type an id to focus at once"),
+            ("Esc", "close"),
+        ],
+        Hint::Panes => vec![
+            ("Enter", "focus"),
+            ("", "type an id to focus at once"),
+            ("Esc", "close"),
+        ],
+        Hint::Page => [
+            vec![("", "Click an element")],
+            when(tab.agent, vec![("c", "comment")]),
+            vec![("n N", "threads")],
+            when(tab.agent, vec![("Shift+S", "submit")]),
+            vec![
+                ("d", "diff"),
+                ("Ctrl+R", "refresh"),
+                ("x", "close"),
+                ("Esc", "shell"),
+            ],
+            when(!tab.agent, vec![("", READY)]),
+        ]
+        .concat(),
+        Hint::Pane if !pty => [
+            vec![("↑ ↓", "move")],
+            when(tab.agent, vec![("c", "comment")]),
+            vec![("n N", "threads"), ("r", "collapse")],
+            when(tab.agent, vec![("Shift+S", "submit")]),
+            if editor {
+                vec![("Ctrl+L", "editor view")]
             } else {
-                "Enter add"
+                vec![("d", "diff"), ("h", "clear highlight")]
+            },
+            vec![("Ctrl+R", "refresh"), ("x", "close"), ("Esc", "shell")],
+            when(!tab.agent, vec![("", READY)]),
+        ]
+        .concat(),
+        Hint::Pane if editor_focused => vec![
+            ("Ctrl+L", "file view"),
+            ("]d [d", "threads"),
+            (":w", "save"),
+            ("Ctrl+P", "find a pane"),
+            ("", "Other keystrokes go to Neovim"),
+        ],
+        Hint::Pane => vec![
+            ("Ctrl+P", "find a pane"),
+            ("Ctrl+H", "keystrokes"),
+            ("", "Other keystrokes go to the shell"),
+        ],
+        Hint::CommentMode => vec![
+            ("", "Click an element to comment"),
+            ("Esc", "leave comment mode"),
+        ],
+    };
+    v.into_iter().map(|(k, l)| (k, l.to_string())).collect()
+}
+
+/// The hint line's note before the agent runs `laura ready`.
+const READY: &str = "inline review: run `laura ready`";
+
+/// `pairs` when `on`, else none.
+fn when<T>(on: bool, pairs: Vec<T>) -> Vec<T> {
+    if on { pairs } else { Vec::new() }
+}
+
+/// The TUI's hint line: `key label · key label`.
+pub fn hint_text(pairs: &Pairs) -> String {
+    let items: Vec<String> = pairs
+        .iter()
+        .map(|(k, l)| {
+            if k.is_empty() {
+                l.clone()
+            } else {
+                format!("{k} {l}")
             }
-        ),
-        Hint::Review => format!("  review body · {newline} newline · Enter submit · Esc cancel"),
-        Hint::Panes => "  type a pane id · Enter pick · Esc dismiss".into(),
-        Hint::Pane if !pty => {
-            match (tab.agent, tab.editors.contains_key(&tab.focus)) {
-                (true, false) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · d diff · x close · h clear · Esc leave pane",
-                (true, true) => "  ↑/↓ move · n/N next/prev thread · c comment · r threads · Shift+S submit · Ctrl+R refresh · x close · Ctrl+L edit · Esc leave pane",
-                (false, false) => "  ↑/↓ move · n/N next/prev thread · r threads · d diff · x close · h clear · Esc leave pane · inline review: run `laura ready`",
-                (false, true) => "  ↑/↓ move · n/N next/prev thread · r threads · x close · Ctrl+L edit · Esc leave pane · inline review: run `laura ready`",
-            }
-            .into()
-        }
-        Hint::Pane if editor_focused => {
-            "  Ctrl+L file view · Ctrl+P panes · Ctrl+H help · Ctrl+Q quit".into()
-        }
-        Hint::Pane => "  Ctrl+P panes · Ctrl+H help · Ctrl+Q quit".into(),
-    }
+        })
+        .collect();
+    format!("  {}", items.join(" · "))
 }
 
 /// A draft's newline keystroke: the browser has `Shift+Enter`; a terminal can't tell it from `Enter`.
@@ -312,59 +416,103 @@ fn newline_key(web: bool) -> &'static str {
 pub const DRAFT_COMMENT: &str = "comment";
 pub const DRAFT_REVIEW: &str = "review body";
 
-/// The help popup's lines: keystrokes grouped by context, mirroring the hint line. `web` for the
-/// web app's keystrokes.
-pub fn help_lines(web: bool) -> Vec<Line<'static>> {
-    let key = |k: &'static str, desc: &'static str| {
-        Line::from(vec![
-            Span::raw("  "),
-            k.bold().cyan(),
-            Span::raw("  "),
-            desc.dim(),
-        ])
-    };
-    let group = |g: &'static str| Line::from(g.bold());
-    vec![
-        group("Global"),
-        key("Ctrl+P", "panes popup"),
-        key("Ctrl+H", "this help"),
-        key("F12", "lock all input to the shell or editor pane"),
-        key("drag", "select within pane (copies on release)"),
-        key("Ctrl+Q", "quit (then y to confirm)"),
-        Line::raw(""),
-        group("Panes (Ctrl+P …)"),
-        key("id", "type a pane id, Enter to focus"),
-        key("Esc", "dismiss"),
-        Line::raw(""),
-        group("Focused pane"),
-        key("↑/↓", "move the cursor"),
-        key("n/N", "next/prev thread"),
-        key("←/→", "scroll pre-formatted lines sideways"),
-        key("d", "toggle inline diff vs HEAD"),
-        key("c", "comment on line (needs `laura ready`)"),
-        key("r", "collapse/expand thread"),
-        key("Shift+S", "submit inline review (needs `laura ready`)"),
-        key(
-            "Ctrl+R",
-            "refresh pane (discards unsubmitted inline review)",
+/// The help's keystrokes, grouped by context and mirroring the hint line: `(group, [(keystroke,
+/// description)])`. A keystroke's space separates keys. `web` for the web app's keystrokes.
+pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
+    let mut typing = vec![
+        ("Enter", "Add the comment or submit"),
+        ("Enter", "On an empty edit, delete your comment"),
+        (newline_key(web), "New line"),
+        ("Esc", "Cancel"),
+    ];
+    // The browser's text box moves and deletes on its own.
+    if !web {
+        typing.splice(
+            0..0,
+            [
+                ("← →", "Move the cursor"),
+                ("Home End", "Jump to the start or end of the line"),
+                ("Backspace Delete", "Delete before or after the cursor"),
+            ],
+        );
+    }
+    let mut groups = vec![
+        (
+            "Workspace",
+            vec![
+                ("Ctrl+P", "Find a pane and focus it"),
+                ("Ctrl+H", "Show this list"),
+                (
+                    "F12",
+                    "Lock every keystroke to the shell or the editor pane",
+                ),
+                ("drag", "Select text in a pane and copy it on release"),
+                ("Ctrl+Q", "Quit, then y"),
+            ],
         ),
-        key("x", "close pane"),
-        key("h", "clear highlight"),
-        key("Esc", "leave pane"),
-        key(
-            "Ctrl+L",
-            "editor pane: flip between Neovim and its file view",
+        (
+            "In a focused file pane",
+            vec![
+                ("↑ ↓", "Move the cursor"),
+                ("n N", "Next / previous thread"),
+                ("← →", "Scroll pre-formatted lines sideways"),
+                ("c", "Comment on the cursor"),
+                ("r", "Collapse or expand a thread"),
+                ("Shift+S", "Submit the inline review"),
+                ("Ctrl+R", "Refresh the pane"),
+                ("d", "Diff against git HEAD"),
+                ("h", "Clear the highlight"),
+                ("x", "Close the pane"),
+                ("Esc", "Leave the pane"),
+            ],
         ),
-        Line::raw(""),
-        group("Draft"),
-        key("←/→", "move"),
-        key("Home/End", "line start/end"),
-        key("Backspace/Delete", "delete before/after"),
-        key(newline_key(web), "newline"),
-        key("Enter", "confirm / submit"),
-        key("Enter", "on an empty edit: delete your comment"),
-        key("Esc", "cancel"),
-    ]
+        (
+            "In an editor pane",
+            vec![
+                ("Ctrl+L", "Flip between the editor view and the file view"),
+                ("]d [d", "Next / previous thread, in the editor view"),
+                (
+                    "Ctrl+P",
+                    "Leave the pane: the editor view passes Esc to Neovim",
+                ),
+            ],
+        ),
+        ("Typing a comment or review body", typing),
+    ];
+    if web {
+        groups.push((
+            "Comment mode on an HTML page",
+            vec![
+                ("click", "Comment on an element"),
+                ("Esc", "Leave comment mode"),
+            ],
+        ));
+    }
+    groups
+}
+
+/// The web app's note below the help.
+pub const HELP_NOTE: &str =
+    "Every action also has a button in the pane header. Hover a button to see its keystroke.";
+
+/// The TUI's help popup lines: [`help`], a bold line per group and a blank line between groups.
+pub fn help_lines() -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for (group, keys) in help(false) {
+        if !lines.is_empty() {
+            lines.push(Line::raw(""));
+        }
+        lines.push(Line::from(group.bold()));
+        lines.extend(keys.into_iter().map(|(k, desc)| {
+            Line::from(vec![
+                Span::raw("  "),
+                k.bold().cyan(),
+                Span::raw("  "),
+                desc.dim(),
+            ])
+        }));
+    }
+    lines
 }
 
 /// The notice when a diff found no `git` binary; shown once.

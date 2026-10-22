@@ -64,6 +64,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 | Use | Meaning | Never |
 |---|---|---|
 | **pane** | A tile in the tab's split tree. | tile (noun), window |
+| **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
+| **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
 | **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
@@ -74,6 +76,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **Neovim** | The editor that editor panes run today. Name it only for Neovim's own behavior (`:w`, its config, diagnostics, its file-changed prompt). | nvim (in prose) |
 | **comment** (n., v.) | A single inline annotation on a pane, or an action the user takes (`c`). | note, annotation, mark up, in-line / in line comment |
 | **annotate** (v.) | An action the agent takes when running `laura comment`. | note, annotation, mark up, in-line / in line comment |
+| **comment mode** | On an HTML page in the web app, a click picks an element to comment on. | review mode, pick mode |
 | **thread** | A set of inline comments on a single line of a pane. | comment thread, inline thread |
 | **review body** | The text typed after `Shift+S` providing overall direction in the review. | overall comment, overall note |
 | **inline review** | A pane's threads plus the review body, submitted into the chat as one `[laura review · <path>]` block. | review (noun), inline file review |
@@ -90,6 +93,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **web app** | The browser view of a workspace (`laura --web`). | web UI, frontend |
 | **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
+| **status bar** | The list on the right of the web app's bottom line of what needs the user's attention. | footer |
+| **unseen marker** | A dot before a pane's name in the web app when the pane changed while the user worked in another pane. | notice, badge, unread dot |
 | **keystroke** | A key or key combination the user presses (`c`, `Ctrl+L`, `]d`). | key |
 | **overflow** (n., v.) | Content taller than its pane, which the user scrolls to read in full. | clipped, below the fold, doesn't fit |
 | **the user** (`docs/`, README) / **your partner** (skills) | The developer / student. | human, developer, learner, pair-programmer, reader |

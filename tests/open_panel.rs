@@ -1,8 +1,9 @@
 //! The full chain — real `laura open` → tab socket → decode → panel holds the file's content — without the render loop. State, not pixels.
 
+mod common;
+
 use std::io::Write;
 use std::thread;
-use std::time::Duration;
 
 use anyhow::Result;
 use assert_cmd::Command;
@@ -28,7 +29,7 @@ fn open_renders_file_into_panel() -> Result<()> {
             .success();
     });
 
-    let (msg, reply) = rx.recv_timeout(Duration::from_secs(5))?;
+    let (msg, reply) = rx.recv_timeout(common::DEADLINE)?;
     reply.send(&Response::Opened {
         pane: 1,
         warnings: vec![],
@@ -86,7 +87,7 @@ fn open_absolutizes_relative_path_against_caller_cwd() -> Result<()> {
             .success();
     });
 
-    let (msg, reply) = rx.recv_timeout(Duration::from_secs(5))?;
+    let (msg, reply) = rx.recv_timeout(common::DEADLINE)?;
     reply.send(&Response::Opened {
         pane: 1,
         warnings: vec![],
