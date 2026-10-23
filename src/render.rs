@@ -862,6 +862,10 @@ fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
             _ => {}
         }
     }
+    // pulldown's DefinitionList range runs past the next block's start (#101).
+    for i in 1..out.len() {
+        out[i - 1].1 = out[i - 1].1.min(out[i].0);
+    }
     out
 }
 

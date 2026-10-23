@@ -1023,6 +1023,16 @@ fn an_unclosed_html_block_shows_its_trailing_blank_lines_once() -> Result<()> {
 }
 
 #[test]
+fn a_definition_list_ends_where_the_next_block_starts() -> Result<()> {
+    let (_f, p) = write_doc("term\n: def\n\npara\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    let para: Vec<_> = rows.iter().filter(|r| r.text().contains("para")).collect();
+    assert_eq!(para.len(), 1);
+    assert_eq!(para[0].gutter, Some(4));
+    Ok(())
+}
+
+#[test]
 fn a_reference_definition_with_spaces_shows_only_its_link() -> Result<()> {
     let (_f, p) = write_doc("see [x][r]\n\npara two\n\n[r]: <https://a b>\n")?;
     let rows = Panel::open(p).layout(80).rows;
