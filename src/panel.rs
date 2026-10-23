@@ -267,12 +267,16 @@ impl Panel {
     }
 
     /// Row `i`'s source lines for diff marks. A code block's hidden fences have no row, so their
-    /// changes show on the next row.
-    /// ponytail: a closing fence on the file's last line has no next row, so its change shows nowhere.
+    /// changes show on the next row, or on the last row for a fence that ends the file.
     fn diff_span(&self, i: usize) -> Option<RangeInclusive<usize>> {
         let (a, b) = *self.source.get(i)?;
         let prev = i.checked_sub(1).and_then(|p| self.source.get(p));
-        Some(prev.map_or(0, |&(_, pb)| pb + 1).min(a)..=b)
+        let end = if i + 1 == self.source.len() {
+            b.max(self.changes.len().saturating_sub(1))
+        } else {
+            b
+        };
+        Some(prev.map_or(0, |&(_, pb)| pb + 1).min(a)..=end)
     }
 
     /// Row `i`'s gutter change: the highest-ranked change over its source range (Modified > Added >

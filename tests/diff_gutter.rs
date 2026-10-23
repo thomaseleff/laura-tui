@@ -238,6 +238,31 @@ fn a_deletion_above_an_opening_fence_shows_on_the_first_code_row() -> Result<()>
 }
 
 #[test]
+fn a_deletion_at_a_closing_fence_that_ends_the_file_shows_on_the_last_row() -> Result<()> {
+    // #99: no row comes after a closing fence on the file's last line, so the last row carries it.
+    let (_dir, path) = repo_with("doc.md", "```\na\nb\n```\n")?;
+    std::fs::write(&path, "```\na\n```\n")?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let layout = tab.panels[&id].layout(78);
+    let rows = &layout.rows;
+    let gap = rows
+        .iter()
+        .position(|r| r.text().contains("1 line removed"));
+    let a = rows
+        .iter()
+        .position(|r| r.text().trim() == "a")
+        .expect("code row");
+    assert!(
+        gap.is_some_and(|g| g < a),
+        "removed-lines row above the last row"
+    );
+    assert_eq!(rows[a].change, Some(ChangeKind::Removed(1)));
+    Ok(())
+}
+
+#[test]
 fn change_bar_runs_every_wrapped_row() -> Result<()> {
     // #35: the change bar paints every visual row of a changed wrapped paragraph, while
     // the gutter number stays on the first row only.

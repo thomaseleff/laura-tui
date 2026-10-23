@@ -492,12 +492,17 @@ fn the_web_border_is_three_rows() -> Result<()> {
 }
 
 /// #112: a bare open fits a stacked pane to its file's rows plus the web app's three-row border.
+/// The browser draws markdown blocks taller than their rows, so a markdown file gets half.
 #[test]
-fn a_short_file_in_a_stacked_split_fits_in_the_web_app() -> Result<()> {
-    for (body, want) in [(five_lines(), 8), (String::new(), 4)] {
+fn a_stacked_split_fits_a_plain_file_but_not_markdown_in_the_web_app() -> Result<()> {
+    for (name, body, want) in [
+        ("b.txt", five_lines(), 8),
+        ("b.txt", String::new(), 4),
+        ("b.md", "# Title\n\npara\n".to_string(), 20),
+    ] {
         let mut rig = Rig::new()?;
         let (_a, filler) = file("a.txt", "x\n")?;
-        let (_b, path) = file("b.txt", &body)?;
+        let (_b, path) = file(name, &body)?;
         rig.drive(&["open", &filler]);
         rig.drive(&["open", &path]);
         let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
@@ -1423,6 +1428,23 @@ fn a_markdown_pane_keeps_the_files_text() -> Result<()> {
     // A footnote that opens with a list keeps its label out of the next paragraph.
     assert!(html.contains("[2]: "), "{html}");
     assert!(!html.contains("[2]: end"), "{html}");
+    Ok(())
+}
+
+#[test]
+fn a_code_block_that_ends_the_file_shows_its_removed_lines_above_it() -> Result<()> {
+    // #99: no row comes after a closing fence on the file's last line.
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = changed_file("doc.md", "x\n\n```\na\nb\n```\n", "x\n\n```\na\n```\n")?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let gap = html.find("1 line removed");
+    let pre = html.find("<pre").expect("code block");
+    assert!(gap.is_some_and(|g| g < pre), "{html}");
     Ok(())
 }
 

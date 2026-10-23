@@ -101,7 +101,7 @@ With `dry_run`, Laura returns a `report` instead of `opened`.
 
 - In a side-by-side split, the new pane gets 50%.
 - In a stacked split, the new pane gets the rows of its file, up to 50%.
-- With `follow`, `edit` or `diff`, or for an HTML page in the web app, the new pane gets 50%.
+- With `follow`, `edit` or `diff`, or for an HTML page or a markdown file in the web app, the new pane gets 50%.
 
 Setting any one of those fields turns inference off. When a split would shrink a pane below the minimum size Laura can render, Laura returns `error`.
 

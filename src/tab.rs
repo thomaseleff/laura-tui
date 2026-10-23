@@ -1171,10 +1171,10 @@ impl Tab {
 
     /// The smallest ratio, up to 50, at which a stacked split of `target` gives `new` the rows
     /// `path` needs. Brute force: `split_rect` floors and gives the second side `100 - ratio`.
-    /// ponytail: in the web app the browser lays out markdown blocks, so the row count is an estimate.
+    /// The browser draws a page, and markdown blocks, taller than their rows, so the web app fits neither.
     fn fit_ratio(&self, path: &str, target: PaneId, side: Side, new: PaneId, area: Rect) -> u16 {
         let temp = Panel::open(path.to_string());
-        if self.web && web::is_page(&temp) {
+        if self.web && (web::is_page(&temp) || !temp.blocks().is_empty()) {
             return 50;
         }
         let rect = |ratio| {
