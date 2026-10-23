@@ -1,6 +1,6 @@
 //! file→styled: read a file and turn it into styled lines plus a plain-text projection.
 
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
@@ -17,6 +17,21 @@ use syntect::html::{
 };
 use syntect::parsing::{Scope, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
+
+thread_local! { static GUARDED: Cell<bool> = const { Cell::new(false) }; }
+
+/// `catch_unwind` that also keeps the panic hook quiet, so ratatui doesn't restore the terminal.
+pub(crate) fn guarded<T>(f: impl FnOnce() -> T) -> std::thread::Result<T> {
+    let outer = GUARDED.replace(true);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    GUARDED.set(outer);
+    r
+}
+
+/// True inside `guarded` on this thread; the panic hook reads it.
+pub fn in_guard() -> bool {
+    GUARDED.get()
+}
 
 /// A rendered file: plain-text `content` plus styled lines, all 1:1 by line.
 pub(crate) struct Rendered {
@@ -67,10 +82,7 @@ impl Block {
         self.html.get_or_init(|| {
             let md = format!("{}{}", self.md, self.defs.as_deref().unwrap_or(""));
             let lines: Vec<usize> = self.own.iter().map(|&(l, _)| l).collect();
-            let (html, anchored) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                md_html(&md, self.l0, &lines)
-            }))
-            .unwrap_or_else(|_| {
+            let (html, anchored) = guarded(|| md_html(&md, self.l0, &lines)).unwrap_or_else(|_| {
                 let mut html = String::new();
                 pulldown_cmark::html::push_html(
                     &mut html,
@@ -197,9 +209,7 @@ fn render_code(raw: &str, ext: &str) -> Rendered {
         return plain(raw.to_string());
     }
     // syntect over untrusted bytes: degrade a highlight panic to raw text, don't crash.
-    let styled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        highlight_lines(raw, syntax, syntaxes)
-    }));
+    let styled = guarded(|| highlight_lines(raw, syntax, syntaxes));
     match styled {
         Ok(Some(styled)) => {
             let nowrap = vec![true; styled.len()]; // recognized code is pre-formatted
@@ -291,8 +301,7 @@ pub fn nord_hex(scope: &str) -> String {
 /// ponytail: a footnote whose definition is in another block shows as `[^n]` after slicing.
 fn render_markdown(md: &str) -> Rendered {
     let source_lines: Vec<String> = md.lines().map(str::to_string).collect();
-    let assembled =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assemble_markdown(md)));
+    let assembled = guarded(|| assemble_markdown(md));
     let (styled, source, blocks) = assembled.unwrap_or_else(|_| {
         // Degrade to raw text with identity ranges: rendered row i == source line i.
         let styled: Vec<Line<'static>> = md
@@ -396,12 +405,18 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             }
             // else: empty item scan → fall through, tagging the whole block (today's honest collapse).
         }
-        // Code and HTML hold no links, and an unclosed one would swallow the defs.
+        // Code and HTML hold no links, and an unclosed one would swallow the defs. An unclosed one
+        // also runs to the end of the file: cut its trailing blank lines, which the gap-fill shows (#103).
         let linked = !matches!(kind, BlockKind::Code { .. } | BlockKind::Html);
-        let slice = if linked {
-            format!("{}{defs}", &md[b0..b1])
-        } else {
+        let body = if linked {
             md[b0..b1].to_string()
+        } else {
+            lines[l0..=l1].join("\n")
+        };
+        let slice = if linked {
+            format!("{body}{defs}")
+        } else {
+            body.clone()
         };
         let fenced_slice;
         let src = match kind {
@@ -445,7 +460,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             styled.push(line);
             source.push(range);
         }
-        push_block(&source, first..styled.len(), l0, &md[b0..b1], linked);
+        push_block(&source, first..styled.len(), l0, &body, linked);
         if styled.len() > first {
             cursor = cursor.max(l1 + 1);
         }
@@ -846,6 +861,10 @@ fn blocks(md: &str) -> Vec<(usize, usize, BlockKind)> {
             Event::Rule if depth == 0 => out.push((range.start, range.end, BlockKind::Prose)),
             _ => {}
         }
+    }
+    // pulldown's DefinitionList range runs past the next block's start (#101).
+    for i in 1..out.len() {
+        out[i - 1].1 = out[i - 1].1.min(out[i].0);
     }
     out
 }

@@ -833,14 +833,20 @@ function onPane(m) {
   if (commentMode === m.id) setCommentMode(null);
   frameOf(m.id)?.remove();
   // ponytail: compares text, so a reload that only changes a color doesn't flash
-  const before = m.reloaded && new Set([...units(rows)].map(unitText));
+  let before = m.reloaded && m.t === "pane" && new Set([...units(rows)].map(unitText));
   el.threads = m.threads;
   el.card = m.card;
   keepDraft(() => {
     if (m.t === "rows") {
-      // Only the changed rows, by index: a cursor move swaps two rows instead of morphing them all.
+      // Only the changed rows, by index: a cursor move swaps two rows instead of morphing them all,
+      // and a tail's new line appends one row. The new rows past the old end are in order.
       const us = units(rows);
-      for (const [i, html] of m.rows) if (us[i]) us[i].outerHTML = html;
+      if (m.reloaded) before = new Set(m.rows.filter(([i]) => us[i]).map(([i]) => unitText(us[i])));
+      for (let i = m.len; i < us.length; i++) us[i].remove();
+      for (const [i, html] of m.rows) {
+        if (us[i] && i < m.len) us[i].outerHTML = html;
+        else rows.insertAdjacentHTML("beforeend", html);
+      }
     } else {
       // Idiomorph could morph a thread into a row; `paintThreads` puts the threads back.
       for (const inl of rows.querySelectorAll(":scope > .inl")) inl.remove();
@@ -849,7 +855,9 @@ function onPane(m) {
     paintThreads(m.id);
   });
   if (before) {
-    for (const u of units(rows)) {
+    // Not by index: a line inserted mid-file moves every row below it, and a moved row doesn't flash.
+    const us = units(rows);
+    for (const u of m.t === "rows" ? m.rows.map(([i]) => us[i]).filter(Boolean) : us) {
       if (before.has(unitText(u))) continue;
       u.classList.remove("flash");
       void u.offsetWidth; // restarts the animation

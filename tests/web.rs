@@ -491,6 +491,26 @@ fn the_web_border_is_three_rows() -> Result<()> {
     Ok(())
 }
 
+/// #112: a bare open fits a stacked pane to its file's rows plus the web app's three-row border.
+/// The browser draws markdown blocks taller than their rows, so a markdown file gets half.
+#[test]
+fn a_stacked_split_fits_a_plain_file_but_not_markdown_in_the_web_app() -> Result<()> {
+    for (name, body, want) in [
+        ("b.txt", five_lines(), 8),
+        ("b.txt", String::new(), 4),
+        ("b.md", "# Title\n\npara\n".to_string(), 20),
+    ] {
+        let mut rig = Rig::new()?;
+        let (_a, filler) = file("a.txt", "x\n")?;
+        let (_b, path) = file(name, &body)?;
+        rig.drive(&["open", &filler]);
+        rig.drive(&["open", &path]);
+        let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+        assert_eq!(report["panes"][2]["rect"]["height"], want, "{report}");
+    }
+    Ok(())
+}
+
 /// The web app wraps a file pane's line inside the border, less the gutter's blank cell, and
 /// `laura layout` counts its rows at that width.
 #[test]
@@ -821,6 +841,30 @@ fn a_markdown_code_block_shows_light_colors() -> Result<()> {
     for nord in NORD {
         assert!(!code.contains(nord), "{nord}: {code}");
     }
+    Ok(())
+}
+
+#[test]
+fn an_unclosed_fence_keeps_its_trailing_blank_lines_out_of_the_box() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "```\ncode\n\n\n")?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let (_, code) = blocks(&html)
+        .into_iter()
+        .find(|(_, b)| b.contains("<pre"))
+        .expect("a code block");
+    assert!(
+        code.contains("<span data-line=\"2\">code</span>\n</code></pre>"),
+        "{code}"
+    );
+    // The gap-fill rows show the blank lines.
+    assert!(html.contains(r#"data-line="3""#), "{html}");
+    assert!(html.contains(r#"data-line="4""#), "{html}");
     Ok(())
 }
 
@@ -1388,6 +1432,23 @@ fn a_markdown_pane_keeps_the_files_text() -> Result<()> {
 }
 
 #[test]
+fn a_code_block_that_ends_the_file_shows_its_removed_lines_above_it() -> Result<()> {
+    // #99: no row comes after a closing fence on the file's last line.
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = changed_file("doc.md", "x\n\n```\na\nb\n```\n", "x\n\n```\na\n```\n")?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let gap = html.find("1 line removed");
+    let pre = html.find("<pre").expect("code block");
+    assert!(gap.is_some_and(|g| g < pre), "{html}");
+    Ok(())
+}
+
+#[test]
 fn a_markdown_block_shows_its_removed_lines_above_it() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
@@ -1811,6 +1872,49 @@ fn a_tail_pane_reloads_on_new_output() -> Result<()> {
         );
     }
     assert!(frames.iter().any(|f| f["reloaded"] == true), "{frames:?}");
+    Ok(())
+}
+
+#[test]
+fn a_tail_append_sends_only_the_new_rows() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    let name = rig.tab.socket.clone();
+    let input: String = (1..=20).map(|i| format!("line {i}\n")).collect();
+    let rx = {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let out = Command::cargo_bin("laura")
+                .unwrap()
+                .args(["tail", "--title", "t"])
+                .env("LAURA_TAB", &name)
+                .write_stdin(input)
+                .output()
+                .unwrap();
+            let _ = tx.send(out);
+        });
+        rx
+    };
+    assert!(rig.wait(&rx).status.success());
+    // The 20 lines can arrive over more than one reload.
+    rig.until(&mut ws, "line 20", |f| {
+        rows_frame(f, 1) && matches!(f, Frame::Json(v) if v.to_string().contains("line 20"))
+    });
+    let spool = rig.tab.panels[&1].path.clone();
+    let mut out = std::fs::OpenOptions::new().append(true).open(&spool)?;
+    writeln!(out, "line 21")?;
+    drop(out);
+    let f = rig
+        .until(&mut ws, "line 21", |f| {
+            rows_frame(f, 1) && matches!(f, Frame::Json(v) if v.to_string().contains("line 21"))
+        })
+        .json();
+    assert_eq!(f["t"], "rows", "{f}");
+    assert_eq!(f["len"], 21, "{f}");
+    let rows = f["rows"].as_array().expect("a rows frame has rows");
+    assert_eq!(rows.len(), 1, "{f}");
+    assert_eq!(rows[0][0], 20, "{f}");
     Ok(())
 }
 

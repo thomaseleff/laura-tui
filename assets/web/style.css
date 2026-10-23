@@ -214,6 +214,8 @@ kbd {
    the scroll moves the terminal out of view. */
 .term { right: var(--cw); overflow: clip; }
 .rows { right: 6px; overflow: hidden auto; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+/* The body's bottom corners follow the card's, so a band or a page cut off by the scroll stays inside the border. */
+.term, .rows, .pane iframe { border-radius: 0 0 calc(var(--r) - 1px) calc(var(--r) - 1px); }
 /* xterm's own scrollbar, as `.rows` draws one. !important: over xterm's inline sizes and colors. */
 .xterm .xterm-scrollable-element > .scrollbar.vertical { width: 10px !important; }
 .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
@@ -224,7 +226,7 @@ kbd {
 .pane:is(.shell, .editor) .term {
   left: 6px; right: 6px;
   padding: 0 calc(var(--cw) - 6px);
-  background: var(--term-bg); border-radius: 0 0 calc(var(--r) - 1px) calc(var(--r) - 1px);
+  background: var(--term-bg);
 }
 /* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
 .pane.file .term { visibility: hidden; }

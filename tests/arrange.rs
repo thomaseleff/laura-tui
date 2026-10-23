@@ -219,6 +219,64 @@ fn bare_open_dwindles() -> Result<()> {
     Ok(())
 }
 
+/// A temp `.txt` file with `lines` lines.
+fn lines_file(lines: usize) -> Result<tempfile::NamedTempFile> {
+    let mut f = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    for i in 0..lines {
+        writeln!(f, "line {i}")?;
+    }
+    Ok(f)
+}
+
+/// Opens a filler file (the side-by-side split), then `args` bare (the stacked split), and
+/// returns the stacked pane's height.
+fn stacked_height(args: &[&str]) -> Result<u16> {
+    let filler = lines_file(1)?;
+    let mut tab = spawn_tab()?;
+    drive(&mut tab, &["open", filler.path().to_str().unwrap()]);
+    let id: u64 = drive(&mut tab, args).parse()?;
+    Ok(pane_rect(&drive(&mut tab, &["layout"]), id).3)
+}
+
+/// #112: a bare open fits a stacked pane to its file's rows; `--dry-run` reports the same rect.
+#[test]
+fn a_short_file_in_a_stacked_split_gets_only_its_rows() -> Result<()> {
+    let filler = lines_file(1)?;
+    let f = lines_file(5)?;
+    let p = f.path().to_str().unwrap();
+    let mut tab = spawn_tab()?;
+    drive(&mut tab, &["open", filler.path().to_str().unwrap()]);
+    let dry = pane_rect(&drive(&mut tab, &["open", p, "--dry-run"]), 2);
+    let id: u64 = drive(&mut tab, &["open", p]).parse()?;
+    let rect = pane_rect(&drive(&mut tab, &["layout"]), id);
+    assert_eq!(rect.3, 7, "5 rows + the border");
+    assert_eq!(dry, rect, "--dry-run reports the fitted rect");
+    Ok(())
+}
+
+#[test]
+fn a_long_file_in_a_stacked_split_gets_half() -> Result<()> {
+    let f = lines_file(30)?;
+    assert_eq!(stacked_height(&["open", f.path().to_str().unwrap()])?, 20);
+    Ok(())
+}
+
+#[test]
+fn an_empty_file_in_a_stacked_split_gets_the_minimum() -> Result<()> {
+    let f = lines_file(0)?;
+    assert_eq!(stacked_height(&["open", f.path().to_str().unwrap()])?, 3);
+    Ok(())
+}
+
+/// A followed file grows, so Laura doesn't fit it.
+#[test]
+fn a_follow_open_is_not_fitted() -> Result<()> {
+    let f = lines_file(5)?;
+    let p = f.path().to_str().unwrap();
+    assert_eq!(stacked_height(&["open", p, "--follow"])?, 20);
+    Ok(())
+}
+
 /// #13: `--ratio N` sizes the NEW panel to N%, independent of `--side`.
 #[test]
 fn ratio_targets_the_new_panel() -> Result<()> {

@@ -121,7 +121,7 @@ laura close --all      # close every pane, back to shell-only
 
 When the user submits an inline review, you receive a `[laura review · <path>]` block in the chat. Treat the block as feedback on that file: address each `L<n>` thread (line numbers are 1-based) and the review body, then edit the file.
 
-Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`). An inline review is a **call and response**: the block holds the whole conversation on that file. You only see the user's comments when the user submits (`Shift+S`); you can't read them from the pane.
+Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`). Each line of a multi-line comment starts with `> `. An inline review is a **call and response**: the block holds the whole conversation on that file. You only see the user's comments when the user submits (`Shift+S`); you can't read them from the pane.
 
 ## Annotate a file
 

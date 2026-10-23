@@ -55,6 +55,20 @@ fn assemble_review_locks_the_format() -> Result<()> {
 }
 
 #[test]
+fn a_multi_line_comment_quotes_every_line() -> Result<()> {
+    let mut panel = panel_with_comments()?;
+    // The fixture leaves the cursor on L2; move to L4, which has no thread yet.
+    panel.move_cursor(2);
+    panel.author_note("first\nsecond".into());
+    assert!(
+        panel
+            .assemble_review("")
+            .contains("L4  line 3\n      > [user] first\n      > second\n")
+    );
+    Ok(())
+}
+
+#[test]
 fn empty_overall_omits_the_overall_line() -> Result<()> {
     let panel = panel_with_comments()?;
     let review = panel.assemble_review("");

@@ -97,7 +97,13 @@ Split a pane and render a file in the new pane.
 
 With `dry_run`, Laura returns a `report` instead of `opened`.
 
-**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, Laura picks the split. Laura splits the newest pane at 50% and alternates the orientation by depth (a dwindle), so repeated bare opens each split off the newest pane. Setting any one of those fields turns inference off. When a split would shrink a pane below the minimum size Laura can render, Laura returns `error`.
+**Inference.** When `dir`, `ratio`, `side`, and `split` are all absent, Laura picks the split. Laura splits the newest pane and alternates the orientation by depth (a dwindle), so repeated bare opens each split off the newest pane. Laura sizes the new pane as follows:
+
+- In a side-by-side split, the new pane gets 50%.
+- In a stacked split, the new pane gets the rows of its file, up to 50%.
+- With `follow`, `edit` or `diff`, or for an HTML page or a markdown file in the web app, the new pane gets 50%.
+
+Setting any one of those fields turns inference off. When a split would shrink a pane below the minimum size Laura can render, Laura returns `error`.
 
 ### `close`
 

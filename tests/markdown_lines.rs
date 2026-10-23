@@ -784,34 +784,45 @@ fn fenced_block_stays_one_rectangle_across_an_empty_line() -> Result<()> {
     Ok(())
 }
 
-/// A card under a code line keeps no code bg, and the code around it stays one rectangle.
+/// A card under a code line keeps no code bg, and the code around it stays one rectangle (#100).
 #[test]
 fn a_card_inside_a_fenced_block_is_not_boxed() -> Result<()> {
-    let (_f, p) = write_doc(
-        "```
+    for agent in [false, true] {
+        let (_f, p) = write_doc(
+            "```
 ab
 longer line
 cd
 ```
 ",
-    )?;
-    let mut panel = Panel::open(p);
-    note_on(&mut panel, "ab");
-    let layout = panel.layout(80);
-    let card: Vec<&PanelRow> = layout.rows.iter().filter(|r| r.comment).collect();
-    assert!(!card.is_empty(), "the card shows");
-    for r in &card {
+        )?;
+        let mut panel = Panel::open(p);
+        if agent {
+            panel
+                .agent_note(2, Some("hi".into()), None)
+                .map_err(anyhow::Error::msg)?;
+        } else {
+            note_on(&mut panel, "ab");
+        }
+        let layout = panel.layout(80);
+        let card: Vec<&PanelRow> = layout.rows.iter().filter(|r| r.comment).collect();
+        assert!(!card.is_empty(), "the card shows, agent={agent}");
+        for r in &card {
+            assert!(
+                r.spans
+                    .iter()
+                    .all(|s| s.style.bg.is_none() || !s.content.trim().is_empty()),
+                "no code bg pad, agent={agent}: {:?}",
+                r.text()
+            );
+        }
+        let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| !r.comment).collect();
+        assert_eq!(code.len(), 3, "agent={agent}");
         assert!(
-            r.spans
-                .iter()
-                .all(|s| s.style.bg.is_none() || !s.content.trim().is_empty()),
-            "no code bg pad: {:?}",
-            r.text()
+            code.iter().all(|r| row_width(r) == row_width(code[0])),
+            "one width, agent={agent}"
         );
     }
-    let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| !r.comment).collect();
-    assert_eq!(code.len(), 3);
-    assert!(code.iter().all(|r| row_width(r) == row_width(code[0])));
     Ok(())
 }
 
@@ -999,6 +1010,36 @@ fn an_unclosed_fence_keeps_reference_definitions_out() -> Result<()> {
     let rows = Panel::open(p).layout(80).rows;
     assert!(rows.iter().any(|r| r.text().contains("unclosed")));
     assert!(rows.iter().all(|r| !r.text().contains("[r]:")));
+    Ok(())
+}
+
+fn gutters(doc: &str) -> Result<Vec<usize>> {
+    let (_f, p) = write_doc(doc)?;
+    let rows = Panel::open(p).layout(80).rows;
+    Ok(rows.iter().filter_map(|r| r.gutter).collect())
+}
+
+#[test]
+fn an_unclosed_fence_shows_its_trailing_blank_lines_once() -> Result<()> {
+    // Line 1 is the hidden opening fence, which has no row.
+    assert_eq!(gutters("```\ncode\n\n\n")?, [2, 3, 4]);
+    assert_eq!(gutters("```\na\n\nb\n")?, [2, 3, 4]);
+    Ok(())
+}
+
+#[test]
+fn an_unclosed_html_block_shows_its_trailing_blank_lines_once() -> Result<()> {
+    assert_eq!(gutters("<!--\nx\n\n\n")?, [1, 2, 3, 4]);
+    Ok(())
+}
+
+#[test]
+fn a_definition_list_ends_where_the_next_block_starts() -> Result<()> {
+    let (_f, p) = write_doc("term\n: def\n\npara\n")?;
+    let rows = Panel::open(p).layout(80).rows;
+    let para: Vec<_> = rows.iter().filter(|r| r.text().contains("para")).collect();
+    assert_eq!(para.len(), 1);
+    assert_eq!(para[0].gutter, Some(4));
     Ok(())
 }
 
