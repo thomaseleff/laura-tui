@@ -74,6 +74,16 @@ fn build_report(
     }
 }
 
+/// Rows a file pane needs at `width`, border included, and at least one content row.
+fn fit_rows(p: &Panel, width: u16, web: bool) -> usize {
+    let b = if web { 3 } else { 2 };
+    p.layout(width.saturating_sub(b).max(1) as usize)
+        .rows
+        .len()
+        .max(1)
+        + b as usize
+}
+
 /// Terse open-time warning for a just-opened pane, or `None` if it fits vertically.
 pub fn overflow_warning(p: &PaneReport) -> Option<String> {
     if p.overflow_rows > 0 {
@@ -915,6 +925,13 @@ impl Tab {
                         side.unwrap_or_default(),
                     ),
                 };
+                // A stacked pane gets only the rows its file needs, up to half.
+                let ratio =
+                    if inferred.is_some() && dir == Dir::Vertical && !(edit || diff || follow) {
+                        self.fit_ratio(&path, target, side, new, area)
+                    } else {
+                        ratio
+                    };
                 if dry_run {
                     return self.dry_run_open(&path, target, dir, ratio, side, area);
                 }
@@ -1150,6 +1167,26 @@ impl Tab {
         let mut refs = self.panel_refs();
         refs.insert(new, &temp);
         Response::Report(build_report(&layout, &refs, &self.editors, area, self.web))
+    }
+
+    /// The smallest ratio, up to 50, at which a stacked split of `target` gives `new` the rows
+    /// `path` needs. Brute force: `split_rect` floors and gives the second side `100 - ratio`.
+    /// ponytail: in the web app the browser lays out markdown blocks, so the row count is an estimate.
+    fn fit_ratio(&self, path: &str, target: PaneId, side: Side, new: PaneId, area: Rect) -> u16 {
+        let temp = Panel::open(path.to_string());
+        if self.web && web::is_page(&temp) {
+            return 50;
+        }
+        let rect = |ratio| {
+            let mut l = self.layout.clone();
+            l.split(target, Dir::Vertical, ratio, side, new).ok()?;
+            rects(&l, area).get(&new).copied()
+        };
+        let Some(half) = rect(50) else { return 50 };
+        let need = fit_rows(&temp, half.width, self.web);
+        (1..=50)
+            .find(|&r| rect(r).is_some_and(|rc| rc.height as usize >= need))
+            .unwrap_or(50)
     }
 
     /// Resize the PTY only when its draw area changed, else the shell wraps wrong.

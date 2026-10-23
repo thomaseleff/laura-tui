@@ -180,7 +180,7 @@ pub fn infer_split(layout: &Layout, area: Rect, new: PaneId) -> Option<(PaneId, 
     } else {
         Dir::Vertical
     };
-    let (ratio, side) = (50, Side::Second); // new pane goes down/right; flat 50% (content-ratio: later feature)
+    let (ratio, side) = (50, Side::Second); // new pane goes down/right; the caller fits a stacked split's ratio
     // Only return a split Part A's gate accepts.
     let mut probe = layout.clone();
     probe.split(target, dir, ratio, side, new).ok()?;

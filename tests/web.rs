@@ -491,6 +491,21 @@ fn the_web_border_is_three_rows() -> Result<()> {
     Ok(())
 }
 
+/// #112: a bare open fits a stacked pane to its file's rows plus the web app's three-row border.
+#[test]
+fn a_short_file_in_a_stacked_split_fits_in_the_web_app() -> Result<()> {
+    for (body, want) in [(five_lines(), 8), (String::new(), 4)] {
+        let mut rig = Rig::new()?;
+        let (_a, filler) = file("a.txt", "x\n")?;
+        let (_b, path) = file("b.txt", &body)?;
+        rig.drive(&["open", &filler]);
+        rig.drive(&["open", &path]);
+        let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+        assert_eq!(report["panes"][2]["rect"]["height"], want, "{report}");
+    }
+    Ok(())
+}
+
 /// The web app wraps a file pane's line inside the border, less the gutter's blank cell, and
 /// `laura layout` counts its rows at that width.
 #[test]

@@ -575,7 +575,7 @@ fn is_tail(p: &Panel) -> bool {
 }
 
 /// An HTML file, which the web app shows as a page.
-fn is_page(p: &Panel) -> bool {
+pub(crate) fn is_page(p: &Panel) -> bool {
     Path::new(&p.path)
         .extension()
         .and_then(|e| e.to_str())
