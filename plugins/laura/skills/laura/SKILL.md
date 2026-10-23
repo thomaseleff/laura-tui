@@ -165,7 +165,7 @@ Each motion is a common sequence of `laura` commands, with when to use it.
    - Your partner moves with `↑`/`↓`, jumps between threads with `n`/`N`, comments with `c`, collapses or expands threads with `r`, submits with `Shift+S`, refreshes with `Ctrl+R` (discarding the unsubmitted inline review), closes the pane with `x`, and returns to the chat with `Esc`.
    - The border's `[review: N ↑a ↓b]` counts the threads at or above (`a`) and below (`b`) your partner's cursor, so your partner knows about off-screen threads before scrolling.
    - After the file name, the border's `+N -M` counts the lines changed since git `HEAD`, and `● unsaved` marks an editor pane with unsaved Neovim edits. Point your partner to these to show what changed.
-2. When your partner submits, you receive the inline review as a `[laura review · …]` block in the chat, and Laura clears the pane's threads. Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`).
+2. When your partner submits, you receive the inline review as a `[laura review · …]` block in the chat, and Laura clears the pane's threads. Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`). Each line of a multi-line comment starts with `> `.
 3. Resolve any open questions with your partner first, then act on the inline review.
 4. Respond to the inline review in the chat. Annotate again only for a follow-up you need answered in a thread. If you edit a file while your partner has an unsubmitted inline review on it, Laura freezes the pane until your partner submits (`Shift+S`; the inline review starts with a `⚠ file changed` banner) or refreshes (`Ctrl+R`).
 

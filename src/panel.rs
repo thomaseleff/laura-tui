@@ -593,7 +593,15 @@ impl Panel {
                     Author::User => "user",
                     Author::Agent(n) => n.as_str(),
                 };
-                out.push_str(&format!("      > [{label}] {}\n", note.body));
+                // Quote every line, or the agent reads a multi-line comment's tail as outside the thread (#92).
+                let mut lines = note.body.lines();
+                out.push_str(&format!(
+                    "      > [{label}] {}\n",
+                    lines.next().unwrap_or("")
+                ));
+                for l in lines {
+                    out.push_str(&format!("      > {l}\n"));
+                }
             }
         }
         out
