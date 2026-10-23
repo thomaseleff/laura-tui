@@ -1815,6 +1815,49 @@ fn a_tail_pane_reloads_on_new_output() -> Result<()> {
 }
 
 #[test]
+fn a_tail_append_sends_only_the_new_rows() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    let name = rig.tab.socket.clone();
+    let input: String = (1..=20).map(|i| format!("line {i}\n")).collect();
+    let rx = {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let out = Command::cargo_bin("laura")
+                .unwrap()
+                .args(["tail", "--title", "t"])
+                .env("LAURA_TAB", &name)
+                .write_stdin(input)
+                .output()
+                .unwrap();
+            let _ = tx.send(out);
+        });
+        rx
+    };
+    assert!(rig.wait(&rx).status.success());
+    // The 20 lines can arrive over more than one reload.
+    rig.until(&mut ws, "line 20", |f| {
+        rows_frame(f, 1) && matches!(f, Frame::Json(v) if v.to_string().contains("line 20"))
+    });
+    let spool = rig.tab.panels[&1].path.clone();
+    let mut out = std::fs::OpenOptions::new().append(true).open(&spool)?;
+    writeln!(out, "line 21")?;
+    drop(out);
+    let f = rig
+        .until(&mut ws, "line 21", |f| {
+            rows_frame(f, 1) && matches!(f, Frame::Json(v) if v.to_string().contains("line 21"))
+        })
+        .json();
+    assert_eq!(f["t"], "rows", "{f}");
+    assert_eq!(f["len"], 21, "{f}");
+    let rows = f["rows"].as_array().expect("a rows frame has rows");
+    assert_eq!(rows.len(), 1, "{f}");
+    assert_eq!(rows[0][0], 20, "{f}");
+    Ok(())
+}
+
+#[test]
 fn a_binary_frame_reaches_the_shell() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

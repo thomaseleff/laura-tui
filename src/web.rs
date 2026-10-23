@@ -790,8 +790,9 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
     .to_string()
 }
 
-/// Send each file-rendered pane's rows that changed since the view last saw them: `rows` when the
-/// row count holds, else the whole `pane`. A page sends `page` when its frame changes. `reloaded`
+/// Send each file-rendered pane's rows that changed since the view last saw them: `rows`, with the
+/// new row count, unless the row count changes and more than half the rows change, else the whole
+/// `pane`. A page sends `page` when its frame changes. `reloaded`
 /// marks a frame whose content changed since the view last saw it, so the browser flashes only a
 /// reload, not a scroll or a diff toggle.
 fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Bases) {
@@ -865,13 +866,20 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Ba
         // A move onto a card, or a toggled thread, can leave the rows as they were.
         let (thread_list, card) = (threads_json(panel), card_line(panel));
         let threads = json!([thread_list, card]).to_string();
-        let mut msg = match v.panes.get(&id) {
-            Some((old, old_cursor, _, old_threads)) if old.len() == rows.len() => {
-                let diff: Vec<Value> = (0..rows.len())
-                    .filter(|&i| old[i] != rows[i])
-                    .map(|i| json!([i, rows[i]]))
-                    .collect();
-                if diff.is_empty()
+        let diff = v.panes.get(&id).and_then(|(old, ..)| {
+            // New rows past the old end count as changed, so an append sends only the new rows.
+            let d: Vec<Value> = (0..rows.len())
+                .filter(|&i| old.get(i) != Some(&rows[i]))
+                .map(|i| json!([i, rows[i]]))
+                .collect();
+            // ponytail: a gutter-width change (99 to 100 lines) re-pads every row; morph once instead.
+            (old.len() == rows.len() || d.len() <= rows.len() / 2).then_some(d)
+        });
+        let mut msg = match (v.panes.get(&id), diff) {
+            (Some((old, old_cursor, _, old_threads)), Some(diff)) => {
+                // The length check too, or a trim alone never reaches the browser.
+                if old.len() == rows.len()
+                    && diff.is_empty()
                     && *old_cursor == cursor
                     && !recenter
                     && !reloaded
@@ -879,8 +887,8 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Ba
                 {
                     continue;
                 }
-                json!({"t": "rows", "id": id, "rows": diff, "cursor": cursor, "recenter": recenter,
-                       "reloaded": reloaded})
+                json!({"t": "rows", "id": id, "len": rows.len(), "rows": diff, "cursor": cursor,
+                       "recenter": recenter, "reloaded": reloaded})
             }
             _ => json!({"t": "pane", "id": id, "html": rows.concat(), "cursor": cursor,
                         "recenter": recenter, "reloaded": reloaded}),
