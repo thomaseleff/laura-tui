@@ -784,34 +784,45 @@ fn fenced_block_stays_one_rectangle_across_an_empty_line() -> Result<()> {
     Ok(())
 }
 
-/// A card under a code line keeps no code bg, and the code around it stays one rectangle.
+/// A card under a code line keeps no code bg, and the code around it stays one rectangle (#100).
 #[test]
 fn a_card_inside_a_fenced_block_is_not_boxed() -> Result<()> {
-    let (_f, p) = write_doc(
-        "```
+    for agent in [false, true] {
+        let (_f, p) = write_doc(
+            "```
 ab
 longer line
 cd
 ```
 ",
-    )?;
-    let mut panel = Panel::open(p);
-    note_on(&mut panel, "ab");
-    let layout = panel.layout(80);
-    let card: Vec<&PanelRow> = layout.rows.iter().filter(|r| r.comment).collect();
-    assert!(!card.is_empty(), "the card shows");
-    for r in &card {
+        )?;
+        let mut panel = Panel::open(p);
+        if agent {
+            panel
+                .agent_note(2, Some("hi".into()), None)
+                .map_err(anyhow::Error::msg)?;
+        } else {
+            note_on(&mut panel, "ab");
+        }
+        let layout = panel.layout(80);
+        let card: Vec<&PanelRow> = layout.rows.iter().filter(|r| r.comment).collect();
+        assert!(!card.is_empty(), "the card shows, agent={agent}");
+        for r in &card {
+            assert!(
+                r.spans
+                    .iter()
+                    .all(|s| s.style.bg.is_none() || !s.content.trim().is_empty()),
+                "no code bg pad, agent={agent}: {:?}",
+                r.text()
+            );
+        }
+        let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| !r.comment).collect();
+        assert_eq!(code.len(), 3, "agent={agent}");
         assert!(
-            r.spans
-                .iter()
-                .all(|s| s.style.bg.is_none() || !s.content.trim().is_empty()),
-            "no code bg pad: {:?}",
-            r.text()
+            code.iter().all(|r| row_width(r) == row_width(code[0])),
+            "one width, agent={agent}"
         );
     }
-    let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| !r.comment).collect();
-    assert_eq!(code.len(), 3);
-    assert!(code.iter().all(|r| row_width(r) == row_width(code[0])));
     Ok(())
 }
 
