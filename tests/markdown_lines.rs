@@ -1002,6 +1002,26 @@ fn an_unclosed_fence_keeps_reference_definitions_out() -> Result<()> {
     Ok(())
 }
 
+fn gutters(doc: &str) -> Result<Vec<usize>> {
+    let (_f, p) = write_doc(doc)?;
+    let rows = Panel::open(p).layout(80).rows;
+    Ok(rows.iter().filter_map(|r| r.gutter).collect())
+}
+
+#[test]
+fn an_unclosed_fence_shows_its_trailing_blank_lines_once() -> Result<()> {
+    // Line 1 is the hidden opening fence, which has no row.
+    assert_eq!(gutters("```\ncode\n\n\n")?, [2, 3, 4]);
+    assert_eq!(gutters("```\na\n\nb\n")?, [2, 3, 4]);
+    Ok(())
+}
+
+#[test]
+fn an_unclosed_html_block_shows_its_trailing_blank_lines_once() -> Result<()> {
+    assert_eq!(gutters("<!--\nx\n\n\n")?, [1, 2, 3, 4]);
+    Ok(())
+}
+
 #[test]
 fn a_reference_definition_with_spaces_shows_only_its_link() -> Result<()> {
     let (_f, p) = write_doc("see [x][r]\n\npara two\n\n[r]: <https://a b>\n")?;

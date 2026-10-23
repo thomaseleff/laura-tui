@@ -405,12 +405,18 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             }
             // else: empty item scan → fall through, tagging the whole block (today's honest collapse).
         }
-        // Code and HTML hold no links, and an unclosed one would swallow the defs.
+        // Code and HTML hold no links, and an unclosed one would swallow the defs. An unclosed one
+        // also runs to the end of the file: cut its trailing blank lines, which the gap-fill shows (#103).
         let linked = !matches!(kind, BlockKind::Code { .. } | BlockKind::Html);
-        let slice = if linked {
-            format!("{}{defs}", &md[b0..b1])
-        } else {
+        let body = if linked {
             md[b0..b1].to_string()
+        } else {
+            lines[l0..=l1].join("\n")
+        };
+        let slice = if linked {
+            format!("{body}{defs}")
+        } else {
+            body.clone()
         };
         let fenced_slice;
         let src = match kind {
@@ -454,7 +460,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             styled.push(line);
             source.push(range);
         }
-        push_block(&source, first..styled.len(), l0, &md[b0..b1], linked);
+        push_block(&source, first..styled.len(), l0, &body, linked);
         if styled.len() > first {
             cursor = cursor.max(l1 + 1);
         }

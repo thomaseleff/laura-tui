@@ -840,6 +840,30 @@ fn a_markdown_code_block_shows_light_colors() -> Result<()> {
 }
 
 #[test]
+fn an_unclosed_fence_keeps_its_trailing_blank_lines_out_of_the_box() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("doc.md", "```\ncode\n\n\n")?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let (_, code) = blocks(&html)
+        .into_iter()
+        .find(|(_, b)| b.contains("<pre"))
+        .expect("a code block");
+    assert!(
+        code.contains("<span data-line=\"2\">code</span>\n</code></pre>"),
+        "{code}"
+    );
+    // The gap-fill rows show the blank lines.
+    assert!(html.contains(r#"data-line="3""#), "{html}");
+    assert!(html.contains(r#"data-line="4""#), "{html}");
+    Ok(())
+}
+
+#[test]
 fn a_highlighted_code_row_keeps_its_colors() -> Result<()> {
     let mut rig = Rig::new()?;
     let (_dir, path) = file("a.rs", RUST)?;
