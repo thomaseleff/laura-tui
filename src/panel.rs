@@ -1,6 +1,7 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
 
 use std::cell::Cell;
+use std::ops::RangeInclusive;
 use std::time::SystemTime;
 
 use ratatui::style::{Color, Style};
@@ -265,11 +266,19 @@ impl Panel {
         self.highlight = None;
     }
 
+    /// Row `i`'s source lines for diff marks. A code block's hidden fences have no row, so their
+    /// changes show on the next row.
+    /// ponytail: a closing fence on the file's last line has no next row, so its change shows nowhere.
+    fn diff_span(&self, i: usize) -> Option<RangeInclusive<usize>> {
+        let (a, b) = *self.source.get(i)?;
+        let prev = i.checked_sub(1).and_then(|p| self.source.get(p));
+        Some(prev.map_or(0, |&(_, pb)| pb + 1).min(a)..=b)
+    }
+
     /// Row `i`'s gutter change: the highest-ranked change over its source range (Modified > Added >
     /// Removed, so a mixed markdown block reads as edited). Folds to `changes[i]` for identity files.
     fn row_change(&self, i: usize) -> Option<ChangeKind> {
-        let (a, b) = *self.source.get(i)?;
-        (a..=b)
+        self.diff_span(i)?
             .filter_map(|s| self.changes.get(s).copied().flatten())
             .max_by_key(|k| match k {
                 ChangeKind::Modified => 2,
@@ -285,7 +294,8 @@ impl Panel {
         if i > 0 && self.source.get(i - 1) == Some(&(a, b)) {
             return None; // a continuation row of the same block — gap already emitted
         }
-        let n: usize = (a..=b)
+        let n: usize = self
+            .diff_span(i)?
             .filter_map(|s| match self.changes.get(s).copied().flatten() {
                 Some(ChangeKind::Removed(k)) => Some(k),
                 _ => None,
