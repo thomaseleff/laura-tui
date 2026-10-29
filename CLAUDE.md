@@ -115,6 +115,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 - **Conventions section.** `file:line` pointers to the codebase patterns the implementer must
   follow, each with a one-line description.
 
+## Entire
+
 <!-- entire-agent:begin -->
 Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
 @.entire/agent-guide.md
