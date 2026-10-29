@@ -77,7 +77,7 @@ function paintHint() {
   const here = document.activeElement?.matches?.(".head .url") ? h.browser_url
     : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : b?.typing ? h.browser_typing : h.pane;
   const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
-    : popup !== null ? h.panes : commentMode !== null && commentMode === layout.focus ? h.comment_mode : here;
+    : popup !== null ? h.panes : commentMode !== null && !f?.pty ? h.comment_mode : here;
   hintEl.replaceChildren(...(pairs ?? []).flatMap(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
@@ -1377,7 +1377,7 @@ addEventListener("message", e => {
     if (m.pick === true && commentMode === id && Number.isInteger(m.line)) begin(id, "comment");
   } else if (m.laura === "esc") {
     root.focus();
-    if (commentMode === id) setCommentMode(null);
+    if (commentMode !== null) setCommentMode(null);
   }
   else if (m.laura === "link" && typeof m.href === "string") {
     // The workspace's policy lets a frame load only the workspace's own URLs.
@@ -1597,8 +1597,8 @@ addEventListener("keydown", e => {
     listOpen = moreOpen = null;
     return paintPops();
   }
-  // As the hint line: comment mode stays on a page the focus left, and `Esc` goes to the focused pane.
-  if (e.key === "Escape" && commentMode !== null && commentMode === layout.focus) return take(), setCommentMode(null);
+  // As the hint line: `Esc` leaves comment mode from any pane but a terminal, which keeps `Esc` for its program.
+  if (e.key === "Escape" && commentMode !== null && !f?.pty) return take(), setCommentMode(null);
   if (ctrl && k === "p") return take(), openSelector();
   if (ctrl && k === "q") {
     take();

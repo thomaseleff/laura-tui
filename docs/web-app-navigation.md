@@ -128,7 +128,7 @@ Laura shows an HTML file (`.html` or `.htm`) in a file pane as the rendered page
 - Laura doesn't let the page show browser dialogs, such as `alert()`, or keep data in browser storage or cookies.
 - Click an element to move the cursor to the line of the element's start tag. Laura outlines the element at the cursor and each element with a thread, and shows the cursor's line and start tag above the element, such as `L4 <button#copy>`.
 - Laura shows a pin at the top-right corner of each element with a thread, with the authors and the number of comments. Click a pin to move the cursor to its thread, and click the pin again to hide or show the thread. The page's own click handlers don't run. Laura hides the pin while the element is hidden, such as inside a closed `<dialog>`.
-- In comment mode, the hint line shows `Click an element to comment · Esc leave comment mode`.
+- In comment mode, the hint line shows `Click an element to comment · Esc leave comment mode`, except in the panes where [`Esc` goes to the program](web-app.md#comment-on-an-html-page).
 - Laura shows the thread at the cursor and the comment box below the cursor's element. When the user scrolls the page or the page changes, Laura moves the thread and the pins with their elements.
 - Click **–** on the thread or press `r` to hide the thread, and press `r` to show the thread again.
 - When the agent highlights lines, Laura outlines the elements that start on those lines and scrolls the page to them.

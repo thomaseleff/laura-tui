@@ -50,7 +50,7 @@ To comment on an element with a click, turn on comment mode:
 
 1. Click the comment-mode button in the pane header. Laura outlines the element under the mouse and shows the line of the element's start tag above the element.
 2. Click the element. Laura moves the cursor to the element and opens the comment box below the element. The page's own click handlers don't run.
-3. Click **Done** or press `Esc` to turn off comment mode. Laura hides the thread until the user moves the cursor.
+3. Click **Done** or press `Esc` to turn off comment mode. Laura hides the thread until the user moves the cursor. `Esc` turns off comment mode from any pane except the shell and editor panes: in those panes, `Esc` goes to the program in the pane, such as the agent.
 
 Press `c` to comment on the element at the cursor; Laura shows no **+** in a page. When no element sits at the cursor, `c` turns on comment mode. Press `Shift+S` to submit the inline review. Laura quotes the line of the element's start tag in the inline review, as in the TUI.
 
