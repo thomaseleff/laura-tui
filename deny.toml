@@ -5,6 +5,7 @@
 ignore = [
     "RUSTSEC-2025-0141", # bincode unmaintained
     "RUSTSEC-2024-0320", # yaml-rust unmaintained
+    "RUSTSEC-2026-0414", # pulldown-cmark wikilinks; we never enable ENABLE_WIKILINKS. Bump to =0.13.5 after 2026-11-18 (dependency-gate cooldown)
 ]
 
 [licenses]
