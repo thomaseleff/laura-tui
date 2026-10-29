@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
+use std::time::Instant;
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
@@ -13,6 +14,7 @@ use ratatui::layout::{Margin, Rect};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::browser::{self, Browser, Cdp, Page};
 use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp, runtime_dir};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
@@ -30,6 +32,7 @@ fn build_report(
     layout: &Layout,
     panels: &HashMap<PaneId, &Panel>,
     editors: &HashMap<PaneId, Nvim>,
+    browsers: &HashMap<PaneId, Page>,
     area: Rect,
     web: bool,
 ) -> LayoutReport {
@@ -40,8 +43,13 @@ fn build_report(
             let visible_rows = rect.height.saturating_sub(border) as usize;
             let inner_w = rect.width.saturating_sub(if web { 3 } else { 2 }).max(1) as usize;
             let too_small = rect.width < 3 || rect.height < border + 1;
+            let mut title = None;
             let (kind, path, content_rows) = if id == PTY_PANE {
                 (PaneKind::Pty, None, None)
+            } else if let Some(p) = panels.get(&id).filter(|p| p.browser) {
+                // Laura's browser fits the page to the pane, like the shell's grid.
+                title = browsers.get(&id).map(|b| b.title().to_string());
+                (PaneKind::Browser, Some(p.path.clone()), None)
             } else if editors.contains_key(&id) {
                 // Neovim's grid always fits its rect, like the shell's.
                 let path = panels.get(&id).map(|p| p.path.clone());
@@ -64,6 +72,7 @@ fn build_report(
                 visible_rows,
                 overflow_rows,
                 clipped: overflow_rows > 0 || too_small,
+                title,
             }
         })
         .collect();
@@ -199,10 +208,83 @@ pub enum UserAction {
     },
     /// `Ctrl+Q`: `Ok` means the caller may ask `y` and end the workspace.
     Quit,
+    /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
+    /// for a reply: they change only the page's frames.
+    BrowserMouse {
+        pane: PaneId,
+        #[serde(flatten)]
+        mouse: browser::Mouse,
+    },
+    BrowserKey {
+        pane: PaneId,
+        #[serde(flatten)]
+        key: browser::Key,
+    },
+    BrowserText {
+        pane: PaneId,
+        text: String,
+    },
+    /// `Esc` gave the keystrokes back to Laura: the page's field lets go of the focus.
+    BrowserBlur {
+        pane: PaneId,
+    },
+    /// Back (`-1`) or forward (`1`) in a browser pane's history.
+    BrowserHistory {
+        pane: PaneId,
+        delta: isize,
+    },
+    /// The answer to a browser pane's dialog: OK or Cancel, and a `prompt`'s text.
+    BrowserDialog {
+        pane: PaneId,
+        accept: bool,
+        #[serde(default)]
+        text: String,
+    },
+    /// The address field's text.
+    BrowserNavigate {
+        pane: PaneId,
+        url: String,
+    },
+    /// Start a comment on the element at the point, in CSS px from the canvas's top left.
+    BrowserPick {
+        pane: PaneId,
+        x: f64,
+        y: f64,
+    },
+    /// Comment mode on a browser pane: a hover outlines the element under the pointer.
+    BrowserCommentMode {
+        pane: PaneId,
+        on: bool,
+    },
+    /// The pane header's highlight chip: scroll the highlight's element into view.
+    BrowserReveal {
+        pane: PaneId,
+    },
 }
 
 fn no_pane(pane: PaneId) -> String {
     format!("no pane #{pane}")
+}
+
+/// The notice for a browser pane's threads that just lost their element, by first comment.
+fn lost_notice(pane: PaneId, gone: &[String]) -> Option<String> {
+    match gone {
+        [] => None,
+        [one] => {
+            let one = one.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut cut: String = one.chars().take(40).collect();
+            if cut.len() < one.len() {
+                cut.push('…');
+            }
+            Some(format!(
+                "⚠ pane #{pane}: the thread \"{cut}\" lost its element"
+            ))
+        }
+        _ => Some(format!(
+            "⚠ pane #{pane}: {} threads lost their elements",
+            gone.len()
+        )),
+    }
 }
 
 /// Per-tab counter for unique socket names; no clock/rng needed.
@@ -232,6 +314,10 @@ fn remove_if_temp(path: &str) {
 /// Resolve `.`/`..`, symlinks, Windows case and 8.3 names so two spellings
 /// of one file compare equal; a missing file falls back to the raw path.
 fn normalized(p: &str) -> PathBuf {
+    // Laura's browser adds the trailing slash to a bare host.
+    if browser::is_url(p) {
+        return p.trim_end_matches('/').into();
+    }
     std::fs::canonicalize(p).unwrap_or_else(|_| p.into())
 }
 
@@ -263,6 +349,22 @@ pub struct Tab {
     pub editor_theme: bool,
     /// Hosted by `laura --web`; `ready` lists `web` under `experimental`.
     pub web: bool,
+    /// The browser to run for `open <url>`, or why browser panes are off. `spawn_tab` sets it
+    /// from `browser::resolve()`; defaults to off.
+    pub browser_path: Result<PathBuf, String>,
+    /// Browser panes' pages, by pane id. Each also has its panel in `panels`, with the URL as its
+    /// path. Declared before `browser`, so each page closes before Laura's browser does.
+    pub browsers: HashMap<PaneId, Page>,
+    /// Laura's browser, launched on the first browser pane.
+    pub browser: Option<Browser>,
+    /// The CDP port in the shell's `LAURA_BROWSER_URL`, which Laura's browser listens on.
+    pub browser_port: Option<u16>,
+    /// Holds `browser_port` until Laura's browser starts, so no other process takes it meanwhile.
+    browser_hold: Option<std::net::TcpListener>,
+    /// Each browser pane's last size from the view, for the page Laura opens there next.
+    pub browser_sizes: HashMap<PaneId, browser::Size>,
+    /// Notices for the view, which the web app shows and clears.
+    pub notices: Vec<String>,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -301,12 +403,49 @@ impl Tab {
             editor: Err(editor::FLAG_OFF.into()),
             editor_theme: false,
             web: false,
+            browser_path: Err(browser::FLAG_OFF.into()),
+            browsers: HashMap::new(),
+            browser: None,
+            browser_port: None,
+            browser_hold: None,
+            browser_sizes: HashMap::new(),
+            notices: Vec::new(),
             seq: n,
             next_pane: 1,
             rx,
             pty_size: (rows, cols),
             area: Rect::default(),
         })
+    }
+
+    /// `spawn` for `laura --web`, with browser panes resolved to `browser_path`. With a browser to
+    /// run, the shell's `LAURA_BROWSER_URL` names a free port, where Laura's browser listens once
+    /// it starts, so the agent's browser tools reach the panes' pages.
+    pub fn spawn_web(
+        mut cmd: CommandBuilder,
+        rows: u16,
+        cols: u16,
+        browser_path: Result<PathBuf, String>,
+    ) -> Result<Tab> {
+        let hold = match browser_path {
+            Ok(_) => Some(std::net::TcpListener::bind(("127.0.0.1", 0))?),
+            Err(_) => None,
+        };
+        let port = match &hold {
+            Some(l) => Some(l.local_addr()?.port()),
+            None => None,
+        };
+        if let Some(port) = port {
+            cmd.env("LAURA_BROWSER_URL", browser::endpoint(port));
+        }
+        let mut tab = Tab::spawn(cmd, rows, cols)?;
+        (
+            tab.web,
+            tab.browser_path,
+            tab.browser_port,
+            tab.browser_hold,
+        ) = (true, browser_path, port, hold);
+        Ok(tab)
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
@@ -383,6 +522,16 @@ impl Tab {
             }
             A::BeginReview { pane } => self.review_gate(pane)?,
             A::Submit { pane, body } => self.submit(pane, &body)?,
+            A::Refresh { pane } if self.panels.get(&pane).is_some_and(|p| p.browser) => {
+                match self.browsers.get(&pane) {
+                    Some(page) => {
+                        page.reload();
+                        self.panel_mut(pane)?.discard_and_reload();
+                    }
+                    // Laura's browser exited: start it again, with every browser pane's page.
+                    None => self.attach_pages()?,
+                }
+            }
             A::Refresh { pane } => self.panel_mut(pane)?.discard_and_reload(),
             A::Close { pane } => {
                 if let Response::Error { message } = self.close_pane(Some(pane)) {
@@ -400,8 +549,73 @@ impl Tab {
                     return Err(message);
                 }
             }
+            A::BrowserMouse { pane, mouse } => self.page(pane)?.mouse(&mouse, Instant::now()),
+            A::BrowserKey { pane, key } => self.page(pane)?.key(&key, Instant::now()),
+            A::BrowserText { pane, text } => self.page(pane)?.insert_text(&text, Instant::now()),
+            A::BrowserBlur { pane } => self.page(pane)?.blur(),
+            A::BrowserHistory { pane, delta } => self.page(pane)?.go(delta)?,
+            A::BrowserDialog { pane, accept, text } => self.page(pane)?.answer(accept, &text),
+            A::BrowserNavigate { pane, url } => {
+                let url = browser::address(&url)?;
+                self.navigate(pane, url)?;
+            }
+            A::BrowserPick { pane, x, y } => {
+                if !self.agent {
+                    return Err(NEEDS_READY.into());
+                }
+                let (selector, quote, url) =
+                    self.page(pane)?.pick(x, y)?.ok_or(browser::NO_ELEMENT)?;
+                let p = self.panel_mut(pane)?;
+                p.cursor = p.anchor(&selector, &quote, &url);
+                return Ok(Some(p.begin_comment()));
+            }
+            A::BrowserCommentMode { pane, on } => self.page(pane)?.comment = on,
+            A::BrowserReveal { pane } => self.page(pane)?.reveal(),
         }
         Ok(None)
+    }
+
+    /// Pane `pane`'s page in Laura's browser.
+    fn page(&mut self, pane: PaneId) -> Result<&mut Page, String> {
+        self.browsers.get_mut(&pane).ok_or_else(|| no_pane(pane))
+    }
+
+    /// The element that the agent's `selector` finds on browser pane `pane`'s page: its selector,
+    /// quote and URL, for `Panel::anchor`.
+    fn element(&self, pane: PaneId, selector: &str) -> Result<(String, String, String), String> {
+        let page = self
+            .browsers
+            .get(&pane)
+            .ok_or_else(|| browser::EXITED.trim_start_matches("⚠ ").to_string())?;
+        if page.dialog_open() {
+            return Err(format!(
+                "pane #{pane}'s page is showing a dialog: answer it with your browser tool, \
+                 or ask the user to answer it in the pane"
+            ));
+        }
+        if page.loading() {
+            return Err(format!(
+                "pane #{pane}'s page is still loading: run the command again when the page has loaded"
+            ));
+        }
+        page.find(selector)?
+            .ok_or_else(|| format!("no element matches {selector} in pane #{pane}"))
+    }
+
+    /// Load `url` in browser pane `id`'s page, which keeps the pane's threads; open the page if
+    /// Laura's browser exited.
+    fn navigate(&mut self, id: PaneId, url: String) -> Result<(), String> {
+        let p = self
+            .panels
+            .get_mut(&id)
+            .filter(|p| p.browser)
+            .ok_or_else(|| no_pane(id))?;
+        p.path = url.clone();
+        match self.browsers.get_mut(&id) {
+            Some(page) => page.navigate(&url),
+            None => self.attach_pages()?,
+        }
+        Ok(())
     }
 
     /// Pane `pane`'s file pane, gated by `file_view`.
@@ -529,8 +743,8 @@ impl Tab {
             .expect("review_gate found the pane");
         // Read the count first: a sent review clears the threads.
         let (path, comments) = (p.path.clone(), p.thread_count());
-        let res = p.submit_review(body, |r| pty.write(&bracketed_paste(r, true)));
-        let mut event = json!({"type": "review", "path": path, "comments": comments, "body": body});
+        let res = p.submit_review(pane, body, |r| pty.write(&bracketed_paste(r, true)));
+        let mut event = json!({"type": "review", "pane": pane, "path": path, "comments": comments, "body": body});
         if let Err(e) = &res {
             event["error"] = json!(e.to_string());
         }
@@ -598,6 +812,7 @@ impl Tab {
             &self.layout,
             &self.panel_refs(),
             &self.editors,
+            &self.browsers,
             area,
             self.web,
         )
@@ -607,8 +822,10 @@ impl Tab {
     /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
     pub fn drain(&mut self, area: Rect) -> bool {
         self.area = area;
+        // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
+        let browsed = self.poll_browsers();
         if self.hold {
-            return false;
+            return browsed;
         }
         // An exited Neovim closes its pane, unless it holds threads: then it stays a file pane.
         let exited: Vec<PaneId> = self
@@ -617,7 +834,7 @@ impl Tab {
             .filter(|(_, e)| e.pty.has_exited())
             .map(|(id, _)| *id)
             .collect();
-        let mut changed = !exited.is_empty();
+        let mut changed = browsed || !exited.is_empty();
         for id in exited {
             self.editors.remove(&id);
             if self.panels.get(&id).is_some_and(|p| p.thread_count() == 0) {
@@ -647,6 +864,134 @@ impl Tab {
         changed
     }
 
+    /// Take each page's news: a new URL goes into its panel's path, a failed load into a notice.
+    /// When Laura's browser exits, drop it and its pages, and keep the panes for `Ctrl+R`.
+    fn poll_browsers(&mut self) -> bool {
+        if self.browser.as_ref().is_some_and(|b| b.cdp.closed()) {
+            self.browsers.clear();
+            self.browser = None;
+            self.notices.push(browser::EXITED.into());
+            return true;
+        }
+        let (now, mut changed, mut closed, mut crashed) = (Instant::now(), false, vec![], vec![]);
+        for (id, page) in &mut self.browsers {
+            for event in page.poll(now) {
+                changed = true;
+                match event {
+                    browser::Event::Closed => closed.push(*id),
+                    browser::Event::Crashed => crashed.push(*id),
+                    browser::Event::Url(url) => {
+                        if let Some(p) = self.panels.get_mut(id) {
+                            p.path = url;
+                        }
+                    }
+                    browser::Event::Failed { url, error } => self
+                        .notices
+                        .push(format!("⚠ pane #{id}: {url} didn't load ({error})")),
+                    browser::Event::Download(name) => self.notices.push(format!(
+                        "⚠ pane #{id}: Laura's browser doesn't download files: {name}"
+                    )),
+                    browser::Event::Lost { url, lines } => {
+                        let gone = match self.panels.get_mut(id) {
+                            Some(p) => p.set_lost(&url, &lines),
+                            None => vec![],
+                        };
+                        if let Some(n) = lost_notice(*id, &gone) {
+                            self.notices.push(n);
+                        }
+                    }
+                }
+            }
+            if let Some(p) = self.panels.get(id) {
+                page.draw(p.scene(self.focus == *id, self.hold));
+            }
+        }
+        // No reopen here, so a page that crashes as it loads doesn't loop: `Ctrl+R` opens it.
+        for id in crashed {
+            self.browsers.remove(&id);
+            self.notices.push(format!(
+                "⚠ pane #{id}: the page crashed: press Ctrl+R to load it again"
+            ));
+        }
+        // The agent's tools closed a pane's page: open it again, and `draw` draws its threads.
+        if !closed.is_empty() {
+            for id in &closed {
+                self.browsers.remove(id);
+            }
+            // A browser that is exiting closes its pages first; the next poll shows `EXITED`.
+            if let Err(e) = self.attach_pages()
+                && !self.browser.as_ref().is_some_and(|b| b.cdp.closed())
+            {
+                self.notices.push(format!("⚠ {e}"));
+            }
+        }
+        changed
+    }
+
+    /// Why `open <url>` can't open a browser pane, in the order the user fixes them: the flag,
+    /// then `--web`, then a browser to run.
+    fn browser_gate(&self) -> Result<PathBuf, String> {
+        match &self.browser_path {
+            Err(e) if e == browser::FLAG_OFF => Err(e.clone()),
+            _ if !self.web => Err(browser::NEED_WEB.into()),
+            r => r.clone(),
+        }
+    }
+
+    /// Laura's browser's CDP client: launch it on first use, or again after it exited.
+    fn cdp(&mut self) -> Result<Cdp, String> {
+        let path = self.browser_gate()?;
+        if self.browser.is_none() {
+            self.browser_hold = None;
+            let b = Browser::launch(&path, self.browser_port.unwrap_or(0))
+                .map_err(|e| format!("couldn't start Laura's browser: {e:#}"))?;
+            self.browser = Some(b);
+        }
+        Ok(self.browser.as_ref().expect("launched above").cdp.clone())
+    }
+
+    /// Open a page for every browser pane without one, at its URL. A page that fails to open
+    /// doesn't stop the others.
+    fn attach_pages(&mut self) -> Result<(), String> {
+        self.cdp()?;
+        let missing: Vec<(PaneId, String)> = self
+            .panels
+            .iter()
+            .filter(|(id, p)| p.browser && !self.browsers.contains_key(id))
+            .map(|(id, p)| (*id, p.path.clone()))
+            .collect();
+        let mut failures = vec![];
+        for (id, url) in missing {
+            match self.open_page(id, &url) {
+                Ok(page) => {
+                    self.browsers.insert(id, page);
+                }
+                Err(e) => failures.push(e),
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+
+    /// Open pane `id`'s page at `url`, at the pane's size.
+    fn open_page(&mut self, id: PaneId, url: &str) -> Result<Page, String> {
+        let cdp = self.cdp()?;
+        let size = self
+            .browser_sizes
+            .get(&id)
+            .copied()
+            .unwrap_or(browser::DEFAULT_SIZE);
+        let page =
+            Page::open(&cdp, url, size).map_err(|e| format!("couldn't open {url}: {e:#}"))?;
+        if let Some(b) = &mut self.browser {
+            b.close_start();
+        }
+        Ok(page)
+    }
+
     /// Close a pane (default: the focused panel). Shared by the `close` verb and the `x` key, so
     /// both refuse to drop unsaved Neovim edits.
     pub fn close_pane(&mut self, pane: Option<PaneId>) -> Response {
@@ -665,6 +1010,9 @@ impl Tab {
                     remove_if_temp(&p.path);
                 }
                 self.editors.remove(&target); // drop kills Neovim
+                // Laura's browser keeps running, so the next browser pane opens fast.
+                self.browsers.remove(&target);
+                self.browser_sizes.remove(&target);
                 if self.focus == target {
                     self.focus = PTY_PANE;
                 }
@@ -687,15 +1035,23 @@ impl Tab {
         diff: bool,
         area: Rect,
     ) -> Vec<String> {
-        let mut panel = Panel::open(path.to_string());
-        panel.set_follow(follow);
-        // `set_highlight` after `set_follow` so an explicit highlight range
-        // wins the *first* frame's viewport over tail-follow when both are set.
-        if let Some((start, end)) = highlight {
-            panel.set_highlight(start, end);
-        }
-        // Open-into-diff: refusal (no git / nothing to diff) becomes a warning.
-        let diff_warning = diff.then(|| panel.set_diff_view(true).err()).flatten();
+        // A file in a browser pane's place closes its page.
+        self.browsers.remove(&id);
+        let mut diff_warning = None;
+        let panel = if browser::is_url(path) {
+            Panel::page(path.to_string())
+        } else {
+            let mut panel = Panel::open(path.to_string());
+            panel.set_follow(follow);
+            // `set_highlight` after `set_follow` so an explicit highlight range
+            // wins the *first* frame's viewport over tail-follow when both are set.
+            if let Some((start, end)) = highlight {
+                panel.set_highlight(start, end);
+            }
+            // Open-into-diff: refusal (no git / nothing to diff) becomes a warning.
+            diff_warning = diff.then(|| panel.set_diff_view(true).err()).flatten();
+            panel
+        };
         self.panels.insert(id, panel);
         let mut warnings = vec![];
         if !self.agent {
@@ -782,6 +1138,8 @@ impl Tab {
             format!("already open in pane #{n}, which has an unsubmitted inline review")
         } else if self.editors.contains_key(&n) {
             format!("already open in editor pane #{n}")
+        } else if self.panels[&n].browser {
+            format!("already open in pane #{n} — use `laura open <url> --panel {n}`")
         } else {
             format!(
                 "already open in pane #{n} — use `laura highlight --pane {n}` \
@@ -838,6 +1196,19 @@ impl Tab {
                 message: format!("no pane #{id} to replace"),
             };
         }
+        // A URL into a browser pane navigates its page, so the agent's browser tools keep their
+        // page, and the pane keeps its threads.
+        if self.panels[&id].browser && browser::is_url(&path) {
+            let dup = self.already_open(&path, id);
+            if let Err(message) = self.navigate(id, path.clone()) {
+                return Response::Error { message };
+            }
+            self.log_event(json!({"type":"open","pane":id,"path":path,"replaced":true}));
+            return Response::Opened {
+                pane: id,
+                warnings: dup.into_iter().collect(),
+            };
+        }
         if edit && normalized(&self.panels[&id].path) == normalized(&path) {
             if !self.editors.contains_key(&id) {
                 if let Err(e) = self.attach_editor(id, &path, area) {
@@ -859,6 +1230,14 @@ impl Tab {
         if let Err(e) = self.threads_guard(id).and(self.edits_guard(id)) {
             return e;
         }
+        // Open the page before the file goes, so a page that won't open keeps the pane.
+        let page = match browser::is_url(&path)
+            .then(|| self.open_page(id, &path))
+            .transpose()
+        {
+            Ok(page) => page,
+            Err(message) => return Response::Error { message },
+        };
         if edit {
             if let Err(e) = self.attach_editor(id, &path, area) {
                 return e;
@@ -869,6 +1248,9 @@ impl Tab {
         remove_if_temp(&self.panels[&id].path); // clean an old tail spool, same as the close path
         let dup = self.already_open(&path, id);
         let mut warnings = self.install_panel(id, &path, follow, highlight, diff, area);
+        if let Some(page) = page {
+            self.browsers.insert(id, page);
+        }
         warnings.extend(dup);
         let mut event = json!({"type":"open","pane":id,"path":path,"replaced":true});
         if edit {
@@ -895,6 +1277,24 @@ impl Tab {
                 panel,
                 edit,
             } => {
+                // A URL opens a browser pane. Its errors come first, one at a time; `--follow`
+                // changes nothing, since the pane always shows the page live.
+                let url = browser::is_url(&path);
+                if url {
+                    if let Err(message) = self.browser_gate() {
+                        return Response::Error { message };
+                    }
+                    let flag = [
+                        (highlight.is_some(), browser::NO_HIGHLIGHT),
+                        (diff, browser::NO_DIFF),
+                        (edit, browser::NO_EDIT),
+                    ];
+                    if let Some((_, message)) = flag.into_iter().find(|(on, _)| *on) {
+                        return Response::Error {
+                            message: message.into(),
+                        };
+                    }
+                }
                 if edit && let Err(message) = &self.editor {
                     return Response::Error {
                         message: message.clone(),
@@ -926,12 +1326,14 @@ impl Tab {
                     ),
                 };
                 // A stacked pane gets only the rows its file needs, up to half.
-                let ratio =
-                    if inferred.is_some() && dir == Dir::Vertical && !(edit || diff || follow) {
-                        self.fit_ratio(&path, target, side, new, area)
-                    } else {
-                        ratio
-                    };
+                let ratio = if inferred.is_some()
+                    && dir == Dir::Vertical
+                    && !(edit || diff || follow || url)
+                {
+                    self.fit_ratio(&path, target, side, new, area)
+                } else {
+                    ratio
+                };
                 if dry_run {
                     return self.dry_run_open(&path, target, dir, ratio, side, area);
                 }
@@ -947,6 +1349,11 @@ impl Tab {
                         ),
                     };
                 }
+                // Open the page before the split, so a page that won't open adds no pane.
+                let page = match url.then(|| self.open_page(new, &path)).transpose() {
+                    Ok(page) => page,
+                    Err(message) => return Response::Error { message },
+                };
                 match self.layout.split(target, dir, ratio, side, new) {
                     Ok(()) => {
                         self.next_pane += 1;
@@ -957,6 +1364,9 @@ impl Tab {
                         let dup = self.already_open(&path, new);
                         let mut warnings =
                             self.install_panel(new, &path, follow, highlight, diff, area);
+                        if let Some(page) = page {
+                            self.browsers.insert(new, page);
+                        }
                         warnings.extend(dup);
                         let mut event = json!({"type": "open", "pane": new, "path": path});
                         if edit {
@@ -996,6 +1406,8 @@ impl Tab {
                     self.layout = Layout::Pane(PTY_PANE);
                     self.panels.clear();
                     self.editors.clear();
+                    self.browsers.clear();
+                    self.browser_sizes.clear();
                     self.focus = PTY_PANE;
                     self.log_event(json!({"type": "close", "all": true}));
                     return Response::Ok;
@@ -1019,7 +1431,11 @@ impl Tab {
                     }
                 }
             }
-            Message::Highlight { pane, range } => {
+            Message::Highlight {
+                pane,
+                range,
+                selector,
+            } => {
                 let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
                 let Some(target) = target else {
                     return Response::Error {
@@ -1030,6 +1446,41 @@ impl Tab {
                     return Response::Error {
                         message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
                     };
+                }
+                let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
+                    return Response::Error {
+                        message: format!("no pane #{target}"),
+                    };
+                };
+                match (browser, &selector) {
+                    (true, _) if range.is_some() => {
+                        return Response::Error {
+                            message: format!(
+                                "pane #{target} is a browser pane: pass a CSS selector"
+                            ),
+                        };
+                    }
+                    (true, Some(sel)) => {
+                        let (s, q, u) = match self.element(target, sel) {
+                            Ok(e) => e,
+                            Err(message) => return Response::Error { message },
+                        };
+                        if let Some(p) = self.panels.get_mut(&target) {
+                            // Not `set_highlight`: the cursor stays where the user left it.
+                            let row = p.anchor(&s, &q, &u);
+                            p.highlight = Some((row, row));
+                        }
+                        self.log_event(
+                            json!({"type": "highlight", "pane": target, "selector": sel}),
+                        );
+                        return Response::Ok;
+                    }
+                    (false, Some(_)) => {
+                        return Response::Error {
+                            message: format!("pane #{target} is a file pane: pass a line number"),
+                        };
+                    }
+                    _ => {}
                 }
                 let Some(panel) = self.panels.get_mut(&target) else {
                     return Response::Error {
@@ -1074,6 +1525,11 @@ impl Tab {
                         message: format!("no pane #{target}"),
                     };
                 };
+                if panel.browser && on != Some(false) {
+                    return Response::Error {
+                        message: browser::NO_DIFF.into(),
+                    };
+                }
                 let want = on.unwrap_or(!panel.diff_view);
                 match panel.set_diff_view(want) {
                     Ok(()) => {
@@ -1087,6 +1543,7 @@ impl Tab {
             Message::Comment {
                 pane,
                 line,
+                selector,
                 body,
                 author,
             } => {
@@ -1098,6 +1555,49 @@ impl Tab {
                 };
                 // Default to the session's agent name; `agent_note` falls back to `"agent"`.
                 let author = author.or_else(|| self.journal.as_ref().and_then(|j| j.agent()));
+                let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
+                    return Response::Error {
+                        message: format!("no pane #{target}"),
+                    };
+                };
+                let (line, event) = match (browser, line, selector) {
+                    // Before the anchor, which the empty body would leave on the pane.
+                    (true, None, Some(_))
+                        if body.as_deref().is_none_or(|b| b.trim().is_empty()) =>
+                    {
+                        return Response::Error {
+                            message: "comment needs a body".into(),
+                        };
+                    }
+                    (true, None, Some(sel)) => {
+                        let (s, q, u) = match self.element(target, &sel) {
+                            Ok(e) => e,
+                            Err(message) => return Response::Error { message },
+                        };
+                        let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
+                        let line = row.map_or(0, |r| r as u32 + 1);
+                        (
+                            line,
+                            json!({"type": "comment", "pane": target, "selector": sel}),
+                        )
+                    }
+                    (true, ..) => {
+                        return Response::Error {
+                            message: format!(
+                                "pane #{target} is a browser pane: pass a CSS selector"
+                            ),
+                        };
+                    }
+                    (false, Some(line), None) => (
+                        line,
+                        json!({"type": "comment", "pane": target, "line": line}),
+                    ),
+                    (false, ..) => {
+                        return Response::Error {
+                            message: format!("pane #{target} is a file pane: pass a line number"),
+                        };
+                    }
+                };
                 let Some(panel) = self.panels.get_mut(&target) else {
                     return Response::Error {
                         message: format!("no pane #{target}"),
@@ -1105,7 +1605,7 @@ impl Tab {
                 };
                 match panel.agent_note(line, body, author) {
                     Ok(()) => {
-                        self.log_event(json!({"type":"comment","pane":target,"line":line}));
+                        self.log_event(event);
                         Response::Ok
                     }
                     Err(message) => Response::Error { message },
@@ -1123,6 +1623,7 @@ impl Tab {
                 let experimental = [
                     self.editor.is_ok().then_some("editor"),
                     self.web.then_some("web"),
+                    (self.web && self.browser_path.is_ok()).then_some("browser"),
                 ]
                 .into_iter()
                 .flatten()
@@ -1132,6 +1633,7 @@ impl Tab {
                     journal: path,
                     experimental,
                     layout: Some(self.report(area)),
+                    browser_url: self.browser_port.map(browser::endpoint),
                 }
             }
             Message::Feedback { sentiment, body } => {
@@ -1163,10 +1665,21 @@ impl Tab {
         if let Err(message) = layout.split(target, dir, ratio, side, new) {
             return Response::Error { message };
         }
-        let temp = Panel::open(path.to_string());
+        let temp = if browser::is_url(path) {
+            Panel::page(path.to_string())
+        } else {
+            Panel::open(path.to_string())
+        };
         let mut refs = self.panel_refs();
         refs.insert(new, &temp);
-        Response::Report(build_report(&layout, &refs, &self.editors, area, self.web))
+        Response::Report(build_report(
+            &layout,
+            &refs,
+            &self.editors,
+            &self.browsers,
+            area,
+            self.web,
+        ))
     }
 
     /// The smallest ratio, up to 50, at which a stacked split of `target` gives `new` the rows

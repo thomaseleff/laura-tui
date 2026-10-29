@@ -6,7 +6,7 @@ Laura is a TUI workspace that provides agents with an **API over the TUI**, allo
 
 - [Tutorial](https://thomaseleff.github.io/laura-tui/content/tutorial.md): A step-by-step walkthrough for users.
 - [Navigating the TUI](https://thomaseleff.github.io/laura-tui/content/navigation.md): The keystrokes to navigate within a Laura workspace for users.
-- [Web app](https://thomaseleff.github.io/laura-tui/content/web-app.md): How to start a Laura workspace in a browser tab and review files there, for users (experimental).
+- [Web app](https://thomaseleff.github.io/laura-tui/content/web-app.md): How to start a Laura workspace in a browser tab, review files there, and show a web page in a browser pane with the agent's browser tools, for users (experimental).
 - [Navigating the web app](https://thomaseleff.github.io/laura-tui/content/web-app-navigation.md): The keystrokes, clicks, pane header, status bar and file rendering in the web app, for users (experimental).
 - [Agent reference](https://thomaseleff.github.io/laura-tui/content/agent-reference.md): Common usage reference for the `laura` CLI for agents.
 - [CLI reference](https://thomaseleff.github.io/laura-tui/content/cli.md): Complete reference of the `laura` CLI commands and flags for agents.

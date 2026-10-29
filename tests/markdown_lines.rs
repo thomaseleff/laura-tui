@@ -148,7 +148,7 @@ fn review_header_is_the_blocks_source_range() -> Result<()> {
     panel.move_cursor(para_line as isize);
     panel.author_note("tighten this".into());
 
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(
         review.contains("L3-4"),
         "collapsed block emits its source range, not a single line: {review}"
@@ -210,7 +210,7 @@ fn fenced_code_maps_per_line() -> Result<()> {
         .line;
     panel.move_cursor(mid as isize);
     panel.author_note("this one".into());
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(review.contains("L5  "), "single source line: {review}");
     assert!(!review.contains("L4-"), "not a block range: {review}");
     Ok(())
@@ -244,7 +244,7 @@ fn html_block_maps_per_line() -> Result<()> {
         .line;
     panel.move_cursor(mid as isize);
     panel.author_note("nested".into());
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(review.contains("L4  "), "single source line: {review}");
     assert!(!review.contains("L3-"), "not a block range: {review}");
     Ok(())
@@ -289,7 +289,7 @@ fn table_maps_per_data_row() -> Result<()> {
         panel.move_cursor(line as isize);
         panel.author_note(format!("row {needle}"));
     }
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(review.contains("L5"), "first data row header: {review}");
     assert!(review.contains("L6"), "second data row header: {review}");
     assert!(
@@ -317,7 +317,7 @@ fn list_items_get_their_own_threads() -> Result<()> {
         panel.move_cursor(line as isize);
         panel.author_note(format!("note {needle}"));
     }
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(
         review.contains("L1"),
         "first bullet is its own thread: {review}"
@@ -361,7 +361,7 @@ fn nested_list_items_get_their_own_threads() -> Result<()> {
     let mut panel = Panel::open(p);
     note_on(&mut panel, "child one");
 
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(
         review.contains(
             "L2    - child one
@@ -419,7 +419,7 @@ fn quoted_and_callout_list_items_get_their_own_threads() -> Result<()> {
         note_on(&mut panel, needle);
     }
 
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     let src: Vec<&str> = LISTS.lines().collect();
     assert_eq!(src.len(), 23, "fixture line count");
     for needle in needles {
@@ -475,7 +475,7 @@ fn blank_separated_list_items_get_their_own_threads() -> Result<()> {
             note_on(&mut panel, &format!("- {needle}"));
         }
 
-        let review = panel.assemble_review("");
+        let review = panel.assemble_review(1, "");
         let src: Vec<&str> = doc.lines().collect();
         for needle in needles {
             let n = src
@@ -540,7 +540,7 @@ fn agent_comment_on_a_loose_list_gap_keys_to_its_row() -> Result<()> {
         panel.thread_at(gap).is_some(),
         "L15 keys to the blank row after `loose one`"
     );
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     // A blank source line's header is `L15` plus the two-space separator and empty text.
     assert!(review.contains("\nL15  \n"), "header is L15: {review}");
     Ok(())

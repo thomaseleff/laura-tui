@@ -259,9 +259,10 @@ pub enum Hint {
     Locked,
     Wizard,
     Quit,
-    /// A comment draft on source `line`; `edit` when it edits the user's existing comment.
+    /// A comment draft `at` a source line (`L<n>`) or a browser pane's element (its selector);
+    /// `edit` when it edits the user's existing comment.
     Comment {
-        line: u32,
+        at: String,
         edit: bool,
     },
     Review,
@@ -272,6 +273,16 @@ pub enum Hint {
     CommentMode,
     /// The web app's focused HTML page, which takes clicks in place of the arrows.
     Page,
+    /// The web app's focused browser pane.
+    Browser,
+    /// A browser pane's page has the keystrokes: a field has the focus.
+    BrowserTyping,
+    /// A browser pane's address field has the keystrokes.
+    BrowserUrl,
+    /// A browser pane's page shows a dialog.
+    BrowserDialog,
+    /// A browser pane's page asks to leave: Chrome's `beforeunload` dialog.
+    BrowserLeave,
 }
 
 /// A hint line: `(keystroke, label)` pairs. An empty keystroke is plain text.
@@ -298,9 +309,9 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             ("Esc", "not now"),
         ],
         Hint::Quit => vec![("", "quit? press y to confirm · any other keystroke cancels")],
-        Hint::Comment { line, edit } => {
+        Hint::Comment { at, edit } => {
             let mut v: Pairs = vec![
-                ("", format!("Comment L{line}")),
+                ("", format!("Comment {at}")),
                 (
                     "Enter",
                     if edit {
@@ -350,6 +361,27 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             when(!tab.agent, vec![("", READY)]),
         ]
         .concat(),
+        Hint::Browser => [
+            vec![("", "Click, scroll and type in the page")],
+            when(tab.agent, vec![("c", "comment")]),
+            vec![("n N", "threads")],
+            when(tab.agent, vec![("Shift+S", "submit")]),
+            vec![
+                ("h", "clear highlight"),
+                ("Ctrl+R", "refresh"),
+                ("x", "close"),
+                ("Esc", "shell"),
+            ],
+            when(!tab.agent, vec![("", READY)]),
+        ]
+        .concat(),
+        Hint::BrowserTyping => vec![
+            ("", "Keystrokes go to the page"),
+            ("Esc", "give them back to Laura"),
+        ],
+        Hint::BrowserUrl => vec![("", "Type a URL"), ("Enter", "go"), ("Esc", "cancel")],
+        Hint::BrowserDialog => vec![("", "The page asks"), ("Enter", "OK"), ("Esc", "cancel")],
+        Hint::BrowserLeave => vec![("", "The page asks"), ("Enter", "leave"), ("Esc", "stay")],
         Hint::Pane if !pty => [
             vec![("↑ ↓", "move")],
             when(tab.agent, vec![("c", "comment")]),
@@ -382,6 +414,16 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
         ],
     };
     v.into_iter().map(|(k, l)| (k, l.to_string())).collect()
+}
+
+/// `s`, cut from the left to `n` characters with `…`: a selector's end names its element.
+pub fn cut_left(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    if count <= n {
+        return s.to_string();
+    }
+    let tail: String = s.chars().skip(count + 1 - n).collect();
+    format!("…{tail}")
 }
 
 /// The hint line's note before the agent runs `laura ready`.
@@ -485,6 +527,36 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
             vec![
                 ("click", "Comment on an element"),
                 ("Esc", "Leave comment mode"),
+            ],
+        ));
+        groups.push((
+            "In a browser pane",
+            vec![
+                (
+                    "click",
+                    "Click in the page; a click on a field gives it the keystrokes",
+                ),
+                (
+                    "Esc",
+                    "Give the keystrokes back to Laura, else leave the pane",
+                ),
+                ("Alt+← Alt+→", "Back / forward"),
+                ("↑ ↓ PgUp PgDn Space", "Scroll the page"),
+                ("drag", "Select text in the page and copy it on release"),
+                (
+                    "c",
+                    "Comment on the element under the pointer, else turn on comment mode",
+                ),
+                ("n N", "Next / previous thread"),
+                ("r", "Collapse or expand a thread"),
+                ("Shift+S", "Submit the inline review"),
+                ("h", "Clear the highlight"),
+                ("Ctrl+R", "Refresh the pane"),
+                ("x", "Close the pane"),
+                (
+                    "Enter Esc",
+                    "Answer the page's dialog: OK / Cancel, or Leave / Stay",
+                ),
             ],
         ));
     }

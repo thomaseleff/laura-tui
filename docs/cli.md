@@ -45,14 +45,19 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         Errors (exit 1) with the reason when editor panes are off, and with
                         --highlight or --diff: editor panes show neither, so annotate the
                         lines with `laura comment` instead.
+laura open <url>        Show an http(s) URL in a browser pane (experimental: needs
+                        LAURA_EXPERIMENTAL_BROWSER=1, --web, and Chrome or Edge). Takes the
+                        split flags, --no-focus and --panel. Errors (exit 1) with --highlight,
+                        --diff or --edit. --follow changes nothing. See Browser panes below.
 laura close [<id>]      Close a pane (default: the focused one). Errors (exit 1) while the
                         pane has an unsubmitted inline review or unsaved Neovim edits.
       --all             Close every pane, back to shell-only. Errors (exit 1), closing nothing,
                         while any pane has an unsubmitted inline review or unsaved Neovim edits.
 laura focus <id>        Focus a pane by id.
-laura highlight [start] [end]
+laura highlight [start|selector] [end]
                         Highlight lines start..=end (1-based, inclusive) in a pane and
-                        scroll them into view. end defaults to start (single line). Line numbers
+                        scroll them into view. In a browser pane, pass a CSS selector in place
+                        of the lines. See Browser panes below. end defaults to start (single line). Line numbers
                         are the file's real source lines (an editor / wc -l / git blame), for
                         markdown too — a source line inside a hand-wrapped paragraph maps to
                         that whole block: `laura highlight 40 52`. Errors (exit 1) on a
@@ -66,10 +71,12 @@ laura diff              Toggle a pane's inline diff view vs git HEAD (interleave
                         `laura comment` instead).
       --pane <id>       pane to toggle (default: the focused pane).
       --off             Turn the diff view off (default: toggle).
-laura comment <line> <body>
+laura comment <line|selector> <body>
                         Write to a line's thread: start a thread on that line or append a
                         reply to the user's thread there; the comment is attributed to the agent.
                         <line> is a 1-based real source line (same mapping as `laura highlight`).
+                        In a browser pane, pass a CSS selector in place of the line. See
+                        Browser panes below.
                         `laura comment 42 "handled — see the retry loop"`. A <line> past
                         the file's end errors (exit 1) and places no comment.
       --author <name>   Attribute the comment to <name> (default: the session's
@@ -119,7 +126,7 @@ Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each
 
 `overflow_rows` counts the rows that don't fit in the pane. When it's above 0, or `clipped` is `true`, the content **overflows** the pane and the user has to scroll to read the full content. `laura open` also warns on stderr when a file's content overflows (`pane #N overflows: …`), and when the pane is too small to show any of it (`pane #N too small to render …`).
 
-Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content.
+Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`.
 
 ## Experimental features
 
@@ -135,6 +142,7 @@ Experimental features are off by default and enabled by setting an environment v
 |---|---|
 | `LAURA_EXPERIMENTAL_EDITOR=1` | [Editor panes](#editor-panes) |
 | `LAURA_EXPERIMENTAL_WEB=1` | [Web app](web-app.md) |
+| `LAURA_EXPERIMENTAL_BROWSER=1` | [Browser panes](#browser-panes) |
 
 ## Editor panes
 
@@ -154,6 +162,51 @@ When Neovim exits, Laura closes the editor pane. If the editor pane has threads,
 Editor panes show no highlight or diff. `--edit` with `--highlight` or `--diff`, and `laura highlight` or `laura diff` on an editor pane, return an error (exit 1). When a file pane becomes an editor pane, Laura drops the pane's highlight and diff.
 
 Editor panes support comments. `laura comment --pane <id>` annotates a line, and Neovim shows the thread as an inline `✎` diagnostic. The user presses `Ctrl+L` to flip the pane between its editor view (Neovim) and its file view. The editor view shows comments, but the user can't comment or submit there, so the user flips to the file view to comment (`c`) or submit an inline review (`Shift+S`).
+
+## Browser panes
+
+> [!NOTE]
+> Browser panes are [experimental](#experimental-features).
+
+`laura open <url>` shows a page from an `http://` or `https://` URL in a **browser pane** in the web app. For what the user sees, see [Show a web app in a browser pane](web-app.md#show-a-web-app-in-a-browser-pane). To enable browser panes:
+
+1. Install Chrome or Edge. To use another browser of the same kind, set `LAURA_BROWSER` to its path.
+2. Set `LAURA_EXPERIMENTAL_BROWSER=1` and `LAURA_EXPERIMENTAL_WEB=1`.
+3. Start Laura with `laura --web`.
+
+`laura open <url>` returns these errors, in this order:
+
+- When disabled: `browser panes are experimental: set LAURA_EXPERIMENTAL_BROWSER=1 before starting Laura`.
+- In the TUI: `browser panes need the web app: start Laura with --web`.
+- With no Chrome or Edge, or a `LAURA_BROWSER` path with no file: `browser panes need Chrome or Edge: install one or set LAURA_BROWSER to its path`.
+- With `--highlight`: `a browser pane has no lines: open the page, then run laura highlight '<selector>' --pane <id>`.
+- With `--diff`: `a browser pane has no diff: run laura open <file> --diff on the page's source file`.
+- With `--edit`: `a browser pane has no editor: run laura open <file> --edit on the page's source file`.
+- When Laura's browser can't start: `couldn't start Laura's browser: <reason>`.
+
+`laura open` uses any other text, such as `file:///etc/hosts` or `chrome://version`, as a file path.
+
+In a browser pane, the agent passes a CSS selector in place of a line number:
+
+- `laura comment '<selector>' "<body>" --pane <id>` starts a thread on the element that the selector finds. When the element already has a thread, the comment is a reply on that thread.
+- `laura highlight '<selector>' --pane <id>` highlights the element and scrolls the page to it. `laura highlight --off --pane <id>` clears the highlight.
+
+Laura looks for the element on the page that the pane shows now. An argument of digits only is a line number, and any other argument is a selector.
+
+`laura comment` and `laura highlight` return these errors, in this order:
+
+- With a selector and an end line: `a selector takes no end line`.
+- With a line number on a browser pane: `pane #<id> is a browser pane: pass a CSS selector`.
+- With a selector on a file pane: `pane #<id> is a file pane: pass a line number`.
+- When Laura's browser stopped: `Laura's browser exited: press Ctrl+R in a browser pane to start it again`.
+- When the page shows a dialog: `pane #<id>'s page is showing a dialog: answer it with your browser tool, or ask the user to answer it in the pane`.
+- When the page is still loading: `pane #<id>'s page is still loading: run the command again when the page has loaded`.
+- With a selector that is not valid CSS: `invalid selector: <selector>`.
+- When no element on the page matches: `no element matches <selector> in pane #<id>`.
+
+`laura diff --pane <id>` on a browser pane returns `a browser pane has no diff: run laura open <file> --diff on the page's source file`.
+
+`laura ready` lists `browser` under `experimental` when the web app runs and Laura found a browser to run.
 
 ## Journal
 
@@ -182,10 +235,10 @@ Each event's fields:
 | `open` | `pane`, `path`, `replaced`, `edit` |
 | `close` | `pane`, or `all` |
 | `focus` | `pane` |
-| `highlight` | `pane`, `start`, `end`, or `cleared` |
+| `highlight` | `pane`, `start`, `end`, or `selector`, or `cleared` |
 | `diff` | `pane`, `on` |
-| `comment` | `pane`, `line` |
-| `review` | `path`, `comments` (thread count), `body`, `error` |
+| `comment` | `pane`, `line` or `selector` |
+| `review` | `pane`, `path`, `comments` (thread count), `body`, `error` |
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |
 
 Every event also carries `ts`, `version`, `session`, and `agent` when `ready --agent` named one. `edit` and `replaced` appear only when true; `feedback`'s `body` is `null` when omitted and its `pane` is `null` when the shell has focus.

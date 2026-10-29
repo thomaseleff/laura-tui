@@ -33,7 +33,9 @@ use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
     about,
     args_conflicts_with_subcommands = true,
     after_help = "Experimental features (opt-in: set the variable before starting Laura; `laura ready` lists the ones on):\n  LAURA_EXPERIMENTAL_EDITOR=1  Editor panes: `laura open --edit <path>` runs Neovim in a pane (needs nvim on PATH)
-  LAURA_EXPERIMENTAL_WEB=1     The web app: `laura --web` shows the workspace in a web browser instead of the terminal"
+  LAURA_EXPERIMENTAL_WEB=1     The web app: `laura --web` shows the workspace in a web browser instead of the terminal
+  LAURA_EXPERIMENTAL_BROWSER=1 Browser panes: `laura open <url>` shows a page live in the web app (needs --web, and Chrome or Edge)
+  LAURA_BROWSER=<path>         The Chrome or Edge that browser panes run (default: the installed one)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -48,8 +50,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Open a file in a new pane, splitting a pane. Prints the new pane id.
+    /// Open a file, or an http(s) URL in a browser pane, in a new pane. Prints the new pane id.
     Open {
+        /// A file, or an `http://` / `https://` URL (experimental browser pane).
         path: String,
         /// Pane to split (default: the focused pane).
         #[arg(long)]
@@ -94,11 +97,11 @@ enum Cmd {
     },
     /// Focus a pane by id.
     Focus { id: PaneId },
-    /// Highlight a line range in a pane and scroll it into view; `--off` clears it.
+    /// Highlight a line range in a pane, or an element in a browser pane, and scroll it into view; `--off` clears it.
     Highlight {
-        /// First line to highlight (1-based).
-        #[arg(required_unless_present = "off")]
-        start: Option<u32>,
+        /// First line to highlight (1-based), or a browser pane's CSS selector.
+        #[arg(required_unless_present = "off", value_name = "START|SELECTOR")]
+        start: Option<String>,
         /// Last line (default: same as start).
         end: Option<u32>,
         /// Clear the pane's highlight (default: set).
@@ -117,10 +120,11 @@ enum Cmd {
         #[arg(long)]
         off: bool,
     },
-    /// Write to a line's thread: start a thread or reply on it.
+    /// Write to a line's thread, or an element's in a browser pane: start a thread or reply on it.
     Comment {
-        /// 1-based source line the thread hangs on.
-        line: u32,
+        /// 1-based source line the thread hangs on, or a browser pane's CSS selector.
+        #[arg(value_name = "LINE|SELECTOR")]
+        target: String,
         /// Comment body — starts a thread or appends a reply.
         body: String,
         /// Attribute the comment to this author (default: the session's `ready --agent` name, else `agent`).
@@ -185,6 +189,17 @@ enum Cmd {
     },
 }
 
+/// A file pane's line (all digits), else a browser pane's CSS selector: no selector is all digits.
+fn line_or_selector(s: String) -> Result<(Option<u32>, Option<String>)> {
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) {
+        let line = s
+            .parse()
+            .with_context(|| format!("invalid line number: {s}"))?;
+        return Ok((Some(line), None));
+    }
+    Ok((None, Some(s)))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -204,7 +219,12 @@ fn main() -> Result<()> {
         }) => {
             // Absolutize against the caller's cwd, not the server's. `absolute` (not
             // `canonicalize`) touches no filesystem, so a missing file still surfaces its error.
-            let path = std::path::absolute(&path)?.to_string_lossy().into_owned();
+            // A URL stays as typed.
+            let path = if laura::browser::is_url(&path) {
+                path
+            } else {
+                std::path::absolute(&path)?.to_string_lossy().into_owned()
+            };
             // clap enforces 1..=2 values; `[start]` → single line, `[start, end]` → range.
             let highlight = highlight.map(|v| (v[0], *v.get(1).unwrap_or(&v[0])));
             client_request(Message::Open {
@@ -230,31 +250,42 @@ fn main() -> Result<()> {
             off,
             pane,
         }) => {
-            let range = if off {
-                None
-            } else {
+            let (mut range, mut selector) = (None, None);
+            if !off {
                 // `required_unless_present = "off"` makes bare `highlight` a clap error, so a
                 // missing `start` here is an unreachable invariant, not runtime input.
-                let s = start.expect("clap requires start unless --off");
-                Some((s, end.unwrap_or(s)))
-            };
-            client_request(Message::Highlight { pane, range })
+                let start = start.expect("clap requires start unless --off");
+                match line_or_selector(start)? {
+                    (Some(s), _) => range = Some((s, end.unwrap_or(s))),
+                    (_, Some(_)) if end.is_some() => bail!("a selector takes no end line"),
+                    (_, sel) => selector = sel,
+                }
+            }
+            client_request(Message::Highlight {
+                pane,
+                range,
+                selector,
+            })
         }
         Some(Cmd::Diff { pane, off }) => client_request(Message::DiffView {
             pane,
             on: off.then_some(false), // --off sets off; otherwise toggle
         }),
         Some(Cmd::Comment {
-            line,
+            target,
             body,
             author,
             pane,
-        }) => client_request(Message::Comment {
-            pane,
-            line,
-            body: Some(body),
-            author,
-        }),
+        }) => {
+            let (line, selector) = line_or_selector(target)?;
+            client_request(Message::Comment {
+                pane,
+                line,
+                selector,
+                body: Some(body),
+                author,
+            })
+        }
         Some(Cmd::Layout) => client_request(Message::Layout),
         Some(Cmd::Ready { session, agent }) => client_request(Message::Ready { session, agent }),
         Some(Cmd::Feedback {
@@ -342,8 +373,7 @@ fn web(program: Vec<String>) -> Result<()> {
     }
     let mut web = laura::web::WebServer::bind()?;
     let area = laura::web::DEFAULT_AREA;
-    let mut tab = tui::spawn_tab(&program, area.height, area.width)?;
-    tab.web = true;
+    let mut tab = tui::spawn_tab(&program, area.height, area.width, true)?;
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
@@ -379,11 +409,13 @@ fn client_request(msg: Message) -> Result<()> {
             journal,
             experimental,
             layout,
+            browser_url,
         } => println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "journal": journal,
                 "experimental": experimental,
+                "browser_url": browser_url,
                 "layout": layout,
             }))?
         ),

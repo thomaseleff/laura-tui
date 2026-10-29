@@ -69,14 +69,15 @@ fn open_wire_shape_is_stable() {
 fn comment_wire_shape_is_stable() {
     let json = serde_json::to_string(&Message::Comment {
         pane: Some(2),
-        line: 42,
+        line: Some(42),
+        selector: None,
         body: Some("tighten this".into()),
         author: Some("agent".into()),
     })
     .unwrap();
     assert_eq!(
         json,
-        r#"{"type":"comment","pane":2,"line":42,"body":"tighten this","author":"agent"}"#
+        r#"{"type":"comment","pane":2,"line":42,"selector":null,"body":"tighten this","author":"agent"}"#
     );
 }
 
@@ -88,7 +89,8 @@ fn comment_defaults_are_minimal() {
         msg,
         Message::Comment {
             pane: None,
-            line: 7,
+            line: Some(7),
+            selector: None,
             body: None,
             author: None,
         }

@@ -41,7 +41,7 @@ Each button in the pane header does what its keystroke does:
 | Button | Keystroke | What Laura does |
 |---|---|---|
 | Comment | `c` | Opens a comment on the cursor's line. |
-| Comment mode | — | Turns comment mode on or off in an [HTML file](#html-files), where a click on an element opens a comment on the element. Laura shows the button on an HTML page in place of the comment button. |
+| Comment mode | — | Turns comment mode on or off in an [HTML file](#html-files) or a [browser pane](#browser-panes), where a click on an element opens a comment on the element. Laura shows the button on an HTML page and in a browser pane in place of the comment button. |
 | Diff | `d` | Shows or hides the inline diff view. Laura shows the button when the file has changes. |
 | Refresh | `Ctrl+R` | Discards the unsubmitted inline review and reloads the file. |
 | Close | `x` | Closes the pane. |
@@ -143,6 +143,32 @@ Laura shows an HTML file (`.html` or `.htm`) in a file pane as the rendered page
 - In a page, Laura doesn't move the cursor or scroll on `↑`, `↓`, `←` or `→`. Press `n` or `N` to move the cursor to a thread.
 - To see the page's source as an inline diff, press `d`.
 - Laura reloads the page when the file changes on disk. While the pane is frozen, Laura keeps showing the snapshot until the user refreshes the pane.
+
+## Browser panes
+
+A [browser pane](web-app.md#show-a-web-app-in-a-browser-pane) shows a page from a URL. The pane header shows the back and forward buttons, a globe icon, the page's title, the page's URL and the live badge. Before the page names a title, the pane header shows the URL as the name. The URL is an address field. To use the page, see [Use the page](web-app.md#use-the-page).
+
+In the focused browser pane:
+
+| Button | Keystroke | What Laura does |
+|---|---|---|
+| Back | `Alt+←` | Goes back to the previous page. |
+| Forward | `Alt+→` | Goes forward to the next page. |
+| — | `↑` `↓` `PageUp` `PageDown` `Space` | Scrolls the page. |
+| — | `c` | Opens a comment on the element under the pointer. When the pointer is not on the page, turns on comment mode. |
+| Comment mode | — | Turns comment mode on or off. In comment mode, a click on an element opens a comment on the element. |
+| — | `n` `N` | Moves the cursor to the next or previous thread. |
+| — | `r` | Collapses or expands the cursor's thread. |
+| **Submit review** | `Shift+S` | Opens the review body. |
+| **Highlight &lt;selector&gt;** | — | Scrolls the page to the element that the agent highlighted. |
+| **×** on the highlight chip | `h` | Clears the highlight. |
+| Refresh | `Ctrl+R` | Discards the unsubmitted inline review and the agent's highlight, and reloads the page. When Laura's browser stopped, Laura starts it again and keeps the threads. |
+| Close | `x` | Closes the pane. |
+| — | `Esc` | Moves the focus to the shell. |
+
+While a text field in the page has the keystrokes, every keystroke goes to the page except `Esc`, `Ctrl+P`, `Ctrl+Q`, `Ctrl+H` and `F12`. Press `Esc` to give the keystrokes back to Laura. The field in the page loses the focus, and the scroll keys scroll the page again. While the page shows a dialog, `Enter` accepts the dialog and `Esc` cancels it.
+
+The browser pane has no comment or diff button. To comment on a browser pane, see [Comment on a browser pane](web-app.md#comment-on-a-browser-pane).
 
 ## One workspace per run
 

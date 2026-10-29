@@ -188,10 +188,18 @@ fn theme_path() -> PathBuf {
     laura::journal::data_dir().join("editor-theme")
 }
 
-/// Start a workspace running `program` (else the shell), with editor panes resolved and the saved
-/// theme applied. The TUI and `laura --web` share it.
-pub fn spawn_tab(program: &[String], rows: u16, cols: u16) -> Result<Tab> {
-    let mut tab = Tab::spawn(build_cmd(program), rows, cols)?;
+/// Start a workspace running `program` (else the shell), with editor and browser panes resolved
+/// and the saved theme applied. The TUI and `laura --web` (`web`) share it.
+pub fn spawn_tab(program: &[String], rows: u16, cols: u16, web: bool) -> Result<Tab> {
+    let browser = laura::browser::resolve();
+    let mut tab = if web {
+        Tab::spawn_web(build_cmd(program), rows, cols, browser)?
+    } else {
+        // The TUI keeps the browser, so `open <url>` says it needs `--web`.
+        let mut tab = Tab::spawn(build_cmd(program), rows, cols)?;
+        tab.browser_path = browser;
+        tab
+    };
     // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
     tab.editor = laura::editor::resolve();
     tab.editor_theme = std::fs::read_to_string(theme_path()).is_ok_and(|s| s.trim() == "laura");
@@ -200,7 +208,7 @@ pub fn spawn_tab(program: &[String], rows: u16, cols: u16) -> Result<Tab> {
 
 pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Result<()> {
     let area = terminal.size()?;
-    let mut tab = spawn_tab(&program, area.height, area.width)?;
+    let mut tab = spawn_tab(&program, area.height, area.width, false)?;
     let theme_path = theme_path();
     let mut wizard = tab.editor.is_ok() && !theme_path.exists();
     // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
@@ -297,7 +305,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             } else if let Some(d) = &draft {
                 match d {
                     Draft::Comment { line, edit, .. } => Hint::Comment {
-                        line: *line,
+                        at: format!("L{line}"),
                         edit: *edit,
                     },
                     Draft::Review(..) => Hint::Review,

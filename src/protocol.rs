@@ -37,13 +37,15 @@ pub enum Side {
     Second,
 }
 
-/// Whether a pane hosts the shell, a file panel, or an editor pane (Neovim over a file panel).
+/// Whether a pane hosts the shell, a file panel, an editor pane (Neovim over a file panel), or a
+/// browser pane (a page in Laura's browser).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PaneKind {
     Pty,
     Panel,
     Editor,
+    Browser,
 }
 
 /// A single request sent to a tab. Internally tagged so the JSON is a stable wire contract (`{"type":"open","path":"…"}`).
@@ -52,6 +54,7 @@ pub enum PaneKind {
 pub enum Message {
     /// Open `path` in a new panel, splitting `split` (or the focused pane). Back-compat: only `path` is required.
     Open {
+        /// A file path, or an `http(s)://` URL for a browser pane.
         path: String,
         /// Pane to split; `None` splits the focused pane.
         #[serde(default)]
@@ -99,14 +102,18 @@ pub enum Message {
     },
     /// Focus a pane by stable id.
     Focus { pane: PaneId },
-    /// Highlight a line range (1-based, inclusive) in a panel and scroll it into
-    /// view. `pane` defaults to the focused panel; `range: None` clears the highlight.
+    /// Highlight a line range (1-based, inclusive) in a file pane, or an element in a browser
+    /// pane, and scroll it into view. `pane` defaults to the focused panel; neither `range` nor
+    /// `selector` clears the highlight.
     Highlight {
         #[serde(default)]
         pane: Option<PaneId>,
-        /// `Some((start, end))` highlights; `None` clears.
+        /// A file pane's `(start, end)`.
         #[serde(default)]
         range: Option<(u32, u32)>,
+        /// A browser pane's CSS selector.
+        #[serde(default)]
+        selector: Option<String>,
     },
     /// Toggle (or set) the inline diff view on a panel. `pane` defaults to the
     /// focused panel; `on` = `None` toggles, `Some(b)` sets. Refused (error) when
@@ -117,13 +124,17 @@ pub enum Message {
         #[serde(default)]
         on: Option<bool>,
     },
-    /// Write to a line's thread (agent side). `body` starts a thread or appends a reply,
-    /// `author` labels it. An empty/absent `body` is a typed error.
+    /// Write to a line's thread (agent side), or an element's in a browser pane. `body` starts a
+    /// thread or appends a reply, `author` labels it. An empty/absent `body` is a typed error.
     Comment {
         #[serde(default)]
         pane: Option<PaneId>,
-        /// 1-based source line the thread hangs on.
-        line: u32,
+        /// A file pane's 1-based source line the thread hangs on.
+        #[serde(default)]
+        line: Option<u32>,
+        /// A browser pane's CSS selector.
+        #[serde(default)]
+        selector: Option<String>,
         #[serde(default)]
         body: Option<String>,
         #[serde(default)]
@@ -166,7 +177,7 @@ pub enum Response {
     /// Answers `Layout` and dry-run `Open`.
     Report(LayoutReport),
     /// `ready` succeeded; carries the session's journal path, the experimental features on in this
-    /// tab (`"editor"`), and the layout — everything a fresh agent needs to orient.
+    /// tab (`"editor"`, `"web"`, `"browser"`), and the layout — everything a fresh agent needs to orient.
     Ready {
         journal: String,
         #[serde(default)]
@@ -174,6 +185,9 @@ pub enum Response {
         /// `None` from a host older than this field (upgraded while running).
         #[serde(default)]
         layout: Option<LayoutReport>,
+        /// `LAURA_BROWSER_URL`, for the agent's browser tools; `None` unless `browser` is listed.
+        #[serde(default)]
+        browser_url: Option<String>,
     },
     /// The request failed.
     Error { message: String },
@@ -200,6 +214,9 @@ pub struct PaneReport {
     pub overflow_rows: usize,
     /// Content overflows, or the rect is too small to be usable.
     pub clipped: bool,
+    /// A browser pane's page title, so the agent can match the pane to its browser tools' pages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Serializable mirror of a ratatui `Rect` (which isn't `Serialize`).

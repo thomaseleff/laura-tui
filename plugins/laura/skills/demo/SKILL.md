@@ -410,6 +410,38 @@ laura open "$D/page.html" --ratio 55
 
 _Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
+_If `laura ready` also listed `browser`, show a page from a URL next. Otherwise, skip to the next beat. Serve `$D` with any static file server; the example uses Python's._
+
+**Do:**
+
+```bash
+python -m http.server 8765 --directory "$D" >/dev/null 2>&1 & SRV=$!
+# Wait for the server.
+until curl -s -o /dev/null http://localhost:8765/; do sleep 0.5; done
+P=$(laura open http://localhost:8765/page.html --ratio 55)
+# Retry while the page loads.
+while laura highlight button --pane $P 2>&1 | grep -q "is still loading"; do sleep 1; done
+```
+
+_If `laura highlight` returns another error, tell your partner and skip this beat._
+
+**Say:**
+
+> **Bonus · See a page from a URL**
+>
+> I started a small web server and opened `http://localhost:8765/page.html` in a browser pane to the right. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Save** button by its CSS selector, so Laura outlines it.
+>
+> 1. Click **Save** in the pane. The page changes the button to **Saved**, as in your own browser.
+> 2. Press `Ctrl+R` in the pane to refresh the pane. Laura reloads the page.
+> 3. Point at the button and press `c`. Laura names the button by its CSS selector. Type a comment and press `Enter`.
+> 4. Press `Shift+S`, then `Enter`, to submit your inline review.
+
+_Then **wait** for the `[laura review · …]` block._
+
+_If you have chrome-devtools-mcp, add one beat. Select the page whose URL matches pane `$P` in `laura layout`, and click **Save** with the tool while your partner watches. Then run `laura highlight button --pane $P` and say: "I clicked **Save** with my browser tool. The ring showed where I clicked, and the button changed to **Saved**." Without the tool, skip this beat._
+
+_Then `laura close --all`, and `kill $SRV`._
+
 ---
 
 ### Recording feedback

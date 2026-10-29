@@ -76,6 +76,7 @@ laura open src/x.rs --highlight 40 52   # open a file already scrolled to and hi
 laura highlight 40 52                    # highlight in an already-open pane (1-based, inclusive)
 laura highlight 40 --pane <id>           # single line, in a specific (possibly unfocused) pane
 laura highlight --off                     # clear the highlight (the user can also press `h` on the pane)
+laura highlight 'main > h1' --pane <id>  # an element in a browser pane, by CSS selector
 ```
 
 `laura open --highlight` opens the file and highlights the lines in one call, with the pane already scrolled to the range. `laura highlight` moves the highlight in an open pane. The highlight stays until you set a new one or clear it. On a frozen pane, `laura highlight` returns an error (exit 1), but `--off` still clears the highlight.
@@ -119,9 +120,27 @@ laura close --all      # close every pane, back to shell-only
 
 ## Read an inline review
 
-When the user submits an inline review, you receive a `[laura review · <path>]` block in the chat. Treat the block as feedback on that file: address each `L<n>` thread (line numbers are 1-based) and the review body, then edit the file.
+When the user submits an inline review, you receive a `[laura review · pane #<id> · <path>]` block in the chat. Treat the block as feedback on that file: address each `L<n>` thread (line numbers are 1-based) and the review body, then edit the file. To reply in a thread, run `laura comment <line> "…" --pane <id>` with the pane id from the block.
 
 Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`). Each line of a multi-line comment starts with `> `. An inline review is a **call and response**: the block holds the whole conversation on that file. You only see the user's comments when the user submits (`Shift+S`); you can't read them from the pane.
+
+An inline review from a [browser pane](web-app.md#comment-on-a-browser-pane) has the page's URL in its header. Each thread starts with the element's CSS selector and quote (the first 60 characters of the element's text) in place of `L<n>`. A thread on another page starts with that page's URL:
+
+```text
+[laura review · pane #4 · http://localhost:5173/settings]
+
+Tighten the form before we add validation.
+
+main > form > button:nth-of-type(2)  "Save changes"
+      > [user] This button should be disabled until a field changes.
+
+http://localhost:5173/profile  #email  ""
+      > [user] Needs a label.
+```
+
+Use the selector and the quote to find the element's code, such as the component that renders the element.
+
+To reply in a thread on a browser pane, run `laura comment '<selector>' "…" --pane <id>` with the selector from the block. The element must be on the page that the pane shows now. [Browser panes](cli.md#browser-panes) lists the errors.
 
 ## Annotate a file
 

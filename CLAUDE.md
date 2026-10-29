@@ -70,16 +70,19 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
+| **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`, experimental). | web pane, browser tab, preview |
+| **Laura's browser** | The headless Chrome or Edge that Laura starts for browser panes. | the pane browser, Chromium (unless naming Chromium itself) |
+| **live badge** | The ● live mark in a browser pane's pane header, which shows the lag in ms when the stream falls behind. | latency badge, fps counter, cast badge |
 | **editor pane** | A pane where the user edits a file in an editor, over its file pane (`open --edit`, experimental). | editor (alone), nvim pane, vim pane |
 | **editor view** | An editor pane showing the editor, which takes the keystrokes (the default). | Neovim view, nvim mode |
 | **file view** | An editor pane showing its file pane, flipped with `Ctrl+L`. | review view, review mode |
 | **Neovim** | The editor that editor panes run today. Name it only for Neovim's own behavior (`:w`, its config, diagnostics, its file-changed prompt). | nvim (in prose) |
 | **comment** (n., v.) | A single inline annotation on a pane, or an action the user takes (`c`). | note, annotation, mark up, in-line / in line comment |
 | **annotate** (v.) | An action the agent takes when running `laura comment`. | note, annotation, mark up, in-line / in line comment |
-| **comment mode** | On an HTML page in the web app, a click picks an element to comment on. | review mode, pick mode |
+| **comment mode** | On an HTML page or in a browser pane in the web app, a click picks an element to comment on. | review mode, pick mode |
 | **thread** | A set of inline comments on a single line of a pane. | comment thread, inline thread |
 | **review body** | The text typed after `Shift+S` providing overall direction in the review. | overall comment, overall note |
-| **inline review** | A pane's threads plus the review body, submitted into the chat as one `[laura review · <path>]` block. | review (noun), inline file review |
+| **inline review** | A pane's threads plus the review body, submitted into the chat as one `[laura review · pane #<id> · <path>]` block. | review (noun), inline file review |
 | **review** (v.) | The action a user takes to provide inline feedback in a pane. | — |
 | **submit** | Write the inline review into the chat (`Shift+S`). | ship, send, inject, land |
 | **unsubmitted inline review** | An in-progress inline review on a pane. | unsubmitted comments, pending comments, open comments |

@@ -32,7 +32,7 @@ fn panel_with_comments() -> Result<Panel> {
 fn assemble_review_locks_the_format() -> Result<()> {
     let panel = panel_with_comments()?;
     let expected = format!(
-        "[laura review · {}]\n\
+        "[laura review · pane #1 · {}]\n\
          \n\
          overall body\n\
          \n\
@@ -48,9 +48,9 @@ fn assemble_review_locks_the_format() -> Result<()> {
         panel.path
     );
     // Authors label each note, replies follow the root, threads sort by line — every thread submits.
-    assert_eq!(panel.assemble_review("overall body"), expected);
+    assert_eq!(panel.assemble_review(1, "overall body"), expected);
     // `assemble_review` doesn't consume threads (only `submit_review` clears).
-    assert_eq!(panel.assemble_review("overall body"), expected);
+    assert_eq!(panel.assemble_review(1, "overall body"), expected);
     Ok(())
 }
 
@@ -62,7 +62,7 @@ fn a_multi_line_comment_quotes_every_line() -> Result<()> {
     panel.author_note("first\nsecond".into());
     assert!(
         panel
-            .assemble_review("")
+            .assemble_review(1, "")
             .contains("L4  line 3\n      > [user] first\n      > second\n")
     );
     Ok(())
@@ -71,9 +71,12 @@ fn a_multi_line_comment_quotes_every_line() -> Result<()> {
 #[test]
 fn empty_overall_omits_the_overall_line() -> Result<()> {
     let panel = panel_with_comments()?;
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     // Header sits directly above the first L<n>, with only the one blank line.
-    assert!(review.starts_with(&format!("[laura review · {}]\n\nL1  line 0\n", panel.path)));
+    assert!(review.starts_with(&format!(
+        "[laura review · pane #1 · {}]\n\nL1  line 0\n",
+        panel.path
+    )));
     assert!(!review.contains("overall"));
     Ok(())
 }
