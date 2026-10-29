@@ -942,9 +942,11 @@ version = "0.16.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "base64",
  "clap",
  "getrandom 0.4.3",
  "interprocess",
+ "libc",
  "portable-pty",
  "predicates",
  "pulldown-cmark",
@@ -958,6 +960,7 @@ dependencies = [
  "tungstenite",
  "unicode-width",
  "vt100",
+ "windows-sys",
 ]
 
 [[package]]

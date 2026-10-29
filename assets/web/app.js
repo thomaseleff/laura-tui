@@ -1,5 +1,5 @@
 // The web app (#88). One websocket: JSON text frames for layout, panes and replies; binary frames
-// `[pane id, 8 bytes BE][bytes]` for each terminal. Every string from a frame goes in as text or
+// `[pane id, 8 bytes BE][bytes]` for each terminal, and each browser pane's frames (#107). Every string from a frame goes in as text or
 // through `esc`; only `pane`/`rows` HTML, which Laura escapes, goes in as markup.
 const css = getComputedStyle(document.documentElement);
 const v = name => css.getPropertyValue(name).trim();
@@ -41,6 +41,19 @@ function act(m, then) {
   acts.push(then);
   send(m);
 }
+// An event's modifiers as CDP counts them: Alt 1, Ctrl 2, Meta 4, Shift 8.
+const mods = e => e.altKey | e.ctrlKey << 1 | e.metaKey << 2 | e.shiftKey << 3;
+// The keystrokes a browser pane's page scrolls with when no field has the keystrokes.
+const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "];
+// The pane each press went to, by `code`: that pane's page takes the release too, and no other
+// page takes a release.
+const sent = new Map();
+const toPage = (id, e) => (sent.set(e.code, id), send(browserKey(id, "down", e)));
+// A keystroke for a browser pane's page. AltGr reads as Ctrl+Alt, and still types its character.
+const browserKey = (pane, kind, e) => ({
+  act: "browser_key", pane, kind, key: e.key, code: e.code, key_code: e.keyCode, mods: mods(e),
+  text: [...e.key].length === 1 && !e.metaKey && e.ctrlKey === e.altKey ? e.key : "",
+});
 const pane = id => layout?.panes.find(p => p.id === id);
 const focused = () => pane(layout?.focus);
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden;
@@ -60,8 +73,11 @@ function paintNotice() {
 function paintHint() {
   const h = layout?.hints;
   if (!h) return;
+  const f = focused(), b = f?.kind === "browser" && $("p" + f.id);
+  const here = document.activeElement?.matches?.(".head .url") ? h.browser_url
+    : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : b?.typing ? h.browser_typing : h.pane;
   const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
-    : popup !== null ? h.panes : commentMode !== null && commentMode === layout.focus ? h.comment_mode : h.pane;
+    : popup !== null ? h.panes : commentMode !== null && commentMode === layout.focus ? h.comment_mode : here;
   hintEl.replaceChildren(...(pairs ?? []).flatMap(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
@@ -186,6 +202,9 @@ const I = {
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>',
   pick: '<path d="m9 9 5 12 1.8-5.2L21 14Z"/><path d="M7.2 2.2 8 5.1M5.1 8l-2.9-.8M14 4.1 12 6M6 12l-1.9 2"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+  fwd: '<path d="M5 12h14M12 5l7 7-7 7"/>',
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 // A tooltip that shows at once; `aria-label` reads the same text to a screen reader.
@@ -200,7 +219,9 @@ const TOOLS = [
 ];
 // Static markup; `paintHead` sets the frame's strings as text. `.tl` is a label that a narrow
 // pane hides.
-const head = () => `<div class="head"><span class="pid"></span>${ic("file")}<span class="name tip-l"><i class="dot"></i><span class="nm"></span></span>`
+const head = () => `<div class="head"><span class="pid"></span>`
+  + `<span class="navb"><button class="tool" data-act="back" ${tip("Back  Alt+←")}>${ic("back")}</button><button class="tool" data-act="fwd" ${tip("Forward  Alt+→")}>${ic("fwd")}</button></span>`
+  + `${ic("file")}<span class="name tip-l"><i class="dot"></i><span class="nm"></span></span><input class="url" spellcheck="false" aria-label="Address">`
   + '<span class="delta"><span class="add"></span><span class="del"></span></span>'
   + `<span class="seg tip-c" ${tip("Flip the view  Ctrl+L")}><button data-act="editor">E<span class="tl">ditor</span></button><button data-act="file">F<span class="tl">ile</span></button></span>`
   + '<span class="chips"><span class="chip warn unsaved">● Unsaved</span><span class="chip ok reloaded" hidden>Reloaded</span>'
@@ -208,12 +229,15 @@ const head = () => `<div class="head"><span class="pid"></span>${ic("file")}<spa
   + `<button class="chip hlc tip-l" data-act="highlight" data-tip="Scroll to the highlight">${ic("target")}<span class="l"></span>`
   + `<span class="x" data-act="clear_highlight" ${tip("Clear the highlight  h")}>×</span></button>`
   + '<span class="chip bad sfail" hidden>Submission failed</span></span><i class="cdot" role="img"></i><span class="grow"></span>'
+  + `<span class="chip new agent tip-c" ${tip("The agent's browser tool clicks or types on this page")} hidden>Agent</span>`
+  + `<span class="chip emu tip-c" ${tip("The agent's browser tools set the page to this size")} hidden></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>`
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
   + `<span class="tools">${TOOLS.map(([a, i, t]) => `<button class="tool" data-act="${a}" ${tip(t)}>${ic(i)}</button>`).join("")}</span>`
   + `<button class="tool more" data-act="more" ${tip("More")}>${ic("more")}</button></div>`;
 
-const hlLabel = ([lo, hi]) => `Highlight L${lo}${hi !== lo ? "–" + hi : ""}`;
+// A file pane's lines, or a browser pane's selector.
+const hlLabel = h => (typeof h === "string" ? `Highlight ${h}` : `Highlight L${h[0]}${h[1] !== h[0] ? "–" + h[1] : ""}`);
 
 // A narrow header folds its chips into one dot, which names them in its tooltip. The chips change
 // the header's width, so the header fits again.
@@ -264,7 +288,16 @@ function paintHead(el, p) {
   q(".threads .tl").textContent = ` thread${p.threads === 1 ? "" : "s"}`;
   show(".threads", p.threads);
   show(".submit", p.threads);
-  show(".tools", p.kind === "file");
+  show(".tools", p.kind === "file" || p.kind === "browser");
+  // A browser pane shows its URL, and its page reloads in place of a file.
+  const browser = p.kind === "browser";
+  show(".url", browser);
+  show(".navb", browser);
+  // The user's typing stays until Enter or Esc.
+  if (document.activeElement !== q(".url")) q(".url").value = browser ? p.path : "";
+  show(".live", browser && el.live);
+  show(".emu", browser && el.emulated);
+  show(".agent", browser && !!el.acting);
   show(".more", p.id !== 0);
   // An editor pane has no diff view (NO_DIFF_IN_EDITOR), and nor does a file with no changes.
   show(".tools [data-act=toggle_diff]", !p.pty && (p.added || p.removed || p.diff));
@@ -303,6 +336,7 @@ function headClick(id, e) {
     return;
   }
   if (layout.focus !== id && a !== "close") act({ act: "focus", pane: id });
+  if (a === "back" || a === "fwd") return act({ act: "browser_history", pane: id, delta: a === "back" ? -1 : 1 });
   if (a === "cm") return setCommentMode(commentMode === id ? null : id);
   if (a === "comment" || a === "review") begin(id, a);
   else act({ act: a, pane: id });
@@ -318,7 +352,7 @@ function makePane(p) {
   el.id = "p" + p.id;
   el.className = "pane";
   el.innerHTML = head() + BANNER
-    + `<div class="term"></div><div class="rows"></div><div class="narrow"></div><button class="cbtn" ${tip("Comment  c")} style="visibility: hidden">${ic("plus")}</button>`
+    + `<div class="term"></div><div class="view"><canvas></canvas></div><div class="rows"></div><div class="narrow"></div><button class="cbtn" ${tip("Comment  c")} style="visibility: hidden">${ic("plus")}</button>`
     + '<div class="cmhint">Comment mode · click an element to comment <kbd>Esc</kbd><button data-act="cm">Done</button></div>';
   // A clicked button keeps no focus, so a later Enter can't press it again.
   for (const b of el.querySelectorAll(".head, .banner, .rows, .cbtn, .cmhint")) {
@@ -346,6 +380,14 @@ function makePane(p) {
   new ResizeObserver(() => fitHead(el)).observe(el);
   // A page's thread or comment box grows as the user types.
   new ResizeObserver(() => place(p.id)).observe(rows);
+  el.lags = [];
+  new ResizeObserver(() => sizeView(p.id)).observe(el.querySelector(".view"));
+  pointer(el, p.id);
+  // The address field: a click selects the URL, Enter goes there (the keydown listener), and
+  // leaving it puts the pane's URL back.
+  const url = el.querySelector(".head .url");
+  url.addEventListener("focus", () => (url.select(), paintHint()));
+  url.addEventListener("blur", () => ((url.value = pane(p.id)?.path ?? ""), paintHint()));
   el.addEventListener("mousedown", () => {
     const k = pane(p.id)?.kind;
     if (!draft && k && k !== "file" && layout.focus !== p.id) act({ act: "focus", pane: p.id });
@@ -410,6 +452,14 @@ function onLayout(m) {
       width: `calc(var(--cw) * ${p.w})`, height: `calc(var(--ch) * ${p.h})`,
     });
     el.style.setProperty("--w", p.w);
+    // A browser pane that turned into a file pane drops the page's state.
+    if (p.kind !== "browser" && el.classList.contains("browser")) {
+      el.emulated = el.dialog = el.marks = null;
+      el.typing = el.acting = false;
+      el.querySelector(".view").classList.remove("emu");
+      el.querySelector(".dlgwrap")?.remove();
+      el.querySelector(".marks")?.remove();
+    }
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
       + (unseen.has(p.id) ? " unseen" : "") + (commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
@@ -418,6 +468,7 @@ function onLayout(m) {
     if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 3)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 3));
     // The focus, the diff view and a freeze change how threads show.
     paintThreads(p.id);
+    sizeView(p.id);
   }
   for (const el of [...root.children]) {
     if (seen.has(el.id)) continue;
@@ -432,6 +483,331 @@ function onLayout(m) {
   paintStatus();
   // A pane that closes or freezes changes the pane selector's rows.
   if (popup !== null) paintSelector();
+}
+
+// A browser pane's size in CSS pixels, with a whole number of device pixels each way, so a frame
+// draws 1:1. Laura's browser renders the page at this size.
+function sizeView(id) {
+  const el = $("p" + id), view = el?.querySelector(".view");
+  if (pane(id)?.kind !== "browser" || !view.clientWidth) return;
+  const dpr = devicePixelRatio || 1;
+  const fit = n => {
+    // Chrome's zoomed devicePixelRatio is a float32 (1.100000023841858), so match loosely.
+    for (let i = 0; i < 64 && Math.abs(n * dpr - Math.round(n * dpr)) > 1e-3; i++) n--;
+    return n;
+  };
+  const [w, h] = [fit(view.clientWidth), fit(view.clientHeight)];
+  const key = `${w}x${h}@${dpr}`;
+  if (view.dataset.key === key) return;
+  view.dataset.key = key;
+  const c = view.querySelector("canvas");
+  Object.assign(c.style, { width: w + "px", height: h + "px" });
+  [c.width, c.height] = [Math.round(w * dpr), Math.round(h * dpr)];
+  drawFrame(el);
+  place(id);
+  paintMarks(id);
+  send({ size: { id, w, h, dpr } });
+}
+
+// A browser pane's pointer on its canvas, in CSS px from the canvas's top left. Moves and the wheel
+// go once per animation frame; the capture keeps a drag that leaves the canvas.
+function pointer(el, id) {
+  const c = el.querySelector(".view canvas");
+  const at = e => {
+    const r = c.getBoundingClientRect(), { x, y, s } = emuFit(el);
+    return { x: (e.clientX - r.left - x) / s, y: (e.clientY - r.top - y) / s, mods: mods(e) };
+  };
+  const mouse = m => send({ act: "browser_mouse", pane: id, ...m });
+  const flush = () => {
+    cancelAnimationFrame(el.raf);
+    el.raf = 0;
+    if (el.move) mouse(el.move);
+    if (el.wheel) mouse(el.wheel);
+    el.move = el.wheel = null;
+  };
+  const later = () => (el.raf ||= requestAnimationFrame(flush));
+  const off = () => pane(id)?.kind !== "browser" || el.dialog || draft;
+  // In comment mode, a click picks the element under it, and the page gets no press.
+  c.addEventListener("pointerdown", e => {
+    if (off() || commentMode === id) return;
+    // A browser counts a press within 500 ms and 5 px of the last as the next click.
+    const p = at(e), last = el.press, now = performance.now();
+    const again = last && now - last.t < 500 && Math.hypot(p.x - last.x, p.y - last.y) < 5 && last.button === e.button;
+    el.press = { ...p, t: now, button: e.button, clicks: again ? last.clicks + 1 : 1 };
+    el.held = true;
+    c.setPointerCapture(e.pointerId);
+    flush();
+    mouse({ kind: "down", ...p, button: e.button, buttons: e.buttons, clicks: el.press.clicks });
+  });
+  c.addEventListener("pointermove", e => {
+    // Where `c` comments.
+    el.at = at(e);
+    if (off()) return;
+    el.move = { kind: "move", ...at(e), buttons: e.buttons };
+    later();
+  });
+  c.addEventListener("pointerup", e => {
+    if (off()) return;
+    if (commentMode === id && !el.held) {
+      const { x, y } = at(e);
+      return begin(id, "comment", { act: "browser_pick", pane: id, x, y });
+    }
+    if (!el.held) return;
+    el.held = false;
+    flush();
+    mouse({ kind: "up", ...at(e), button: e.button, buttons: e.buttons, clicks: el.press.clicks });
+  });
+  // A point off the page ends the page's hover.
+  c.addEventListener("pointerleave", () => {
+    el.at = null;
+    if (el.held || off()) return;
+    el.move = { kind: "move", x: -1, y: -1, buttons: 0 };
+    later();
+  });
+  c.addEventListener("wheel", e => {
+    e.preventDefault();
+    if (off()) return;
+    // A line is 40 px, as in Chrome; a page is the pane's height.
+    const k = [1, 40, c.clientHeight][e.deltaMode] ?? 1;
+    const w = el.wheel ?? { kind: "wheel", dx: 0, dy: 0 };
+    el.wheel = { ...w, ...at(e), dx: w.dx + e.deltaX * k, dy: w.dy + e.deltaY * k };
+    later();
+  }, { passive: false });
+  c.addEventListener("contextmenu", e => e.preventDefault());
+}
+
+// The spinner in a browser pane's header: while the page loads, handles a click, or waits on a
+// request the click started.
+function paintSpin(el) {
+  el.querySelector(".head .spin").hidden = !el.busy;
+  fitHead(el);
+}
+
+// A browser pane's frame: `[paint time, 8 bytes BE f64 ms][PNG]`. The ack goes at once, so Laura's
+// browser paints the next frame while this one decodes. Only the newest frame waiting decodes.
+function onFrame(id, data) {
+  send({ ack: id });
+  const el = $("p" + id);
+  if (!el || data.byteLength < 16) return;
+  el.next = { painted: new DataView(data, 8, 8).getFloat64(0), png: new Uint8Array(data, 16) };
+  if (!el.decoding) decodeFrames(el);
+}
+
+async function decodeFrames(el) {
+  el.decoding = true;
+  while (el.next) {
+    const { painted, png } = el.next;
+    el.next = null;
+    try {
+      const b = await createImageBitmap(new Blob([png], { type: "image/png" }));
+      // A view's first frame can be the page's last, painted long ago: it says nothing of lag.
+      if (el.bitmap && !el.first) el.lags.push([Date.now(), Date.now() - painted]);
+      el.first = false;
+      el.bitmap?.close();
+      el.bitmap = b;
+      drawFrame(el);
+      paintLive(el);
+    } catch {}
+  }
+  el.decoding = false;
+}
+
+// An emulated page shows at its own size, centered in the canvas and scaled down to
+// fit with a 12 px margin: the transform from the page's CSS px to the canvas's. The frame, the
+// pointer and the floating card all use it.
+function emuFit(el) {
+  const e = el.emulated, c = el.querySelector(".view canvas");
+  if (!e) return { x: 0, y: 0, s: 1 };
+  const s = Math.min(1, (c.clientWidth - 24) / e.w, (c.clientHeight - 24) / e.h);
+  return { x: (c.clientWidth - e.w * s) / 2, y: (c.clientHeight - e.h * s) / 2, s };
+}
+
+// The last frame, 1:1 from the top left, or an emulated page in its box with a shadow; a resize
+// draws it again until the page's next frame.
+// ponytail: Chrome sends an emulated page's frame at up to the pane's device pixels, a little more
+// than the box draws; restart the screencast at the box's size if the softness shows.
+function drawFrame(el) {
+  const c = el.querySelector(".view canvas"), g = c.getContext("2d");
+  g.clearRect(0, 0, c.width, c.height);
+  if (!el.bitmap) return;
+  if (!el.emulated) return g.drawImage(el.bitmap, 0, 0);
+  const { x, y, s } = emuFit(el), d = devicePixelRatio || 1;
+  g.save();
+  Object.assign(g, { shadowColor: "rgb(16 24 40 / .14)", shadowBlur: 14 * d, shadowOffsetY: 4 * d });
+  g.drawImage(el.bitmap, x * d, y * d, el.emulated.w * s * d, el.emulated.h * s * d);
+  g.restore();
+}
+
+// The live badge: "live", or the worst lag of the last half second, in amber for a second, when it
+// passes 100 ms. Its tooltip counts the frames of the last second.
+function paintLive(el) {
+  const now = Date.now(), live = el.querySelector(".head .live");
+  el.lags = el.lags.filter(([t]) => now - t < 1000);
+  const lag = Math.max(0, ...el.lags.filter(([t]) => now - t < 500).map(([, l]) => l));
+  if (lag > 100) [el.lagUntil, el.lagShown] = [now + 1000, lag];
+  const slow = now < (el.lagUntil ?? 0);
+  live.classList.toggle("lag", slow);
+  live.textContent = slow ? `${Math.round(el.lagShown)} ms` : "live";
+  const t = `${el.lags.length} frames a second · lag ${Math.round(lag)} ms`;
+  live.dataset.tip = t;
+  live.setAttribute("aria-label", t);
+  // A still page sends no frames: the badge settles without them.
+  clearTimeout(el.liveTimer);
+  if (el.lags.length || slow) el.liveTimer = setTimeout(() => paintLive(el), 500);
+}
+
+// A browser pane's page: the badge shows while Laura's browser runs the page; the pointer, the
+// spinner, back and forward, and the page's dialog follow the page.
+function onBrowser(m) {
+  const el = $("p" + m.id);
+  if (!el) return;
+  // A file pane that turned into a browser pane keeps no rows.
+  for (const u of units(el.querySelector(".rows"))) u.remove();
+  // A new page has no focused field.
+  if (el.url !== m.url) el.typing = false;
+  el.url = m.url;
+  el.live = m.live;
+  el.busy = !!m.busy;
+  el.querySelector(".head .live").hidden = !m.live;
+  el.querySelector(".view canvas").style.cursor = m.cursor ?? "";
+  el.querySelector(".head [data-act=back]").disabled = !m.back;
+  el.querySelector(".head [data-act=fwd]").disabled = !m.forward;
+  paintDialog(el, m.id, m.dialog ?? null);
+  // The agent's tools emulate a device: the page shows at its size, which the pane header names.
+  const emu = m.emulated ?? null;
+  if (JSON.stringify(emu) !== JSON.stringify(el.emulated ?? null)) {
+    el.emulated = emu;
+    el.querySelector(".view").classList.toggle("emu", !!emu);
+    const chip = el.querySelector(".head .emu");
+    chip.hidden = !emu;
+    if (emu) chip.textContent = `${emu.w}×${emu.h}`;
+    drawFrame(el);
+    place(m.id);
+    paintMarks(m.id);
+  }
+  paintSpin(el);
+  paintHint();
+  // The cursor's thread floats below its element, as on an HTML page (`onPage`).
+  const folded = ts => ts?.find(t => t.line === m.line)?.collapsed;
+  if (el.line !== m.line || folded(el.threads) !== folded(m.threads)) el.shut = null;
+  el.threads = m.threads;
+  el.card = m.card;
+  el.line = m.line;
+  paintThreads(m.id);
+  // A pin shows its thread's authors and count.
+  paintMarks(m.id);
+}
+
+// The agent's click and typing in a browser pane: a ring at the click, an outline on the field. The
+// web app draws the marks over the canvas, not in the page, so the agent's screenshots don't show them.
+function onAgent(m) {
+  const el = $("p" + m.id), view = el?.querySelector(".view");
+  if (!view) return;
+  // The pane header's Agent chip stays 5 s after the agent's last click or typing.
+  const chip = () => el.querySelector(".head .agent");
+  el.acting = true;
+  chip().hidden = false;
+  clearTimeout(el.actTimer);
+  el.actTimer = setTimeout(() => (el.acting = false, chip().hidden = true), 5000);
+  const t = emuFit(el), at = (d, x, y) => Object.assign(d.style, { left: t.x + x * t.s + "px", top: t.y + y * t.s + "px" });
+  if (m.click) {
+    const d = document.createElement("div");
+    d.className = "amark ring";
+    at(d, ...m.click);
+    d.addEventListener("animationend", () => d.remove());
+    view.append(d);
+  }
+  if (m.type) {
+    let d = view.querySelector(".amark.field");
+    if (!d) (d = document.createElement("div")), (d.className = "amark field"), view.append(d);
+    const [x, y, w, h] = m.type;
+    at(d, x, y);
+    Object.assign(d.style, { width: w * t.s + "px", height: h * t.s + "px" });
+    d.classList.add("on");
+    clearTimeout(d.timer);
+    d.timer = setTimeout(() => d.classList.remove("on"), 1000);
+  }
+}
+
+// A pin's authors: each one's initial, and whether it's an agent.
+const pinWho = t => [...new Set(authors(t))].map(a => [([...who(a)][0] ?? "?").toUpperCase(), a !== null]);
+
+// A browser pane's outlines, tags and pins, drawn over the canvas as the agent's marks are: the page
+// holds none of them, so the agent's screenshots and snapshots show the page as the user's browser
+// would. browser.js sends the boxes in the frame's px.
+function paintMarks(id) {
+  const el = $("p" + id), view = el?.querySelector(".view");
+  if (!view) return;
+  let layer = view.querySelector(".marks");
+  if (!layer) (layer = document.createElement("div")), (layer.className = "marks"), view.append(layer);
+  layer.replaceChildren();
+  el.pinAt = null;
+  const m = el.marks;
+  if (!m) return;
+  const t = emuFit(el), x = n => t.x + n * t.s, y = n => t.y + n * t.s;
+  const add = (cls, style, text) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    Object.assign(d.style, style);
+    if (text) d.textContent = text;
+    layer.append(d);
+    return d;
+  };
+  const box = (cls, [top, l, b, r], tag) => {
+    add("mk " + cls, { left: x(l) + "px", top: y(top) + "px", width: (r - l) * t.s + "px", height: (b - top) * t.s + "px" });
+    if (tag) add("mk-tag", { left: x(l) - 4 + "px", top: Math.max(0, y(top) - 20) + "px" }, tag);
+  };
+  for (const [, ...b] of m.th) box("th", b);
+  if (m.hl) box("hl", m.hl);
+  if (m.cur) box("cur", ...m.cur);
+  if (m.hov) box("hov", ...m.hov);
+  // Each thread's pin at its element's top-right corner. A click opens its thread.
+  for (const [line, top, , , r] of m.th) {
+    const th = el.threads?.find(t => t.line === line);
+    if (!th) continue;
+    const pin = add("mk-pin", { left: Math.max(0, Math.min(x(r) - 8, view.clientWidth - 60)) + "px", top: Math.max(0, y(top) - 12) + "px" });
+    for (const [initial, agent] of pinWho(th)) {
+      pin.append(Object.assign(document.createElement("span"), { className: agent ? "av agent" : "av", textContent: initial }));
+    }
+    pin.append(String(th.notes.length));
+    pin.addEventListener("pointerenter", () => (el.pinAt = line));
+    pin.addEventListener("pointerleave", () => (el.pinAt = null));
+    pin.addEventListener("click", () => (draft ? followFocus(true) : pinClick(id, line)));
+  }
+}
+
+// The page's dialog, which the screencast doesn't draw: over the canvas, as in a browser tab.
+function paintDialog(el, id, d) {
+  if (JSON.stringify(d) === JSON.stringify(el.dialog ?? null)) return;
+  el.dialog = d;
+  el.querySelector(".dlgwrap")?.remove();
+  if (!d) return followFocus(true);
+  // Chrome gives a leave-page dialog no message.
+  const leave = d.type === "beforeunload";
+  const w = document.createElement("div");
+  w.className = "dlgwrap";
+  w.innerHTML = '<div class="pop dlg"><div class="ph"></div><p></p>'
+    + (d.type === "prompt" ? '<input spellcheck="false">' : "") + '<div class="fa">'
+    + (d.type === "alert" ? "" : `<button class="btn" data-ok="">${leave ? "Stay" : "Cancel"} <kbd>Esc</kbd></button>`)
+    + `<button class="btn pri" data-ok="1">${leave ? "Leave" : "OK"} <kbd>Enter</kbd></button></div></div>`;
+  let host = "";
+  try { host = new URL(el.url).host; } catch {}
+  w.querySelector(".ph").textContent = `${host} says`;
+  w.querySelector("p").textContent = leave ? "Leave this page? Changes you made may not be saved." : d.message;
+  const field = w.querySelector("input");
+  if (field) field.value = d.default ?? "";
+  w.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
+  w.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b) answer(id, !!b.dataset.ok);
+  });
+  el.querySelector(".view").append(w);
+  if (field && layout?.focus === id) field.focus(), field.select();
+}
+
+function answer(id, accept) {
+  const text = $("p" + id)?.querySelector(".dlg input")?.value ?? "";
+  act({ act: "browser_dialog", pane: id, accept, text });
 }
 
 // The status bar: what waits on the user, in any pane. Names are the frame's, so text only.
@@ -502,6 +878,8 @@ const who = a => (a === null ? "You" : a === "agent" ? "Agent" : a);
 const av = a => `<span class="av${a === null ? "" : " agent"}">${esc(([...who(a)][0] ?? "?").toUpperCase())}</span>`;
 const avs = list => `<span class="avs">${[...new Set(list)].map(av).join("")}</span>`;
 const authors = t => t.notes.map(n => n.author);
+// A thread's chip: a browser pane's element, cut from the left to `n` characters, else its line.
+const chip = (anchor, line, n) => esc(!anchor ? "L" + line : anchor.length > n ? "…" + anchor.slice(1 - n) : anchor);
 const HOLD = "Laura holds the agent’s commands while you type.";
 // The rows' units (rows and blocks), without the threads between them.
 const units = rows => rows.querySelectorAll(":scope > [data-row]");
@@ -509,14 +887,17 @@ const draftBox = () => document.querySelector(".draft textarea, .pop.review text
 
 // `drafting`: the draft is on the thread's line, so the card opens with a slot for it: in place of
 // the user's last comment (an edit), or at the end (a reply).
+// A browser pane's thread on another page, or whose element the page lost.
+const where = t => t.lost ? '<span class="chip sm">not on the page</span>' : t.away ? `<span class="chip sm">${esc(t.away)}</span>` : "";
+
 function cardHTML(p, t, on, drafting) {
   const n = t.notes.length, edit = drafting && t.notes.at(-1)?.author === null;
   if (t.collapsed && !drafting) {
-    return `<div class="card shut${on ? " on" : ""}" data-th="${t.line}" data-act="expand"><span class="anc">L${t.line}</span>`
+    return `<div class="card shut${on ? " on" : ""}" data-th="${t.line}" data-act="expand"><span class="anc">${chip(t.anchor, t.line, 40)}</span>`
       + `${avs(authors(t))}<span class="mute sm">${n} comment${n === 1 ? "" : "s"}</span></div>`;
   }
-  return `<div class="card${on || drafting ? " on" : ""}" data-th="${t.line}"><div class="ch"><span class="anc">L${t.line}</span>`
-    + (t.label ? `<span class="lbl">${esc(t.label)}</span>` : "")
+  return `<div class="card${on || drafting ? " on" : ""}" data-th="${t.line}"><div class="ch"><span class="anc">${chip(t.anchor, t.line, 40)}</span>`
+    + (t.label ? `<span class="lbl">${esc(t.label)}</span>` : "") + where(t)
     + `${p.frozen ? '<span class="chip warn sm">Snapshot</span>' : ""}<span class="grow"></span>`
     + `<button class="mini" data-act="collapse" ${tip("Collapse  r")}>–</button></div>`
     + (edit ? t.notes.slice(0, -1) : t.notes).map(c => `<div class="cm">${av(c.author)}<div><b>${esc(who(c.author))}</b><p>${esc(c.body)}</p></div></div>`).join("")
@@ -535,10 +916,12 @@ function wireDraft(box) {
 // (`cardHTML`'s slot), so it has no card of its own.
 function makeDraftCard(reply, inside) {
   const c = document.createElement("div"), edit = reply?.notes.at(-1)?.author === null;
-  const verb = edit ? "Edit" : reply ? "Reply" : "Comment", lbl = [reply && verb, reply?.label].filter(Boolean).join(" · ");
+  const verb = edit ? "Edit" : reply ? "Reply" : "Comment";
+  const lbl = [reply && verb, reply?.label ?? draft.anchor?.[1]].filter(Boolean).join(" · ");
+  const at = chip(draft.anchor?.[0], draft.line, 40);
   c.className = inside ? "draft" : "card draft on";
-  c.innerHTML = (inside ? "" : `<div class="ch"><span class="anc">L${draft.line}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`)
-    + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on L${draft.line}`}"></textarea>`
+  c.innerHTML = (inside ? "" : `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`)
+    + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on ${at}`}"></textarea>`
     + `<div class="holdnote">${HOLD}</div><div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
     + `<button class="btn pri" data-act="save">${edit ? "Save" : verb} <kbd>Enter</kbd></button></div>`;
   c.querySelector("textarea").value = draft.text;
@@ -659,7 +1042,7 @@ function paintPop(id) {
     const n = p.threads;
     q(".ph .mute").textContent = `· ${p.name}`;
     q("p.mute").innerHTML = `${n} thread${n === 1 ? "" : "s"}${p.frozen ? " on the snapshot" : ""}. Laura writes them into the chat`
-      + ` as one <code>[laura review · ${esc(p.path ?? p.name)}]</code> block, then clears the threads.`;
+      + ` as one <code>[laura review · pane #${p.id} · ${esc(p.path ?? p.name)}]</code> block, then clears the threads.`;
     q(".err").hidden = !draft.failed;
     q(".err").textContent = strings.draft?.failed ?? "";
     q("[data-act=save]").innerHTML = `${draft.busy ? "Submitting…" : draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
@@ -676,10 +1059,10 @@ function paintPop(id) {
       return `<button class="mrow ${cls}" data-act="${a}">${ic(i)}<span>${label}</span>${key ? `<kbd>${key}</kbd>` : ""}</button>`;
     };
     // The editor view has no tools (`paintHead`).
-    const shown = p.kind !== "file" ? [] : [...el.querySelectorAll(".head .tools .tool")].filter(b => getComputedStyle(b).display !== "none");
+    const shown = p.kind !== "file" && p.kind !== "browser" ? [] : [...el.querySelectorAll(".head .tools .tool")].filter(b => getComputedStyle(b).display !== "none");
     q(".pop").innerHTML = (p.threads ? row("review", "comment", "Submit the inline review  Shift+S", "hd") + row("list", "comment", "All threads  n", "hd") : "")
       + (p.pty && p.id !== 0 ? row(p.kind === "editor" ? "file" : "editor", p.kind === "editor" ? "file" : "term", "Flip the view  Ctrl+L", "hd") : "")
-      + shown.map(b => row(...TOOLS.find(t => t[0] === b.dataset.act))).join("");
+      + shown.map(b => row(b.dataset.act, TOOLS.find(t => t[0] === b.dataset.act)[1], b.dataset.tip)).join("");
     // **More** is wider than a narrow pane; it stays inside the window.
     const pop = q(".pop");
     pop.style.right = "";
@@ -689,8 +1072,10 @@ function paintPop(id) {
   }
   const ts = el.threads ?? [];
   q(".pop").innerHTML = `<div class="ph">${ts.length} thread${ts.length === 1 ? "" : "s"} <span class="mute">· ${esc(p.name)}</span></div>`
-    + ts.map(t => `<button class="trow" data-th="${t.line}"><span class="anc">L${t.line}</span>${avs(authors(t))}`
-      + `<span class="tx">${esc(t.notes.at(-1)?.body ?? "")}</span>${t.collapsed ? '<span class="chip sm">collapsed</span>' : ""}</button>`).join("")
+    + ts.map(t => `<button class="trow${t.lost ? " lost" : ""}" data-th="${t.line}"><span class="anc">${chip(t.anchor, t.line, 24)}</span>${avs(authors(t))}`
+      + `<span class="tx">${esc(t.notes.at(-1)?.body ?? "")}</span>`
+      + where(t)
+      + `${t.collapsed ? '<span class="chip sm">collapsed</span>' : ""}</button>`).join("")
     + '<div class="pf"><kbd>n</kbd> <kbd>N</kbd> next / previous thread · <kbd>r</kbd> collapse</div>';
 }
 const paintPops = () => layout?.panes.forEach(p => paintPop(p.id));
@@ -750,11 +1135,13 @@ function cardClick(id, e) {
   begin(id, "comment");
 }
 
-function begin(id, kind) {
-  act({ act: kind === "comment" ? "begin_comment" : "begin_review", pane: id }, r => {
+// `msg`: the act that starts the draft, when not `begin_comment` or `begin_review`, such as a
+// browser pane's `browser_pick`.
+function begin(id, kind, msg) {
+  act(msg ?? { act: kind === "comment" ? "begin_comment" : "begin_review", pane: id }, r => {
     if (!r.ok) return;
     listOpen = null;
-    draft = { pane: id, line: r.line, kind, hint: r.hint, busy: false, failed: false, text: r.text ?? "" };
+    draft = { pane: id, line: r.line, anchor: r.anchor, kind, hint: r.hint, busy: false, failed: false, text: r.text ?? "" };
     paintThreads(id);
     paintPops();
     paintHint();
@@ -818,8 +1205,9 @@ function followFocus(force) {
   if (popup !== null) return pq.focus();
   const box = draftBox();
   if (draft && !locked && box) return box.focus();
-  // A click in a page's text field keeps the field's focus.
+  // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
+  if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
   const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
@@ -831,7 +1219,7 @@ function onPane(m) {
   if (!rows) return;
   // A page's `pane` frame is its diff view, which has no page to comment on.
   if (commentMode === m.id) setCommentMode(null);
-  frameOf(m.id)?.remove();
+  el.querySelector(":scope > iframe")?.remove();
   // ponytail: compares text, so a reload that only changes a color doesn't flash
   let before = m.reloaded && m.t === "pane" && new Set([...units(rows)].map(unitText));
   el.threads = m.threads;
@@ -880,10 +1268,13 @@ function onPane(m) {
   placePlus(m.id);
 }
 
-const frameOf = id => $("p" + id)?.querySelector("iframe");
+// A page's frame: an HTML file pane's iframe, or a browser pane's view.
+const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? ":scope > .view" : ":scope > iframe");
 
 // Scrolls the pane to its highlight; a page's frame scrolls itself.
 function toHighlight(id) {
+  // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
+  if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
   const f = frameOf(id);
   if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
   const rows = $("p" + id)?.querySelector(".rows");
@@ -911,10 +1302,7 @@ function onPage(m) {
     f.src = m.page;
   }
   // Target "*": the frame's origin is opaque, and line numbers aren't secret.
-  const threads = m.threads.map(t => ({
-    line: t.line, n: t.notes.length,
-    who: [...new Set(authors(t))].map(a => [([...who(a)][0] ?? "?").toUpperCase(), a !== null]),
-  }));
+  const threads = m.threads.map(t => ({ line: t.line, n: t.notes.length, who: pinWho(t) }));
   f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id };
   f.contentWindow?.postMessage(f.state, "*");
   // The diff view's rows, if the page was in it.
@@ -942,6 +1330,7 @@ function setCommentMode(id) {
       el.shut = i === commentMode ? null : el.line;
       paintThreads(i);
     }
+    if (pane(i)?.kind === "browser") send({ act: "browser_comment_mode", pane: i, on: i === commentMode });
     const f = frameOf(i);
     if (!f?.state) continue;
     f.state.comment = i === commentMode;
@@ -953,9 +1342,10 @@ function setCommentMode(id) {
 // A page's cursor thread or comment box floats below the cursor's element (`f.rect`, from the
 // page), inside the frame.
 function place(id) {
-  const f = frameOf(id), rows = $("p" + id)?.querySelector(".rows");
+  const el = $("p" + id), f = frameOf(id), rows = el?.querySelector(".rows");
   if (!f || !rows) return;
-  const [, left, bottom] = f.rect ?? [0, 0, 0];
+  const [, l, b] = f.rect ?? [0, 0, 0], t = emuFit(el);
+  const [left, bottom] = [t.x + l * t.s, t.y + b * t.s];
   const x = Math.max(8, Math.min(left, f.clientWidth - rows.offsetWidth - 8));
   const y = Math.max(8, Math.min(bottom + 10, f.clientHeight - rows.offsetHeight - 8));
   rows.style.setProperty("--fx", f.offsetLeft + x + "px");
@@ -978,18 +1368,8 @@ addEventListener("message", e => {
   }
   if (draft) return followFocus(true);
   if (m.laura === "line") {
+    if (m.pin === true) return pinClick(id, m.line);
     if (layout.focus !== id) act({ act: "focus", pane: id });
-    // A pin on the cursor's thread shows or hides its card; another pin moves the cursor to its
-    // thread. A collapsed thread expands.
-    const el = f.parentElement;
-    if (m.pin === true) root.focus();
-    if (m.pin === true && el.threads?.find(t => t.line === m.line)?.collapsed) {
-      return act({ act: "toggle_thread", pane: id, line: m.line });
-    }
-    if (m.pin === true && m.line === el.line) {
-      el.shut = el.shut === m.line ? null : m.line;
-      return paintThreads(id);
-    }
     if (Number.isInteger(m.line)) act({ act: "set_cursor", pane: id, line: m.line });
     // A text field or a selection keeps the keystrokes; anything else gives them back to Laura.
     if (!m.editable) root.focus();
@@ -1005,6 +1385,21 @@ addEventListener("message", e => {
     else act({ act: "open_link", pane: id, href: m.href });
   }
 });
+
+// A click on a page's pin: on the cursor's thread, it shows or hides the thread's card; on another
+// thread, it moves the cursor there. A collapsed thread expands.
+function pinClick(id, line) {
+  const el = $("p" + id);
+  if (!el || !Number.isInteger(line)) return;
+  if (layout.focus !== id) act({ act: "focus", pane: id });
+  root.focus();
+  if (el.threads?.find(t => t.line === line)?.collapsed) return act({ act: "toggle_thread", pane: id, line });
+  if (line === el.line) {
+    el.shut = el.shut === line ? null : line;
+    return paintThreads(id);
+  }
+  act({ act: "set_cursor", pane: id, line });
+}
 
 // The pane selector: panes whose name or path holds the query, or whose id starts with it. The id
 // that equals the query comes first so that `Enter` picks it.
@@ -1185,6 +1580,18 @@ addEventListener("keydown", e => {
     if (box && document.activeElement !== box) box.focus();
     return;
   }
+  // The address field: Enter opens the typed URL in its pane, Esc puts the pane's URL back.
+  const url = document.activeElement?.matches?.(".head .url") && document.activeElement;
+  if (url) {
+    if (e.key === "Enter" && !e.isComposing) {
+      take();
+      if (url.value.trim()) act({ act: "browser_navigate", pane: +url.closest(".pane").id.slice(1), url: url.value });
+      return root.focus();
+    }
+    if (e.key === "Escape") return take(), root.focus();
+    if (ctrl && "rl".includes(k)) return take(); // the viewing browser's reload and address bar
+    if (!(ctrl && "pq".includes(k))) return; // Ctrl+P and Ctrl+Q go on to Laura
+  }
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) {
     take();
     listOpen = moreOpen = null;
@@ -1200,6 +1607,41 @@ addEventListener("keydown", e => {
   if (ctrl && k === "l" && f && f.pty && f.id !== 0) {
     take();
     return act({ act: "toggle_editor_view", pane: f.id });
+  }
+  if (f?.kind === "browser") {
+    const el = $("p" + f.id);
+    // The page's dialog takes Enter and Esc; a prompt's field takes the rest.
+    if (el.dialog) {
+      if (e.key === "Enter" && !e.isComposing) return take(), answer(f.id, true);
+      if (e.key === "Escape") return take(), answer(f.id, false);
+      return;
+    }
+    // A field in the page has the keystrokes, all but Esc. Ctrl+V (Cmd+V) goes on as a paste.
+    if (el.typing) {
+      if (e.key === "Escape") return take(), (el.typing = false), send({ act: "browser_blur", pane: f.id }), paintHint();
+      if ((ctrl || e.metaKey) && e.key.toLowerCase() === "v") return;
+      return take(), toPage(f.id, e);
+    }
+    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      return take(), act({ act: "browser_history", pane: f.id, delta: e.key === "ArrowLeft" ? -1 : 1 });
+    }
+    if (!mods(e) && SCROLL_KEYS.includes(e.key)) return take(), toPage(f.id, e);
+    if (ctrl && k === "r") return take(), act({ act: "refresh", pane: f.id });
+    if (ctrl && k === "l") return take(); // the browser's address bar
+    const bare = !ctrl && !e.altKey && !e.metaKey;
+    // `c` comments on the element under the pointer; off the page, it turns on comment mode.
+    // Before `laura ready`, the pick returns the notice that asks for it.
+    if (bare && e.key === "c") {
+      take();
+      // On a pin, `c` comments in the pin's thread.
+      if (el.pinAt) return act({ act: "set_cursor", pane: f.id, line: el.pinAt }), begin(f.id, "comment");
+      if (!el.at && layout.agent) return setCommentMode(f.id);
+      const { x, y } = el.at ?? { x: -1, y: -1 };
+      return begin(f.id, "comment", { act: "browser_pick", pane: f.id, x, y });
+    }
+    if (bare && e.key === "S") return take(), begin(f.id, "review");
+    if (bare && ["x", "Escape", "n", "N", "r", "h"].includes(e.key)) return take(), act(FILE_KEYS[e.key](f.id));
+    return;
   }
   if (f?.kind !== "file") return;
   if (ctrl && k === "r") {
@@ -1223,6 +1665,22 @@ addEventListener("keydown", e => {
   }
 });
 
+// A browser pane's page takes a paste while a field has the keystrokes.
+const typing = () => {
+  const f = focused();
+  return !locked && !draft && !overlayOpen() && f?.kind === "browser" && $("p" + f.id).typing && !$("p" + f.id).dialog && f.id;
+};
+addEventListener("keyup", e => {
+  const id = sent.get(e.code);
+  if (sent.delete(e.code)) send(browserKey(id, "up", e));
+});
+addEventListener("paste", e => {
+  const id = typing();
+  if (!id || e.target.closest?.("input, textarea")) return;
+  e.preventDefault();
+  send({ act: "browser_text", pane: id, text: e.clipboardData.getData("text") });
+});
+
 // Selecting copies on release, as in the TUI. A file pane copies its text without the gutter,
 // joining the wrapped rows of one line with a space, as `mouse::extract_panel` does. A selection in
 // a thread or popover copies as shown.
@@ -1232,7 +1690,7 @@ addEventListener("mouseup", e => {
   const id = +el.id.slice(1);
   setTimeout(() => {
     const t = terms.get(id);
-    if (pane(id)?.kind !== "file") {
+    if (!["file", "browser"].includes(pane(id)?.kind)) {
       if (t?.hasSelection()) navigator.clipboard?.writeText(t.getSelection());
       return;
     }
@@ -1260,7 +1718,11 @@ addEventListener("mouseup", e => {
   });
 });
 
-addEventListener("resize", report);
+addEventListener("resize", () => {
+  report();
+  // A zoom changes the pixel ratio, not always the pane's size.
+  layout?.panes.forEach(p => sizeView(p.id));
+});
 // Ask before a stray Ctrl+W closes the tab.
 addEventListener("beforeunload", e => ended || e.preventDefault());
 
@@ -1279,6 +1741,14 @@ function connect() {
   // The replay assumes a blank terminal; reset after anything still queued is parsed.
   for (const t of terms.values()) t.write("", () => t.reset());
   focusKey = "";
+  // Laura holds the last view's sizes, and the old frame is no measure of lag: each browser pane
+  // sends its size again, and its first frame adds no lag.
+  for (const el of root.querySelectorAll(".pane.browser")) {
+    delete el.querySelector(".view").dataset.key;
+    el.first = true;
+  }
+  // Laura turned comment mode off for the new view; `send` is a no-op until the socket opens.
+  if (commentMode !== null) setCommentMode(null);
   let laid = false, moved = false;
   const url = new URL("ws" + location.search, location);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -1288,6 +1758,7 @@ function connect() {
   sock.onmessage = e => {
     if (typeof e.data !== "string") {
       const id = Number(new DataView(e.data).getBigUint64(0));
+      if (pane(id)?.kind === "browser") return onFrame(id, e.data);
       return terms.get(id)?.write(new Uint8Array(e.data, 8));
     }
     const m = JSON.parse(e.data);
@@ -1318,6 +1789,31 @@ function connect() {
       case "page":
         onPage(m);
         break;
+      case "browser":
+        onBrowser(m);
+        break;
+      case "editable": {
+        const el = $("p" + m.id);
+        if (el) (el.typing = m.editable), paintHint();
+        break;
+      }
+      case "agent":
+        if (pane(m.id)?.kind === "browser") onAgent(m);
+        break;
+      case "copy":
+        navigator.clipboard?.writeText(m.text).catch(() => {});
+        break;
+      // A browser pane's cursor element's box, and the boxes it outlines.
+      case "rect": {
+        const f = pane(m.id)?.kind === "browser" && frameOf(m.id);
+        if (f) (f.rect = Array.isArray(m.rect) ? m.rect : null), place(m.id);
+        break;
+      }
+      case "marks": {
+        const el = pane(m.id)?.kind === "browser" && $("p" + m.id);
+        if (el) (el.marks = m.marks), paintMarks(m.id);
+        break;
+      }
       case "acted": {
         const then = acts.shift();
         if (!m.ok) showNotice(m.text, 5);

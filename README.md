@@ -20,6 +20,7 @@ Your agent can open the file you're discussing, the plan you're following, the d
 - **Interact in every pane** - comment on any file pane and submit the inline review into the chat.
 - **Edit alongside your agent** *(experimental)* - edit a file in Neovim in an editor pane next to the chat, then flip to the file view to review your edits with your agent. [Enable editor panes](docs/cli.md#editor-panes).
 - **Work in a browser** *(experimental)* - run the workspace in a browser tab instead of the terminal, with the same keystrokes. Laura shows [HTML files as rendered pages](docs/web-app-navigation.md#html-files) only in the web app. You comment on a page and submit the inline review as you do on a markdown file in the TUI. [Start the web app](docs/web-app.md).
+- **See your web app** *(experimental)* - show your dev server's page, or any web page, live in a browser pane in the web app, next to the chat. [Show a page in a browser pane](docs/web-app.md#show-a-web-app-in-a-browser-pane).
 - **Learn while staying focused** - your agent shows and explains concepts live, step by step.
 
 ## How it works

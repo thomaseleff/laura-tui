@@ -140,7 +140,7 @@ pub(crate) fn render(path: &str) -> Rendered {
 }
 
 /// Already-plain text as unstyled, unindented lines (1:1 with `content.lines()`).
-fn plain(content: String) -> Rendered {
+pub(crate) fn plain(content: String) -> Rendered {
     let styled = content
         .lines()
         .map(|l| Line::from(Span::raw(l.to_string())))

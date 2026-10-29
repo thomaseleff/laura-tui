@@ -3,250 +3,27 @@
 //! frames, not pixels.
 
 mod common;
+#[path = "common/web.rs"]
+#[allow(dead_code)] // each test crate uses part of the rig
+mod rig;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::{Child, Command as StdCommand, Output, Stdio};
+use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use assert_cmd::Command;
+use laura::UserAction;
 use laura::tab::NO_DIFF_IN_EDITOR;
-use laura::web::{DEFAULT_AREA, FLAG_OFF, WebServer};
-use laura::{Tab, UserAction};
+use laura::web::FLAG_OFF;
 use serde_json::{Value, json};
-use tungstenite::client::IntoClientRequest;
-use tungstenite::{Message, WebSocket};
+use tungstenite::Message;
 
-type Ws = WebSocket<TcpStream>;
-
-/// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`.
-fn isolate_home() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    // SAFETY: once per binary; std's env lock serializes it with std's own readers (`Command` spawn, `env::var`).
-    ONCE.call_once(|| unsafe {
-        std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
-        std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
-    });
-}
-
-fn shell() -> portable_pty::CommandBuilder {
-    portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" })
-}
-
-/// What a view receives.
-#[derive(Debug)]
-enum Frame {
-    Json(Value),
-    Bytes(u64, Vec<u8>),
-    Closed,
-}
-
-impl Frame {
-    fn is(&self, t: &str) -> bool {
-        matches!(self, Frame::Json(v) if v["t"] == t)
-    }
-
-    fn json(self) -> Value {
-        match self {
-            Frame::Json(v) => v,
-            other => panic!("not a JSON frame: {other:?}"),
-        }
-    }
-}
-
-/// The port and token from a printed URL.
-fn port_token(url: &str) -> (u16, String) {
-    let rest = url
-        .strip_prefix("http://127.0.0.1:")
-        .expect("a localhost URL");
-    let (port, token) = rest.split_once("/?t=").expect("a token in the URL");
-    (port.parse().expect("a port"), token.to_string())
-}
-
-/// A websocket to `/ws` with `token` and `origin`, as a browser tab opens it.
-fn connect_to(port: u16, token: Option<&str>, origin: Option<&str>) -> tungstenite::Result<Ws> {
-    let query = token.map(|t| format!("?t={t}")).unwrap_or_default();
-    let mut req = format!("ws://127.0.0.1:{port}/ws{query}").into_client_request()?;
-    if let Some(o) = origin {
-        req.headers_mut()
-            .insert("origin", o.parse().expect("header"));
-    }
-    let (ws, _) = tungstenite::client(req, TcpStream::connect(("127.0.0.1", port))?).map_err(
-        |e| match e {
-            tungstenite::HandshakeError::Failure(e) => e,
-            tungstenite::HandshakeError::Interrupted(_) => tungstenite::Error::ConnectionClosed,
-        },
-    )?;
-    ws.get_ref()
-        .set_read_timeout(Some(Duration::from_millis(5)))?;
-    Ok(ws)
-}
-
-/// One frame from `ws`, or `None` if none is waiting.
-fn read(ws: &mut Ws) -> Option<Frame> {
-    match ws.read() {
-        Ok(Message::Text(t)) => Some(Frame::Json(serde_json::from_str(&t).expect("JSON"))),
-        Ok(Message::Binary(b)) => {
-            let (id, bytes) = b.split_first_chunk::<8>().expect("a pane id");
-            Some(Frame::Bytes(u64::from_be_bytes(*id), bytes.to_vec()))
-        }
-        Ok(Message::Close(_)) => Some(Frame::Closed),
-        Ok(_) => None,
-        Err(tungstenite::Error::Io(e))
-            if matches!(
-                e.kind(),
-                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-            ) =>
-        {
-            None
-        }
-        Err(_) => Some(Frame::Closed),
-    }
-}
-
-fn send(ws: &mut Ws, v: Value) {
-    ws.send(Message::text(v.to_string())).expect("send");
-}
-
-/// A workspace hosted by the web server, run in-process as `laura --web`'s loop runs it.
-struct Rig {
-    tab: Tab,
-    web: WebServer,
-    port: u16,
-    token: String,
-}
-
-impl Rig {
-    fn new() -> Result<Rig> {
-        Rig::with(shell())
-    }
-
-    fn with(cmd: portable_pty::CommandBuilder) -> Result<Rig> {
-        isolate_home();
-        let mut tab = Tab::spawn(cmd, 24, 80)?;
-        tab.web = true; // as `laura --web` sets it
-        let web = WebServer::bind()?;
-        let (port, token) = port_token(web.url());
-        Ok(Rig {
-            tab,
-            web,
-            port,
-            token,
-        })
-    }
-
-    /// One turn of `laura --web`'s loop; false once the user quits.
-    fn pump(&mut self) -> bool {
-        let area = self.web.area().unwrap_or(DEFAULT_AREA);
-        let changed = self.tab.drain(area);
-        self.tab.tick(area);
-        self.web.sync(&mut self.tab, changed)
-    }
-
-    fn origin(&self) -> String {
-        format!("http://127.0.0.1:{}", self.port)
-    }
-
-    fn connect(&self) -> Ws {
-        connect_to(self.port, Some(&self.token), Some(&self.origin())).expect("view connects")
-    }
-
-    /// Pump and read `ws` until a frame matches `want`; fail after [`common::DEADLINE`].
-    fn until(&mut self, ws: &mut Ws, what: &str, want: impl Fn(&Frame) -> bool) -> Frame {
-        let start = Instant::now();
-        loop {
-            self.pump();
-            while let Some(f) = read(ws) {
-                if want(&f) {
-                    return f;
-                }
-            }
-            assert!(start.elapsed() < common::DEADLINE, "timed out: {what}");
-        }
-    }
-
-    /// Pump `turns` times; every frame `ws` received meanwhile.
-    fn idle(&mut self, ws: &mut Ws, turns: usize) -> Vec<Frame> {
-        let mut out = vec![];
-        for _ in 0..turns {
-            self.pump();
-            while let Some(f) = read(ws) {
-                out.push(f);
-            }
-        }
-        out
-    }
-
-    /// Send one `act` frame; its `acted` reply.
-    fn act(&mut self, ws: &mut Ws, act: Value) -> Value {
-        send(ws, act);
-        self.until(ws, "acted", |f| f.is("acted")).json()
-    }
-
-    /// Start `laura <args>` against the workspace without pumping; its output once it exits.
-    fn start(&self, args: &[&str]) -> mpsc::Receiver<Output> {
-        let name = self.tab.socket.clone();
-        let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let out = Command::cargo_bin("laura")
-                .unwrap()
-                .args(&a)
-                .env("LAURA_TAB", &name)
-                .output()
-                .unwrap();
-            let _ = tx.send(out);
-        });
-        rx
-    }
-
-    /// Pump until the client behind `rx` exits; fail after [`common::DEADLINE`].
-    fn wait(&mut self, rx: &mpsc::Receiver<Output>) -> Output {
-        let start = Instant::now();
-        loop {
-            self.pump();
-            if let Ok(out) = rx.try_recv() {
-                return out;
-            }
-            assert!(start.elapsed() < common::DEADLINE, "client timed out");
-            thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    /// Run `laura <args>` against the workspace, pumping until it exits.
-    fn run(&mut self, args: &[&str]) -> Output {
-        let rx = self.start(args);
-        self.wait(&rx)
-    }
-
-    /// `run`, asserting success; trimmed stdout.
-    fn drive(&mut self, args: &[&str]) -> String {
-        let out = self.run(args);
-        assert!(
-            out.status.success(),
-            "laura {args:?} failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    }
-
-    /// Pump until the shell's screen holds `text`.
-    fn shell_shows(&mut self, text: &str) {
-        let start = Instant::now();
-        while !self.tab.pty.with_screen(|s| s.contents()).contains(text) {
-            assert!(
-                start.elapsed() < common::DEADLINE,
-                "shell never showed {text}"
-            );
-            self.pump();
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-}
+use rig::*;
 
 /// `body` as `name` in a fresh dir.
 fn file(name: &str, body: &str) -> Result<(tempfile::TempDir, String)> {
@@ -2815,7 +2592,7 @@ fn comment_and_submit_from_the_browser() -> Result<()> {
         json!({"act": "submit", "pane": 1, "body": "overall"}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
-    rig.shell_shows("[laura review · ");
+    rig.shell_shows("[laura review · pane #1 · ");
     Ok(())
 }
 
@@ -2876,6 +2653,37 @@ fn ready_lists_web() -> Result<()> {
     let mut rig = Rig::new()?;
     let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
     assert_eq!(v["experimental"], json!(["web"]), "{v}");
+    assert!(v["browser_url"].is_null(), "{v}");
+    Ok(())
+}
+
+#[test]
+fn the_shell_has_the_browser_url() -> Result<()> {
+    isolate_home();
+    let tab = laura::Tab::spawn_web(shell(), 24, 80, Ok("chrome".into()))?;
+    let web = laura::web::WebServer::bind()?;
+    let (port, token) = port_token(web.url());
+    let mut rig = Rig {
+        tab,
+        web,
+        port,
+        token,
+    };
+    let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
+    assert_eq!(v["experimental"], json!(["web", "browser"]), "{v}");
+    let url = v["browser_url"]
+        .as_str()
+        .expect("a browser URL")
+        .to_string();
+    assert!(url.starts_with("http://127.0.0.1:"), "{url}");
+    let echo = if cfg!(windows) {
+        "echo %LAURA_BROWSER_URL%\r"
+    } else {
+        "echo $LAURA_BROWSER_URL\r"
+    };
+    rig.tab.pty.write(echo.as_bytes())?;
+    // The typed line names the variable; only the echo shows the URL.
+    rig.shell_shows(&url);
     Ok(())
 }
 

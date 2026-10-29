@@ -25,7 +25,7 @@ While the user types a comment or review body, Laura holds requests to the works
 
 ### `open`
 
-Split a pane and render a file in the new pane.
+Split a pane and render a file in the new pane, or show a page from a URL in a browser pane.
 
 <table class="proto">
 <tr>
@@ -33,7 +33,7 @@ Split a pane and render a file in the new pane.
 
 <dl>
 <dt><code>path</code> · string · <strong>required</strong></dt>
-<dd>File to render.</dd>
+<dd>File to render, or an <code>http://</code> or <code>https://</code> URL for a <a href="web-app.md#show-a-web-app-in-a-browser-pane">browser pane</a> (experimental). With a URL, Laura returns <code>error</code> with <code>highlight</code>, <code>diff</code> or <code>edit</code>, and ignores <code>follow</code>. With <code>panel</code> on a browser pane, Laura loads the URL in the same pane.</dd>
 <dt><code>split</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to split.</dd>
 <dt><code>dir</code> · string · <em>optional — absent → inferred</em></dt>
@@ -93,6 +93,7 @@ Split a pane and render a file in the new pane.
 `opened` holds the new pane id, which `laura open` prints, and a list of warnings. Laura still opens the pane when it returns a warning. Laura returns these as warnings, not errors:
 
 - `diff` when there is nothing to diff (`no changes vs HEAD — nothing to diff`).
+- ``already open in pane #N — use `laura open <url> --panel N` `` when the URL is already open in browser pane N.
 - `already open in pane #N` when the file is already open in pane N, including on a `panel` replace. The warning ends with `, which has an unsubmitted inline review` when pane N has one, and reads `already open in editor pane #N` when pane N is an editor pane without one.
 
 With `dry_run`, Laura returns a `report` instead of `opened`.
@@ -182,7 +183,7 @@ Focus a pane by id.
 
 ### `highlight`
 
-Highlight a range of lines in a pane and scroll the lines into view.
+Highlight a range of lines in a pane and scroll the lines into view. In a browser pane, highlight the element that a CSS selector finds.
 
 <table class="proto">
 <tr>
@@ -192,7 +193,9 @@ Highlight a range of lines in a pane and scroll the lines into view.
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to highlight.</dd>
 <dt><code>range</code> · [int, int] · <em>default: <code>null</code></em></dt>
-<dd>Lines <code>[start, end]</code>, 1-based inclusive. <code>null</code> clears the pane's highlight.</dd>
+<dd>Lines <code>[start, end]</code>, 1-based inclusive, in a file pane.</dd>
+<dt><code>selector</code> · string · <em>default: <code>null</code></em></dt>
+<dd>CSS selector of an element on the page that a browser pane shows. With no <code>range</code> and no <code>selector</code>, Laura clears the pane's highlight.</dd>
 </dl>
 
 </td>
@@ -204,6 +207,15 @@ Highlight a range of lines in a pane and scroll the lines into view.
   "type": "highlight",
   "pane": null,
   "range": [40, 52]
+}
+</pre>
+
+<strong>Browser pane</strong>
+<pre>
+{
+  "type": "highlight",
+  "pane": 2,
+  "selector": "main > h1"
 }
 </pre>
 
@@ -233,11 +245,13 @@ Line numbers are the file's source lines, matching the gutter and the inline rev
 
 The highlight stays until one of these happens:
 
-- The agent sets a new highlight or clears it (`range: null`).
+- The agent sets a new highlight or clears it (no `range` and no `selector`).
 - The user presses `h` on the focused pane.
 - The agent turns the file pane into an editor pane (`open --edit` on the same file).
 
 Moving focus or the cursor doesn't change the highlight. Laura clamps out-of-range lines to the file, including after a reload that shortens the file. Clearing the highlight doesn't move the cursor or scroll the pane.
+
+A file pane takes a `range` and a browser pane takes a `selector`. Laura returns `error` for the other one, and for a selector that matches no element. [Browser panes](cli.md#browser-panes) lists each error.
 
 ### `diffview`
 
@@ -285,7 +299,7 @@ Laura returns `error` when there is nothing to diff (`git` isn't installed, or t
 
 ### `comment`
 
-Annotate a line: start a thread on the line, or add a reply to the user's thread there. When the user presses `Shift+S`, Laura submits every thread as one inline review and clears the pane's threads. Laura returns `error` for an empty or absent `body`.
+Annotate a line: start a thread on the line, or add a reply to the user's thread there. In a browser pane, annotate the element that a CSS selector finds. When the user presses `Shift+S`, Laura submits every thread as one inline review and clears the pane's threads. Laura returns `error` for an empty or absent `body`.
 
 <table class="proto">
 <tr>
@@ -294,8 +308,10 @@ Annotate a line: start a thread on the line, or add a reply to the user's thread
 <dl>
 <dt><code>pane</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to comment on.</dd>
-<dt><code>line</code> · integer</dt>
-<dd>1-based source line of the thread (same mapping as <code>highlight</code>).</dd>
+<dt><code>line</code> · integer · <em>default: <code>null</code></em></dt>
+<dd>1-based source line of the thread (same mapping as <code>highlight</code>), in a file pane.</dd>
+<dt><code>selector</code> · string · <em>default: <code>null</code></em></dt>
+<dd>CSS selector of an element on the page that a browser pane shows. A file pane takes a <code>line</code> and a browser pane takes a <code>selector</code>. Laura returns <code>error</code> for the other one, as <a href="cli.md#browser-panes">Browser panes</a> lists.</dd>
 <dt><code>body</code> · string | null · <em>default: <code>null</code></em></dt>
 <dd>Comment text. Starts a thread or appends a reply. An empty or absent body returns <code>error</code>.</dd>
 <dt><code>author</code> · string | null · <em>default: session agent</em></dt>
@@ -313,6 +329,16 @@ Annotate a line: start a thread on the line, or add a reply to the user's thread
   "line": 42,
   "body": "handled — see the retry loop",
   "author": "agent"
+}
+</pre>
+
+<strong>Browser pane</strong>
+<pre>
+{
+  "type": "comment",
+  "pane": 2,
+  "selector": "#email",
+  "body": "Add a label to this field"
 }
 </pre>
 
@@ -372,7 +398,7 @@ Return the current layout without changing anything.
 </tr>
 </table>
 
-The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. In the web app, a pane's border takes three rows, so `visible_rows` is the pane's height minus three. `kind` is `pty` (the shell), `panel` (a file pane), or `editor` (an editor pane, with its `path`). Editor panes report `content_rows: null`, because Neovim sizes its own content.
+The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. In the web app, a pane's border takes three rows, so `visible_rows` is the pane's height minus three. `kind` is `pty` (the shell), `panel` (a file pane), `editor` (an editor pane, with its `path`), or `browser` (a browser pane, with its URL as `path` and the page's `title`). Editor panes and browser panes report `content_rows: null`, because Neovim and Laura's browser size their own content.
 
 ### `ready`
 
@@ -406,7 +432,8 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 {
   "type": "ready",
   "journal": "~/.laura/sessions/&lt;session&gt;.ndjson",
-  "experimental": ["editor"],
+  "experimental": ["web", "browser"],
+  "browser_url": "http://127.0.0.1:&lt;port&gt;",
   "layout": { "area": {}, "panes": [ … ] }
 }
 </pre>
@@ -415,7 +442,7 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 </tr>
 </table>
 
-`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); `browser`: [browser panes](cli.md#browser-panes), listed only when the web app runs and Laura found Chrome or Edge; see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `browser_url` is the shell's `LAURA_BROWSER_URL`, where the agent's browser tools connect to Laura's browser (see [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent)). `browser_url` is set only when `experimental` lists `browser`, and is `null` otherwise. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 ### `update`
 

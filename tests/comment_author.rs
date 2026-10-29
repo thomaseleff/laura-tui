@@ -153,7 +153,8 @@ fn bodyless_comment_errors_and_places_no_thread() -> Result<()> {
         &mut tab,
         Message::Comment {
             pane: Some(1),
-            line: 1,
+            line: Some(1),
+            selector: None,
             body: Some("   ".into()),
             author: None,
         },

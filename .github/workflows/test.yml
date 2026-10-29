@@ -10,10 +10,13 @@ permissions:
 
 jobs:
   test:
+    name: test (${{ matrix.os }}, ${{ matrix.tests }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest] # Windows exercises the ConPTY path
+        # `app` runs every test crate but the browser ones; each browser crate gets its own job.
+        tests: [app, browser, browser_input, browser_threads, browser_agent]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -21,4 +24,46 @@ jobs:
         with:
           toolchain: stable # mirrors rust-toolchain.toml
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo test --locked
+      # The browser tests run the image's Chrome, or a Chrome that the next step installs.
+      - name: Find Chrome
+        id: find
+        if: matrix.tests != 'app'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            chrome="C:/Program Files/Google/Chrome/Application/chrome.exe"
+          else
+            chrome=$(command -v google-chrome || true)
+          fi
+          if [ -f "$chrome" ]; then
+            echo "LAURA_BROWSER=$chrome" >> "$GITHUB_ENV"
+          else
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install Chrome
+        id: setup
+        if: steps.find.outputs.missing == 'true'
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        with:
+          install-dependencies: true
+      - name: Use the installed Chrome
+        if: steps.find.outputs.missing == 'true'
+        shell: bash
+        env:
+          CHROME: ${{ steps.setup.outputs.chrome-path }}
+        run: |
+          # Chrome for Testing has no AppArmor profile, so Ubuntu 24.04 blocks its sandbox.
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          echo "LAURA_BROWSER=$CHROME" >> "$GITHUB_ENV"
+      - name: Run the tests
+        shell: bash
+        env:
+          TESTS: ${{ matrix.tests }}
+        run: |
+          if [ "$TESTS" = app ]; then
+            LAURA_SKIP_BROWSER_TESTS=1 cargo test --locked
+          else
+            cargo test --locked --test "$TESTS"
+          fi

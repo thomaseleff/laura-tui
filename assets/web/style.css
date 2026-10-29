@@ -155,7 +155,7 @@ body { line-height: 1.5; }
 /* A narrow pane's header drops its parts in steps until it fits (`fitHead` in app.js sets
    `data-fit`); every action stays one click away in **More**. */
 .pane:is([data-fit="1"], [data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) :is(.tl, .head > .ic) { display: none; }
-.pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head :is(.chips, .delta) { display: none; }
+.pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head :is(.chips, .delta, .url) { display: none; }
 .pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head .cdot { display: block; }
 .pane:is([data-fit="3"], [data-fit="4"], [data-fit="5"]) .head .tools { display: none; }
 .pane:is([data-fit="3"], [data-fit="4"], [data-fit="5"]) .head .more { display: grid; }
@@ -230,7 +230,73 @@ kbd {
 }
 /* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
 .pane.file .term { visibility: hidden; }
-.pane:not(.file) .rows { display: none; }
+.pane:not(.file, .browser) .rows { display: none; }
+/* A browser pane's frames (#107), drawn 1:1 on the canvas. White, as an HTML page's. */
+.view { display: none; }
+.pane.browser .term { display: none; }
+.pane.browser .view {
+  display: block; position: absolute; left: var(--cw); right: var(--cw); top: calc(3 * var(--ch) - 6px); bottom: 6px;
+  overflow: hidden; background: #fff; border-radius: 0 0 calc(var(--r) - 1px) calc(var(--r) - 1px);
+}
+.view canvas { display: block; user-select: none; touch-action: none; }
+/* An emulated device: the page at the device's size, on a gray backdrop. */
+.pane.browser .view.emu { background: #e6e8ee; }
+/* The agent's click and typing, drawn by the web app over the canvas: the agent's screenshots don't
+   show them. The page's dialog stays above them. */
+.amark { position: absolute; z-index: 3; pointer-events: none; }
+.amark.ring {
+  width: 30px; height: 30px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2px solid var(--acc);
+  background: rgb(79 91 213 / .14); animation: ring 1s ease-out forwards;
+}
+.amark.field { margin: -6px; padding: 4px; border: 2px solid var(--acc); border-radius: 8px; opacity: 0; transition: opacity .3s; }
+.amark.field.on { opacity: 1; transition: none; }
+@keyframes ring { 0% { transform: scale(.5); opacity: 1; } 50% { transform: scale(1); opacity: .9; } 100% { opacity: 0; } }
+/* A browser pane's thread, highlight, cursor and hover outlines, tags and pins, over the canvas as
+   an HTML page's are in the page (draw.js). */
+.marks { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.mk { position: absolute; outline-offset: 2px; }
+.mk.th { outline: 1.5px dashed #9aa2ea; }
+.mk.hl { outline: 2px solid #ebcb8b; background: #ebcb8b22; }
+.mk.cur { outline: 1.5px solid var(--acc); }
+.mk.hov { outline: 2px solid var(--acc); background: #4f5bd510; }
+.mk-tag {
+  position: absolute; padding: 0 6px; border-radius: 4px 4px 4px 0; font: 500 11px/16px var(--mono);
+  color: #fff; background: var(--acc); white-space: nowrap;
+}
+.mk-pin {
+  position: absolute; pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 3px;
+  padding: 2px 6px 2px 2px; border-radius: 12px 12px 12px 2px; background: #fff;
+  box-shadow: 0 1px 2px rgb(16 24 40 / .08), 0 4px 14px rgb(16 24 40 / .14); font: 600 11px var(--sans); color: #686d78;
+}
+.mk-pin .av + .av { margin-left: -6px; }
+.pane.browser.comment-mode .view canvas { cursor: crosshair !important; }
+/* Back and forward, before the title, as in a browser tab. */
+.navb { display: flex; gap: 2px; margin-left: -4px; }
+.navb .tool:disabled { opacity: .35; cursor: default; background: none; color: var(--mute); }
+/* The URL beside the title, an address field: a click edits it, Enter goes there. */
+.head .url {
+  flex: 1 1 260px; max-width: 380px; min-width: 60px; height: 26px; box-sizing: border-box; text-overflow: ellipsis;
+  font: 12px var(--mono); color: var(--mute); background: var(--bg); border: 1px solid var(--line2); border-radius: 13px; padding: 0 12px; outline: none;
+}
+.head .url:hover { border-color: var(--line); color: var(--fg); }
+.head .url:focus { border-color: var(--acc-line); box-shadow: 0 0 0 3px var(--acc-soft); color: var(--fg); background: #fff; }
+/* The live badge and the spinner. */
+.live { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; font: 500 12px var(--sans); color: var(--mute); }
+.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.live.lag { background: var(--warn-soft); color: var(--warn); }
+.live.lag::before { background: #e09a1c; }
+.spin { width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--acc-line); border-top-color: var(--acc); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* The page's dialog: drawn by the web app over the canvas, since the stream doesn't show it. */
+.pane.browser .dlgwrap { position: absolute; inset: 0; z-index: 5; background: rgb(16 24 40 / .16); }
+.pane.browser .pop.dlg { top: 18px; left: 50%; right: auto; transform: translateX(-50%); width: 340px; }
+.pop.dlg input {
+  display: block; box-sizing: border-box; width: 100%; margin-bottom: 4px; padding: 6px 9px; border: 1px solid var(--line);
+  border-radius: 7px; outline: none; font: 13px var(--sans); color: var(--fg);
+}
+.pop.dlg input:focus { border-color: var(--acc-line); box-shadow: 0 0 0 3px var(--acc-soft); }
+/* A browser pane has no lines to comment on or diff: comment mode picks an element. */
+.pane.browser .tool:is([data-act=comment], [data-act=toggle_diff]) { display: none; }
 /* A row is the pane's inner width, so its background stops at the border. */
 .row {
   white-space: pre; height: var(--ch); line-height: var(--ch); cursor: default;
@@ -251,21 +317,23 @@ kbd {
 }
 .pane:not(.file) iframe { display: none; }
 /* The page's cursor thread or comment box floats below the cursor's element (`place` in app.js). */
-.pane:has(> iframe) .rows {
+:is(.pane:has(> iframe), .pane.browser) .rows {
   top: var(--fy, 0px); left: var(--fx, 0px); right: auto; bottom: auto; z-index: 2;
   width: min(290px, calc(100% - 2 * var(--cw) - 16px)); max-height: calc(100% - 3 * var(--ch) - 16px);
 }
-.pane:has(> iframe) .inl { width: auto; margin: 0; }
-.pane:has(> iframe) .inl .card { margin: 0; box-shadow: var(--shadow); }
+:is(.pane:has(> iframe), .pane.browser) .inl { width: auto; margin: 0; }
+:is(.pane:has(> iframe), .pane.browser) .inl .card { margin: 0; box-shadow: var(--shadow); }
 /* A page's header has the comment-mode tool in place of the comment tool. */
-.pane:has(> iframe) .tool[data-act=comment], .pane:not(:has(> iframe)) .tool[data-act=cm] { display: none; }
-.pane.file.comment-mode iframe { outline: 2px solid var(--acc); outline-offset: -2px; }
+.pane:has(> iframe) .tool[data-act=comment], .pane:not(:has(> iframe), .browser) .tool[data-act=cm] { display: none; }
+.pane.file.comment-mode iframe, .pane.browser.comment-mode .view { outline: 2px solid var(--acc); outline-offset: -2px; }
 .cmhint {
   display: none; position: absolute; top: calc(3 * var(--ch) + 6px + var(--bn, 0px)); left: 50%; transform: translateX(-50%);
   z-index: 3; gap: 8px; align-items: center; padding: 5px 6px 5px 12px; border-radius: 18px;
   font-size: 12.5px; color: #fff; background: #23262d; box-shadow: var(--shadow); white-space: nowrap;
 }
-.pane.file.comment-mode .cmhint { display: flex; }
+.pane:is(.file, .browser).comment-mode .cmhint { display: flex; }
+/* A browser pane's thread whose element isn't on the page. */
+.trow.lost .tx { opacity: .55; }
 .cmhint kbd { background: transparent; color: #c9ccd4; border-color: #4a4f5a; }
 .cmhint button { padding: 2px 8px; border: 0; border-radius: 12px; background: #3a3f4a; font-size: 12px; color: inherit; cursor: pointer; }
 

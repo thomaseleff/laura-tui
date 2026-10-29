@@ -207,6 +207,7 @@ fn message_after_edit_sees_new_content() -> Result<()> {
         Message::Highlight {
             pane: Some(1),
             range: Some((8, 8)),
+            selector: None,
         },
         Duration::from_millis(100),
     );

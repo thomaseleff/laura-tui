@@ -6,9 +6,12 @@ use std::time::SystemTime;
 
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
+use serde_json::{Value, json};
 
+use crate::browser::page_of;
 use crate::gitdiff::{self, ChangeKind, DiffOutcome};
-use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, render};
+use crate::protocol::PaneId;
+use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
 
 /// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
 pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
@@ -71,6 +74,27 @@ pub struct Panel {
     /// The source changed on disk while notes were open, so the pane holds its in-memory snapshot
     /// (a reload would move the lines the notes pin to). Cleared once the notes clear (#45).
     pub source_changed: bool,
+    /// A browser pane: `path` is the page's URL, and Laura's browser draws the page.
+    pub browser: bool,
+    /// A browser pane's rows: the elements its threads sit on, one per row.
+    pub anchors: Vec<Anchor>,
+}
+
+/// An element a browser pane's thread sits on: its CSS selector and quote, on the page at `url`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Anchor {
+    pub selector: String,
+    pub quote: String,
+    pub url: String,
+    /// The page loaded, and browser.js found no element for it.
+    pub lost: bool,
+}
+
+impl Anchor {
+    /// The pane's row, which the inline review quotes.
+    pub fn row(&self) -> String {
+        format!("{}  \"{}\"", self.selector, self.quote)
+    }
 }
 
 /// Who wrote a note. `Agent` carries its label; the human is always `User`.
@@ -142,6 +166,21 @@ enum UserIntent {
 impl Panel {
     /// Read `path` into a panel; a read error becomes visible text, never a panic (the PTY input path must not crash).
     pub fn open(path: String) -> Panel {
+        let rendered = render(&path);
+        let sig = stat_sig(&path);
+        let mut panel = Panel::new(path, rendered, sig);
+        panel.refresh_diff();
+        panel
+    }
+
+    /// A browser pane's panel for `url`: no content, no file to stat or diff.
+    pub fn page(url: String) -> Panel {
+        let mut panel = Panel::new(url, plain(String::new()), None);
+        panel.browser = true;
+        panel
+    }
+
+    fn new(path: String, rendered: Rendered, sig: Option<(SystemTime, u64)>) -> Panel {
         let Rendered {
             content,
             styled,
@@ -150,9 +189,8 @@ impl Panel {
             source_lines,
             error,
             blocks,
-        } = render(&path);
-        let sig = stat_sig(&path);
-        let mut panel = Panel {
+        } = rendered;
+        Panel {
             path,
             content,
             styled,
@@ -175,9 +213,113 @@ impl Panel {
             diff_stat: (0, 0),
             diff_view: false,
             source_changed: false,
+            browser: false,
+            anchors: vec![],
+        }
+    }
+
+    fn set_rendered(&mut self, rendered: Rendered) {
+        let Rendered {
+            content,
+            styled,
+            nowrap,
+            source,
+            source_lines,
+            error,
+            blocks,
+        } = rendered;
+        self.content = content;
+        self.styled = styled;
+        self.blocks = blocks;
+        self.nowrap = nowrap;
+        self.source = source;
+        self.source_lines = source_lines;
+        self.read_error = error;
+    }
+
+    /// A browser pane: the row of the element with `selector` and `quote` on `url`'s page, added
+    /// when new. The quote must match too: a changed page can put another element at a thread's
+    /// `nth-of-type` path.
+    pub fn anchor(&mut self, selector: &str, quote: &str, url: &str) -> usize {
+        // One row each, so the inline review stays one line per thread.
+        let (selector, quote) = (
+            selector.replace(['\n', '\r'], " "),
+            quote.replace(['\n', '\r'], " "),
+        );
+        let page = page_of(url);
+        if let Some(i) = self
+            .anchors
+            .iter()
+            .position(|a| a.selector == selector && a.quote == quote && page_of(&a.url) == page)
+        {
+            return i;
+        }
+        self.anchors.push(Anchor {
+            selector,
+            quote,
+            url: page.to_string(),
+            lost: false,
+        });
+        let rows: Vec<String> = self.anchors.iter().map(Anchor::row).collect();
+        self.set_rendered(plain(rows.join("\n")));
+        self.anchors.len() - 1
+    }
+
+    /// browser.js's check of `url`'s page: the threads on `lines` (1-based) have no element. Returns
+    /// the first comment of each thread that just lost its element.
+    pub fn set_lost(&mut self, url: &str, lines: &[usize]) -> Vec<String> {
+        let mut gone = vec![];
+        for (i, a) in self.anchors.iter_mut().enumerate() {
+            if a.url != page_of(url) {
+                continue;
+            }
+            let lost = lines.contains(&(i + 1));
+            if lost
+                && !a.lost
+                && let Some(t) = self.threads.iter().find(|t| t.line == i)
+            {
+                gone.push(t.root.body.clone());
+            }
+            a.lost = lost;
+        }
+        gone
+    }
+
+    /// A browser pane's threads, cursor and highlight, for browser.js to draw. The cursor shows only on a
+    /// thread, or while the user writes a comment in this pane (`focus` and `hold`).
+    pub fn scene(&self, focus: bool, hold: bool) -> Value {
+        let at = |line: usize| {
+            let a = self.anchors.get(line)?;
+            Some(json!({"line": line + 1, "selector": a.selector, "quote": a.quote, "url": a.url}))
         };
-        panel.refresh_diff();
-        panel
+        let threads: Vec<Value> = self
+            .threads
+            .iter()
+            .filter_map(|t| {
+                let mut v = at(t.line)?;
+                // Each author once, as the web app's pins: an initial, and whether it's an agent.
+                let mut who: Vec<(String, bool)> = vec![];
+                for n in t.notes() {
+                    let w = match &n.author {
+                        Author::User => ("Y".to_string(), false),
+                        Author::Agent(a) if a == "agent" => ("A".to_string(), true),
+                        Author::Agent(a) => {
+                            (a.chars().take(1).collect::<String>().to_uppercase(), true)
+                        }
+                    };
+                    if !who.contains(&w) {
+                        who.push(w);
+                    }
+                }
+                v["n"] = t.notes().count().into();
+                v["who"] = json!(who);
+                Some(v)
+            })
+            .collect();
+        let shown = self.cursor_thread().is_some() || focus && hold;
+        let cursor = at(self.cursor).filter(|_| shown);
+        let highlight = self.highlight.and_then(|(row, _)| at(row));
+        json!({"focus": focus, "cursor": cursor, "threads": threads, "highlight": highlight})
     }
 
     /// Recompute per-source-line git-diff markers vs HEAD, in source-line space (what `line_changes`
@@ -560,10 +702,11 @@ impl Panel {
     /// a failed send keeps them so the user can retry (#72).
     pub fn submit_review(
         &mut self,
+        pane: PaneId,
         overall: &str,
         send: impl FnOnce(&str) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        send(&self.assemble_review(overall))?;
+        send(&self.assemble_review(pane, overall))?;
         self.threads.clear();
         Ok(())
     }
@@ -575,8 +718,8 @@ impl Panel {
 
     /// PR-style review for PTY injection: each thread under a 1-based source header (`L<n>` or
     /// `L<a>-<b>` for a block), author-labeled; `overall` omitted when empty (#45).
-    pub fn assemble_review(&self, overall: &str) -> String {
-        let mut out = format!("[laura review · {}]\n", self.path);
+    pub fn assemble_review(&self, pane: PaneId, overall: &str) -> String {
+        let mut out = format!("[laura review · pane #{pane} · {}]\n", self.path);
         // A frozen snapshot's line numbers are against the reviewed content, not disk — warn the agent.
         if self.source_changed {
             out.push_str(
@@ -597,10 +740,18 @@ impl Panel {
             } else {
                 format!("L{}-{}", a + 1, b + 1)
             };
-            // Raw source line, not the rendered row: a table/list thread carries `| c | 3 |`, not box glyphs.
-            match self.source_lines.get(a) {
-                Some(text) => out.push_str(&format!("{hdr}  {text}\n")),
-                None => out.push_str(&format!("{hdr}\n")),
+            // A browser pane's thread names its element, and its page when the pane moved on.
+            if let Some(anchor) = self.anchors.get(t.line) {
+                if anchor.url != page_of(&self.path) {
+                    out.push_str(&format!("{}  ", anchor.url));
+                }
+                out.push_str(&format!("{}\n", anchor.row()));
+            } else {
+                // Raw source line, not the rendered row: a table/list thread carries `| c | 3 |`, not box glyphs.
+                match self.source_lines.get(a) {
+                    Some(text) => out.push_str(&format!("{hdr}  {text}\n")),
+                    None => out.push_str(&format!("{hdr}\n")),
+                }
             }
             for note in t.notes() {
                 let label = match &note.author {
@@ -922,6 +1073,10 @@ impl Panel {
     /// ponytail: same-length edit within one mtime tick is missed — content hash or `notify` if it bites.
     /// ponytail: a comment past a shrunk file's EOF won't render; re-anchor on reload if it confuses.
     pub fn reload_if_changed(&mut self) -> bool {
+        // A URL has no file to stat; Laura's browser shows the page live.
+        if self.browser {
+            return false;
+        }
         let sig = stat_sig(&self.path);
         if sig == self.sig {
             return false;
@@ -930,23 +1085,8 @@ impl Panel {
             self.source_changed = true; // freeze: hold the snapshot the notes pin to, don't touch self.sig
             return false; // stays "dirty" so we keep noticing until the notes clear (submit/Ctrl+R)
         }
-        let Rendered {
-            content,
-            styled,
-            nowrap,
-            source,
-            source_lines,
-            error,
-            blocks,
-        } = render(&self.path);
-        self.content = content;
-        self.styled = styled;
-        self.blocks = blocks;
-        self.nowrap = nowrap;
-        self.source = source;
-        self.source_lines = source_lines;
+        self.set_rendered(render(&self.path));
         self.sig = sig;
-        self.read_error = error;
         // Keep the scroll offset unless the new content is now too narrow to reach it.
         self.h_offset = self.h_offset.min(self.max_nowrap_width().saturating_sub(1));
         self.cursor = if self.follow {
@@ -964,9 +1104,17 @@ impl Panel {
         true
     }
 
-    /// `Ctrl+R`: drop pending notes and refresh the pane to the on-disk file.
+    /// `Ctrl+R`: drop pending notes and refresh the pane to the on-disk file. A browser pane drops
+    /// its rows too; the tab reloads its page.
     pub fn discard_and_reload(&mut self) {
         self.threads.clear();
+        if self.browser {
+            // The highlight's row would name another element.
+            self.highlight = None;
+            self.anchors.clear();
+            self.set_rendered(plain(String::new()));
+            self.cursor = 0;
+        }
         self.sig = None;
         self.reload_if_changed();
     }

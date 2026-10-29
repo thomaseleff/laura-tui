@@ -3,7 +3,7 @@
 //! Threads own the sockets; the loop that owns the `Tab` talks to the active view only through a
 //! channel pair in `sync`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{ErrorKind, Read, Write};
@@ -167,6 +167,10 @@ struct View {
     panes: HashMap<PaneId, Sent>,
     /// Each HTML pane's last `page` frame.
     pages: HashMap<PaneId, String>,
+    /// Each browser pane's last `browser` frame.
+    browsers: HashMap<PaneId, String>,
+    /// The browser panes the view holds a frame of.
+    framed: HashSet<PaneId>,
     focus: PaneId,
     area: Rect,
     git_shown: bool,
@@ -182,6 +186,20 @@ impl View {
     fn text(&mut self, v: Value) {
         self.send(Outbound::Text(v.to_string()));
     }
+}
+
+/// A read on a socket with a read timeout that timed out: no frame yet. The timeout is `TimedOut`
+/// on Windows and `WouldBlock` on Unix; Windows sometimes reports it as `ERROR_IO_PENDING` (997)
+/// instead, which ended Laura's CDP connection as if Laura's browser had exited. A signal ends a
+/// timed read with `Interrupted` (EINTR) on Unix, even under `SA_RESTART`: the read is retried.
+pub fn nothing_yet(e: &tungstenite::Error) -> bool {
+    let tungstenite::Error::Io(e) = e else {
+        return false;
+    };
+    matches!(
+        e.kind(),
+        ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
+    ) || (cfg!(windows) && e.raw_os_error() == Some(997))
 }
 
 /// The web app's server for one workspace. The loop that owns the `Tab` calls `sync` every frame.
@@ -250,6 +268,11 @@ impl WebServer {
                     .tx
                     .try_send(Outbound::Text(json!({"t": "moved"}).to_string()));
             }
+            // A new view starts with comment mode off, so Laura's browser turns it off too.
+            for page in tab.browsers.values_mut() {
+                page.comment = false;
+                page.new_view();
+            }
             let mut v = View {
                 rx,
                 tx,
@@ -258,6 +281,8 @@ impl WebServer {
                 layout: String::new(),
                 panes: HashMap::new(),
                 pages: HashMap::new(),
+                browsers: HashMap::new(),
+                framed: HashSet::new(),
                 focus: tab.focus,
                 area: Rect::default(),
                 git_shown: false,
@@ -286,52 +311,73 @@ impl WebServer {
                         continue;
                     };
                     if msg.get("act").is_some() {
-                        let res = serde_json::from_value::<UserAction>(msg)
-                            .map_err(|e| e.to_string())
-                            .and_then(|a| {
-                                let comment = match a {
-                                    UserAction::BeginComment { pane } => Some(pane),
-                                    _ => None,
-                                };
-                                let review = matches!(a, UserAction::BeginReview { .. });
-                                // A new comment goes on the block's first line; on a stop, on that
-                                // line; on a thread's card, it joins that thread.
-                                if let Some(pane) = comment
-                                    && let Ok(p) = tab.panel_mut(pane)
-                                    && let Some(start) = cursor_block(p)
-                                        .filter(|b| !on_card(p, b) && !on_stop(p, b))
-                                        .map(|b| b.rows.start)
-                                {
-                                    p.cursor = start;
+                        let res = match serde_json::from_value::<UserAction>(msg) {
+                            // Input to a page changes only its frames: no reply, no layout.
+                            Ok(
+                                a @ (UserAction::BrowserMouse { .. }
+                                | UserAction::BrowserKey { .. }
+                                | UserAction::BrowserText { .. }
+                                | UserAction::BrowserBlur { .. }
+                                | UserAction::BrowserCommentMode { .. }
+                                | UserAction::BrowserReveal { .. }),
+                            ) => {
+                                let _ = tab.act(a);
+                                continue;
+                            }
+                            r => r.map_err(|e| e.to_string()),
+                        };
+                        let res = res.and_then(|a| {
+                            let comment = match a {
+                                UserAction::BeginComment { pane }
+                                | UserAction::BrowserPick { pane, .. } => Some(pane),
+                                _ => None,
+                            };
+                            let review = matches!(a, UserAction::BeginReview { .. });
+                            // A new comment goes on the block's first line; on a stop, on that
+                            // line; on a thread's card, it joins that thread.
+                            if let Some(pane) = comment
+                                && let Ok(p) = tab.panel_mut(pane)
+                                && let Some(start) = cursor_block(p)
+                                    .filter(|b| !on_card(p, b) && !on_stop(p, b))
+                                    .map(|b| b.rows.start)
+                            {
+                                p.cursor = start;
+                            }
+                            let handled = match a {
+                                UserAction::MoveCursor { pane, delta } => {
+                                    step(tab.panel_mut(pane)?, delta)
                                 }
-                                let handled = match a {
-                                    UserAction::MoveCursor { pane, delta } => {
-                                        step(tab.panel_mut(pane)?, delta)
-                                    }
-                                    UserAction::ToggleThread { pane, line: None } => {
-                                        toggle_block_threads(tab.panel_mut(pane)?)
-                                    }
-                                    _ => false,
-                                };
-                                let seed = if handled { None } else { tab.act(a)? };
-                                // Laura holds the agent from here, before any drain, until the
-                                // browser closes the draft.
-                                tab.hold |= comment.is_some() || review;
-                                let line = comment
-                                    .and_then(|p| tab.panels.get(&p).map(Panel::cursor_line));
-                                let mode = match line {
-                                    Some(line) => Some(view::Hint::Comment {
-                                        line,
-                                        edit: seed.as_ref().is_some_and(|s| !s.is_empty()),
-                                    }),
-                                    None => review.then_some(view::Hint::Review),
-                                };
-                                Ok((seed, line, mode.map(|m| view::hint(tab, m))))
-                            });
+                                UserAction::ToggleThread { pane, line: None } => {
+                                    toggle_block_threads(tab.panel_mut(pane)?)
+                                }
+                                _ => false,
+                            };
+                            let seed = if handled { None } else { tab.act(a)? };
+                            // Laura holds the agent from here, before any drain, until the
+                            // browser closes the draft.
+                            tab.hold |= comment.is_some() || review;
+                            let panel = comment.and_then(|p| tab.panels.get(&p));
+                            let line = panel.map(Panel::cursor_line);
+                            // A browser pane's comment names its element.
+                            let anchor = panel.and_then(|p| p.anchors.get(p.cursor));
+                            let mode = match line {
+                                Some(line) => Some(view::Hint::Comment {
+                                    at: anchor.map_or_else(
+                                        || format!("L{line}"),
+                                        |a| view::cut_left(&a.selector, 40),
+                                    ),
+                                    edit: seed.as_ref().is_some_and(|s| !s.is_empty()),
+                                }),
+                                None => review.then_some(view::Hint::Review),
+                            };
+                            let anchor = anchor.map(|a| [a.selector.clone(), a.quote.clone()]);
+                            Ok((seed, line, anchor, mode.map(|m| view::hint(tab, m))))
+                        });
                         acted |= res.is_ok();
                         v.text(match res {
-                            Ok((seed, line, hint)) => {
-                                json!({"t": "acted", "ok": true, "text": seed, "line": line, "hint": hint})
+                            Ok((seed, line, anchor, hint)) => {
+                                json!({"t": "acted", "ok": true, "text": seed, "line": line,
+                                       "anchor": anchor, "hint": hint})
                             }
                             Err(e) => {
                                 let e = if e == crate::tab::SUBMIT_FAILED {
@@ -353,6 +399,29 @@ impl WebServer {
                             (dim("cols", 20, 1000), dim("rows", 5, 500))
                         {
                             self.area = Some(Rect::new(0, 0, cols, rows));
+                        }
+                    } else if let Some(size) = msg.get("size") {
+                        // A browser pane's size in CSS pixels, and the screen's pixel ratio.
+                        let num = |k: &str| size.get(k).and_then(Value::as_f64);
+                        if let (Some(id), Some(w), Some(h), Some(dpr)) =
+                            (num("id"), num("w"), num("h"), num("dpr"))
+                        {
+                            let id = id as PaneId;
+                            let size = (
+                                w.clamp(50.0, 4000.0) as u32,
+                                h.clamp(50.0, 4000.0) as u32,
+                                dpr.clamp(0.5, 4.0),
+                            );
+                            if tab.panels.get(&id).is_some_and(|p| p.browser) {
+                                tab.browser_sizes.insert(id, size);
+                            }
+                            if let Some(page) = tab.browsers.get_mut(&id) {
+                                page.resize(size);
+                            }
+                        }
+                    } else if let Some(id) = msg.get("ack").and_then(Value::as_u64) {
+                        if let Some(page) = tab.browsers.get_mut(&id) {
+                            page.ack();
                         }
                     } else if let Some(hold) = msg.get("hold").and_then(Value::as_bool) {
                         tab.hold = hold;
@@ -426,6 +495,28 @@ impl WebServer {
             v.send(Outbound::Bytes(c));
         }
 
+        // Before the page's events: the web app resets a pane's typing on a new URL, then takes the
+        // `editable` of the load that follows it.
+        send_browsers(v, tab);
+        // A browser pane's new frame, and each page's last frame to a new view.
+        v.framed.retain(|id| tab.browsers.contains_key(id));
+        for (&id, page) in &mut tab.browsers {
+            let fresh = page.take_fresh();
+            if (fresh || !v.framed.contains(&id))
+                && let Some(f) = page.frame()
+            {
+                v.send(Outbound::Bytes(framed(id, f)));
+                v.framed.insert(id);
+            }
+            for mut m in page.take_out() {
+                m["id"] = id.into();
+                v.text(m);
+            }
+        }
+        for text in tab.notices.drain(..) {
+            v.text(json!({"t": "notice", "text": text}));
+        }
+
         if dirty {
             send_panes(v, tab, &rects, &self.bases);
             (v.focus, v.area) = (tab.focus, area);
@@ -460,7 +551,7 @@ impl WebServer {
 }
 
 /// `n` random bytes as hex.
-fn nonce(n: usize) -> Result<String> {
+pub(crate) fn nonce(n: usize) -> Result<String> {
     let mut bytes = vec![0u8; n];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
@@ -534,10 +625,15 @@ fn reconcile(bases: &mut Bases, files: &Files, root: &Path, tab: &Tab) {
         };
         let page = format!("/f/{n}/{}?v={:016x}", pct_encode(name), content_hash(p));
         if *url != page {
-            let html = tag_lines(
-                &p.content,
-                &format!("<script>{}</script>", include_str!("../assets/web/page.js")),
+            // The block keeps `lauraDraw` out of the page's globals.
+            let script = concat!(
+                "<script>{\n",
+                include_str!("../assets/web/draw.js"),
+                "\n",
+                include_str!("../assets/web/page.js"),
+                "\n}</script>"
             );
+            let html = tag_lines(&p.content, script);
             served.page = Some((name.to_string(), html));
             *url = page;
         }
@@ -574,12 +670,13 @@ fn is_tail(p: &Panel) -> bool {
     crate::journal::is_runtime_temp(&p.path)
 }
 
-/// An HTML file, which the web app shows as a page.
+/// An HTML file, which the web app shows as a page. A browser pane's URL isn't one.
 pub(crate) fn is_page(p: &Panel) -> bool {
-    Path::new(&p.path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
+    !p.browser
+        && Path::new(&p.path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
 }
 
 /// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
@@ -716,7 +813,8 @@ pub(crate) fn pct_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// A PTY chunk for the browser: the pane id as 8 big-endian bytes, then the bytes.
+/// A PTY chunk or a browser pane's frame for the browser: the pane id as 8 big-endian bytes, then
+/// the bytes.
 fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
     let mut out = id.to_be_bytes().to_vec();
     out.extend(bytes);
@@ -734,6 +832,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
             let p = tab.panels.get(id);
             let kind = match (p, editor) {
                 (None, _) => "shell",
+                (Some(p), _) if p.browser => "browser",
                 (_, Some(e)) if e.editor_view => "editor",
                 _ => "file",
             };
@@ -742,6 +841,16 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
             let name = p.map_or_else(
                 || "shell".to_string(),
                 |p| {
+                    if p.browser {
+                        // A page without a title, or not loaded yet, goes by its URL.
+                        return tab
+                            .browsers
+                            .get(id)
+                            .map(|b| b.title())
+                            .filter(|t| !t.is_empty())
+                            .unwrap_or(&p.path)
+                            .to_string();
+                    }
                     Path::new(&p.path)
                         .file_name()
                         .map_or_else(|| p.path.clone(), |n| n.to_string_lossy().into_owned())
@@ -749,6 +858,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
             );
             let (added, removed) = p.map_or((0, 0), |p| p.diff_stat);
             let icon = match p {
+                Some(p) if p.browser => Some("globe"),
                 Some(p) if is_page(p) => Some("page"),
                 Some(p) if is_tail(p) => Some("log"),
                 _ => None,
@@ -757,7 +867,13 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
                    "kind": kind, "pty": pty, "name": name, "icon": icon,
                    "path": p.map(|p| view::display_path(&p.path)),
                    "added": added, "removed": removed,
-                   "highlight": p.and_then(Panel::highlight_lines),
+                   "highlight": p.and_then(|p| match p.highlight {
+                       // A browser pane's highlight names its element.
+                       Some((row, _)) if p.browser => {
+                           p.anchors.get(row).map(|a| json!(view::cut_left(&a.selector, 24)))
+                       }
+                       _ => p.highlight_lines().map(|l| json!(l)),
+                   }),
                    "diff": p.is_some_and(|p| p.diff_view),
                    "frozen": p.is_some_and(|p| p.source_changed),
                    "threads": p.map_or(0, Panel::thread_count),
@@ -770,9 +886,12 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
         .get(&tab.focus)
         .is_some_and(|p| is_page(p) && !p.diff_view)
         && bases.contains_key(&tab.focus);
+    let browser = tab.panels.get(&tab.focus).is_some_and(|p| p.browser);
     let pane = view::hint(
         tab,
-        if page {
+        if browser {
+            view::Hint::Browser
+        } else if page {
             view::Hint::Page
         } else {
             view::Hint::Pane
@@ -784,10 +903,36 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
         "quit": view::hint(tab, view::Hint::Quit),
         "panes": view::hint(tab, view::Hint::Panes),
         "comment_mode": view::hint(tab, view::Hint::CommentMode),
+        "browser_typing": view::hint(tab, view::Hint::BrowserTyping),
+        "browser_url": view::hint(tab, view::Hint::BrowserUrl),
+        "browser_dialog": view::hint(tab, view::Hint::BrowserDialog),
+        "browser_leave": view::hint(tab, view::Hint::BrowserLeave),
     });
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
            "agent": tab.agent, "hints": hints, "panes": panes})
     .to_string()
+}
+
+/// Send each browser pane's URL, title, whether its page is live (Laura's browser runs it), and
+/// the page's state (`Page::state`), when one changed since the view last saw it.
+fn send_browsers(v: &mut View, tab: &Tab) {
+    v.browsers
+        .retain(|id, _| tab.panels.get(id).is_some_and(|p| p.browser));
+    for (&id, p) in tab.panels.iter().filter(|(_, p)| p.browser) {
+        let page = tab.browsers.get(&id);
+        let mut msg = json!({"t": "browser", "id": id, "url": p.path,
+                             "title": page.map(|b| b.title()), "live": page.is_some(),
+                             "threads": threads_json(p), "card": card_line(p),
+                             "line": p.cursor_line()});
+        if let (Some(o), Some(b)) = (msg.as_object_mut(), page) {
+            o.extend(b.state(Instant::now()));
+        }
+        let msg = msg.to_string();
+        if v.browsers.get(&id) != Some(&msg) {
+            v.send(Outbound::Text(msg.clone()));
+            v.browsers.insert(id, msg);
+        }
+    }
 }
 
 /// Send each file-rendered pane's rows that changed since the view last saw them: `rows`, with the
@@ -800,6 +945,8 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Ba
         .iter()
         .filter(|(id, _)| !tab.editors.get(id).is_some_and(|e| e.editor_view))
         .filter_map(|(id, r)| tab.panels.get(id).map(|p| (*id, p, *r)))
+        // A browser pane shows frames, not rows.
+        .filter(|(_, p, _)| !p.browser)
         .collect();
     v.panes.retain(|id, _| shown.iter().any(|(s, ..)| s == id));
     v.pages.retain(|id, _| shown.iter().any(|(s, ..)| s == id));
@@ -969,20 +1116,47 @@ fn threads_json(p: &Panel) -> Value {
     ts.sort_by_key(|t| t.line);
     json!(
         ts.into_iter()
-            .map(|t| json!({
-                "line": p.thread_source(t).0 + 1,
-                "collapsed": t.collapsed,
-                "label": label(p, t),
-                "notes": t
-                    .notes()
-                    .map(|n| json!({"author": match &n.author {
-                        Author::User => None,
-                        Author::Agent(a) => Some(a),
-                    }, "body": n.body}))
-                    .collect::<Vec<_>>(),
-            }))
+            .map(|t| {
+                let mut v = json!({
+                    "line": p.thread_source(t).0 + 1,
+                    "collapsed": t.collapsed,
+                    "label": label(p, t),
+                    "notes": t
+                        .notes()
+                        .map(|n| json!({"author": match &n.author {
+                            Author::User => None,
+                            Author::Agent(a) => Some(a),
+                        }, "body": n.body}))
+                        .collect::<Vec<_>>(),
+                });
+                // A browser pane's thread: its element, and its page when the pane moved on.
+                if let Some(a) = p.anchors.get(t.line) {
+                    v["label"] = a.quote.clone().into();
+                    v["anchor"] = a.selector.clone().into();
+                    v["away"] = away(&p.path, &a.url).into();
+                    v["lost"] = a.lost.into();
+                }
+                v
+            })
             .collect::<Vec<_>>()
     )
+}
+
+/// A thread's page when the pane shows another: its path on the pane's site, else its URL.
+fn away(here: &str, url: &str) -> Option<String> {
+    if crate::browser::page_of(here) == url {
+        return None;
+    }
+    // `scheme://host`: what comes before the third `/`.
+    fn origin(u: &str) -> &str {
+        u.match_indices('/').nth(2).map_or(u, |(i, _)| &u[..i])
+    }
+    let o = origin(url);
+    Some(if origin(here) == o && url.len() > o.len() {
+        url[o.len()..].to_string()
+    } else {
+        url.to_string()
+    })
 }
 
 /// What a thread sits on, for its card header: a markdown block's kind, or a page's start tag as
@@ -1564,12 +1738,7 @@ fn view_conn(stream: TcpStream, token: &str, port: u16, join: &Sender<Conn>) -> 
             Ok(Message::Text(t)) => Some(Inbound::Text(t.to_string())),
             Ok(Message::Binary(b)) => Some(Inbound::Bytes(b.to_vec())),
             Ok(_) => None,
-            // A timed-out read is `TimedOut` on Windows and `WouldBlock` on Unix: no frame yet.
-            Err(tungstenite::Error::Io(e))
-                if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
-            {
-                None
-            }
+            Err(e) if nothing_yet(&e) => None,
             Err(_) => return Ok(()),
         };
         if let Some(f) = frame

@@ -228,6 +228,35 @@ fn submit_writes_the_inline_review_into_the_shell() -> Result<()> {
     Ok(())
 }
 
+/// Two panes on one file: the header and the journal name the pane the user submitted from (#85).
+#[test]
+fn each_inline_review_names_its_pane() -> Result<()> {
+    let (mut tab, _dir, path) = tab_with("a.rs", &five_lines())?;
+    assert_eq!(drive(&mut tab, &["open", "--no-focus", &path]), "2");
+    let ready: serde_json::Value = serde_json::from_str(&drive(&mut tab, &["ready"]))?;
+    let journal = ready["journal"].as_str().ok_or("ready names no journal")?;
+    tab.act(UserAction::Comment {
+        pane: 2,
+        line: 2,
+        text: "x".into(),
+    })?;
+    tab.act(UserAction::Submit {
+        pane: 2,
+        body: String::new(),
+    })?;
+    drain_until(&mut tab, "pane #2 in the header", |t| {
+        shell_text(t).contains("[laura review · pane #2 · ")
+    });
+    let body = std::fs::read_to_string(journal)?;
+    let review: serde_json::Value = body
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .find(|v: &serde_json::Value| v["type"] == "review")
+        .ok_or("no review event")?;
+    assert_eq!(review["pane"], 2, "{review}");
+    Ok(())
+}
+
 #[test]
 fn refresh_drops_the_threads_and_reloads() -> Result<()> {
     let (mut tab, _dir, path) = tab_with("a.rs", &five_lines())?;

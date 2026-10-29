@@ -38,7 +38,7 @@ fn layout_gutter_matches_line_numbers_and_review() -> Result<()> {
         }
     }
     assert_eq!(expected_line, 3, "one gutter number per source line");
-    assert!(panel.assemble_review("").contains("L2  line 1"));
+    assert!(panel.assemble_review(1, "").contains("L2  line 1"));
 
     // `starts[i]` points at the row whose gutter is `i+1` (the scroll anchor).
     for (i, &start) in layout.starts.iter().enumerate() {
@@ -331,7 +331,7 @@ fn a_changed_file_freezes_the_pane_until_submit_or_refresh() -> Result<()> {
     );
     // A frozen submit banners the mismatch; the note still ships.
     let mut review = String::new();
-    panel.submit_review("", |r| {
+    panel.submit_review(1, "", |r| {
         review = r.to_string();
         Ok(())
     })?;
@@ -395,7 +395,7 @@ fn submit_clears_the_threads_and_a_clean_submit_has_no_banner() -> Result<()> {
     panel.cursor = 1;
     panel.author_note("please fix".into());
     let mut review = String::new();
-    panel.submit_review("overall", |r| {
+    panel.submit_review(1, "overall", |r| {
         review = r.to_string();
         Ok(())
     })?;
@@ -421,12 +421,12 @@ fn a_failed_send_keeps_the_threads_for_a_retry() -> Result<()> {
 
     panel.cursor = 1;
     panel.author_note("please fix".into());
-    let failed = panel.submit_review("", |_| Err(std::io::Error::other("boom")));
+    let failed = panel.submit_review(1, "", |_| Err(std::io::Error::other("boom")));
     assert!(failed.is_err(), "the send error surfaces");
     assert_eq!(panel.thread_count(), 1, "a failed send keeps the note");
 
     let mut review = String::new();
-    panel.submit_review("", |r| {
+    panel.submit_review(1, "", |r| {
         review = r.to_string();
         Ok(())
     })?;
@@ -551,7 +551,7 @@ fn comment_on_folded_block_row_joins_one_thread() -> Result<()> {
         .unwrap();
 
     assert_eq!(panel.thread_count(), 1, "one shared thread, no fork");
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(review.contains("L3"), "one folded-unit header: {review}");
     assert!(
         review.contains("human here") && review.contains("agent reply"),
@@ -573,7 +573,7 @@ fn review_header_carries_raw_source_not_rendered_glyphs() -> Result<()> {
     panel
         .agent_note(5, Some("check".into()), Some("agent".into()))
         .unwrap();
-    let review = panel.assemble_review("");
+    let review = panel.assemble_review(1, "");
     assert!(
         review.contains("| 1 | 2 |"),
         "header carries raw source: {review}"
