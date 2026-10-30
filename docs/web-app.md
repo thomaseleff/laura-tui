@@ -141,7 +141,7 @@ When the page doesn't show a thread's element, Laura shows the thread only in th
 
 Laura shows no outline, pin or card for the thread on the page, and `n` and `N` skip the thread. In the thread list, Laura dims the thread and marks it `not on the page`. Laura keeps the thread in the inline review.
 
-To reply to the thread or delete it, click the thread's row in the thread list. Laura opens the thread's card below the row, with **Reply…** and **Delete**. When the user clicks **Reply…**, Laura opens the comment box in the card, and keeps the thread list open until the user saves or cancels the comment.
+To reply to the thread or delete it, click the thread's row in the thread list. Laura opens the thread's card below the row, with **Reply…** and **Delete**. When the user clicks **Reply…**, Laura opens the comment box in the card. While the user writes the comment, Laura keeps the thread list open. When the page loses the element while the user writes a comment on it, Laura moves the comment box into the thread list.
 
 When the page shows the element again, Laura shows the thread on the page again and shows no notice.
 

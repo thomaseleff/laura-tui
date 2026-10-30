@@ -975,7 +975,10 @@ function paintThreads(id) {
     groups.get(u).push([line, item]);
   };
   // A thread the pane doesn't show (the diff view) leaves the draft a card of its own.
-  const host = d && (ts.find(t => t.line === d.line) ?? all.find(t => t.line === d.line && t.lost));
+  // A draft whose element the page lost, also mid-draft, goes in its thread's card in the thread list.
+  const lost = d && all.find(t => t.line === d.line && t.lost);
+  if (lost) (listOpen = id), (el.lostOpen = lost.line);
+  const host = d && (ts.find(t => t.line === d.line) ?? lost);
   for (const t of ts) put(t.line, cardHTML(p, t, t.line === el.card && layout.focus === id, t === host));
   if (d) {
     // Laura holds the agent's commands while the user types, so the line's thread can't change mid-draft.
@@ -1114,6 +1117,8 @@ function popClick(id, e) {
     // The cursor may already be on the thread's line and send no frame, so the reply scrolls too.
     const line = +b.dataset.th;
     el.goTh = { th: b.dataset.th, block: "center" };
+    // Comment mode hid the card of the cursor's thread (`el.shut`): the click shows it again.
+    if (el.shut === line) (el.shut = null), paintThreads(id);
     // A collapsed thread expands, as a click on its pin or its card does.
     const a = el.threads?.find(t => t.line === line)?.collapsed ? "toggle_thread" : "set_cursor";
     return act({ act: a, pane: id, line }, () => goThread(id));
@@ -1165,10 +1170,7 @@ function cardClick(id, e) {
 function begin(id, kind, msg) {
   act(msg ?? { act: kind === "comment" ? "begin_comment" : "begin_review", pane: id }, r => {
     if (!r.ok) return;
-    // A lost thread's draft is in its card in the thread list, which stays open.
-    const el = $("p" + id), lost = el?.threads?.find(t => t.line === r.line)?.lost;
-    listOpen = lost ? id : null;
-    if (lost) el.lostOpen = r.line;
+    listOpen = null;
     draft = { pane: id, line: r.line, anchor: r.anchor, kind, hint: r.hint, busy: false, failed: false, text: r.text ?? "" };
     paintThreads(id);
     paintPops();
