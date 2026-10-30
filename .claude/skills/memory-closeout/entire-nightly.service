@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Entire Brain distill for merged branches (laura)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/laura
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/projects/laura/.claude/skills/memory-closeout/nightly.sh
+StandardOutput=append:%h/.local/state/entire/logs/nightly.log
+StandardError=append:%h/.local/state/entire/logs/nightly.log
+Nice=10

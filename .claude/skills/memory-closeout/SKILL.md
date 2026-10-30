@@ -91,6 +91,25 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 
 If the app exits with an error, show the error to the user and stop. Do not retract or promote.
 
+## Set up the nightly job
+
+Use this section only when the user asks you to set up the nightly job. Each step changes the machine. Ask the user before each step.
+
+The nightly job `.claude/skills/memory-closeout/nightly.sh` runs at 02:00:
+
+- It distills `main`, with a budget of 100 sessions for each night.
+- It distills each branch whose PR is merged. It skips a branch with an open PR or with no PR.
+- It then runs `entire brain patterns verify --deep`. Then `patterns skills` can show skill candidates.
+- It writes its output to `~/.local/state/entire/logs/nightly.log`.
+
+1. Look at the plan without a distill: `DRY_RUN=1 .claude/skills/memory-closeout/nightly.sh`.
+2. Link the units: `ln -s "$PWD"/.claude/skills/memory-closeout/entire-nightly.{service,timer} ~/.config/systemd/user/`.
+3. Start the timer: `systemctl --user daemon-reload && systemctl --user enable --now entire-nightly.timer`.
+4. Make sure that the timer runs when the user is not logged in: `loginctl enable-linger "$USER"`.
+5. Make sure that the timer is set: `systemctl --user list-timers entire-nightly.timer`.
+
+The Entire watcher (`entire-brain-watch.service`) and the session-end hook can also distill, on every branch. If the user wants only the nightly job to distill, find the setting with `entire agent-help brain` and `entire brain setup --help`. Then check `~/.local/state/entire/logs/watch.log` for `distill=false`. Do not use `entire brain setup --uninstall-daemon`. The watcher also keeps the brain current without tokens.
+
 ## Answer
 
 Write the answer in ASD-STE100 Simplified Technical English. Keep code, commands, file names and error text as they are.
