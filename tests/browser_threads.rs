@@ -476,6 +476,25 @@ fn comment_mode_ends_with_its_view() -> Result<()> {
 }
 
 #[test]
+fn comment_mode_turns_off() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, _) = load(&mut r, &mut ws, "/type");
+    // `Esc` in the web app sends comment mode off, as **Done** does.
+    for on in [true, false] {
+        send(
+            &mut ws,
+            json!({"act": "browser_comment_mode", "pane": id, "on": on}),
+        );
+        r.idle(&mut ws, 5);
+        assert_eq!(r.tab.browsers[&id].comment, on);
+    }
+    Ok(())
+}
+
+#[test]
 fn a_new_view_gets_the_cards_place() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());

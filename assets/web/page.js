@@ -30,7 +30,8 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       const el = pick(t);
-      if (el) post({ laura: "line", line: (last = +el.dataset.lauraLine), pick: true });
+      // A click on blank space picks nothing, and focuses the pane and gives the keystrokes back too.
+      post(el ? { laura: "line", line: (last = +el.dataset.lauraLine), pick: true } : { laura: "line", line: null });
       return;
     }
     const el = t?.closest("[data-laura-line]");

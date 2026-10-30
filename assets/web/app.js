@@ -74,10 +74,13 @@ function paintHint() {
   const h = layout?.hints;
   if (!h) return;
   const f = focused(), b = f?.kind === "browser" && $("p" + f.id);
+  // A page's frame with the keyboard is a field that has the keystrokes, as in a browser pane.
+  const typing = b?.typing || (f && document.activeElement === frameOf(f.id));
   const here = document.activeElement?.matches?.(".head .url") ? h.browser_url
-    : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : b?.typing ? h.browser_typing : h.pane;
+    : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : typing ? h.browser_typing : h.pane;
+  // As the keydown listener: comment mode's hint only over a file or browser pane's own plain hint.
   const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
-    : popup !== null ? h.panes : commentMode !== null && commentMode === layout.focus ? h.comment_mode : here;
+    : popup !== null ? h.panes : commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
   hintEl.replaceChildren(...(pairs ?? []).flatMap(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
@@ -86,6 +89,8 @@ function paintHint() {
     return [...(i ? [sep] : []), ...kbds(k), s];
   }));
 }
+// Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
+addEventListener("focus", paintHint);
 
 // A keystroke's keys, split on spaces, as `<kbd>` chips.
 const kbds = k => k.split(" ").filter(Boolean).map(x => {
@@ -1373,11 +1378,13 @@ addEventListener("message", e => {
     if (Number.isInteger(m.line)) act({ act: "set_cursor", pane: id, line: m.line });
     // A text field or a selection keeps the keystrokes; anything else gives them back to Laura.
     if (!m.editable) root.focus();
+    paintHint();
     // Only in comment mode, so a page's script can't open a comment box.
     if (m.pick === true && commentMode === id && Number.isInteger(m.line)) begin(id, "comment");
   } else if (m.laura === "esc") {
+    // The field takes `Esc` first: comment mode stays on until the next `Esc`.
     root.focus();
-    if (commentMode === id) setCommentMode(null);
+    paintHint();
   }
   else if (m.laura === "link" && typeof m.href === "string") {
     // The workspace's policy lets a frame load only the workspace's own URLs.
@@ -1597,8 +1604,10 @@ addEventListener("keydown", e => {
     listOpen = moreOpen = null;
     return paintPops();
   }
-  // As the hint line: comment mode stays on a page the focus left, and `Esc` goes to the focused pane.
-  if (e.key === "Escape" && commentMode !== null && commentMode === layout.focus) return take(), setCommentMode(null);
+  // As the hint line: `Esc` leaves comment mode from a file or browser pane, after the pane's own dialog or field.
+  // The shell and an editor pane's editor view keep `Esc` for their program.
+  const b = f?.kind === "browser" && $("p" + f.id);
+  if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(), setCommentMode(null);
   if (ctrl && k === "p") return take(), openSelector();
   if (ctrl && k === "q") {
     take();
