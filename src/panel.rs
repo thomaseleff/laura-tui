@@ -679,10 +679,15 @@ impl Panel {
     }
 
     /// Rendered row of the nearest thread after (`fwd`) or before the cursor — the `n`/`N` target,
-    /// wrapping around the ends. None only with no threads.
+    /// wrapping around the ends. A browser pane's thread whose element the page lost shows only in
+    /// the thread list, so `n`/`N` skip it (#124). None with no other thread to stop on.
     pub fn thread_jump(&self, fwd: bool) -> Option<usize> {
         let row = self.canonical_row(self.cursor);
-        let lines = self.threads.iter().map(|t| t.line);
+        let lines = self
+            .threads
+            .iter()
+            .map(|t| t.line)
+            .filter(|&l| !self.anchors.get(l).is_some_and(|a| a.lost));
         if fwd {
             lines
                 .clone()

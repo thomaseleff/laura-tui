@@ -136,10 +136,12 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
             0,
             "Keep",
             "<button id=b class=at style=top:0>Drop</button><button id=r class=at style=top:100px>Restore</button>
+             <p id=s class=at style=top:200px>Text</p><button id=d class=at style=top:300px>Remove two</button>
              <script>
              const b = document.getElementById('b'), n = sessionStorage.n = +(sessionStorage.n ?? 0) + 1;
              b.onclick = () => b.remove();
              r.onclick = () => document.body.prepend(b);
+             d.onclick = () => (b.remove(), s.remove());
              document.title = n + ':';
              </script>",
         ),

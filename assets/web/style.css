@@ -474,6 +474,9 @@ kbd {
 .pop button.trow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border-radius: 7px; text-align: left; font-size: 13px; }
 .pop .trow:hover { background: #f4f5f8; }
 .trow .tx { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A lost thread's card, below its row. Its chip keeps one line; the label shrinks. */
+.pop .card { margin: 2px 0 8px; }
+.ch .chip { flex: none; white-space: nowrap; }
 .pf { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line2); font-size: 12px; color: var(--mute); }
 .pop.more { width: 260px; max-width: none; padding: 6px; }
 .pop button.mrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border-radius: 7px; text-align: left; }

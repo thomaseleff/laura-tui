@@ -148,7 +148,9 @@ fn a_thread_survives_a_reload() -> Result<()> {
     // The page drops the button: the thread loses its element.
     click(&mut ws, id, 50.0, 25.0);
     // The notice and the lost thread's state can come in either order.
-    let want = format!("⚠ pane #{id}: the thread \"Keep me\" lost its element");
+    let want = format!(
+        "⚠ pane #{id}: The thread \"Keep me\" is only in the thread list, because the page lost its element."
+    );
     let (start, mut noticed, mut lost) = (Instant::now(), false, false);
     while !(noticed && lost) {
         assert!(
@@ -180,6 +182,70 @@ fn a_thread_survives_a_reload() -> Result<()> {
             back.get_or_insert_with(Instant::now);
         }
     }
+    Ok(())
+}
+
+/// A thread whose element the page lost shows only in the thread list: `n` and `N` skip it, and stop
+/// on it again when the page shows the element again (#124).
+#[test]
+fn n_skips_a_lost_thread() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    r.tab.agent = true;
+    let (id, _) = keep(&mut r, &mut ws);
+    comment_at(&mut r, &mut ws, id, (50.0, 125.0), "First");
+    comment_at(&mut r, &mut ws, id, (50.0, 25.0), "Middle");
+    comment_at(&mut r, &mut ws, id, (50.0, 225.0), "Last");
+    let lost = |r: &mut Rig, ws: &mut Ws, what: &str, want: [bool; 3]| {
+        state_until(r, ws, what, id, |v| {
+            (0..3).all(|i| v["threads"][i]["lost"] == want[i])
+        });
+    };
+    let jump = |r: &mut Rig, ws: &mut Ws, from: u32, next: bool| {
+        r.act(ws, json!({"act": "set_cursor", "pane": id, "line": from}));
+        r.act(ws, json!({"act": "jump_thread", "pane": id, "next": next}));
+        r.tab.panels[&id].cursor_line()
+    };
+    lost(&mut r, &mut ws, "three threads", [false; 3]);
+    assert_eq!(
+        jump(&mut r, &mut ws, 1, true),
+        2,
+        "n stops on the middle thread"
+    );
+    // The page drops the middle thread's element.
+    click(&mut ws, id, 50.0, 25.0);
+    lost(
+        &mut r,
+        &mut ws,
+        "the middle thread lost",
+        [false, true, false],
+    );
+    assert_eq!(jump(&mut r, &mut ws, 1, true), 3, "n skips the lost thread");
+    assert_eq!(
+        jump(&mut r, &mut ws, 3, false),
+        1,
+        "N skips the lost thread"
+    );
+    // The page puts it back.
+    click(&mut ws, id, 50.0, 125.0);
+    lost(&mut r, &mut ws, "the middle thread back", [false; 3]);
+    assert_eq!(
+        jump(&mut r, &mut ws, 1, true),
+        2,
+        "n stops on the thread again"
+    );
+    // The page drops two elements at once: one notice counts the threads.
+    click(&mut ws, id, 50.0, 325.0);
+    let want = format!(
+        "⚠ pane #{id}: 2 threads are only in the thread list, because the page lost their elements."
+    );
+    r.until(
+        &mut ws,
+        "the notice for two threads",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str()),
+    );
     Ok(())
 }
 

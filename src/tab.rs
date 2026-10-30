@@ -277,11 +277,11 @@ fn lost_notice(pane: PaneId, gone: &[String]) -> Option<String> {
                 cut.push('…');
             }
             Some(format!(
-                "⚠ pane #{pane}: the thread \"{cut}\" lost its element"
+                "⚠ pane #{pane}: The thread \"{cut}\" is only in the thread list, because the page lost its element."
             ))
         }
         _ => Some(format!(
-            "⚠ pane #{pane}: {} threads lost their elements",
+            "⚠ pane #{pane}: {} threads are only in the thread list, because the page lost their elements.",
             gone.len()
         )),
     }
