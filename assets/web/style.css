@@ -443,6 +443,8 @@ kbd {
 .card .mini:hover { background: #f0f1f4; color: var(--fg); }
 .cm { display: flex; gap: 8px; }
 .cm + .cm, .card > .draft { margin-top: 10px; }
+/* A comment box inside a thread's card shows the card's header, not its own. */
+.draft:not(.card) > .ch { display: none; }
 .cm p { margin: 1px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .cm b { font-weight: 600; font-size: 12.5px; }
 .cm > div { flex: 1; min-width: 0; }
@@ -476,7 +478,7 @@ kbd {
 .trow .tx { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A lost thread's card, below its row. Its chip keeps one line; the label shrinks. */
 .pop .card { margin: 2px 0 8px; }
-.ch .chip { flex: none; white-space: nowrap; }
+.pop .card .ch .chip { flex: none; white-space: nowrap; }
 .pf { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line2); font-size: 12px; color: var(--mute); }
 .pop.more { width: 260px; max-width: none; padding: 6px; }
 .pop button.mrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border-radius: 7px; text-align: left; }

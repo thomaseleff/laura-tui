@@ -917,15 +917,14 @@ function wireDraft(box) {
   box.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
 }
 
-// `reply`: the thread on the draft's line, if any. `inside`: the draft goes in that thread's card
-// (`cardHTML`'s slot), so it has no card of its own.
-function makeDraftCard(reply, inside) {
+// `reply`: the thread on the draft's line, if any. `paintThreads` puts the box in that thread's card
+// (`cardHTML`'s slot) or gives the box a card of its own.
+function makeDraftCard(reply) {
   const c = document.createElement("div"), edit = reply?.notes.at(-1)?.author === null;
   const verb = edit ? "Edit" : reply ? "Reply" : "Comment";
   const lbl = [reply && verb, reply?.label ?? draft.anchor?.[1]].filter(Boolean).join(" · ");
   const at = chip(draft.anchor?.[0], draft.line, 40);
-  c.className = inside ? "draft" : "card draft on";
-  c.innerHTML = (inside ? "" : `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`)
+  c.innerHTML = `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`
     + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on ${at}`}"></textarea>`
     + `<div class="holdnote">${HOLD}</div><div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
     + `<button class="btn pri" data-act="save">${edit ? "Save" : verb} <kbd>Enter</kbd></button></div>`;
@@ -982,7 +981,9 @@ function paintThreads(id) {
   for (const t of ts) put(t.line, cardHTML(p, t, t.line === el.card && layout.focus === id, t === host));
   if (d) {
     // Laura holds the agent's commands while the user types, so the line's thread can't change mid-draft.
-    draftCard ??= makeDraftCard(all.find(t => t.line === d.line), !!host);
+    draftCard ??= makeDraftCard(all.find(t => t.line === d.line));
+    // The thread's card can go mid-draft (collapsed, lost, back on the page): the box takes or drops a card of its own.
+    draftCard.className = host ? "draft" : "card draft on";
     if (!host) put(d.line + 0.5, '<i class="slot"></i>');
   }
   // A unit with a thread below it is tinted; a thread that wasn't there before eases in.
@@ -1028,6 +1029,8 @@ function paintPop(id) {
   sb.classList.toggle("failed", !!d?.failed);
   el.querySelector(".head .sfail").hidden = !d?.failed;
   paintChipDot(el);
+  // A lost thread's card closes with the list, or when the page shows the thread's element again.
+  if (listOpen !== id || !el.threads?.some(t => t.line === el.lostOpen && t.lost)) el.lostOpen = null;
   const kind = d ? "review" : listOpen === id && p.threads ? "list" : moreOpen === id ? "more" : "";
   el.querySelector(".head .threads").classList.toggle("on", kind === "list");
   el.querySelector(".head .more").classList.toggle("on", kind === "more");
@@ -1103,8 +1106,9 @@ function popClick(id, e) {
   e.stopPropagation();
   const el = $("p" + id), c = b && e.target.closest(".card[data-th]");
   // While a draft is open, a row or a card doesn't move the cursor or close the draft's card, as on the page.
+  // headClick and cardClick use the same guard, so the only list open during a draft is the draft's own.
   if (draft && (c || b?.dataset.th)) return followFocus(true);
-  // A lost thread's card in the list: **–** closes it; **Reply…** and **Delete** act as on the page.
+  // A lost thread's card in the list: **–** closes it; **Reply…**, **Edit…** and **Delete** act as on the page.
   if (c && b.dataset.act === "collapse") return (el.lostOpen = null), paintPop(id);
   if (c) return cardClick(id, e);
   if (b?.dataset.th && el.threads?.find(t => t.line === +b.dataset.th)?.lost) {
