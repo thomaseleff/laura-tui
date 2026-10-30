@@ -37,13 +37,13 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 
 ### Prepare
 
-1. Run `laura ready`. If the output does not list `browser`, stop. Tell the user to start the web app with browser panes, as `docs/web-app.md` tells.
+1. If you did not run `laura ready` in this chat, run it as the `laura` skill tells, with your conversation id and agent name. Do not run it again. If the output does not list `browser`, stop. Tell the user to start the web app with browser panes, as `docs/web-app.md` tells.
 2. Pick the branch:
    - If the user gives a branch, use it.
    - Else, if the current branch is not `main`, use the current branch.
    - Else, list the branches from `entire brain memories status --all-branches --json`, in `branches[].branch`. Ignore `main`. For each branch, run the app with `branch --print`. Show the branches that have rows in `memories` or `overlaps`, with their PR state. Ask the user to pick one.
    - Do not use the counts from `memories status`. They do not agree with the store.
-3. Get the PR state: `gh pr list --head <B> --state all --json number,state`. If the PR is open, stop. Tell the user to close out the branch after the merge.
+3. Get the PR state: `gh pr list --head <B> --state all --json number,state`. If the state is not `MERGED`, stop. Tell the user the state: open, closed without a merge, or no PR. Continue only when the user tells you to.
 4. Run `entire brain distill --dry-run --json`. If `branches[]` shows `sessions_to_distill` more than 0 for `<B>`, tell the user that distill spends tokens. Then run `entire brain distill --branch <B>`.
 
 ### Step 1: branch
@@ -103,7 +103,13 @@ The nightly job `.claude/skills/memory-closeout/nightly.sh` runs at 02:00:
 - It writes its output to `~/.local/state/entire/logs/nightly.log`.
 
 1. Look at the plan without a distill: `DRY_RUN=1 .claude/skills/memory-closeout/nightly.sh`.
-2. Link the units: `ln -s "$PWD"/.claude/skills/memory-closeout/entire-nightly.{service,timer} ~/.config/systemd/user/`.
+2. Install the units from the main checkout, not from a worktree. The service file names `~/projects/laura`. Write it with the path of this checkout, and link the timer:
+
+   ```
+   sed "s#%h/projects/laura#$PWD#g" .claude/skills/memory-closeout/entire-nightly.service > ~/.config/systemd/user/entire-nightly.service
+   ln -s "$PWD"/.claude/skills/memory-closeout/entire-nightly.timer ~/.config/systemd/user/
+   ```
+
 3. Start the timer: `systemctl --user daemon-reload && systemctl --user enable --now entire-nightly.timer`.
 4. Make sure that the timer runs when the user is not logged in: `loginctl enable-linger "$USER"`.
 5. Make sure that the timer is set: `systemctl --user list-timers entire-nightly.timer`.

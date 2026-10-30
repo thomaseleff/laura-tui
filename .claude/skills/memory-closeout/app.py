@@ -56,14 +56,16 @@ def overlaps(branch):
 
 
 def data_for(step, branch):
-    main = sorted((memory(f) for f in facts(tree("main")) if f.get("status") == "active"),
+    main_all = list(facts(tree("main", "--all")))
+    main = sorted((memory(f) for f in main_all if f.get("status") == "active"),
                   key=lambda r: r["path"])
     if step == "main":
         return {"step": "main", "branch": branch, "memories": [], "overlaps": overlaps("main"),
                 "main": main}
     # A branch's store starts as a copy of main's, and a fact keeps its id when promoted:
-    # the branch's new memories are its own facts that main doesn't have yet.
-    in_main = {r["id"] for r in main}
+    # the branch's new memories are its own facts that main doesn't have yet. A fact retracted
+    # on main counts as reviewed.
+    in_main = {f["id"] for f in main_all}
     new = sorted((memory(f) for f in facts(tree(branch))
                   if f.get("branch") == branch and f.get("status") == "active"
                   and f["id"] not in in_main), key=lambda r: r["path"])
@@ -117,6 +119,12 @@ def serve(data, out_path, port):
         def do_POST(self):
             if self.path != "/done":
                 return self.send(404, b"not found", "text/plain")
+            # Only the served page can post: another site's page cannot send JSON here without
+            # a CORS preflight, and the Host check stops DNS rebinding.
+            if self.headers.get("Host") != f"127.0.0.1:{server.server_address[1]}":
+                return self.send(403, b"wrong host", "text/plain")
+            if self.headers.get_content_type() != "application/json":
+                return self.send(415, b"send application/json", "text/plain")
             try:
                 n = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(n))
