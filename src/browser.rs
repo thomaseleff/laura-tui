@@ -415,7 +415,8 @@ fn kill_on_close(child: &Child) -> Option<std::os::windows::io::OwnedHandle> {
         let ok = SetInformationJobObject(
             job.as_raw_handle(),
             JobObjectExtendedLimitInformation,
-            (&raw const info).cast(),
+            // addr_of!, not &raw: Entire Graph's Rust parser can't parse &raw yet (entire-graph#345).
+            std::ptr::addr_of!(info).cast(),
             size_of_val(&info) as u32,
         ) != 0
             && AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) != 0;
