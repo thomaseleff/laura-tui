@@ -2493,7 +2493,10 @@ fn a_thread_in_a_block_toggles_alone() -> Result<()> {
 }
 
 /// A click on a collapsed thread's row in the thread list sends `toggle_thread` with the row's
-/// line, which moves the cursor and expands that thread alone (#125).
+/// line (#125). This test pins what that act does: from a cursor on another line, the act moves
+/// the cursor and expands that thread alone, also in a markdown block. The click itself is
+/// JavaScript, which no test runs, so this test passes without the click's change; the manual
+/// check covers the click.
 #[test]
 fn a_thread_list_click_expands_a_collapsed_thread() -> Result<()> {
     let mut rig = Rig::new()?;
