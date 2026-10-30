@@ -89,6 +89,8 @@ function paintHint() {
     return [...(i ? [sep] : []), ...kbds(k), s];
   }));
 }
+// Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
+addEventListener("focus", paintHint);
 
 // A keystroke's keys, split on spaces, as `<kbd>` chips.
 const kbds = k => k.split(" ").filter(Boolean).map(x => {
