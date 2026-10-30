@@ -15,8 +15,20 @@ Standard Rust. No house style on top of it.
 
 ## Commits & PRs
 
-- **Commits** reference the issue by number in the subject: `Horizontal scroll for pre-formatted content (#25)`. This links the commit to the issue without closing it — a commit is a step, not the resolution.
-- **PRs** close the issue with a keyword in the body: `Closes #25` (or `Fixes` / `Resolves`). GitHub auto-closes the issue on merge, so don't close it by hand.
+The repository uses squash merge only. GitHub merges each PR into `main` as one commit. The PR title becomes the subject of that commit. The PR body becomes the message of that commit.
+
+- **Commits** on a branch: Put the issue number in the subject, for example `Horizontal scroll for pre-formatted content (#25)`. This links the commit to the issue. It does not close the issue.
+- **PR title:** Write the title as the subject of the squash commit.
+  - Write one sentence that tells what changes for the user, for example `Esc turns off comment mode from any pane but a terminal`.
+  - Keep the title to 64 characters or fewer. GitHub adds the PR number to the end of the subject, for example ` (#131)`.
+  - Do not put the issue number in the title. Do not use a prefix such as `feat:` or `fix:`. Do not put a period at the end.
+  - Do not use a title that tells about the work, such as `Address review feedback` or `Fix #130`.
+  - If the scope of the PR changes, change the title with `gh pr edit <n> --title "…"`.
+- **PR body:** Write the body as the message of the squash commit.
+  - Close the issue with a keyword in the body: `Closes #25` (or `Fixes` / `Resolves`). GitHub closes the issue when it merges the PR. Do not close the issue manually.
+  - Tell what changed and why. Do not copy the list of the branch commits into the body.
+  - If you push commits that change the result, update the body with `gh pr edit <n> --body-file <file>`.
+- **Merge:** Use `gh pr merge <n> --squash`. GitHub does not allow a merge commit or a rebase merge.
 
 ## Testing
 
