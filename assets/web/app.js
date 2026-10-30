@@ -1095,8 +1095,11 @@ function popClick(id, e) {
     paintPop(id);
     if (layout.focus !== id) act({ act: "focus", pane: id });
     // The cursor may already be on the thread's line and send no frame, so the reply scrolls too.
-    $("p" + id).goTh = { th: b.dataset.th, block: "center" };
-    return act({ act: "set_cursor", pane: id, line: +b.dataset.th }, () => goThread(id));
+    const el = $("p" + id), line = +b.dataset.th;
+    el.goTh = { th: b.dataset.th, block: "center" };
+    // A collapsed thread expands, as a click on its pin or its card does.
+    const a = el.threads?.find(t => t.line === line)?.collapsed ? "toggle_thread" : "set_cursor";
+    return act({ act: a, pane: id, line }, () => goThread(id));
   }
   if (b?.dataset.act === "cancel") closeDraft();
   else if (b?.dataset.act === "save") confirmDraft();
