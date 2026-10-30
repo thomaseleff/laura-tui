@@ -14,10 +14,10 @@ for b in json.load(sys.stdin)["branches"]:
 for b in $branches; do
   if [ "$b" = main ]; then
     cmd="entire brain distill --branch main --newest-first --max-sessions 100"
-  elif [ "$(gh pr list --head "$b" --state merged --json number -q length)" != 0 ]; then
+  elif n=$(gh pr list --head "$b" --state merged --json number -q length) && [ "$n" != 0 ]; then
     cmd="entire brain distill --branch $b"
   else
-    echo "skip $b: no merged PR"
+    echo "skip $b: no merged PR, or gh failed"
     continue
   fi
   echo "run: $cmd"

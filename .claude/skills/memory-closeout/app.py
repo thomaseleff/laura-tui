@@ -119,8 +119,11 @@ def serve(data, out_path, port):
                 return self.send(404, b"not found", "text/plain")
             try:
                 n = int(self.headers.get("Content-Length", 0))
-                choices = checked(json.loads(self.rfile.read(n)), data)
-            except (ValueError, json.JSONDecodeError) as e:
+                body = json.loads(self.rfile.read(n))
+                if not isinstance(body, dict):
+                    raise ValueError("the body is not a JSON object")
+                choices = checked(body, data)
+            except ValueError as e:
                 return self.send(400, str(e).encode(), "text/plain")
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(choices, indent=1))

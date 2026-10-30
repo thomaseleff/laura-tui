@@ -48,7 +48,7 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 
 ### Step 1: branch
 
-5. Serve the `branch` step for `<B>` in a new pane (see "Serve a step"). Keep the port of the URL for step 2.
+5. Serve the `branch` step for `<B>` in a new pane (see "Serve a step"). Record the pane id, and the port of the URL for step 2.
 6. Read the actions from `tmp/memory-closeout/<b__>-branch.json`. Apply them in this sequence:
    1. For each id in `overlaps`:
       - `apply`: `entire brain memories review --branch <B> --apply <id>`.
@@ -67,7 +67,7 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 9. Read the actions from `tmp/memory-closeout/<b__>-main.json`. Apply them with `--branch main`:
    1. For each id in `overlaps`: apply, reject or drop, as in step 6.
    2. For each id in `main`: `entire brain memories retract <id> --branch main`.
-10. Close the pane: `laura close $P`.
+10. Close the pane: `laura close <id>`, with the pane id from step 5.
 11. Run `entire brain patterns skills`. List the candidates, if there are any. Do not run `patterns skills form` unless the user asks.
 
 ### Serve a step
@@ -85,7 +85,7 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
    ```
 
 4. Read the first line of the app's output. It is the URL.
-5. In step 1 only, open the URL in a browser pane: `P=$(laura open <url>)`.
+5. In step 1 only, open the URL in a browser pane: `laura open <url>`. Record the pane id that `laura open` prints. Shell variables do not persist between Bash calls, and `laura close` with no id closes the focused pane.
 6. Tell the user what to select, and to click **Done** at the end. The page shows your recommendation below the buttons of each row. The page does not select it.
 7. Wait. Do not poll. The harness tells you when the app exits.
 
