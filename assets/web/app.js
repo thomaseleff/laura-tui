@@ -1102,12 +1102,12 @@ function popClick(id, e) {
   if (b?.classList.contains("mrow")) return headClick(id, e);
   e.stopPropagation();
   const el = $("p" + id), c = b && e.target.closest(".card[data-th]");
-  // A lost thread's card in the list: **–** closes it, but not while it holds the draft; **Reply…**
-  // and **Delete** act as on the page.
-  if (c && b.dataset.act === "collapse") return draft ? followFocus(true) : ((el.lostOpen = null), paintPop(id));
+  // While a draft is open, a row or a card doesn't move the cursor or close the draft's card, as on the page.
+  if (draft && (c || b?.dataset.th)) return followFocus(true);
+  // A lost thread's card in the list: **–** closes it; **Reply…** and **Delete** act as on the page.
+  if (c && b.dataset.act === "collapse") return (el.lostOpen = null), paintPop(id);
   if (c) return cardClick(id, e);
   if (b?.dataset.th && el.threads?.find(t => t.line === +b.dataset.th)?.lost) {
-    if (draft) return followFocus(true);
     el.lostOpen = el.lostOpen === +b.dataset.th ? null : +b.dataset.th;
     return paintPop(id);
   }
