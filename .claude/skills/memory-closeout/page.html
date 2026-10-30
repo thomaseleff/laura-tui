@@ -1,0 +1,196 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Memory close-out</title>
+<style>
+/* Light tokens and controls from Laura's web app (assets/web/style.css). */
+:root{--bg:#f5f5f7;--pane:#fff;--line:#e3e4e9;--line2:#eeeff2;--fg:#1d1f24;--mute:#686d78;--faint:#a0a4ad;
+--acc:#4f5bd5;--acc-soft:#eff0fd;--acc-line:#c7ccf5;--bad:#bf3a32;--bad-soft:#fdeceb;
+--sans:Inter,system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+--r:10px;--shadow:0 1px 2px rgb(16 24 40 / .05),0 6px 20px rgb(16 24 40 / .06)}
+*{box-sizing:border-box}
+body,button,input{font:14px var(--sans);-webkit-font-smoothing:antialiased}
+body{line-height:1.5;color:var(--fg);background:var(--bg);max-width:980px;margin:0 auto;padding:1.2rem 1rem 0}
+h1{font-size:18px;font-weight:600;margin:0}h2{font:500 12px var(--mono);color:var(--mute);margin:1.2rem 0 .4rem}
+a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}.dim{color:var(--mute)}
+.step{font-size:12px;font-weight:500;color:var(--acc)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:14px 0 4px}
+.tab{padding:7px 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--mute);cursor:pointer}
+.tab.on{color:var(--fg);border-bottom-color:var(--acc);font-weight:500}.tab .n{font-size:12px;color:var(--faint);margin-left:4px}
+.intro{color:var(--mute);margin:8px 0}
+.chip{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:9px;font-size:11px;font-weight:500;background:#f0f1f4;color:var(--mute)}
+.row{display:flex;gap:12px;align-items:flex-start;background:var(--pane);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;margin:8px 0}
+.row .text{flex:1}.row.off .text,.row.off .pair{color:var(--faint);text-decoration:line-through}
+.lbl{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--mute);margin-bottom:4px}
+.path{font:11px var(--mono);color:var(--faint)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1}.pair>div:not(.rel){background:var(--bg);border:1px solid var(--line2);border-radius:7px;padding:6px 8px}
+.rel{grid-column:1/-1;font-size:13px;color:var(--mute)}.rel b{color:var(--fg)}
+.ctl{flex:0 0 250px;display:flex;flex-direction:column;gap:8px}.btns{display:flex;flex-wrap:wrap;gap:6px}
+.advice{font-size:12px;color:var(--mute)}.advice b{color:var(--fg)}
+.btn{padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:#fff;font-size:13px;color:inherit;cursor:pointer}
+.btn:hover{border-color:#cfd2da}.btn.on{background:var(--acc-soft);border-color:var(--acc-line);color:var(--acc)}
+.btn.on.bad{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;padding:6px 16px}.btn.pri:disabled{opacity:.6;cursor:default}
+#filter{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;margin:8px 0}
+#bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:12px 0;margin-top:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+#wait{display:none;text-align:center;padding:4rem 1rem}#wait h1{margin-bottom:.4rem}
+</style></head>
+<body>
+<div id="app">
+  <div class="step" id="step"></div>
+  <h1 id="title"></h1>
+  <div class="dim" id="sub"></div>
+  <div class="tabs" id="tabs"></div>
+  <p class="intro" id="intro"></p>
+  <input id="filter" placeholder="Filter by text, kind or category" hidden>
+  <div id="list"></div>
+  <div id="bar">
+    <button id="done" class="btn pri"></button>
+    <label id="del" hidden><input type="checkbox" id="delbox"> Delete the local branch</label>
+    <span id="count" class="dim"></span>
+  </div>
+</div>
+<div id="wait"><h1 id="wait-title"></h1><p class="dim" id="wait-text"></p></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+// Each list: its buttons (the first is the default and is not posted) and its intro text.
+const LISTS = {
+  memories: {
+    tab: "New memories",
+    buttons: [["keep", "Keep"], ["retract", "Retract", "bad"]],
+    intro: "The memories that this branch learned and main does not have. Keep: promote the memory into main. Retract: mark the memory as not true.",
+  },
+  overlaps: {
+    tab: "Overlaps",
+    buttons: [["skip", "Skip"], ["apply", "Apply"], ["reject", "Keep both"], ["drop", "Drop new", "bad"]],
+    intro: "Entire found that each new memory duplicates or supersedes an existing memory. Apply: merge or supersede, as Entire proposes. Keep both: reject the proposal and keep the two memories. Drop new: reject the proposal and retract the new memory. Skip: keep the proposal in the queue. The promote does not include a skipped memory.",
+  },
+  main: {
+    tab: "Main",
+    buttons: [["", "Keep"], ["retract", "Retract", "bad"]],
+    intro: "All active memories on main. Retract: mark the memory as not true on main. This tab is optional.",
+  },
+};
+const RELATION = {supersede: "supersedes", merge: "duplicates"};
+const pick = {memories: {}, overlaps: {}, main: {}};  // list -> id -> choice, only when not the default
+let data, tab;
+
+const lbl = (label, f) => `<div class="lbl">${label}<span class="chip">${esc(f.kind)}</span><span class="path">${esc(f.path)}</span></div>`;
+
+function row(list, r) {
+  const L = LISTS[list];
+  const body = list === "overlaps"
+    ? `<div class="pair"><div class="rel">The new memory <b>${esc(RELATION[r.action] || r.action)}</b> the existing memory. Confidence: ${Math.round((r.confidence || 0) * 100)}%.</div>`
+      + `<div>${lbl("New memory", r.candidate)}${esc(r.candidate.text)}</div><div>${lbl("Existing memory", r.target)}${esc(r.target.text)}</div></div>`
+    : `<div class="text">${lbl("", r)}${esc(r.text)}</div>`;
+  const btns = L.buttons.map(([v, label, cls]) =>
+    `<button class="btn ${cls || ""}" data-list="${list}" data-id="${esc(r.id)}" data-v="${v}">${label}</button>`).join("");
+  const a = data.advice?.[r.id], p = a && L.buttons.find(([v]) => v === a.pick);
+  const advice = p ? `<div class="advice"><b>${p[1]}</b>. ${esc(a.why)}</div>` : "";
+  return `<div class="row" data-row="${list} ${esc(r.id)}">${body}<div class="ctl"><div class="btns">${btns}</div>${advice}</div></div>`;
+}
+
+function paintTab() {
+  const rows = data[tab], L = LISTS[tab];
+  for (const b of $("tabs").children) b.classList.toggle("on", b.dataset.tab === tab);
+  $("intro").textContent = L.intro;
+  $("filter").hidden = tab !== "main";
+  const q = tab === "main" ? $("filter").value.trim().toLowerCase() : "";
+  let html = "", path = null;
+  for (const r of rows) {
+    if (q && !`${r.text} ${r.kind} ${r.path}`.toLowerCase().includes(q)) continue;
+    if (tab !== "overlaps" && r.path !== path) html += `<h2>${esc(path = r.path)}</h2>`;
+    html += row(tab, r);
+  }
+  $("list").innerHTML = html || `<p class="dim">No memories.</p>`;
+  paint();
+}
+
+function paint() {
+  for (const b of document.querySelectorAll("#list button[data-id]")) {
+    const v = pick[b.dataset.list][b.dataset.id] ?? LISTS[b.dataset.list].buttons[0][0];
+    b.classList.toggle("on", v === b.dataset.v);
+  }
+  for (const el of document.querySelectorAll("[data-row]")) {
+    const [list, id] = el.dataset.row.split(" ");
+    el.classList.toggle("off", ["retract", "drop"].includes(pick[list][id]));
+  }
+  const n = (list, v) => Object.values(pick[list]).filter(c => c === v).length;
+  const parts = [];
+  if (data.step === "branch") parts.push(`Keep ${data.memories.length - n("memories", "retract")}`, `Retract ${n("memories", "retract")}`);
+  parts.push(`Apply ${n("overlaps", "apply")}`, `Keep both ${n("overlaps", "reject")}`, `Drop new ${n("overlaps", "drop")}`);
+  if (n("main", "retract")) parts.push(`Retract on main ${n("main", "retract")}`);
+  $("count").textContent = parts.join(" · ");
+}
+
+async function load() {
+  data = await (await fetch("/data", {cache: "no-store"})).json();
+  const lists = data.step === "branch" ? ["memories", "overlaps", "main"] : ["overlaps", "main"];
+  if (data.step === "main") LISTS.overlaps.tab = "Overlaps on main";
+  tab = lists[0];
+  $("tabs").innerHTML = lists.map(l => `<button class="tab" data-tab="${l}">${LISTS[l].tab}<span class="n">${data[l].length}</span></button>`).join("");
+  const pr = data.pr ? ` · <a href="${esc(data.pr.url)}">PR #${data.pr.number}</a> ${esc(data.pr.state.toLowerCase())}` : "";
+  if (data.step === "branch") {
+    $("step").textContent = "Step 1 of 2 · Branch";
+    $("title").textContent = `Close out ${data.branch}`;
+    $("sub").innerHTML = `Select an action for each memory, then click Done. The agent retracts and promotes, then opens step 2 in this pane.${pr}`;
+    $("done").textContent = "Done: retract and promote";
+  } else {
+    $("step").textContent = "Step 2 of 2 · Main";
+    $("title").textContent = `Main after the promote from ${data.branch}`;
+    $("sub").textContent = "The promote can create duplicates on main. Select an action for each proposal, then click Done.";
+    $("done").textContent = "Done: apply and finish";
+  }
+  $("del").hidden = !data.can_delete;
+  paintTab();
+}
+
+function wait(title, text) {
+  $("app").style.display = "none";
+  $("wait").style.display = "block";
+  $("wait-title").textContent = title;
+  $("wait-text").textContent = text;
+}
+
+// After Done, the app exits. The agent applies the changes and serves step 2 on the same port.
+async function waitForNext(step) {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const d = await (await fetch("/data", {cache: "no-store"})).json();
+      if (d.step !== step) return location.reload();
+    } catch {}
+  }
+}
+
+$("tabs").addEventListener("click", e => {
+  const t = e.target.closest(".tab");
+  if (t) tab = t.dataset.tab, paintTab();
+});
+$("filter").addEventListener("input", paintTab);
+$("list").addEventListener("click", e => {
+  const b = e.target.closest("button[data-id]");
+  if (!b) return;
+  const {list, id, v} = b.dataset;
+  if (v === LISTS[list].buttons[0][0]) delete pick[list][id]; else pick[list][id] = v;
+  paint();
+});
+
+$("done").addEventListener("click", async () => {
+  $("done").disabled = true;
+  const body = {...pick, delete_local_branch: $("delbox").checked};
+  const res = await fetch("/done", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  if (!res.ok) {
+    $("done").disabled = false;
+    $("count").textContent = "Not saved: " + await res.text();
+  } else if (data.step === "branch") {
+    wait("Applying the changes", "The agent retracts and promotes the memories. Step 2 opens in this pane when it is ready.");
+    waitForNext(data.step);
+  } else {
+    wait("Applying the changes", "The agent applies the changes and finishes the close-out. The chat shows the result.");
+  }
+});
+
+load();
+</script>
+</body></html>
