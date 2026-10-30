@@ -21,7 +21,7 @@ You do the work from the branch to the merge. Stop for the user at two points: t
 
 ## Terms
 
-- A **trail** (`<P>`) is the intent: the issue, the decisions and the status.
+- A **trail** (`<P>`) is the intent: the issue, the decisions and the status. `<P>` is the trail number, for example `6`. Do not add the project, as in `gh/<owner>/6`.
 - A **change** (`<repo>/<n>`, for example `laura-tui/4`) is the branch of the trail in one repository. Trails and changes have different numbers. Do not use one number for the other.
 - A **finding** is review feedback from an agent. A **comment** is feedback between people. Post your feedback as findings.
 - Read the exact flags with `entire agent-help trail <subcommand>`. Do not guess a flag.
@@ -84,7 +84,7 @@ Review the draft PR yourself before the Entire reviewer reviews it.
     entire trail finding add --trail <repo>/<n> --severity <high|medium|low> --confidence <0..1> --file <path> --line <n> -m "…"
     ```
 
-16. Fix the findings, commit, and resolve each finding as step 21 tells.
+16. Fix the findings, commit, and push. Then resolve each finding as step 21 tells.
 17. Mark the PR as ready for review: `gh pr ready <n>`.
 
 ### Gates
