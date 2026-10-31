@@ -207,11 +207,20 @@ impl Browser {
             .with_context(|| format!("couldn't create {}", profile.display()))?;
         let mut cmd = Command::new(path);
         // Density 3, so each page can emulate any lower one at full sharpness; no smooth
-        // scrolling, which the viewing browser already does.
+        // scrolling, which the viewing browser already does. The temporary profile's background
+        // work (updates, sync, crash reports) only costs CPU and network.
         cmd.args([
             "--headless=new",
             "--no-first-run",
             "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-sync",
+            "--disable-extensions",
+            "--disable-default-apps",
+            "--disable-breakpad",
+            "--disable-client-side-phishing-detection",
+            "--disable-features=Translate,OptimizationHints,MediaRouter",
             "--force-device-scale-factor=3",
             "--disable-smooth-scrolling",
         ])
@@ -220,6 +229,9 @@ impl Browser {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+        // No keyring prompt or D-Bus wait for a profile that Laura deletes on exit.
+        #[cfg(target_os = "linux")]
+        cmd.arg("--password-store=basic");
         #[cfg(target_os = "linux")]
         // SAFETY: `prctl` is async-signal-safe and touches no memory.
         unsafe {
