@@ -205,6 +205,14 @@ impl Browser {
         let profile = std::env::temp_dir().join(format!("laura-browser-{}", crate::web::nonce(8)?));
         std::fs::create_dir_all(&profile)
             .with_context(|| format!("couldn't create {}", profile.display()))?;
+        // Chrome's own output, for the start errors.
+        let stderr = match std::fs::File::create(profile.join("chrome-stderr.log")) {
+            Ok(f) => f,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(anyhow!("couldn't create {}: {e}", profile.display()));
+            }
+        };
         let mut cmd = Command::new(path);
         // Density 3, so each page can emulate any lower one at full sharpness; no smooth
         // scrolling, which the viewing browser already does. The temporary profile's background
@@ -228,7 +236,7 @@ impl Browser {
         .arg(format!("--user-data-dir={}", profile.display()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr);
         // No keyring prompt or D-Bus wait for a profile that Laura deletes on exit.
         #[cfg(target_os = "linux")]
         cmd.arg("--password-store=basic");
@@ -250,6 +258,9 @@ impl Browser {
                 return Err(anyhow!("couldn't start {}: {e}", path.display()));
             }
         };
+        // `cmd` holds a copy of the log's handle, which on Windows would keep `Proc`'s drop from
+        // deleting the profile.
+        drop(cmd);
         // From here, dropping `proc` ends the process and deletes the profile.
         // ponytail: a killed Laura leaves the profile in the temp folder; sweep stale
         // `laura-browser-*` folders at startup if they pile up.
@@ -277,13 +288,18 @@ impl Browser {
                 }
             }
             if let Ok(Some(status)) = proc.child.try_wait() {
-                bail!("{} exited as it started ({status})", path.display());
+                bail!(
+                    "{} exited as it started ({status}){}",
+                    path.display(),
+                    stderr_tail(&proc.profile)
+                );
             }
             if t0.elapsed() > LAUNCH_TIMEOUT {
                 bail!(
-                    "{} didn't start within {} s",
+                    "{} didn't start within {} s{}",
                     path.display(),
-                    LAUNCH_TIMEOUT.as_secs()
+                    LAUNCH_TIMEOUT.as_secs(),
+                    stderr_tail(&proc.profile)
                 );
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -382,6 +398,19 @@ fn version_ws(port: u16) -> Option<String> {
     let v = get_json(port, "/json/version")?;
     let url = v["webSocketDebuggerUrl"].as_str()?;
     Some(url[url.find("/devtools/")?..].to_string())
+}
+
+/// The last 10 lines of Chrome's stderr in `profile`, on new lines, or `""` when there are none.
+fn stderr_tail(profile: &Path) -> String {
+    let Ok(bytes) = std::fs::read(profile.join("chrome-stderr.log")) else {
+        return String::new();
+    };
+    let s = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = s.trim_end().lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!("\n{}", lines[lines.len().saturating_sub(10)..].join("\n"))
 }
 
 /// Laura's browser's process and profile.
