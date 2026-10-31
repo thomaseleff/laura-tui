@@ -646,7 +646,7 @@ impl Tab {
 
     /// Open `href`'s file, without its `?query`, beside pane `pane`'s, as `laura open` would, or move to the pane already
     /// showing it, and put the cursor on its `#heading`. A bare `#heading` moves pane `pane`'s
-    /// cursor.
+    /// cursor. A missing heading is a notice for the pane that shows the file.
     fn open_link(&mut self, pane: PaneId, href: &str) -> Result<(), String> {
         let missing = || format!("⚠ The link target {href} does not exist.");
         let (path, heading) = href.split_once('#').unwrap_or((href, ""));
@@ -699,14 +699,18 @@ impl Tab {
             .get_mut(&target)
             .ok_or_else(|| no_pane(target))?;
         if !heading.is_empty() && !p.blocks().is_empty() {
-            let line = p.heading_line(&heading).ok_or_else(|| {
-                let name = Path::new(&p.path).file_name().unwrap_or_default();
-                format!(
-                    "⚠ The file {} has no heading #{heading}.",
-                    name.to_string_lossy()
-                )
-            })?;
-            p.set_cursor_line(line);
+            match p.heading_line(&heading) {
+                Some(line) => p.set_cursor_line(line),
+                // A notice, not an error: an error shows in the link's pane, and `target` can be another.
+                None => {
+                    let name = Path::new(&p.path).file_name().unwrap_or_default();
+                    let text = format!(
+                        "⚠ The file {} has no heading #{heading}.",
+                        name.to_string_lossy()
+                    );
+                    self.notices.push((Some(target), text));
+                }
+            }
         }
         Ok(())
     }

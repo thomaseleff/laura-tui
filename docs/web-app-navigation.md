@@ -116,7 +116,7 @@ Laura shows a markdown file in a file pane as rendered markdown: headings, lists
 - When the user clicks a link, Laura follows the link:
   - Laura opens an `http` or `https` link in a new browser tab.
   - Laura opens a link to a file by relative path, such as `[Setup](setup.md)`, in a new pane, as `laura open` does. When a pane already shows the file, Laura focuses that pane instead. When the file doesn't exist, Laura shows the notice `⚠ The link target <link> does not exist.`. When the link names a folder, Laura shows the notice `⚠ The link target <link> is a folder.`. Laura ignores anything after a `?` in the link, such as `?v=2`.
-  - Laura moves the cursor to the heading that a link names after `#`, such as `[Install](#install)` or `[Install](setup.md#install)`. The name after `#` can be in any case. When the markdown file has no such heading, Laura shows the notice `⚠ The file <file> has no heading #<heading>.`. In an editor pane, Laura moves the cursor in the file view.
+  - Laura moves the cursor to the heading that a link names after `#`, such as `[Install](#install)` or `[Install](setup.md#install)`. The name after `#` can be in any case. When the markdown file has no such heading, Laura shows the notice `⚠ The file <file> has no heading #<heading>.` in the pane that shows the file. In an editor pane, Laura moves the cursor in the file view.
   - Laura shows any other link, such as a `mailto:` link, an email address or a link by absolute path, as plain text.
 - Laura shows an image that the markdown file references by a relative path, such as `![Flow](img/flow.png)`:
   - Laura shows PNG, JPEG, GIF, SVG, WebP, AVIF and ICO images.

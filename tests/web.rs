@@ -2946,8 +2946,11 @@ fn a_heading_link_moves_the_cursor() -> Result<()> {
         &mut ws,
         json!({"act": "open_link", "pane": 1, "href": "#nope"}),
     );
-    assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["text"], "⚠ The file a.md has no heading #nope.", "{r}");
+    assert_eq!(r["ok"], true, "{r}");
+    rig.until(&mut ws, "heading notice", |f| {
+        matches!(f, Frame::Json(v) if v["t"] == "notice" && v["pane"] == 1
+            && v["text"] == "⚠ The file a.md has no heading #nope.")
+    });
     Ok(())
 }
 
@@ -3010,5 +3013,28 @@ fn a_link_to_a_file_in_an_editor_pane_focuses_it() -> Result<()> {
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(rig.tab.focus, 2);
     assert_eq!(rig.tab.panels[&2].cursor_line(), 3);
+    Ok(())
+}
+
+#[test]
+fn a_missing_heading_in_another_pane_shows_its_notice_there() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (dir, path) = image_doc("[b](b.md#nope)\n")?;
+    let b = dir.path().join("docs/b.md");
+    std::fs::write(&b, "# B\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["open", &b.to_string_lossy()]);
+    pane_frame(&mut rig, &mut ws, 1);
+    let r = rig.act(
+        &mut ws,
+        json!({"act": "open_link", "pane": 1, "href": "b.md#nope"}),
+    );
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(rig.tab.focus, 2);
+    rig.until(&mut ws, "heading notice in pane 2", |f| {
+        matches!(f, Frame::Json(v) if v["t"] == "notice" && v["pane"] == 2
+            && v["text"] == "⚠ The file b.md has no heading #nope.")
+    });
     Ok(())
 }
