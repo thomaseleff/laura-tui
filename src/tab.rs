@@ -363,8 +363,8 @@ pub struct Tab {
     browser_hold: Option<std::net::TcpListener>,
     /// Each browser pane's last size from the view, for the page Laura opens there next.
     pub browser_sizes: HashMap<PaneId, browser::Size>,
-    /// Notices for the view, which the web app shows and clears.
-    pub notices: Vec<String>,
+    /// Notices for the view, which the web app shows and clears, each with the pane to show it in.
+    pub notices: Vec<(Option<PaneId>, String)>,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -868,9 +868,18 @@ impl Tab {
     /// When Laura's browser exits, drop it and its pages, and keep the panes for `Ctrl+R`.
     fn poll_browsers(&mut self) -> bool {
         if self.browser.as_ref().is_some_and(|b| b.cdp.closed()) {
+            // The focused browser pane, else the first one: `Ctrl+R` there starts the browser.
+            let browser_pane = |id: &PaneId| self.panels.get(id).is_some_and(|p| p.browser);
+            let pane = Some(self.focus).filter(browser_pane).or_else(|| {
+                self.panels
+                    .keys()
+                    .filter(|id| browser_pane(id))
+                    .min()
+                    .copied()
+            });
             self.browsers.clear();
             self.browser = None;
-            self.notices.push(browser::EXITED.into());
+            self.notices.push((pane, browser::EXITED.into()));
             return true;
         }
         let (now, mut changed, mut closed, mut crashed) = (Instant::now(), false, vec![], vec![]);
@@ -885,11 +894,13 @@ impl Tab {
                             p.path = url;
                         }
                     }
-                    browser::Event::Failed { url, error } => self
-                        .notices
-                        .push(format!("⚠ pane #{id}: {url} didn't load ({error})")),
-                    browser::Event::Download(name) => self.notices.push(format!(
-                        "⚠ pane #{id}: Laura's browser doesn't download files: {name}"
+                    browser::Event::Failed { url, error } => self.notices.push((
+                        Some(*id),
+                        format!("⚠ pane #{id}: {url} didn't load ({error})"),
+                    )),
+                    browser::Event::Download(name) => self.notices.push((
+                        Some(*id),
+                        format!("⚠ pane #{id}: Laura's browser doesn't download files: {name}"),
                     )),
                     browser::Event::Lost { url, lines } => {
                         let gone = match self.panels.get_mut(id) {
@@ -897,7 +908,7 @@ impl Tab {
                             None => vec![],
                         };
                         if let Some(n) = lost_notice(*id, &gone) {
-                            self.notices.push(n);
+                            self.notices.push((Some(*id), n));
                         }
                     }
                 }
@@ -909,8 +920,9 @@ impl Tab {
         // No reopen here, so a page that crashes as it loads doesn't loop: `Ctrl+R` opens it.
         for id in crashed {
             self.browsers.remove(&id);
-            self.notices.push(format!(
-                "⚠ pane #{id}: the page crashed: press Ctrl+R to load it again"
+            self.notices.push((
+                Some(id),
+                format!("⚠ pane #{id}: the page crashed: press Ctrl+R to load it again"),
             ));
         }
         // The agent's tools closed a pane's page: open it again, and `draw` draws its threads.
@@ -922,7 +934,7 @@ impl Tab {
             if let Err(e) = self.attach_pages()
                 && !self.browser.as_ref().is_some_and(|b| b.cdp.closed())
             {
-                self.notices.push(format!("⚠ {e}"));
+                self.notices.push((None, format!("⚠ {e}")));
             }
         }
         changed

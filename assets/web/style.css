@@ -514,6 +514,8 @@ button.si:hover { color: var(--fg); }
   background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow);
   transition: opacity .2s, transform .2s;
 }
+/* Inside the pane's border, over the page's marks and its dialog's veil, under a popover. */
+.pane > #notice { right: 14px; bottom: 14px; z-index: 6; }
 #notice:not(.on) { opacity: 0; transform: translateY(4px); pointer-events: none; }
 
 .box {

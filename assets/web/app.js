@@ -15,7 +15,7 @@ ANSI.forEach((c, i) => {
 
 let ws, layout = null, strings = {}, cw = 0, ch = 0;
 let focusKey = "", locked = false, help = false, popup = null, confirmQuit = false, ended = false;
-let notice = "", noticeTimer = 0;
+let notice = "", noticeTimer = 0, noticePane;
 // `popup` is the pane selector's selected row, or `null` while the pane selector is closed.
 // Panes that reloaded or got a new highlight while another pane had the focus.
 const unseen = new Set();
@@ -27,7 +27,7 @@ let listOpen = null, moreOpen = null;
 // The page's pane in comment mode, where a click on the page picks an element to comment on.
 let commentMode = null;
 const terms = new Map(); // pane id → xterm, one per PTY pane
-const acts = []; // callbacks for `acted` replies, in send order
+const acts = []; // `{ then, pane }` for `acted` replies, in send order
 
 const send = m => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 const frame = (id, bytes) => {
@@ -38,7 +38,7 @@ const frame = (id, bytes) => {
 };
 function act(m, then) {
   if (ws?.readyState !== 1) return;
-  acts.push(then);
+  acts.push({ then, pane: m.pane });
   send(m);
 }
 // An event's modifiers as CDP counts them: Alt 1, Ctrl 2, Meta 4, Shift 8.
@@ -58,14 +58,19 @@ const pane = id => layout?.panes.find(p => p.id === id);
 const focused = () => pane(layout?.focus);
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden;
 
-function showNotice(text, secs) {
+function showNotice(text, secs, pane) {
   notice = text;
+  noticePane = pane;
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => ((notice = ""), paintNotice()), secs * 1000);
   paintNotice();
 }
-// The notice keeps its text while it fades out.
+// The notice keeps its text while it fades out. A notice for a pane shows in that pane, and any
+// other in the workspace's corner, as does one whose pane closed or is too narrow.
 function paintNotice() {
+  const el = noticePane !== undefined && $("p" + noticePane);
+  const home = el && el.offsetWidth >= 300 ? el : $("grid");
+  if (noticeEl.parentNode !== home) home.appendChild(noticeEl);
   noticeEl.classList.toggle("on", !!notice);
   if (notice) noticeEl.textContent = notice;
 }
@@ -486,6 +491,7 @@ function onLayout(m) {
   followFocus();
   paintHint();
   paintStatus();
+  paintNotice();
   // A pane that closes or freezes changes the pane selector's rows.
   if (popup !== null) paintSelector();
 }
@@ -1854,13 +1860,13 @@ function connect() {
         break;
       }
       case "acted": {
-        const then = acts.shift();
-        if (!m.ok) showNotice(m.text, 5);
-        then?.(m);
+        const a = acts.shift();
+        if (!m.ok) showNotice(m.text, 5, a?.pane);
+        a?.then?.(m);
         break;
       }
       case "notice":
-        showNotice(m.text, 10);
+        showNotice(m.text, 10, m.pane);
         break;
       case "moved":
         moved = true;

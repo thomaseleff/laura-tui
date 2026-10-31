@@ -76,6 +76,16 @@ Laura shows a status bar on the right of the hint line. The status bar lists wha
 
 Click an item to focus its pane. When nothing waits on the user, the status bar is empty. When an item doesn't fit, Laura shortens it. Hover the item to read it in full.
 
+## Notices
+
+Laura shows a notice for a pane in the bottom-right corner of that pane. For example, when a page does not load, Laura shows the notice in the page's browser pane.
+
+Laura shows a notice in the workspace's bottom-right corner, above the hint line, in these cases:
+
+- The notice is not for a pane.
+- The user closes the notice's pane while Laura shows the notice.
+- The notice's pane is narrower than 300 pixels.
+
 ## Threads and inline reviews
 
 While Laura submits the inline review, the button reads **Submitting…**. When the submit fails, Laura keeps the threads and the review body, and shows `⚠ inline review submission failed. Laura kept the threads and the review body.` The button reads **Retry submit**, and the pane header shows **Submission failed**. Click **Retry submit** or press `Enter` to try again.

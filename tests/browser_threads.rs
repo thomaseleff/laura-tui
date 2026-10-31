@@ -159,7 +159,7 @@ fn a_thread_survives_a_reload() -> Result<()> {
         );
         for f in r.idle(&mut ws, 1) {
             let Frame::Json(v) = &f else { continue };
-            noticed |= v["t"] == "notice" && v["text"] == want.as_str();
+            noticed |= v["t"] == "notice" && v["text"] == want.as_str() && v["pane"] == id;
             if v["t"] == "browser" && v["id"] == id {
                 lost = v["threads"][0]["lost"] == true && v["title"] == "2:";
             }
@@ -244,7 +244,7 @@ fn n_skips_a_lost_thread() -> Result<()> {
     r.until(
         &mut ws,
         "the notice for two threads",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str()),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str() && v["pane"] == id),
     );
     Ok(())
 }

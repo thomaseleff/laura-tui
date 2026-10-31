@@ -513,8 +513,12 @@ impl WebServer {
                 v.text(m);
             }
         }
-        for text in tab.notices.drain(..) {
-            v.text(json!({"t": "notice", "text": text}));
+        for (pane, text) in tab.notices.drain(..) {
+            let mut m = json!({"t": "notice", "text": text});
+            if let Some(pane) = pane {
+                m["pane"] = pane.into();
+            }
+            v.text(m);
         }
 
         if dirty {
