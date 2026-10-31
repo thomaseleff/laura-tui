@@ -125,6 +125,8 @@ pub const SUBMIT_FAILED_WEB: &str =
     "⚠ Laura did not submit the inline review, but kept its threads and review body.";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
+/// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
+pub const NO_SHELL: &str = "⚠ The shell stopped, so Laura cannot submit the inline review. ";
 
 /// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
 /// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
@@ -750,6 +752,10 @@ impl Tab {
     fn review_gate(&self, pane: PaneId) -> Result<(), String> {
         self.file_view(pane)?;
         let p = self.panels.get(&pane).ok_or_else(|| no_pane(pane))?;
+        // A dead shell's PTY can still take the write, so a submit would clear the threads.
+        if self.pty.has_exited() {
+            return Err(NO_SHELL.into());
+        }
         if !self.agent {
             return Err(NEEDS_READY.into());
         }

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use assert_cmd::Command;
 use laura::protocol::PTY_PANE;
-use laura::tab::SHELL_EXITED;
+use laura::tab::{NO_SHELL, SHELL_EXITED};
 use laura::{Rect, Tab, UserAction};
 
 /// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`, and a real `nvim` keeps its
@@ -532,6 +532,22 @@ fn the_shell_exit_waits_for_unsaved_edits() -> Result<()> {
     assert!(!tab.shell_done());
     assert_eq!(tab.focus, 2);
     assert_eq!(tab.notices, [notice(1), notice(2)]);
+    // An inline review has no shell to go to: Laura keeps its threads.
+    tab.agent = true;
+    tab.act(UserAction::ToggleEditorView { pane: 2 })
+        .map_err(anyhow::Error::msg)?;
+    tab.panels
+        .get_mut(&2)
+        .unwrap()
+        .author_note("keep me".into());
+    let no_shell = Err(NO_SHELL.to_string());
+    assert_eq!(tab.act(UserAction::BeginReview { pane: 2 }), no_shell);
+    let submit = UserAction::Submit {
+        pane: 2,
+        body: String::new(),
+    };
+    assert_eq!(tab.act(submit), no_shell);
+    assert_eq!(tab.panels[&2].thread_count(), 1);
     std::fs::remove_file(dirty(2))?;
     assert!(tab.shell_done());
     Ok(())

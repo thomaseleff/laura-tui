@@ -78,6 +78,7 @@ Laura shows a notice instead of acting when:
 
 - You press `c` or `Shift+S` before the agent runs `laura ready`: `` ⚠ The agent must run `laura ready` before you can comment. ``.
 - You press `Shift+S` on a pane with no comments: `⚠ Add a comment before you submit the inline review.`.
+- You press `Shift+S` after the shell exits: `⚠ The shell stopped, so Laura cannot submit the inline review.`. Laura keeps the threads.
 - You press `d` in an editor pane's file view: `⚠ An editor pane does not show the diff view.`.
 - You press `c` in diff view: `⚠ Press d to close the diff view before you comment.`.
 
