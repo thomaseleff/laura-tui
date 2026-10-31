@@ -99,7 +99,7 @@ The user uses the page in a browser pane as in a browser tab:
 - **Type.** Click a text field in the page, and the keystrokes go to the page. When the page focuses a text field as it loads, or a click makes the page focus a text field, such as a button that opens a form, the keystrokes go to the page too. The hint line shows `Keystrokes go to the page`. Press `Esc` to give the keystrokes back to Laura. The field in the page loses the focus, and the scroll keys scroll the page again. `Ctrl+V` (`Cmd+V` on macOS) pastes the clipboard into the field.
 - **Copy.** Drag over text in the page to select it. When the user releases the mouse button, Laura copies the selected text to the clipboard.
 - **Go back and forward.** Click the back or forward button before the page's title, or press `Alt+←` or `Alt+→`.
-- **Go to a URL.** Click the URL in the pane header, type a URL, and press `Enter`. Press `Esc` to put back the page's URL. A URL with no scheme, such as `localhost:5173`, opens with `http://` when the host is an IP address, a name with no dot such as `localhost`, or a name that ends in `.localhost`, `.local` or `.internal`. Every other host gets `https://`. A browser pane opens only `http` and `https` URLs. For any other URL, Laura shows the notice `⚠ a browser pane opens only http and https URLs`.
+- **Go to a URL.** Click the URL in the pane header, type a URL, and press `Enter`. Press `Esc` to put back the page's URL. A URL with no scheme, such as `localhost:5173`, opens with `http://` when the host is an IP address, a name with no dot such as `localhost`, or a name that ends in `.localhost`, `.local` or `.internal`. Every other host gets `https://`. A browser pane opens only `http` and `https` URLs. For any other URL, Laura shows the notice `⚠ Use an http or https URL in a browser pane.`.
 
 The pointer over the page takes the shape that the page gives it, such as a hand over a link. The pane header shows a spinner while the page loads, while the page still handles a click, or while the page waits on a request that a click started.
 
@@ -114,7 +114,7 @@ To use a site that needs a login, sign in to the site in the browser pane.
 
 When the workspace ends, Laura deletes the profile with its logins and cookies.
 
-Laura's browser does not download files. When the user or the agent clicks a download link, Laura shows the notice `⚠ pane #<id>: Laura's browser doesn't download files: <file name>`.
+Laura's browser does not download files. When the user or the agent clicks a download link, Laura shows the notice `⚠ Laura's browser does not support downloads.`.
 
 Laura's browser denies each permission request, such as for the location, the camera or notifications. The user sees no prompt.
 
@@ -126,7 +126,7 @@ The user comments on an element in a browser pane, as on an [HTML page](#comment
 2. Type the comment in the box below the element, then press `Enter`.
 3. Press `Shift+S` to submit the inline review.
 
-When the pointer is not on the page, `c` turns on comment mode. When the pointer is on the page but on no element, Laura shows the notice `⚠ no element here to comment on`. While the page loads, Laura shows the notice `⚠ the page is still loading: press c again when it has loaded`.
+When the pointer is not on the page, `c` turns on comment mode. When the pointer is on the page but on no element, Laura shows the notice `⚠ Point at an element to comment on it.`. While the page loads, Laura shows the notice `⚠ When the page loads, press c again.`.
 
 Laura names each element with its CSS selector, such as `#email` or `main > form > button:nth-of-type(2)`, and with its quote, the first 60 characters of its text. The thread's chip shows the selector, and the thread's label shows the quote. When a selector is long, Laura shows its end, after `…`. In a web component or a frame inside the page, Laura names the web component or the frame.
 
@@ -136,8 +136,8 @@ After a page starts to load, Laura waits up to 5 seconds for an element that the
 
 When the page doesn't show a thread's element, Laura shows the thread only in the thread list, and shows a notice:
 
-- For one thread, with the first 40 characters of the thread's first comment: `⚠ pane #<id>: The thread "<comment>" is only in the thread list, because the page lost its element.`
-- For more threads: `⚠ pane #<id>: <n> threads are only in the thread list, because the page lost their elements.`
+- For one thread, with the first 40 characters of the thread's first comment: `⚠ The thread "<comment>" is only in the thread list, because the page lost its element.`
+- For more threads: `⚠ <n> threads are only in the thread list, because the page lost their elements.`
 
 Laura shows no outline, pin or card for the thread on the page, and `n` and `N` skip the thread. In the thread list, Laura dims the thread and marks it `not on the page`. Laura keeps the thread in the inline review.
 
@@ -160,13 +160,13 @@ When the page shows a dialog, such as `alert()`, `confirm()` or `prompt()`, the 
 
 When the user leaves a page that asks before it closes, the dialog asks `Leave this page? Changes you made may not be saved.` Press `Enter` or click **Leave** to leave the page. Press `Esc` or click **Stay** to stay on the page.
 
-When the page doesn't load, Laura shows a notice with the error, such as `⚠ pane #1: http://localhost:5173 didn't load (net::ERR_CONNECTION_REFUSED)`. Start the dev server, then press `Ctrl+R`.
+When the page doesn't load, Laura shows a notice with the error, such as `⚠ The page http://localhost:5173 did not load (net::ERR_CONNECTION_REFUSED).`. Start the dev server, then press `Ctrl+R`.
 
-When the page crashes, Laura shows the notice `⚠ pane #<id>: the page crashed: press Ctrl+R to load it again`. Press `Ctrl+R` in the pane, and Laura loads the page again.
+When the page crashes, Laura shows the notice `⚠ To load the page again after it stopped, press Ctrl+R.` Press `Ctrl+R` in the pane, and Laura loads the page again.
 
 When Laura's browser doesn't start, Laura shows the error, such as `couldn't start Laura's browser: <reason>`.
 
-When Laura's browser stops, Laura shows the notice `⚠ Laura's browser exited: press Ctrl+R in a browser pane to start it again`. Laura keeps the browser panes. Press `Ctrl+R` in a browser pane, and Laura starts Laura's browser again with every browser pane's page.
+When Laura's browser stops, Laura shows the notice `⚠ To start Laura's browser again, press Ctrl+R.` in a browser pane. Laura keeps the browser panes. Press `Ctrl+R` in a browser pane, and Laura starts Laura's browser again with every browser pane's page.
 
 For the browser pane's buttons and keystrokes, see [Browser panes](web-app-navigation.md#browser-panes).
 

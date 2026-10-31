@@ -237,7 +237,7 @@ fn a_url_that_doesnt_load_shows_a_notice() -> Result<()> {
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
     let url = format!("http://127.0.0.1:{port}/");
     let id = open(&mut r, &url);
-    let want = format!("⚠ pane #{id}: {url} didn't load (net::ERR_CONNECTION_REFUSED)");
+    let want = format!("⚠ The page {url} did not load (net::ERR_CONNECTION_REFUSED).");
     r.until(
         &mut ws,
         "the notice",
@@ -438,11 +438,11 @@ fn a_download_is_denied() -> Result<()> {
     let (mut r, mut ws) = rig(path)?;
     let (id, _) = load(&mut r, &mut ws, "/download");
     click(&mut ws, id, 50.0, 25.0);
-    let want = format!("⚠ pane #{id}: Laura's browser doesn't download files: {DOWNLOAD}");
+    let want = "⚠ Laura's browser does not support downloads.";
     r.until(
         &mut ws,
         "the notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str() && v["pane"] == id),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want && v["pane"] == id),
     );
     let start = Instant::now();
     while !DOWNLOADED.load(Ordering::SeqCst) {
@@ -572,11 +572,11 @@ fn a_crashed_page_says_so() -> Result<()> {
         "Page.navigate",
         json!({"url": "chrome://kill", "transitionType": "typed"}),
     );
-    let want = format!("⚠ pane #{id}: the page crashed: press Ctrl+R to load it again");
+    let want = "⚠ To load the page again after it stopped, press Ctrl+R.";
     r.until(
         &mut ws,
         "the crash notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str() && v["pane"] == id),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want && v["pane"] == id),
     );
     assert!(!r.tab.browsers.contains_key(&id));
     let acted = r.act(&mut ws, json!({"act": "refresh", "pane": id}));

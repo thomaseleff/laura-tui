@@ -111,18 +111,18 @@ pub fn overflow_warning(p: &PaneReport) -> Option<String> {
 }
 
 /// `c` / `Shift+S` before `laura ready`. Trailing space: ⚠ renders width-2.
-pub const NEEDS_READY: &str = "⚠ inline review needs `laura ready` ";
+pub const NEEDS_READY: &str = "⚠ The agent must run `laura ready` before you can comment. ";
 /// `Shift+S` on a pane without threads.
-pub const NO_THREADS: &str = "⚠ no comments to submit ";
+pub const NO_THREADS: &str = "⚠ Add a comment before you submit the inline review. ";
 /// `d` on an editor pane.
-pub const NO_DIFF_IN_EDITOR: &str = "⚠ diff view isn't available in an editor pane ";
+pub const NO_DIFF_IN_EDITOR: &str = "⚠ An editor pane does not show the diff view. ";
 /// `c` in diff view.
-pub const NO_COMMENT_IN_DIFF: &str = "⚠ comments aren't available in diff view ";
+pub const NO_COMMENT_IN_DIFF: &str = "⚠ Press d to close the diff view before you comment. ";
 pub const SUBMIT_FAILED: &str =
     "⚠ inline review submission failed — Enter to retry · Esc to cancel ";
 /// `SUBMIT_FAILED` in the web app, whose review popover names the keystrokes on its buttons.
 pub const SUBMIT_FAILED_WEB: &str =
-    "⚠ inline review submission failed. Laura kept the threads and the review body.";
+    "⚠ Laura did not submit the inline review, but kept its threads and review body.";
 
 /// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
 /// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
@@ -267,7 +267,7 @@ fn no_pane(pane: PaneId) -> String {
 }
 
 /// The notice for a browser pane's threads that just lost their element, by first comment.
-fn lost_notice(pane: PaneId, gone: &[String]) -> Option<String> {
+fn lost_notice(gone: &[String]) -> Option<String> {
     match gone {
         [] => None,
         [one] => {
@@ -277,11 +277,11 @@ fn lost_notice(pane: PaneId, gone: &[String]) -> Option<String> {
                 cut.push('…');
             }
             Some(format!(
-                "⚠ pane #{pane}: The thread \"{cut}\" is only in the thread list, because the page lost its element."
+                "⚠ The thread \"{cut}\" is only in the thread list, because the page lost its element."
             ))
         }
         _ => Some(format!(
-            "⚠ pane #{pane}: {} threads are only in the thread list, because the page lost their elements.",
+            "⚠ {} threads are only in the thread list, because the page lost their elements.",
             gone.len()
         )),
     }
@@ -586,7 +586,7 @@ impl Tab {
         let page = self
             .browsers
             .get(&pane)
-            .ok_or_else(|| browser::EXITED.trim_start_matches("⚠ ").to_string())?;
+            .ok_or_else(|| browser::EXITED_AGENT.to_string())?;
         if page.dialog_open() {
             return Err(format!(
                 "pane #{pane}'s page is showing a dialog: answer it with your browser tool, \
@@ -648,7 +648,7 @@ impl Tab {
     /// showing it, and put the cursor on its `#heading`. A bare `#heading` moves pane `pane`'s
     /// cursor.
     fn open_link(&mut self, pane: PaneId, href: &str) -> Result<(), String> {
-        let missing = || format!("⚠ {href} doesn't exist");
+        let missing = || format!("⚠ The link target {href} does not exist.");
         let (path, heading) = href.split_once('#').unwrap_or((href, ""));
         let path = path.split_once('?').map_or(path, |(p, _)| p);
         let (path, heading) = (
@@ -674,7 +674,7 @@ impl Tab {
             // As `laura open` names it, so `..` and `/` match the CLI's path on Windows.
             let file = std::path::absolute(dir.join(rel)).map_err(|_| missing())?;
             if file.is_dir() {
-                return Err(format!("⚠ {href} is a folder"));
+                return Err(format!("⚠ The link target {href} is a folder."));
             }
             if !file.is_file() {
                 return Err(missing());
@@ -701,7 +701,10 @@ impl Tab {
         if !heading.is_empty() && !p.blocks().is_empty() {
             let line = p.heading_line(&heading).ok_or_else(|| {
                 let name = Path::new(&p.path).file_name().unwrap_or_default();
-                format!("⚠ no heading #{heading} in {}", name.to_string_lossy())
+                format!(
+                    "⚠ The file {} has no heading #{heading}.",
+                    name.to_string_lossy()
+                )
             })?;
             p.set_cursor_line(line);
         }
@@ -896,18 +899,18 @@ impl Tab {
                     }
                     browser::Event::Failed { url, error } => self.notices.push((
                         Some(*id),
-                        format!("⚠ pane #{id}: {url} didn't load ({error})"),
+                        format!("⚠ The page {url} did not load ({error})."),
                     )),
-                    browser::Event::Download(name) => self.notices.push((
+                    browser::Event::Download => self.notices.push((
                         Some(*id),
-                        format!("⚠ pane #{id}: Laura's browser doesn't download files: {name}"),
+                        "⚠ Laura's browser does not support downloads.".into(),
                     )),
                     browser::Event::Lost { url, lines } => {
                         let gone = match self.panels.get_mut(id) {
                             Some(p) => p.set_lost(&url, &lines),
                             None => vec![],
                         };
-                        if let Some(n) = lost_notice(*id, &gone) {
+                        if let Some(n) = lost_notice(&gone) {
                             self.notices.push((Some(*id), n));
                         }
                     }
@@ -922,7 +925,7 @@ impl Tab {
             self.browsers.remove(&id);
             self.notices.push((
                 Some(id),
-                format!("⚠ pane #{id}: the page crashed: press Ctrl+R to load it again"),
+                "⚠ To load the page again after it stopped, press Ctrl+R.".into(),
             ));
         }
         // The agent's tools closed a pane's page: open it again, and `draw` draws its threads.

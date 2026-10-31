@@ -2830,7 +2830,7 @@ fn the_strings_carry_the_web_failed_text() -> Result<()> {
     // The web app's review popover names the keystrokes on its buttons, so its text names none.
     assert_eq!(
         strings["draft"]["failed"],
-        "⚠ inline review submission failed. Laura kept the threads and the review body."
+        "⚠ Laura did not submit the inline review, but kept its threads and review body."
     );
     Ok(())
 }
@@ -2947,7 +2947,7 @@ fn a_heading_link_moves_the_cursor() -> Result<()> {
         json!({"act": "open_link", "pane": 1, "href": "#nope"}),
     );
     assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["text"], "⚠ no heading #nope in a.md", "{r}");
+    assert_eq!(r["text"], "⚠ The file a.md has no heading #nope.", "{r}");
     Ok(())
 }
 
@@ -2963,14 +2963,17 @@ fn a_link_to_a_missing_file_shows_a_notice() -> Result<()> {
         json!({"act": "open_link", "pane": 1, "href": "nope.md"}),
     );
     assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["text"], "⚠ nope.md doesn't exist", "{r}");
+    assert_eq!(
+        r["text"], "⚠ The link target nope.md does not exist.",
+        "{r}"
+    );
     assert!(!rig.tab.panels.contains_key(&2));
     let r = rig.act(
         &mut ws,
         json!({"act": "open_link", "pane": 1, "href": "../img/"}),
     );
     assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["text"], "⚠ ../img/ is a folder", "{r}");
+    assert_eq!(r["text"], "⚠ The link target ../img/ is a folder.", "{r}");
     assert!(!rig.tab.panels.contains_key(&2));
     // A rooted path to a real file: the full path on Unix, drive-less on Windows.
     let rooted = &path[path.find(['/', '\\']).unwrap_or(0)..];
@@ -2979,7 +2982,11 @@ fn a_link_to_a_missing_file_shows_a_notice() -> Result<()> {
         json!({"act": "open_link", "pane": 1, "href": rooted}),
     );
     assert_eq!(r["ok"], false, "{r}");
-    assert_eq!(r["text"], format!("⚠ {rooted} doesn't exist"), "{r}");
+    assert_eq!(
+        r["text"],
+        format!("⚠ The link target {rooted} does not exist."),
+        "{r}"
+    );
     assert!(!rig.tab.panels.contains_key(&2));
     Ok(())
 }
