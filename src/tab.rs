@@ -361,6 +361,11 @@ pub struct Tab {
     pub browser_port: Option<u16>,
     /// Holds `browser_port` until Laura's browser starts, so no other process takes it meanwhile.
     browser_hold: Option<std::net::TcpListener>,
+    /// Laura's browser while it starts off the loop, with the pane for `START_FAILED` when the
+    /// user started it.
+    starting: Option<(browser::Start, Option<PaneId>)>,
+    /// The agent's `open <url>`, which waits for Laura's browser to start.
+    parked: Option<(Message, Reply)>,
     /// Each browser pane's last size from the view, for the page Laura opens there next.
     pub browser_sizes: HashMap<PaneId, browser::Size>,
     /// Notices for the view, which the web app shows and clears, each with the pane to show it in.
@@ -408,6 +413,8 @@ impl Tab {
             browser: None,
             browser_port: None,
             browser_hold: None,
+            starting: None,
+            parked: None,
             browser_sizes: HashMap::new(),
             notices: Vec::new(),
             seq: n,
@@ -529,7 +536,7 @@ impl Tab {
                         self.panel_mut(pane)?.discard_and_reload();
                     }
                     // Laura's browser exited: start it again, with every browser pane's page.
-                    None => self.attach_pages()?,
+                    None => self.reopen(pane)?,
                 }
             }
             A::Refresh { pane } => self.panel_mut(pane)?.discard_and_reload(),
@@ -613,9 +620,18 @@ impl Tab {
         p.path = url.clone();
         match self.browsers.get_mut(&id) {
             Some(page) => page.navigate(&url),
-            None => self.attach_pages()?,
+            None => self.reopen(id)?,
         }
         Ok(())
+    }
+
+    /// The user's `Ctrl+R` or address field on pane `pane` with no page: start Laura's browser if
+    /// it exited, which opens every browser pane's page once it starts, else open them now.
+    fn reopen(&mut self, pane: PaneId) -> Result<(), String> {
+        match self.browser {
+            None => self.start_browser(Some(pane)),
+            Some(_) => self.attach_pages(),
+        }
     }
 
     /// Pane `pane`'s file pane, gated by `file_view`.
@@ -834,6 +850,7 @@ impl Tab {
         if self.hold {
             return browsed;
         }
+        let started = self.poll_start(area);
         // An exited Neovim closes its pane, unless it holds threads: then it stays a file pane.
         let exited: Vec<PaneId> = self
             .editors
@@ -841,7 +858,7 @@ impl Tab {
             .filter(|(_, e)| e.pty.has_exited())
             .map(|(id, _)| *id)
             .collect();
-        let mut changed = browsed || !exited.is_empty();
+        let mut changed = browsed || started || !exited.is_empty();
         for id in exited {
             self.editors.remove(&id);
             if self.panels.get(&id).is_some_and(|p| p.thread_count() == 0) {
@@ -855,9 +872,24 @@ impl Tab {
                 let frozen = p.source_changed;
                 changed |= p.reload_if_changed() || p.source_changed != frozen;
             }
+            // While Laura's browser starts, the agent's requests wait, as for a hold.
+            if self.starting.is_some() {
+                break;
+            }
             let Ok((msg, reply)) = self.rx.try_recv() else {
                 break;
             };
+            // An `open <url>` that can open a page waits for Laura's browser to start. A gate error
+            // falls through to `apply`, which returns it.
+            let opens_page = matches!(
+                &msg,
+                Message::Open { path, dry_run: false, highlight: None, diff: false, edit: false, .. }
+                    if browser::is_url(path)
+            );
+            if opens_page && self.browser.is_none() && self.start_browser(None).is_ok() {
+                self.parked = Some((msg, reply));
+                break;
+            }
             let resp = self.apply(msg, area);
             reply.send(&resp);
             changed = true;
@@ -947,6 +979,48 @@ impl Tab {
         changed
     }
 
+    /// Take Laura's browser once its start ends: apply the agent's parked `open <url>`, then open
+    /// every other browser pane's page. On a failure, journal the cause and answer with the reason.
+    fn poll_start(&mut self, area: Rect) -> bool {
+        let Some((start, pane)) = &self.starting else {
+            return false;
+        };
+        let Some(res) = start.poll() else {
+            return false;
+        };
+        let pane = *pane;
+        self.starting = None;
+        let parked = self.parked.take();
+        match res {
+            Ok(b) => {
+                self.browser = Some(b);
+                // The parked message first: an `open <url> --panel` opens its pane's page at the
+                // new URL, and `attach_pages` doesn't open it at the old one.
+                if let Some((msg, reply)) = parked {
+                    let resp = self.apply(msg, area);
+                    reply.send(&resp);
+                }
+                if let Err(e) = self.attach_pages() {
+                    self.notices.push((pane, format!("⚠ {e}")));
+                }
+            }
+            Err(e) => {
+                let reason = format!("{:#}", e.reason);
+                self.log_event(json!({"type": "browser", "error": reason, "output": e.output}));
+                if let Some((_, reply)) = parked {
+                    reply.send(&Response::Error {
+                        message: format!("couldn't start Laura's browser: {reason}"),
+                    });
+                }
+                // The cause is in the journal; the notice stays fixed.
+                if pane.is_some() {
+                    self.notices.push((pane, browser::START_FAILED.into()));
+                }
+            }
+        }
+        true
+    }
+
     /// Why `open <url>` can't open a browser pane, in the order the user fixes them: the flag,
     /// then `--web`, then a browser to run.
     fn browser_gate(&self) -> Result<PathBuf, String> {
@@ -957,16 +1031,27 @@ impl Tab {
         }
     }
 
-    /// Laura's browser's CDP client: launch it on first use, or again after it exited.
-    fn cdp(&mut self) -> Result<Cdp, String> {
+    /// Start Laura's browser off the loop, unless it is starting; `poll_start` takes it. `pane`
+    /// gets the notice if the start fails.
+    fn start_browser(&mut self, pane: Option<PaneId>) -> Result<(), String> {
         let path = self.browser_gate()?;
-        if self.browser.is_none() {
-            self.browser_hold = None;
-            let b = Browser::launch(&path, self.browser_port.unwrap_or(0))
-                .map_err(|e| format!("couldn't start Laura's browser: {e:#}"))?;
-            self.browser = Some(b);
+        match &mut self.starting {
+            Some((_, p)) => *p = p.or(pane),
+            None => {
+                self.browser_hold = None;
+                let rx = Browser::launch(&path, self.browser_port.unwrap_or(0));
+                self.starting = Some((rx, pane));
+            }
         }
-        Ok(self.browser.as_ref().expect("launched above").cdp.clone())
+        Ok(())
+    }
+
+    /// Laura's browser's CDP client.
+    fn cdp(&self) -> Result<Cdp, String> {
+        self.browser
+            .as_ref()
+            .map(|b| b.cdp.clone())
+            .ok_or_else(|| browser::EXITED_AGENT.to_string())
     }
 
     /// Open a page for every browser pane without one, at its URL. A page that fails to open
@@ -996,6 +1081,8 @@ impl Tab {
     }
 
     /// Open pane `id`'s page at `url`, at the pane's size.
+    /// shortcut: `Page::open`'s setup calls still block the loop, up to 5 s each on a slow
+    /// browser; move them off the loop, as `Browser::launch` is, if that is reported.
     fn open_page(&mut self, id: PaneId, url: &str) -> Result<Page, String> {
         let cdp = self.cdp()?;
         let size = self

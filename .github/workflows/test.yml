@@ -57,6 +57,11 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
           echo "LAURA_BROWSER=$CHROME" >> "$GITHUB_ENV"
+      # Chrome's first start on a new runner takes 7–30 s; the tests' starts are then fast.
+      - name: Warm up Chrome
+        if: matrix.tests != 'app'
+        shell: bash
+        run: time timeout 120 "$LAURA_BROWSER" --headless=new --no-first-run --user-data-dir="$RUNNER_TEMP/chrome-warm-up" --dump-dom about:blank > /dev/null
       - name: Run the tests
         shell: bash
         env:

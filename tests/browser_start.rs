@@ -1,0 +1,141 @@
+//! Laura's browser fails to start (#139): the agent gets the reason, the journal gets Chrome's
+//! own output, and the workspace responds while the start runs. Its own test binary, so no other test's spawn holds a fake Chrome open for writing
+//! (ETXTBSY on Linux).
+
+mod common;
+#[path = "common/web.rs"]
+#[allow(dead_code)] // each test crate uses part of the rig
+mod rig;
+
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+
+use anyhow::Result;
+use serde_json::{Value, json};
+
+use rig::*;
+
+/// The fake Chromes, written once before any test spawns one (rewriting a script another test is
+/// executing fails with ETXTBSY on Linux). Under the target dir: a `.cmd` whose path has a space
+/// can't be spawned. `fail` prints a D-Bus error and its arguments to stderr, as Chrome does on a
+/// host with no session bus, then exits 1. `slow` writes `started` next to itself, waits about
+/// 3 s, then exits 1.
+fn fakes() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fake_chrome");
+        #[cfg(windows)]
+        let (name, fail, slow) = (
+            "chrome.cmd",
+            "@echo [1:1:ERROR:dbus/bus.cc(408)] Failed to connect to the bus 1>&2\r\n@echo %* 1>&2\r\n@exit /b 1\r\n",
+            "@echo.>\"%~dp0started\"\r\n@ping -n 4 127.0.0.1 >nul\r\n@exit /b 1\r\n",
+        );
+        #[cfg(not(windows))]
+        let (name, fail, slow) = (
+            "chrome",
+            "#!/bin/sh\necho '[1:1:ERROR:dbus/bus.cc(408)] Failed to connect to the bus' >&2\necho \"$@\" >&2\nexit 1\n",
+            "#!/bin/sh\ntouch \"$(dirname \"$0\")/started\"\nsleep 3\nexit 1\n",
+        );
+        for (kind, body) in [("fail", fail), ("slow", slow)] {
+            let d = dir.join(kind);
+            std::fs::create_dir_all(&d).unwrap();
+            let f = d.join(name);
+            std::fs::write(&f, body).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        dir
+    })
+}
+
+fn fake(kind: &str) -> PathBuf {
+    let name = if cfg!(windows) {
+        "chrome.cmd"
+    } else {
+        "chrome"
+    };
+    fakes().join(kind).join(name)
+}
+
+#[test]
+fn a_failed_start_records_chromes_output() -> Result<()> {
+    let mut r = Rig::new()?;
+    r.tab.browser_path = Ok(fake("fail"));
+    let ready: Value = serde_json::from_str(&r.drive(&["ready"]))?;
+    let out = r.run(&["open", "http://127.0.0.1:1/"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    for want in ["couldn't start Laura's browser", "exited as it started"] {
+        assert!(err.contains(want), "{want:?} not in {err}");
+    }
+    assert!(!err.contains("--disable-background-networking"), "{err}");
+
+    let journal = std::fs::read_to_string(ready["journal"].as_str().unwrap_or(""))?;
+    let event: Value = journal
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .find(|e| e["type"] == "browser")
+        .expect("a browser event");
+    assert!(
+        event["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("exited as it started")),
+        "{event}"
+    );
+    let output = event["output"].as_str().unwrap_or_default();
+    for want in [
+        "--disable-background-networking",
+        "--disable-component-update",
+    ] {
+        assert!(output.contains(want), "{want:?} not in {output}");
+    }
+    assert!(!output.contains(":ERROR:dbus/"), "{output}");
+    Ok(())
+}
+
+#[test]
+fn a_slow_start_keeps_the_workspace_responding() -> Result<()> {
+    let slow = fake("slow");
+    let started = slow.with_file_name("started");
+    let _ = std::fs::remove_file(&started);
+    let mut r = Rig::new()?;
+    r.tab.browser_path = Ok(slow);
+    let mut ws = r.connect();
+    let rx = r.start(&["open", "http://127.0.0.1:1/"]);
+    // Each turn of the loop stays short while the fake waits: the start runs off the loop.
+    let t0 = Instant::now();
+    while !started.exists() {
+        let t = Instant::now();
+        r.pump();
+        assert!(
+            t.elapsed() < Duration::from_secs(1),
+            "a turn took {:?}",
+            t.elapsed()
+        );
+        assert!(t0.elapsed() < common::DEADLINE, "the fake never started");
+    }
+    let t = Instant::now();
+    assert_eq!(
+        r.act(&mut ws, json!({"act": "focus", "pane": 0}))["ok"],
+        true
+    );
+    assert!(
+        t.elapsed() < Duration::from_secs(1),
+        "the view waited {:?}",
+        t.elapsed()
+    );
+    assert!(
+        rx.try_recv().is_err(),
+        "open answered before the start ended"
+    );
+
+    let out = r.wait(&rx);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("couldn't start Laura's browser"), "{err}");
+    Ok(())
+}
