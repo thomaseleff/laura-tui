@@ -126,7 +126,7 @@ The user comments on an element in a browser pane, as on an [HTML page](#comment
 2. Type the comment in the box below the element, then press `Enter`.
 3. Press `Shift+S` to submit the inline review.
 
-When the pointer is not on the page, `c` turns on comment mode. When the pointer is on the page but on no element, Laura shows the notice `⚠ Point at an element to comment on it.`. While the page loads, Laura shows the notice `⚠ When the page loads, press c again.`.
+When the pointer is not on the page, `c` turns on comment mode. When the pointer is on the page but on no element, Laura shows the notice `⚠ Point at an element to comment on it.`. While the page loads, Laura shows the notice `⚠ When the page loads, try again.`.
 
 Laura names each element with its CSS selector, such as `#email` or `main > form > button:nth-of-type(2)`, and with its quote, the first 60 characters of its text. The thread's chip shows the selector, and the thread's label shows the quote. When a selector is long, Laura shows its end, after `…`. In a web component or a frame inside the page, Laura names the web component or the frame.
 
@@ -166,7 +166,7 @@ When the page crashes, Laura shows the notice `⚠ To load the page again after 
 
 When Laura's browser doesn't start, Laura shows the error, such as `couldn't start Laura's browser: <reason>`.
 
-When Laura's browser stops, Laura shows the notice `⚠ To start Laura's browser again, press Ctrl+R.` in a browser pane. Laura keeps the browser panes. Press `Ctrl+R` in a browser pane, and Laura starts Laura's browser again with every browser pane's page.
+When Laura's browser stops, Laura shows the notice `⚠ To start Laura's browser again, press Ctrl+R in a browser pane.` Laura keeps the browser panes. Press `Ctrl+R` in a browser pane, and Laura starts Laura's browser again with every browser pane's page.
 
 For the browser pane's buttons and keystrokes, see [Browser panes](web-app-navigation.md#browser-panes).
 

@@ -41,10 +41,11 @@ pub const NO_EDIT: &str =
 pub const ONLY_HTTP: &str = "⚠ Use an http or https URL in a browser pane.";
 pub const NO_ELEMENT: &str = "⚠ Point at an element to comment on it.";
 pub const DIALOG_OPEN: &str = "⚠ Close the page's dialog before you comment.";
-pub const LOADING: &str = "⚠ When the page loads, press c again.";
-/// The notice when Laura's browser exits mid-session, in a browser pane.
-pub const EXITED: &str = "⚠ To start Laura's browser again, press Ctrl+R.";
-/// `EXITED` for the agent, whose command names no browser pane to press `Ctrl+R` in.
+pub const LOADING: &str = "⚠ When the page loads, try again.";
+/// The notice when Laura's browser exits mid-session. It names the browser pane, because a narrow
+/// browser pane sends it to the workspace's corner.
+pub const EXITED: &str = "⚠ To start Laura's browser again, press Ctrl+R in a browser pane.";
+/// `EXITED` for the agent, in the agent's error format.
 pub const EXITED_AGENT: &str =
     "Laura's browser exited: press Ctrl+R in a browser pane to start it again";
 
