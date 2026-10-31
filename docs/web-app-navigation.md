@@ -15,7 +15,7 @@ Laura uses the TUI's keystrokes in the web app. See [Navigating the TUI](navigat
 - Press `Ctrl+Shift+V` to paste. Laura sends `Ctrl+V` to the shell, as a terminal does.
 - Press `Ctrl+P` or click **Find a pane** in the top bar to open the pane selector. Type part of a file name or a pane id, then press `Enter` or click a row to focus that pane.
   - When the user types a pane id that only one pane matches, Laura focuses that pane at once. With panes `1` and `10`, `1` lists both panes and `10` focuses pane `10`. `0` focuses the shell.
-  - Each row shows the pane's state: **New** when the pane changed while the user worked in another pane, **Frozen**, **Unsaved**, **Highlight**, and `N unsubmitted` with the authors of the pane's threads.
+  - Each row shows the pane's state: **New** when the pane changed while the user worked in another pane, **Paused**, **Frozen**, **Unsaved**, **Highlight**, and `N unsubmitted` with the authors of the pane's threads.
 - Press `Ctrl+H` or click **?** in the top bar to show the keystrokes in a sheet. To close the sheet, click outside the sheet or press a keystroke.
 
 The browser keeps some keystrokes for itself, so Laura never receives them:
@@ -30,6 +30,7 @@ Laura shows a pane header at the top of each pane. The pane header shows the pan
 The pane header shows a chip for each state the pane is in:
 
 - Laura shows **● Unsaved** when Neovim has unsaved edits in the editor pane.
+- Laura shows **Paused** when the user [paused](navigation.md#in-a-focused-pane) a tail pane.
 - Laura shows **Frozen** when the pane is [frozen](navigation.md#in-a-focused-pane).
 - Laura shows **Reloaded** for a few seconds after the file changes on disk. Laura flashes the changed lines or blocks in green. In a tail pane, Laura flashes the new lines as output arrives. When the agent shows another file in the pane, Laura shows no **Reloaded**.
 - Laura shows **Diff view** when the pane shows the inline diff view.
@@ -42,6 +43,7 @@ Each button in the pane header does what its keystroke does:
 |---|---|---|
 | Comment | `c` | Opens a comment on the cursor's line. |
 | Comment mode | — | Turns comment mode on or off in an [HTML file](#html-files) or a [browser pane](#browser-panes), where a click on an element opens a comment on the element. Laura shows the button on an HTML page and in a browser pane in place of the comment button. |
+| Pause \| Resume | `p` | Pauses a tail pane, so the pane doesn't reload, or resumes the pane. Laura shows the button on a tail pane and on a file pane that the agent opened with `--follow`. |
 | Diff | `d` | Shows or hides the inline diff view. Laura shows the button when the file has changes. |
 | Refresh | `Ctrl+R` | Discards the unsubmitted inline review and reloads the file. |
 | Close | `x` | Closes the pane. |
@@ -54,7 +56,7 @@ When the pane header doesn't fit, Laura shows less in the pane header, in steps,
 
 1. Laura hides the file icon and shortens the button labels, such as **Submit** for **Submit review**.
 2. Laura replaces the chips and the `+3 −1` count with a dot. Hover over the dot to see the chips' names.
-3. Laura moves the comment, diff, refresh and close buttons into **More**. Click **More** to list them.
+3. Laura moves the comment, pause, diff, refresh and close buttons into **More**. Click **More** to list them.
 4. Laura moves **Submit review**, the thread count and the **Editor** | **File** buttons into **More**, and shortens the file's name. The pane header keeps only the pane's id, its name, the dot and **More**.
 5. Laura hides the pane's id and the dot.
 

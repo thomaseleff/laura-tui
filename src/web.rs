@@ -880,6 +880,8 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
                    }),
                    "diff": p.is_some_and(|p| p.diff_view),
                    "frozen": p.is_some_and(|p| p.source_changed),
+                   // `null`: the pane can't pause.
+                   "paused": p.filter(|p| p.pausable()).map(|p| p.paused),
                    "threads": p.map_or(0, Panel::thread_count),
                    "unsaved": editor.is_some_and(|e| e.modified())})
         })
