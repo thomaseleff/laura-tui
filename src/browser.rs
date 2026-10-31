@@ -2,9 +2,9 @@
 //! renders a URL, and its screencast streams to the web app. No other module talks CDP.
 //!
 //! Laura's loop runs the whole workspace on one thread, so nothing here waits on the page except
-//! `Browser::launch`'s start tab, `Page::open`'s setup calls, and `Page::pick` and `Page::find`:
-//! every other call goes out through `Cdp::send`, and its reply comes back through `Page::poll`
-//! like an event.
+//! `Page::open`'s setup calls, and `Page::pick` and `Page::find`: `Browser::launch` waits for
+//! Chrome on its own thread, and every other call goes out through `Cdp::send`, and its reply
+//! comes back through `Page::poll` like an event.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -191,17 +191,32 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// Start `path` headless on a fresh profile and connect to it, with CDP on `port` (`0`: the
-    /// OS picks one).
+    /// Start `path` headless on a fresh profile with CDP on `port` (`0`: the OS picks one), and
+    /// connect to it on another thread. The receiver gets Laura's browser, or why it didn't start.
     /// ponytail: `Tab` holds `LAURA_BROWSER_URL`'s port until just before this launch, but another
     /// process can still take it while Chrome starts, or after Laura's browser exits; the error
     /// names the port, and the user starts Laura again.
-    pub fn launch(path: &Path, port: u16) -> Result<Browser, StartError> {
-        let proc = Browser::spawn(path, port).map_err(|reason| StartError {
-            reason,
-            output: String::new(),
-        })?;
-        Browser::connect(proc, path, port)
+    pub fn launch(path: &Path, port: u16) -> Start {
+        let (tx, rx) = channel();
+        // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
+        // that spawned it exits.
+        match Browser::spawn(path, port) {
+            Ok(proc) => {
+                let path = path.to_path_buf();
+                // With the tab gone, the send fails and drops Laura's browser, which ends Chrome
+                // and deletes the profile.
+                std::thread::spawn(move || {
+                    let _ = tx.send(Browser::connect(proc, &path, port));
+                });
+            }
+            Err(reason) => {
+                let _ = tx.send(Err(StartError {
+                    reason,
+                    output: String::new(),
+                }));
+            }
+        }
+        rx
     }
 
     /// Start `path`'s process on a fresh profile.
@@ -423,6 +438,9 @@ fn version_ws(port: u16) -> Option<String> {
     Some(url[url.find("/devtools/")?..].to_string())
 }
 
+/// Laura's browser as it starts: `Browser::launch` sends it once Chrome listens, or why it didn't.
+pub type Start = Receiver<Result<Browser, StartError>>;
+
 /// Why Laura's browser didn't start, and Chrome's output, for the journal.
 pub struct StartError {
     pub reason: anyhow::Error,
@@ -557,8 +575,8 @@ impl Cdp {
     }
 
     /// Send `method` and wait up to 5 s for its result.
-    /// ponytail: blocks Laura's loop; only `Browser::launch`'s start tab, `Page::open`, `Page::pick`
-    /// and `Page::find` use it. Move to `send` plus a pending reply if a slow browser makes the
+    /// ponytail: blocks Laura's loop; only `Page::open`, `Page::pick` and `Page::find` use it there
+    /// (`Browser::launch`'s start tab waits on its own thread). Move to `send` plus a pending reply if a slow browser makes the
     /// workspace stutter.
     pub fn call(&self, method: &str, params: Value, session: Option<&str>) -> Result<Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);

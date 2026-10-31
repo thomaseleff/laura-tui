@@ -164,6 +164,8 @@ When the page doesn't load, Laura shows a notice with the error, such as `⚠ Th
 
 When the page crashes, Laura shows the notice `⚠ To load the page again after it stopped, press Ctrl+R.` Press `Ctrl+R` in the pane, and Laura loads the page again.
 
+While Laura's browser starts, the user can keep working in the workspace. The agent's commands wait until Laura's browser has started, then run in order.
+
 When the user presses `Ctrl+R` or enters a URL in the address field, and Laura's browser doesn't start, Laura shows the notice `⚠ Laura's browser didn't start. To try again, press Ctrl+R in a browser pane.` Laura records why in the journal's `browser` event, with the last lines of the browser's own output. To read the event, run `laura journal type=browser -n 1`. For the event's fields, see [Journal](cli.md#journal).
 
 When Laura's browser stops, Laura shows the notice `⚠ To start Laura's browser again, press Ctrl+R in a browser pane.` Laura keeps the browser panes. Press `Ctrl+R` in a browser pane, and Laura starts Laura's browser again with every browser pane's page.
