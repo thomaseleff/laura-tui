@@ -66,7 +66,7 @@ windows-sys = { version = "=0.61.2", features = [
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "=0.2.189"
+libc = "=0.2.190"
 
 [dev-dependencies]
 assert_cmd = "2"
