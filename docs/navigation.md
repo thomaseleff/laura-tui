@@ -13,6 +13,12 @@ Laura passes keystrokes it doesn't use to the shell, or to Neovim in an editor p
 | `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
 | `F12` | Lock all input to the shell, or to the focused editor pane |
 
+When the shell exits while Neovim has unsaved edits, Laura stays open:
+
+1. Laura focuses the first editor pane with unsaved edits, shows the editor view and shows the notice "⚠ To close Laura after the shell stopped, save or quit Neovim."
+2. When the user saves or quits that Neovim, Laura does the same for the next editor pane with unsaved edits.
+3. Laura closes when no Neovim has unsaved edits.
+
 ## In an editor pane
 
 > [!WARNING]
@@ -72,6 +78,7 @@ Laura shows a notice instead of acting when:
 
 - You press `c` or `Shift+S` before the agent runs `laura ready`: `` ⚠ The agent must run `laura ready` before you can comment. ``.
 - You press `Shift+S` on a pane with no comments: `⚠ Add a comment before you submit the inline review.`.
+- You press `Shift+S` after the shell exits: `⚠ The shell stopped, so Laura cannot submit the inline review.`.
 - You press `d` in an editor pane's file view: `⚠ An editor pane does not show the diff view.`.
 - You press `c` in diff view: `⚠ Press d to close the diff view before you comment.`.
 

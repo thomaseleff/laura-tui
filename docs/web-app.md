@@ -27,7 +27,7 @@ To host your shell instead of an agent CLI, run `laura --web`.
 
 Without the variable, Laura returns the error `the web app is experimental: set LAURA_EXPERIMENTAL_WEB=1 before you start Laura`.
 
-Laura serves the web app to this computer only. While the workspace runs, Laura shows only the line `Open this URL in a web browser:` and the URL in the terminal that started it.
+Laura serves the web app to this computer only. While the workspace runs, Laura shows only the line `Open this URL in a web browser:` and the URL in the terminal that started it. When the shell exits while Neovim has unsaved edits, Laura also shows the notice in that terminal. See [Global keystrokes](navigation.md#global-keystrokes).
 
 The top bar shows the folder that Laura started in, such as `~/projects/laura`.
 

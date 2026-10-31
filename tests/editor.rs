@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use assert_cmd::Command;
+use laura::protocol::PTY_PANE;
+use laura::tab::{NO_SHELL, SHELL_EXITED};
 use laura::{Rect, Tab, UserAction};
 
 /// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`, and a real `nvim` keeps its
@@ -488,6 +490,66 @@ fn unsaved_edits_refuse_closing_the_tab() -> Result<()> {
     std::fs::remove_file(dirty(1))?;
     std::fs::remove_file(dirty(2))?;
     assert_eq!(tab.unsaved_edits(), None);
+    Ok(())
+}
+
+#[test]
+fn the_shell_exit_waits_for_unsaved_edits() -> Result<()> {
+    fakes();
+    let mut tab = spawn_tab()?;
+    tab.editor = Ok(fake("stay"));
+    let (dir, path) = file();
+    let other = dir.path().join("b.rs");
+    std::fs::copy(&path, &other)?;
+    drive(&mut tab, &["open", "--edit", &path]);
+    drive(&mut tab, &["open", "--edit", &other.to_string_lossy()]);
+    tab.act(UserAction::ToggleEditorView { pane: 1 })
+        .map_err(anyhow::Error::msg)?;
+    // Stand in for Neovim: the fake can't run the bootstrap that keeps these markers.
+    let socket = tab.socket.clone();
+    let dirty = |id| std::env::temp_dir().join(format!("{socket}-{id}.dirty"));
+    std::fs::write(dirty(1), "")?;
+    std::fs::write(dirty(2), "")?;
+    tab.focus = PTY_PANE;
+    tab.act(UserAction::Input {
+        pane: PTY_PANE,
+        bytes: b"exit\r".to_vec(),
+    })
+    .map_err(anyhow::Error::msg)?;
+    drain_until(&mut tab, "the shell exits", |t| t.pty.has_exited());
+    assert!(!tab.shell_done());
+    assert!(!tab.shell_done());
+    assert_eq!(tab.focus, 1);
+    assert!(
+        tab.editors[&1].editor_view,
+        "Neovim shows, not the file view"
+    );
+    let notice = |id| (Some(id), SHELL_EXITED.to_string());
+    assert_eq!(tab.notices, [notice(1)]);
+    // The user saves pane #1: Laura moves on to pane #2, once.
+    std::fs::remove_file(dirty(1))?;
+    assert!(!tab.shell_done());
+    assert!(!tab.shell_done());
+    assert_eq!(tab.focus, 2);
+    assert_eq!(tab.notices, [notice(1), notice(2)]);
+    // An inline review has no shell to go to: Laura keeps its threads.
+    tab.agent = true;
+    tab.act(UserAction::ToggleEditorView { pane: 2 })
+        .map_err(anyhow::Error::msg)?;
+    tab.panels
+        .get_mut(&2)
+        .unwrap()
+        .author_note("keep me".into());
+    let no_shell = Err(NO_SHELL.to_string());
+    assert_eq!(tab.act(UserAction::BeginReview { pane: 2 }), no_shell);
+    let submit = UserAction::Submit {
+        pane: 2,
+        body: String::new(),
+    };
+    assert_eq!(tab.act(submit), no_shell);
+    assert_eq!(tab.panels[&2].thread_count(), 1);
+    std::fs::remove_file(dirty(2))?;
+    assert!(tab.shell_done());
     Ok(())
 }
 

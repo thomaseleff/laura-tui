@@ -362,8 +362,8 @@ fn abort_unguarded() {
     }));
 }
 
-/// `laura --web`: host the workspace with no terminal UI until the shell exits or the user quits
-/// in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
+/// `laura --web`: host the workspace with no terminal UI until the shell exits with no unsaved
+/// Neovim edits, or the user quits in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
 /// TUI's terminal does.
 /// ponytail: no signal handler; add one if leftover spools or lost Neovim edits get reported.
 fn web(program: Vec<String>) -> Result<()> {
@@ -377,13 +377,19 @@ fn web(program: Vec<String>) -> Result<()> {
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
+    let mut told = false;
     loop {
         let area = web.area().unwrap_or(laura::web::DEFAULT_AREA);
         let changed = tab.drain(area);
         tab.tick(area);
         let quit = !web.sync(&mut tab, changed);
-        if quit || tab.pty.has_exited() {
+        if quit || tab.shell_done() {
             break;
+        }
+        // Past `shell_done`, an exited shell means unsaved edits: tell a user with no browser open.
+        if tab.pty.has_exited() && !told {
+            told = true;
+            eprintln!("{}", laura::tab::SHELL_EXITED.trim_end());
         }
         std::thread::sleep(std::time::Duration::from_millis(16));
     }
