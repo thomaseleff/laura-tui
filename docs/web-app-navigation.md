@@ -76,9 +76,21 @@ Laura shows a status bar on the right of the hint line. The status bar lists wha
 
 Click an item to focus its pane. When nothing waits on the user, the status bar is empty. When an item doesn't fit, Laura shortens it. Hover the item to read it in full.
 
+## Notices
+
+Laura shows a notice for a pane in the bottom-right corner of that pane. For example, when a page does not load, Laura shows the notice in the page's browser pane.
+
+Laura passes a click or a scroll on a notice to the pane under the notice.
+
+Laura shows a notice in the workspace's bottom-right corner, above the hint line, in these cases:
+
+- The notice is not for a pane.
+- The user closes the notice's pane while Laura shows the notice.
+- The notice's pane is narrower than 300 pixels, or too short to show the notice below the pane header.
+
 ## Threads and inline reviews
 
-While Laura submits the inline review, the button reads **Submitting…**. When the submit fails, Laura keeps the threads and the review body, and shows `⚠ inline review submission failed. Laura kept the threads and the review body.` The button reads **Retry submit**, and the pane header shows **Submission failed**. Click **Retry submit** or press `Enter` to try again.
+While Laura submits the inline review, the button reads **Submitting…**. When the submit fails, Laura keeps the threads and the review body, and shows `⚠ Laura did not submit the inline review, but kept its threads and review body.` The button reads **Retry submit**, and the pane header shows **Submission failed**. Click **Retry submit** or press `Enter` to try again.
 
 Laura shows each thread right below its line, with the author of each comment. The thread names what it sits on: in a markdown file, the kind of block, such as `paragraph` or `list item`; in an HTML file, the element's start tag, such as `<button#copy>`. Click **–** on a thread or press `r` to collapse the thread, and click **Reply…** to add a comment to the thread. Laura shows the reply box at the end of the thread. On a thread that ends with your own comment, click **Edit…** to change your own last comment, or **Delete** to remove it. Laura opens the comment for editing in its place in the thread. Click the thread count in the pane header to list the pane's threads, then click a thread. Laura moves the cursor to the thread, expands the thread when the thread is collapsed, and scrolls the pane to show it. In a browser pane, a click on a thread whose element the page lost opens the thread's card in the list instead. See [Comment on a browser pane](web-app.md#comment-on-a-browser-pane). Press `Esc` or click outside the list to close it.
 
@@ -103,8 +115,8 @@ Laura shows a markdown file in a file pane as rendered markdown: headings, lists
 - Laura shows a [`── N lines removed ──` row](agent-reference.md#show-what-changed) above the block where the lines were deleted. When the user deletes the last lines of a code block, Laura shows the row below the code block. When the code block ends the file, Laura shows the row above the code block.
 - When the user clicks a link, Laura follows the link:
   - Laura opens an `http` or `https` link in a new browser tab.
-  - Laura opens a link to a file by relative path, such as `[Setup](setup.md)`, in a new pane, as `laura open` does. When a pane already shows the file, Laura focuses that pane instead. When the file doesn't exist, Laura shows the notice `⚠ <link> doesn't exist`. When the link names a folder, Laura shows the notice `⚠ <link> is a folder`. Laura ignores anything after a `?` in the link, such as `?v=2`.
-  - Laura moves the cursor to the heading that a link names after `#`, such as `[Install](#install)` or `[Install](setup.md#install)`. The name after `#` can be in any case. When the markdown file has no such heading, Laura shows the notice `⚠ no heading #<heading> in <file>`. In an editor pane, Laura moves the cursor in the file view.
+  - Laura opens a link to a file by relative path, such as `[Setup](setup.md)`, in a new pane, as `laura open` does. When a pane already shows the file, Laura focuses that pane instead. When the file doesn't exist, Laura shows the notice `⚠ The link target <link> does not exist.`. When the link names a folder, Laura shows the notice `⚠ The link target <link> is a folder.`. Laura ignores anything after a `?` in the link, such as `?v=2`.
+  - Laura moves the cursor to the heading that a link names after `#`, such as `[Install](#install)` or `[Install](setup.md#install)`. The name after `#` can be in any case. When the markdown file has no such heading, Laura shows the notice `⚠ The file <file> has no heading #<heading>.` in the pane that shows the file. In an editor pane, Laura moves the cursor in the file view.
   - Laura shows any other link, such as a `mailto:` link, an email address or a link by absolute path, as plain text.
 - Laura shows an image that the markdown file references by a relative path, such as `![Flow](img/flow.png)`:
   - Laura shows PNG, JPEG, GIF, SVG, WebP, AVIF and ICO images.

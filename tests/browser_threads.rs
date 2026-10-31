@@ -148,9 +148,8 @@ fn a_thread_survives_a_reload() -> Result<()> {
     // The page drops the button: the thread loses its element.
     click(&mut ws, id, 50.0, 25.0);
     // The notice and the lost thread's state can come in either order.
-    let want = format!(
-        "⚠ pane #{id}: The thread \"Keep me\" is only in the thread list, because the page lost its element."
-    );
+    let want =
+        "⚠ The thread \"Keep me\" is only in the thread list, because the page lost its element.";
     let (start, mut noticed, mut lost) = (Instant::now(), false, false);
     while !(noticed && lost) {
         assert!(
@@ -159,7 +158,7 @@ fn a_thread_survives_a_reload() -> Result<()> {
         );
         for f in r.idle(&mut ws, 1) {
             let Frame::Json(v) = &f else { continue };
-            noticed |= v["t"] == "notice" && v["text"] == want.as_str();
+            noticed |= v["t"] == "notice" && v["text"] == want && v["pane"] == id;
             if v["t"] == "browser" && v["id"] == id {
                 lost = v["threads"][0]["lost"] == true && v["title"] == "2:";
             }
@@ -238,13 +237,11 @@ fn n_skips_a_lost_thread() -> Result<()> {
     );
     // The page drops two elements at once: one notice counts the threads.
     click(&mut ws, id, 50.0, 325.0);
-    let want = format!(
-        "⚠ pane #{id}: 2 threads are only in the thread list, because the page lost their elements."
-    );
+    let want = "⚠ 2 threads are only in the thread list, because the page lost their elements.";
     r.until(
         &mut ws,
         "the notice for two threads",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str()),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want && v["pane"] == id),
     );
     Ok(())
 }

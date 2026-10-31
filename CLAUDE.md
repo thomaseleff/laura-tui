@@ -106,7 +106,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
 | **workspace** | The TUI or the web app, including all panes. | — |
 | **web app** | The browser view of a workspace (`laura --web`). | web UI, frontend |
-| **notice** | A one-line message in the bottom-right corner of the workspace, above the hint line. | toast, standing warning |
+| **notice** | A message in the bottom-right corner of a pane, or of the workspace above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
 | **status bar** | The list on the right of the web app's bottom line of what needs the user's attention. | footer |
 | **unseen marker** | A dot before a pane's name in the web app when the pane changed while the user worked in another pane. | notice, badge, unread dot |

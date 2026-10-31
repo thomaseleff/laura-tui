@@ -38,13 +38,16 @@ pub const NO_DIFF: &str =
 pub const NO_EDIT: &str =
     "a browser pane has no editor: run laura open <file> --edit on the page's source file";
 /// The notice for an address-field URL that isn't http or https.
-pub const ONLY_HTTP: &str = "⚠ a browser pane opens only http and https URLs";
-pub const NO_ELEMENT: &str = "⚠ no element here to comment on";
-pub const DIALOG_OPEN: &str = "⚠ answer the page's dialog first";
-pub const LOADING: &str = "⚠ the page is still loading: press c again when it has loaded";
-/// The notice when Laura's browser exits mid-session.
-pub const EXITED: &str =
-    "⚠ Laura's browser exited: press Ctrl+R in a browser pane to start it again";
+pub const ONLY_HTTP: &str = "⚠ Use an http or https URL in a browser pane.";
+pub const NO_ELEMENT: &str = "⚠ Point at an element to comment on it.";
+pub const DIALOG_OPEN: &str = "⚠ Close the page's dialog before you comment.";
+pub const LOADING: &str = "⚠ When the page loads, try again.";
+/// The notice when Laura's browser exits mid-session. It names the browser pane, because a narrow
+/// browser pane sends it to the workspace's corner.
+pub const EXITED: &str = "⚠ To start Laura's browser again, press Ctrl+R in a browser pane.";
+/// `EXITED` for the agent, in the agent's error format.
+pub const EXITED_AGENT: &str =
+    "Laura's browser exited: press Ctrl+R in a browser pane to start it again";
 
 /// Chrome was ready in 0.7–1.3 s in the spike, and Edge's first run in 2.6 s; Chrome's first run on
 /// a cold CI runner took longer than 5 s.
@@ -684,8 +687,8 @@ pub enum Event {
     Closed,
     /// The page's renderer crashed: `Ctrl+R` opens it again.
     Crashed,
-    /// Laura's browser denied a download of this file name.
-    Download(String),
+    /// Laura's browser denied a download.
+    Download,
 }
 
 /// One browser pane's page, in its own window: a background tab sends no frames.
@@ -1037,8 +1040,7 @@ impl Page {
                 }
                 Some("Page.javascriptDialogClosed") => self.dialog = None,
                 Some("Browser.downloadWillBegin") if top => {
-                    let name = p["suggestedFilename"].as_str().unwrap_or_default();
-                    out.push(Event::Download(name.to_string()));
+                    out.push(Event::Download);
                 }
                 // Before the pane's own `targetInfoChanged`, so a popup's URL isn't the pane's.
                 Some("Target.targetCreated" | "Target.targetInfoChanged")

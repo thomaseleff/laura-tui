@@ -508,13 +508,19 @@ button.si:hover { color: var(--fg); }
 .si .d.warn { background: #e09a1c; }
 .si .d.bad { background: var(--bad); }
 #sbar code { font: 12px var(--mono); }
+/* A long notice wraps inside the width of its pane, or of the workspace. The card has no controls,
+   so a click or a wheel scroll goes to the pane under it. */
 #notice {
-  position: absolute; right: var(--cw); height: var(--ch); line-height: var(--ch); white-space: pre;
-  bottom: 6px; padding: 0 12px; z-index: 2; color: var(--warn);
-  background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow);
-  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  position: absolute; right: var(--cw); bottom: 6px; z-index: 2; box-sizing: border-box;
+  max-width: min(380px, calc(100% - 28px)); padding: 10px 14px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--warn);
+  background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 12px;
+  box-shadow: 0 24px 60px rgb(16 24 40 / .18); transition: opacity .2s, transform .2s;
 }
-#notice:not(.on) { opacity: 0; transform: translateY(4px); pointer-events: none; }
+/* Inside the pane's border, over the page's marks and its dialog's veil, under a popover. */
+.pane > #notice { right: 14px; bottom: 14px; z-index: 6; }
+#notice:not(.on) { opacity: 0; transform: translateY(4px); }
 
 .box {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3;

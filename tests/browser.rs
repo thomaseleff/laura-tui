@@ -237,11 +237,11 @@ fn a_url_that_doesnt_load_shows_a_notice() -> Result<()> {
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
     let url = format!("http://127.0.0.1:{port}/");
     let id = open(&mut r, &url);
-    let want = format!("⚠ pane #{id}: {url} didn't load (net::ERR_CONNECTION_REFUSED)");
+    let want = format!("⚠ The page {url} did not load (net::ERR_CONNECTION_REFUSED).");
     r.until(
         &mut ws,
         "the notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str()),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str() && v["pane"] == id),
     );
     Ok(())
 }
@@ -274,6 +274,13 @@ fn a_dead_browser_starts_again() -> Result<()> {
     let (mut r, mut ws) = rig(path)?;
     let id = open(&mut r, &serve());
     next_frame(&mut r, &mut ws, id);
+    // The notice goes to the focused browser pane, not to the first one.
+    let two = open(&mut r, &serve());
+    next_frame(&mut r, &mut ws, two);
+    assert_eq!(
+        r.act(&mut ws, json!({"act": "focus", "pane": two}))["ok"],
+        true
+    );
     // A second CDP client closes Laura's browser, as a crash would end it.
     let url = r
         .tab
@@ -293,7 +300,7 @@ fn a_dead_browser_starts_again() -> Result<()> {
     r.until(
         &mut ws,
         "the exit notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == browser::EXITED),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == browser::EXITED && v["pane"] == two),
     );
     assert!(r.tab.panels.contains_key(&id), "the pane stays");
     let acted = r.act(&mut ws, json!({"act": "refresh", "pane": id}));
@@ -431,11 +438,11 @@ fn a_download_is_denied() -> Result<()> {
     let (mut r, mut ws) = rig(path)?;
     let (id, _) = load(&mut r, &mut ws, "/download");
     click(&mut ws, id, 50.0, 25.0);
-    let want = format!("⚠ pane #{id}: Laura's browser doesn't download files: {DOWNLOAD}");
+    let want = "⚠ Laura's browser does not support downloads.";
     r.until(
         &mut ws,
         "the notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str()),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want && v["pane"] == id),
     );
     let start = Instant::now();
     while !DOWNLOADED.load(Ordering::SeqCst) {
@@ -565,11 +572,11 @@ fn a_crashed_page_says_so() -> Result<()> {
         "Page.navigate",
         json!({"url": "chrome://kill", "transitionType": "typed"}),
     );
-    let want = format!("⚠ pane #{id}: the page crashed: press Ctrl+R to load it again");
+    let want = "⚠ To load the page again after it stopped, press Ctrl+R.";
     r.until(
         &mut ws,
         "the crash notice",
-        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want.as_str()),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == want && v["pane"] == id),
     );
     assert!(!r.tab.browsers.contains_key(&id));
     let acted = r.act(&mut ws, json!({"act": "refresh", "pane": id}));
