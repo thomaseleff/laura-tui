@@ -13,7 +13,11 @@ Laura passes keystrokes it doesn't use to the shell, or to Neovim in an editor p
 | `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
 | `F12` | Lock all input to the shell, or to the focused editor pane |
 
-When the shell exits while Neovim has unsaved edits, Laura stays open. Laura focuses the editor pane with the unsaved edits and shows the notice "⚠ To close Laura after the shell stopped, save or quit Neovim." Laura closes when the user saves or quits each Neovim.
+When the shell exits while Neovim has unsaved edits, Laura stays open:
+
+1. Laura focuses the first editor pane with unsaved edits, shows the editor view and shows the notice "⚠ To close Laura after the shell stopped, save or quit Neovim."
+2. When the user saves or quits that Neovim, Laura does the same for the next editor pane with unsaved edits.
+3. Laura closes when no Neovim has unsaved edits.
 
 ## In an editor pane
 

@@ -372,8 +372,8 @@ pub struct Tab {
     pub browser_sizes: HashMap<PaneId, browser::Size>,
     /// Notices for the view, which the web app shows and clears, each with the pane to show it in.
     pub notices: Vec<(Option<PaneId>, String)>,
-    /// `shell_done` showed `SHELL_EXITED`, so it shows the notice once.
-    shell_exit_shown: bool,
+    /// The editor pane `shell_done` last focused for `SHELL_EXITED`.
+    shell_exit_pane: Option<PaneId>,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -421,7 +421,7 @@ impl Tab {
             parked: None,
             browser_sizes: HashMap::new(),
             notices: Vec::new(),
-            shell_exit_shown: false,
+            shell_exit_pane: None,
             seq: n,
             next_pane: 1,
             rx,
@@ -1240,8 +1240,9 @@ impl Tab {
             .min()
     }
 
-    /// True when the shell exited and no Neovim has unsaved edits. Until then, focus the first
-    /// editor pane with unsaved edits and show `SHELL_EXITED` once.
+    /// True when the shell exited and no Neovim has unsaved edits. Until then, show the first
+    /// editor pane with unsaved edits in the editor view, focus it and show `SHELL_EXITED`, once
+    /// per pane: again only after the user saves or quits that pane's Neovim.
     pub fn shell_done(&mut self) -> bool {
         if !self.pty.has_exited() {
             return false;
@@ -1249,8 +1250,15 @@ impl Tab {
         let Some(id) = self.unsaved_pane() else {
             return true;
         };
-        if !self.shell_exit_shown {
-            self.shell_exit_shown = true;
+        let shown = self
+            .shell_exit_pane
+            .and_then(|p| self.editors.get(&p))
+            .is_some_and(|e| e.modified());
+        if !shown {
+            self.shell_exit_pane = Some(id);
+            if let Some(e) = self.editors.get_mut(&id) {
+                e.editor_view = true;
+            }
             self.focus = id;
             self.notices.push((Some(id), SHELL_EXITED.into()));
         }

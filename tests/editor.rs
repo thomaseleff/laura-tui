@@ -498,11 +498,18 @@ fn the_shell_exit_waits_for_unsaved_edits() -> Result<()> {
     fakes();
     let mut tab = spawn_tab()?;
     tab.editor = Ok(fake("stay"));
-    let (_dir, path) = file();
+    let (dir, path) = file();
+    let other = dir.path().join("b.rs");
+    std::fs::copy(&path, &other)?;
     drive(&mut tab, &["open", "--edit", &path]);
-    // Stand in for Neovim: the fake can't run the bootstrap that keeps this marker.
-    let dirty = std::env::temp_dir().join(format!("{}-1.dirty", tab.socket));
-    std::fs::write(&dirty, "")?;
+    drive(&mut tab, &["open", "--edit", &other.to_string_lossy()]);
+    tab.act(UserAction::ToggleEditorView { pane: 1 })
+        .map_err(anyhow::Error::msg)?;
+    // Stand in for Neovim: the fake can't run the bootstrap that keeps these markers.
+    let socket = tab.socket.clone();
+    let dirty = |id| std::env::temp_dir().join(format!("{socket}-{id}.dirty"));
+    std::fs::write(dirty(1), "")?;
+    std::fs::write(dirty(2), "")?;
     tab.focus = PTY_PANE;
     tab.act(UserAction::Input {
         pane: PTY_PANE,
@@ -513,9 +520,19 @@ fn the_shell_exit_waits_for_unsaved_edits() -> Result<()> {
     assert!(!tab.shell_done());
     assert!(!tab.shell_done());
     assert_eq!(tab.focus, 1);
-    assert_eq!(tab.notices, [(Some(1), SHELL_EXITED.to_string())]);
-    // The user saves.
-    std::fs::remove_file(&dirty)?;
+    assert!(
+        tab.editors[&1].editor_view,
+        "Neovim shows, not the file view"
+    );
+    let notice = |id| (Some(id), SHELL_EXITED.to_string());
+    assert_eq!(tab.notices, [notice(1)]);
+    // The user saves pane #1: Laura moves on to pane #2, once.
+    std::fs::remove_file(dirty(1))?;
+    assert!(!tab.shell_done());
+    assert!(!tab.shell_done());
+    assert_eq!(tab.focus, 2);
+    assert_eq!(tab.notices, [notice(1), notice(2)]);
+    std::fs::remove_file(dirty(2))?;
     assert!(tab.shell_done());
     Ok(())
 }
