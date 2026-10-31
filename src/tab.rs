@@ -1218,10 +1218,15 @@ impl Tab {
     /// Why closing the tab would drop unsaved Neovim edits: the lowest-id editor pane with them,
     /// `(+N more)` for the rest. `None` when every Neovim is saved.
     pub fn unsaved_edits(&self) -> Option<String> {
-        let mut message = unsaved_message(self.unsaved_pane()?);
-        let more = self.editors.values().filter(|e| e.modified()).count() - 1;
-        if more > 0 {
-            message += &format!(" (+{more} more)");
+        let ids: Vec<PaneId> = self
+            .editors
+            .iter()
+            .filter(|(_, e)| e.modified())
+            .map(|(&id, _)| id)
+            .collect();
+        let mut message = unsaved_message(*ids.iter().min()?);
+        if ids.len() > 1 {
+            message += &format!(" (+{} more)", ids.len() - 1);
         }
         Some(message)
     }

@@ -362,8 +362,8 @@ fn abort_unguarded() {
     }));
 }
 
-/// `laura --web`: host the workspace with no terminal UI until the shell exits or the user quits
-/// in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
+/// `laura --web`: host the workspace with no terminal UI until the shell exits with no unsaved
+/// Neovim edits, or the user quits in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
 /// TUI's terminal does.
 /// ponytail: no signal handler; add one if leftover spools or lost Neovim edits get reported.
 fn web(program: Vec<String>) -> Result<()> {
