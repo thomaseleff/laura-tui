@@ -182,7 +182,7 @@ Editor panes support comments. `laura comment --pane <id>` annotates a line, and
 - With `--highlight`: `a browser pane has no lines: open the page, then run laura highlight '<selector>' --pane <id>`.
 - With `--diff`: `a browser pane has no diff: run laura open <file> --diff on the page's source file`.
 - With `--edit`: `a browser pane has no editor: run laura open <file> --edit on the page's source file`.
-- When Laura's browser can't start: `couldn't start Laura's browser: <reason>`.
+- When Laura's browser can't start: `couldn't start Laura's browser: <reason>`. Laura records Chrome's output in the journal's [`browser` event](#journal).
 
 `laura open` uses any other text, such as `file:///etc/hosts` or `chrome://version`, as a file path.
 
@@ -210,7 +210,7 @@ Laura looks for the element on the page that the pane shows now. An argument of 
 
 ## Journal
 
-When the agent runs `laura ready`, Laura starts a journal for the session at `~/.laura/sessions/<session>.ndjson` and prints its path as `journal`. Laura adds one NDJSON line to the journal for each event in the table below. Each line includes `ts` (unix ms), `session`, `agent` (when set), and `version` (Laura's version, plus `+<commit>` when Laura was built from a git checkout). A `review` event includes `error` when Laura couldn't write the inline review into the chat.
+When the agent runs `laura ready`, Laura starts a journal for the session at `~/.laura/sessions/<session>.ndjson` and prints its path as `journal`. Laura adds one NDJSON line to the journal for each event in the table below. Each line includes `ts` (unix ms), `session`, `agent` (when set), and `version` (Laura's version, plus `+<commit>` when Laura was built from a git checkout). A `review` event includes `error` when Laura couldn't write the inline review into the chat. Laura adds a `browser` event when Laura's browser doesn't start.
 
 Read the journals back with `laura journal`, which merges every session and prints one event per line, unchanged:
 
@@ -240,6 +240,7 @@ Each event's fields:
 | `comment` | `pane`, `line` or `selector` |
 | `review` | `pane`, `path`, `comments` (thread count), `body`, `error` |
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |
+| `browser` | `error` (why Laura's browser didn't start), `output` (the last 10 lines of Chrome's output) |
 
 Every event also carries `ts`, `version`, `session`, and `agent` when `ready --agent` named one. `edit` and `replaced` appear only when true; `feedback`'s `body` is `null` when omitted and its `pane` is `null` when the shell has focus.
 

@@ -48,6 +48,9 @@ pub const EXITED: &str = "⚠ To start Laura's browser again, press Ctrl+R in a 
 /// `EXITED` for the agent, in the agent's error format.
 pub const EXITED_AGENT: &str =
     "Laura's browser exited: press Ctrl+R in a browser pane to start it again";
+/// The notice when Laura's browser doesn't start for the user. The cause is in the journal.
+pub const START_FAILED: &str =
+    "⚠ Laura's browser didn't start. To try again, press Ctrl+R in a browser pane.";
 
 /// A first start on a CI runner took 7–30 s (cold disk, Defender's first scan). Later starts take
 /// 0.1–0.3 s.
@@ -193,7 +196,16 @@ impl Browser {
     /// ponytail: `Tab` holds `LAURA_BROWSER_URL`'s port until just before this launch, but another
     /// process can still take it while Chrome starts, or after Laura's browser exits; the error
     /// names the port, and the user starts Laura again.
-    pub fn launch(path: &Path, port: u16) -> Result<Browser> {
+    pub fn launch(path: &Path, port: u16) -> Result<Browser, StartError> {
+        let proc = Browser::spawn(path, port).map_err(|reason| StartError {
+            reason,
+            output: String::new(),
+        })?;
+        Browser::connect(proc, path, port)
+    }
+
+    /// Start `path`'s process on a fresh profile.
+    fn spawn(path: &Path, port: u16) -> Result<Proc> {
         // A child that another thread is starting keeps a copy of the hold's socket until it execs.
         let t0 = Instant::now();
         while port != 0 && TcpListener::bind(("127.0.0.1", port)).is_err() {
@@ -205,7 +217,7 @@ impl Browser {
         let profile = std::env::temp_dir().join(format!("laura-browser-{}", crate::web::nonce(8)?));
         std::fs::create_dir_all(&profile)
             .with_context(|| format!("couldn't create {}", profile.display()))?;
-        // Chrome's own output, for the start errors.
+        // Chrome's own output, for the journal when the start fails.
         let stderr = match std::fs::File::create(profile.join("chrome-stderr.log")) {
             Ok(f) => f,
             Err(e) => {
@@ -216,7 +228,7 @@ impl Browser {
         let mut cmd = Command::new(path);
         // Density 3, so each page can emulate any lower one at full sharpness; no smooth
         // scrolling, which the viewing browser already does. The temporary profile's background
-        // work (updates, sync, crash reports) only costs CPU and network.
+        // work (updates, sync, Translate) only costs CPU and network.
         cmd.args([
             "--headless=new",
             "--no-first-run",
@@ -264,12 +276,34 @@ impl Browser {
         // From here, dropping `proc` ends the process and deletes the profile.
         // ponytail: a killed Laura leaves the profile in the temp folder; sweep stale
         // `laura-browser-*` folders at startup if they pile up.
-        let mut proc = Proc {
+        Ok(Proc {
             #[cfg(windows)]
             job: kill_on_close(&child),
             child,
             profile,
-        };
+        })
+    }
+
+    /// Wait for `proc` to listen, then connect. A failure carries Chrome's output, read before
+    /// `proc` drops and deletes the profile.
+    fn connect(mut proc: Proc, path: &Path, port: u16) -> Result<Browser, StartError> {
+        match Browser::ready(&mut proc, path, port) {
+            Ok((cdp, port, ws_url, start)) => Ok(Browser {
+                cdp,
+                port,
+                ws_url,
+                start,
+                proc,
+            }),
+            Err(reason) => Err(StartError {
+                output: chrome_output(&proc.profile),
+                reason,
+            }),
+        }
+    }
+
+    /// `proc`'s CDP client, port, websocket URL and start tab, once it listens.
+    fn ready(proc: &mut Proc, path: &Path, port: u16) -> Result<(Cdp, u16, String, Vec<String>)> {
         let file = proc.profile.join("DevToolsActivePort");
         let t0 = Instant::now();
         let (port, ws_path) = loop {
@@ -288,18 +322,13 @@ impl Browser {
                 }
             }
             if let Ok(Some(status)) = proc.child.try_wait() {
-                bail!(
-                    "{} exited as it started ({status}){}",
-                    path.display(),
-                    stderr_tail(&proc.profile)
-                );
+                bail!("{} exited as it started ({status})", path.display());
             }
             if t0.elapsed() > LAUNCH_TIMEOUT {
                 bail!(
-                    "{} didn't start within {} s{}",
+                    "{} didn't start within {} s",
                     path.display(),
-                    LAUNCH_TIMEOUT.as_secs(),
-                    stderr_tail(&proc.profile)
+                    LAUNCH_TIMEOUT.as_secs()
                 );
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -323,13 +352,7 @@ impl Browser {
             .filter(|t| t["type"] == "page")
             .filter_map(|t| t["targetId"].as_str().map(str::to_string))
             .collect();
-        Ok(Browser {
-            cdp,
-            port,
-            ws_url,
-            start,
-            proc,
-        })
+        Ok((cdp, port, ws_url, start))
     }
 
     /// Close Chrome's start tab. Laura calls it after the first page opens, so Laura's browser
@@ -400,17 +423,23 @@ fn version_ws(port: u16) -> Option<String> {
     Some(url[url.find("/devtools/")?..].to_string())
 }
 
-/// The last 10 lines of Chrome's stderr in `profile`, on new lines, or `""` when there are none.
-fn stderr_tail(profile: &Path) -> String {
-    let Ok(bytes) = std::fs::read(profile.join("chrome-stderr.log")) else {
-        return String::new();
-    };
+/// Why Laura's browser didn't start, and Chrome's output, for the journal.
+pub struct StartError {
+    pub reason: anyhow::Error,
+    pub output: String,
+}
+
+/// The last 10 lines of Chrome's stderr in `profile`. Chrome logs the `:ERROR:dbus/` lines at each
+/// start on a host with no session bus, so they're left out.
+fn chrome_output(profile: &Path) -> String {
+    let bytes = std::fs::read(profile.join("chrome-stderr.log")).unwrap_or_default();
     let s = String::from_utf8_lossy(&bytes);
-    let lines: Vec<&str> = s.trim_end().lines().collect();
-    if lines.is_empty() {
-        return String::new();
-    }
-    format!("\n{}", lines[lines.len().saturating_sub(10)..].join("\n"))
+    let lines: Vec<&str> = s
+        .trim_end()
+        .lines()
+        .filter(|l| !l.contains(":ERROR:dbus/"))
+        .collect();
+    lines[lines.len().saturating_sub(10)..].join("\n")
 }
 
 /// Laura's browser's process and profile.

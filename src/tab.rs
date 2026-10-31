@@ -529,7 +529,7 @@ impl Tab {
                         self.panel_mut(pane)?.discard_and_reload();
                     }
                     // Laura's browser exited: start it again, with every browser pane's page.
-                    None => self.attach_pages()?,
+                    None => self.reopen()?,
                 }
             }
             A::Refresh { pane } => self.panel_mut(pane)?.discard_and_reload(),
@@ -613,9 +613,19 @@ impl Tab {
         p.path = url.clone();
         match self.browsers.get_mut(&id) {
             Some(page) => page.navigate(&url),
-            None => self.attach_pages()?,
+            None => self.reopen()?,
         }
         Ok(())
+    }
+
+    /// The user's `Ctrl+R` or address field on a pane with no page: start Laura's browser if it
+    /// exited, then open every browser pane's page.
+    fn reopen(&mut self) -> Result<(), String> {
+        if self.browser.is_none() {
+            // The cause is in the journal; the notice stays fixed.
+            self.cdp().map_err(|_| browser::START_FAILED.to_string())?;
+        }
+        self.attach_pages()
     }
 
     /// Pane `pane`'s file pane, gated by `file_view`.
@@ -962,8 +972,11 @@ impl Tab {
         let path = self.browser_gate()?;
         if self.browser.is_none() {
             self.browser_hold = None;
-            let b = Browser::launch(&path, self.browser_port.unwrap_or(0))
-                .map_err(|e| format!("couldn't start Laura's browser: {e:#}"))?;
+            let b = Browser::launch(&path, self.browser_port.unwrap_or(0)).map_err(|e| {
+                let reason = format!("{:#}", e.reason);
+                self.log_event(json!({"type": "browser", "error": reason, "output": e.output}));
+                format!("couldn't start Laura's browser: {reason}")
+            })?;
             self.browser = Some(b);
         }
         Ok(self.browser.as_ref().expect("launched above").cdp.clone())
