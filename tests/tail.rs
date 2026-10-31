@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use assert_cmd::Command;
+use laura::tab::UserAction;
 use laura::{PaneId, Rect, Tab};
 
 /// Journal into `target/tmp/.laura`, not the real `~/.laura`, and drop an enclosing Laura's spool dir.
@@ -231,5 +232,178 @@ fn tail_falls_back_when_laura_runtime_is_unusable() -> Result<()> {
     assert_eq!(std::fs::read_to_string(&path)?, "hello\n");
     // The test never closes the pane, so it removes the spool itself.
     std::fs::remove_file(&path)?;
+    Ok(())
+}
+
+/// Append `text` to the spool at `path`, then let the tab reload.
+fn append(tab: &mut Tab, path: &str, text: &str) -> Result<()> {
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)?
+        .write_all(text.as_bytes())?;
+    tab.drain(Rect::new(0, 0, 120, 40));
+    Ok(())
+}
+
+/// The `paused` field of pane `id` in `laura layout`, or `None` when the layout omits it.
+fn layout_paused(tab: &mut Tab, id: PaneId) -> Result<Option<serde_json::Value>> {
+    let out = drive_tab(tab, &["layout"], "");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let pane = v["panes"]
+        .as_array()
+        .and_then(|ps| ps.iter().find(|p| p["id"] == id))
+        .expect("layout lists the pane");
+    Ok(pane.get("paused").cloned())
+}
+
+#[test]
+fn a_paused_tail_pane_holds_its_content() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let out = drive_tab(
+        &mut tab,
+        &["tail", "--follow", "--title", "t"],
+        "one\ntwo\n",
+    );
+    let id: PaneId = String::from_utf8(out.stdout)?.trim().parse()?;
+    let path = tab.panels[&id].path.clone();
+    let lines = tab.panels[&id].line_count();
+
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    append(&mut tab, &path, "three\nfour\n")?;
+    assert_eq!(tab.panels[&id].line_count(), lines, "a paused pane holds");
+    assert!(
+        std::fs::read_to_string(&path)?.contains("four"),
+        "the spool grows"
+    );
+    assert_eq!(layout_paused(&mut tab, id)?, Some(serde_json::json!(true)));
+    assert_eq!(layout_paused(&mut tab, 0)?, None, "the shell never pauses");
+
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let p = &tab.panels[&id];
+    assert!(
+        p.content.contains("four"),
+        "a resume reloads: {}",
+        p.content
+    );
+    assert_eq!(
+        p.cursor,
+        p.line_count() - 1,
+        "--follow catches the cursor up"
+    );
+    assert_eq!(layout_paused(&mut tab, id)?, None);
+    Ok(())
+}
+
+#[test]
+fn a_paused_pane_freezes_on_resume() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let (id, path) = tail(&mut tab)?;
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    drive_tab(
+        &mut tab,
+        &["comment", "1", "look", "--pane", &id.to_string()],
+        "",
+    );
+    append(&mut tab, &path, "more\n")?;
+    assert!(
+        !tab.panels[&id].source_changed,
+        "a paused pane doesn't freeze"
+    );
+
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let p = &tab.panels[&id];
+    assert!(p.source_changed, "a resume with threads freezes the pane");
+    assert!(!p.content.contains("more"), "the pane keeps its snapshot");
+    Ok(())
+}
+
+#[test]
+fn a_submit_ends_the_freeze_on_a_paused_pane() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    drive_tab(&mut tab, &["ready"], "");
+    let (id, path) = tail(&mut tab)?;
+    drive_tab(
+        &mut tab,
+        &["comment", "1", "look", "--pane", &id.to_string()],
+        "",
+    );
+    append(&mut tab, &path, "more\n")?;
+    assert!(
+        tab.panels[&id].source_changed,
+        "the comment freezes the pane"
+    );
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+
+    tab.act(UserAction::Submit {
+        pane: id,
+        body: String::new(),
+    })
+    .map_err(anyhow::Error::msg)?;
+    tab.drain(Rect::new(0, 0, 120, 40));
+    let p = &tab.panels[&id];
+    assert!(!p.source_changed, "the submit ends the freeze");
+    assert!(p.paused, "the pane stays paused");
+    assert!(!p.content.contains("more"), "the pane holds its content");
+
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let p = &tab.panels[&id];
+    assert!(
+        p.content.contains("more"),
+        "a resume reloads: {}",
+        p.content
+    );
+    Ok(())
+}
+
+#[test]
+fn highlight_warns_on_a_paused_pane() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let (id, _) = tail(&mut tab)?;
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let out = drive_tab(&mut tab, &["highlight", "--pane", &id.to_string(), "1"], "");
+    let stderr = String::from_utf8(out.stderr)?;
+    assert!(stderr.contains("is paused"), "stderr: {stderr}");
+    assert_eq!(
+        tab.panels[&id].highlight,
+        Some((0, 0)),
+        "the highlight applies"
+    );
+    Ok(())
+}
+
+#[test]
+fn refresh_resumes_a_paused_pane() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let (id, path) = tail(&mut tab)?;
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    append(&mut tab, &path, "more\n")?;
+
+    tab.act(UserAction::Refresh { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let p = &tab.panels[&id];
+    assert!(!p.paused, "Ctrl+R resumes the pane");
+    assert!(p.content.contains("more"), "and reloads it: {}", p.content);
+    Ok(())
+}
+
+#[test]
+fn a_file_pane_does_not_pause() -> Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    writeln!(file, "content")?;
+    let mut tab = spawn_tab()?;
+    drive_tab(&mut tab, &["open", file.path().to_str().unwrap()], "");
+    let id = *tab.panels.keys().next().expect("open added a panel");
+
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    assert!(!tab.panels[&id].paused);
     Ok(())
 }

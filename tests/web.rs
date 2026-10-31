@@ -1653,6 +1653,73 @@ fn a_tail_pane_reloads_on_new_output() -> Result<()> {
 }
 
 #[test]
+fn a_paused_tail_pane_sends_no_rows() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    let name = rig.tab.socket.clone();
+    let rx = {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let out = Command::cargo_bin("laura")
+                .unwrap()
+                .args(["tail", "--title", "t"])
+                .env("LAURA_TAB", &name)
+                .write_stdin("hello\n")
+                .output()
+                .unwrap();
+            let _ = tx.send(out);
+        });
+        rx
+    };
+    assert!(rig.wait(&rx).status.success());
+    rig.until(&mut ws, "tail rows", |f| rows_frame(f, 1));
+
+    let acted = rig.act(&mut ws, json!({"act": "toggle_pause", "pane": 1}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let layout = rig
+        .until(
+            &mut ws,
+            "paused",
+            |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][1]["paused"] == true),
+        )
+        .json();
+    assert_eq!(
+        layout["panes"][0]["paused"],
+        Value::Null,
+        "the shell can't pause"
+    );
+
+    let spool = rig.tab.panels[&1].path.clone();
+    let mut out = std::fs::OpenOptions::new().append(true).open(&spool)?;
+    writeln!(out, "more output")?;
+    drop(out);
+    let frames: Vec<Value> = rig
+        .idle(&mut ws, 20)
+        .into_iter()
+        .filter_map(|f| match f {
+            Frame::Json(v) => Some(v),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !frames.iter().any(|f| f.to_string().contains("more output")),
+        "a paused pane sends no rows: {frames:?}"
+    );
+
+    rig.act(&mut ws, json!({"act": "toggle_pause", "pane": 1}));
+    rig.until(
+        &mut ws,
+        "resumed",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][1]["paused"] == false),
+    );
+    rig.until(&mut ws, "new rows", |f| {
+        rows_frame(f, 1) && matches!(f, Frame::Json(v) if v.to_string().contains("more output"))
+    });
+    Ok(())
+}
+
+#[test]
 fn a_tail_append_sends_only_the_new_rows() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

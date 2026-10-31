@@ -103,7 +103,8 @@ some-cmd | laura tail   Spool piped stdin to an internal file and show it in a t
                         pane closes or Laura quits; a crash leaves it in the temp dir. When
                         the agent's shell can't write to Laura's spool dir, `laura tail` spools
                         into the shell's own temp dir, and Laura doesn't delete that spool when
-                        the tail pane closes.
+                        the tail pane closes. The user can pause the tail pane (`p`) to
+                        read it.
       --title <t>       Pane title (also names the spool file).
       --follow          Autoscroll to the newest line as output arrives.
 ```
@@ -126,7 +127,7 @@ Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each
 
 `overflow_rows` counts the rows that don't fit in the pane. When it's above 0, or `clipped` is `true`, the content **overflows** the pane and the user has to scroll to read the full content. `laura open` also warns on stderr when a file's content overflows (`pane #N overflows: …`), and when the pane is too small to show any of it (`pane #N too small to render …`).
 
-Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`.
+Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output.
 
 ## Experimental features
 

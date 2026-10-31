@@ -76,6 +76,8 @@ pub struct Panel {
     pub source_changed: bool,
     /// A browser pane: `path` is the page's URL, and Laura's browser draws the page.
     pub browser: bool,
+    /// The user paused the pane (`p`), so it doesn't reload until resumed (#127).
+    pub paused: bool,
     /// A browser pane's rows: the elements its threads sit on, one per row.
     pub anchors: Vec<Anchor>,
 }
@@ -214,6 +216,7 @@ impl Panel {
             diff_view: false,
             source_changed: false,
             browser: false,
+            paused: false,
             anchors: vec![],
         }
     }
@@ -1082,6 +1085,12 @@ impl Panel {
         if self.browser {
             return false;
         }
+        // Keep `sig`, so the resume sees the change.
+        if self.paused {
+            // A submit ends the freeze; the pane keeps the content it holds until resumed.
+            self.source_changed &= !self.threads.is_empty();
+            return false;
+        }
         let sig = stat_sig(&self.path);
         if sig == self.sig {
             return false;
@@ -1109,9 +1118,28 @@ impl Panel {
         true
     }
 
+    /// A tail pane, or a file pane with `--follow`, can pause (#127).
+    /// shortcut: a fallback spool outside the runtime dir pauses only with --follow; widen if users hit it.
+    pub fn pausable(&self) -> bool {
+        !self.browser && (self.follow || crate::journal::is_runtime_temp(&self.path))
+    }
+
+    /// `p`: pause or resume. A resume reloads; with threads, the reload freezes the pane instead.
+    pub fn set_paused(&mut self, on: bool) {
+        self.paused = on;
+        if !on {
+            self.reload_if_changed();
+            // A resume with no new output still moves the cursor to the last line.
+            if self.follow && !self.source_changed {
+                self.cursor = self.line_count() - 1;
+            }
+        }
+    }
+
     /// `Ctrl+R`: drop pending notes and refresh the pane to the on-disk file. A browser pane drops
     /// its rows too; the tab reloads its page.
     pub fn discard_and_reload(&mut self) {
+        self.paused = false;
         self.threads.clear();
         if self.browser {
             // The highlight's row would name another element.

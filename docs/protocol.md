@@ -228,10 +228,14 @@ Highlight a range of lines in a pane and scroll the lines into view. In a browse
 }
 </pre>
 
-<strong>Response</strong> · <code>ok</code> | <code>error</code>
+<strong>Response</strong> · <code>ok</code> | <code>warning</code> | <code>error</code>
 <pre>
 {
   "type": "ok"
+}
+{
+  "type": "warning",
+  "message": "pane #2 is paused — …"
 }
 </pre>
 
@@ -240,6 +244,8 @@ Highlight a range of lines in a pane and scroll the lines into view. In a browse
 </table>
 
 On a frozen pane, Laura returns `error` for a `range` but still clears the highlight for `range: null`. On an editor pane, Laura returns `error` for both, so annotate the lines with [`comment`](#comment) instead.
+
+On a paused pane, Laura highlights the `range` and returns `warning`, because the user doesn't see new output in the pane: `pane #N is paused — the user doesn't see new output, so Laura highlights the content that the pane holds`. `laura highlight` prints the warning and exits 0.
 
 Line numbers are the file's source lines, matching the gutter and the inline review's `L<n>`. In markdown, Laura maps source lines to rows as the [agent reference](agent-reference.md#highlight-a-section-for-the-user) describes.
 
@@ -398,7 +404,7 @@ Return the current layout without changing anything.
 </tr>
 </table>
 
-The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. In the web app, a pane's border takes three rows, so `visible_rows` is the pane's height minus three. `kind` is `pty` (the shell), `panel` (a file pane), `editor` (an editor pane, with its `path`), or `browser` (a browser pane, with its URL as `path` and the page's `title`). Editor panes and browser panes report `content_rows: null`, because Neovim and Laura's browser size their own content.
+The report has one entry per pane, with `rect`, `content_rows`, `visible_rows`, `overflow_rows`, and `clipped`, so a client can check whether the content overflows the pane. In the web app, a pane's border takes three rows, so `visible_rows` is the pane's height minus three. `kind` is `pty` (the shell), `panel` (a file pane), `editor` (an editor pane, with its `path`), or `browser` (a browser pane, with its URL as `path` and the page's `title`). A pane that the user paused also has `"paused": true`. Editor panes and browser panes report `content_rows: null`, because Neovim and Laura's browser size their own content.
 
 ### `ready`
 
@@ -477,7 +483,7 @@ Reserved for asking a file pane to reload. The `laura` CLI doesn't send `update`
 Laura handles the user's keystrokes inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
 
 - comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+S`), and refresh (`Ctrl+R`)
-- focus (`Ctrl+P`), scrolling, and diff toggle (`d`)
+- focus (`Ctrl+P`), scrolling, diff toggle (`d`), and pause/resume a tail pane (`p`)
 
 See [navigating the TUI](navigation.md) for the in-TUI keystrokes for all interactions.
 

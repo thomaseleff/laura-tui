@@ -218,6 +218,8 @@ const I = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   fwd: '<path d="M5 12h14M12 5l7 7-7 7"/>',
+  pause: '<path d="M9 5v14M15 5v14"/>',
+  play: '<path d="M7 4.5v15l12-7.5z"/>',
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 // A tooltip that shows at once; `aria-label` reads the same text to a screen reader.
@@ -226,6 +228,7 @@ const tip = t => `data-tip="${t}" aria-label="${t}"`;
 const TOOLS = [
   ["comment", "comment", "Comment on the cursor  c"],
   ["cm", "pick", "Comment mode: click an element to comment"],
+  ["toggle_pause", "pause", "Pause  p"],
   ["toggle_diff", "diff", "Diff against git HEAD  d"],
   ["refresh", "refresh", "Refresh: discard the unsubmitted inline review and reload  Ctrl+R"],
   ["close", "close", "Close the pane  x"],
@@ -238,7 +241,7 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + '<span class="delta"><span class="add"></span><span class="del"></span></span>'
   + `<span class="seg tip-c" ${tip("Flip the view  Ctrl+L")}><button data-act="editor">E<span class="tl">ditor</span></button><button data-act="file">F<span class="tl">ile</span></button></span>`
   + '<span class="chips"><span class="chip warn unsaved">● Unsaved</span><span class="chip ok reloaded" hidden>Reloaded</span>'
-  + '<span class="chip warn frozen">Frozen</span><span class="chip diffc">Diff view</span>'
+  + '<span class="chip paused">Paused</span><span class="chip warn frozen">Frozen</span><span class="chip diffc">Diff view</span>'
   + `<button class="chip hlc tip-l" data-act="highlight" data-tip="Scroll to the highlight">${ic("target")}<span class="l"></span>`
   + `<span class="x" data-act="clear_highlight" ${tip("Clear the highlight  h")}>×</span></button>`
   + '<span class="chip bad sfail" hidden>Submission failed</span></span><i class="cdot" role="img"></i><span class="grow"></span>'
@@ -292,6 +295,7 @@ function paintHead(el, p) {
   q("[data-act=editor]").classList.toggle("on", p.kind === "editor");
   q("[data-act=file]").classList.toggle("on", p.kind !== "editor");
   show(".unsaved", p.unsaved);
+  show(".paused", p.paused);
   show(".frozen", p.frozen);
   el.querySelector(".banner .bn").textContent = `${p.name} changed on disk.`;
   show(".diffc", p.diff);
@@ -315,6 +319,13 @@ function paintHead(el, p) {
   // An editor pane has no diff view (NO_DIFF_IN_EDITOR), and nor does a file with no changes.
   show(".tools [data-act=toggle_diff]", !p.pty && (p.added || p.removed || p.diff));
   q(".tools [data-act=toggle_diff]").classList.toggle("on", p.diff);
+  // `paused` is null on a pane that can't pause. A paused pane shows **Resume**.
+  const pb = q(".tools [data-act=toggle_pause]"), pt = p.paused ? "Resume  p" : "Pause  p";
+  pb.hidden = p.paused == null;
+  pb.classList.toggle("on", !!p.paused);
+  pb.innerHTML = ic(pb.dataset.ic = p.paused ? "play" : "pause");
+  pb.dataset.tip = pt;
+  pb.setAttribute("aria-label", pt);
   // The narrowest pane shows only a ⚠, whose tooltip reads the line.
   const nw = el.querySelector(".narrow"), nt = strings.narrow?.replace("{name}", p.name) ?? "";
   nw.textContent = nw.dataset.tip = nt;
@@ -1083,7 +1094,7 @@ function paintPop(id) {
     const shown = p.kind !== "file" && p.kind !== "browser" ? [] : [...el.querySelectorAll(".head .tools .tool")].filter(b => getComputedStyle(b).display !== "none");
     q(".pop").innerHTML = (p.threads ? row("review", "comment", "Submit the inline review  Shift+S", "hd") + row("list", "comment", "All threads  n", "hd") : "")
       + (p.pty && p.id !== 0 ? row(p.kind === "editor" ? "file" : "editor", p.kind === "editor" ? "file" : "term", "Flip the view  Ctrl+L", "hd") : "")
-      + shown.map(b => row(b.dataset.act, TOOLS.find(t => t[0] === b.dataset.act)[1], b.dataset.tip)).join("");
+      + shown.map(b => row(b.dataset.act, b.dataset.ic ?? TOOLS.find(t => t[0] === b.dataset.act)[1], b.dataset.tip)).join("");
     // **More** is wider than a narrow pane; it stays inside the window.
     const pop = q(".pop");
     pop.style.right = "";
@@ -1477,6 +1488,7 @@ function paintSelector() {
       return c;
     };
     if (unseen.has(p.id)) chip("new", "New");
+    if (p.paused) chip("", "Paused");
     if (p.frozen) chip("warn", "Frozen");
     if (p.unsaved) chip("warn", "Unsaved");
     if (p.highlight) chip("hlc", "Highlight");
@@ -1567,6 +1579,7 @@ const FILE_KEYS = {
   ArrowLeft: p => ({ act: "scroll_h", pane: p, delta: -1 }),
   ArrowRight: p => ({ act: "scroll_h", pane: p, delta: 1 }),
   d: p => ({ act: "toggle_diff", pane: p }),
+  p: p => ({ act: "toggle_pause", pane: p }),
   r: p => ({ act: "toggle_thread", pane: p }),
   n: p => ({ act: "jump_thread", pane: p, next: true }),
   N: p => ({ act: "jump_thread", pane: p, next: false }),
