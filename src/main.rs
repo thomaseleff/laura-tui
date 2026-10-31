@@ -382,7 +382,7 @@ fn web(program: Vec<String>) -> Result<()> {
         let changed = tab.drain(area);
         tab.tick(area);
         let quit = !web.sync(&mut tab, changed);
-        if quit || tab.pty.has_exited() {
+        if quit || tab.shell_done() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(16));

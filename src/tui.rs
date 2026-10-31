@@ -20,7 +20,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use laura::editor::Nvim;
 use laura::protocol::PTY_PANE;
-use laura::tab::SUBMIT_FAILED;
+use laura::tab::{SHELL_EXITED, SUBMIT_FAILED};
 use laura::view::{self, Hint};
 use laura::{PaneId, Panel, PtyTab, Tab, UserAction};
 
@@ -339,10 +339,13 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             if wizard {
                 render_wizard(f, &theme_path);
             }
-            // A live toast (e.g. a failed submit) wins the bottom-right slot; a focused frozen pane's
-            // notice shows otherwise, and returns once the toast expires, until submit / ^r clears it.
+            // A live toast (e.g. a failed submit) wins the bottom-right slot; then the exited shell's
+            // notice, while Neovim holds Laura open; then a focused frozen pane's notice, which
+            // returns once the toast expires, until submit / ^r clears it.
             if let Some((msg, _)) = &toast {
                 render_toast(f, msg);
+            } else if tab.pty.has_exited() {
+                render_toast(f, SHELL_EXITED);
             } else if let Some(p) = tab.focused_panel().filter(|p| p.source_changed) {
                 render_toast(
                     f,
@@ -361,8 +364,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         // that just showed the selection — snapshot it here while a drag is live, not the empty next one.
         let drag_frame = selection.is_some().then(|| completed.buffer.clone());
 
-        // The shell exiting quits Laura.
-        if tab.pty.has_exited() {
+        // The shell exiting quits Laura, once no Neovim has unsaved edits.
+        if tab.shell_done() {
             break;
         }
 

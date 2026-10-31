@@ -123,6 +123,8 @@ pub const SUBMIT_FAILED: &str =
 /// `SUBMIT_FAILED` in the web app, whose review popover names the keystrokes on its buttons.
 pub const SUBMIT_FAILED_WEB: &str =
     "⚠ Laura did not submit the inline review, but kept its threads and review body.";
+/// The shell exited while Neovim has unsaved edits.
+pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 
 /// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
 /// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
@@ -370,6 +372,8 @@ pub struct Tab {
     pub browser_sizes: HashMap<PaneId, browser::Size>,
     /// Notices for the view, which the web app shows and clears, each with the pane to show it in.
     pub notices: Vec<(Option<PaneId>, String)>,
+    /// `shell_done` showed `SHELL_EXITED`, so it shows the notice once.
+    shell_exit_shown: bool,
     /// Spawn sequence number, for the default session id.
     seq: u64,
     next_pane: PaneId,
@@ -417,6 +421,7 @@ impl Tab {
             parked: None,
             browser_sizes: HashMap::new(),
             notices: Vec::new(),
+            shell_exit_shown: false,
             seq: n,
             next_pane: 1,
             rx,
@@ -1213,17 +1218,38 @@ impl Tab {
     /// Why closing the tab would drop unsaved Neovim edits: the lowest-id editor pane with them,
     /// `(+N more)` for the rest. `None` when every Neovim is saved.
     pub fn unsaved_edits(&self) -> Option<String> {
-        let ids: Vec<PaneId> = self
-            .editors
+        let mut message = unsaved_message(self.unsaved_pane()?);
+        let more = self.editors.values().filter(|e| e.modified()).count() - 1;
+        if more > 0 {
+            message += &format!(" (+{more} more)");
+        }
+        Some(message)
+    }
+
+    /// The lowest-id editor pane with unsaved edits.
+    fn unsaved_pane(&self) -> Option<PaneId> {
+        self.editors
             .iter()
             .filter(|(_, e)| e.modified())
             .map(|(&id, _)| id)
-            .collect();
-        let mut message = unsaved_message(*ids.iter().min()?);
-        if ids.len() > 1 {
-            message += &format!(" (+{} more)", ids.len() - 1);
+            .min()
+    }
+
+    /// True when the shell exited and no Neovim has unsaved edits. Until then, focus the first
+    /// editor pane with unsaved edits and show `SHELL_EXITED` once.
+    pub fn shell_done(&mut self) -> bool {
+        if !self.pty.has_exited() {
+            return false;
         }
-        Some(message)
+        let Some(id) = self.unsaved_pane() else {
+            return true;
+        };
+        if !self.shell_exit_shown {
+            self.shell_exit_shown = true;
+            self.focus = id;
+            self.notices.push((Some(id), SHELL_EXITED.into()));
+        }
+        false
     }
 
     /// The lowest-id pane other than `except` that shows `path`.

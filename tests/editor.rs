@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use assert_cmd::Command;
+use laura::protocol::PTY_PANE;
+use laura::tab::SHELL_EXITED;
 use laura::{Rect, Tab, UserAction};
 
 /// `ready` journals into `target/tmp/.laura`, not the real `~/.laura`, and a real `nvim` keeps its
@@ -488,6 +490,33 @@ fn unsaved_edits_refuse_closing_the_tab() -> Result<()> {
     std::fs::remove_file(dirty(1))?;
     std::fs::remove_file(dirty(2))?;
     assert_eq!(tab.unsaved_edits(), None);
+    Ok(())
+}
+
+#[test]
+fn the_shell_exit_waits_for_unsaved_edits() -> Result<()> {
+    fakes();
+    let mut tab = spawn_tab()?;
+    tab.editor = Ok(fake("stay"));
+    let (_dir, path) = file();
+    drive(&mut tab, &["open", "--edit", &path]);
+    // Stand in for Neovim: the fake can't run the bootstrap that keeps this marker.
+    let dirty = std::env::temp_dir().join(format!("{}-1.dirty", tab.socket));
+    std::fs::write(&dirty, "")?;
+    tab.focus = PTY_PANE;
+    tab.act(UserAction::Input {
+        pane: PTY_PANE,
+        bytes: b"exit\r".to_vec(),
+    })
+    .map_err(anyhow::Error::msg)?;
+    drain_until(&mut tab, "the shell exits", |t| t.pty.has_exited());
+    assert!(!tab.shell_done());
+    assert!(!tab.shell_done());
+    assert_eq!(tab.focus, 1);
+    assert_eq!(tab.notices, [(Some(1), SHELL_EXITED.to_string())]);
+    // The user saves.
+    std::fs::remove_file(&dirty)?;
+    assert!(tab.shell_done());
     Ok(())
 }
 
