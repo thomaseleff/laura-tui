@@ -66,13 +66,16 @@ function showNotice(text, secs, pane) {
   paintNotice();
 }
 // The notice keeps its text while it fades out. A notice for a pane shows in that pane, and any
-// other in the workspace's corner, as does one whose pane closed or is too narrow.
+// other in the workspace's corner, as does one whose pane closed or is too small.
 function paintNotice() {
-  const el = noticePane !== undefined && $("p" + noticePane);
-  const home = el && el.offsetWidth >= 300 ? el : $("grid");
-  if (noticeEl.parentNode !== home) home.appendChild(noticeEl);
   noticeEl.classList.toggle("on", !!notice);
   if (notice) noticeEl.textContent = notice;
+  const el = noticePane !== undefined && $("p" + noticePane);
+  const wide = el && el.offsetWidth >= 300;
+  if (wide && noticeEl.parentNode !== el) el.appendChild(noticeEl);
+  // The card fits below the pane header, else it goes to the workspace's corner.
+  const fits = wide && noticeEl.offsetHeight <= el.offsetHeight - 3 * ch - 20;
+  if (!fits && noticeEl.parentNode !== $("grid")) $("grid").appendChild(noticeEl);
 }
 
 function paintHint() {

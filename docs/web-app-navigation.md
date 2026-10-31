@@ -86,7 +86,7 @@ Laura shows a notice in the workspace's bottom-right corner, above the hint line
 
 - The notice is not for a pane.
 - The user closes the notice's pane while Laura shows the notice.
-- The notice's pane is narrower than 300 pixels.
+- The notice's pane is narrower than 300 pixels, or too short to show the notice below the pane header.
 
 ## Threads and inline reviews
 
