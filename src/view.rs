@@ -26,8 +26,8 @@ pub const WARN: Color = Color::Rgb(235, 203, 139);
 const HL_NUMBER: Color = Color::Rgb(216, 222, 233);
 
 /// A file pane's border title: `#id path`, its lines added and removed vs HEAD, `● unsaved` while
-/// an editor pane's Neovim has unsaved edits, then ` · editor`/` · file` on an editor pane and the
-/// thread count.
+/// an editor pane's Neovim has unsaved edits, then ` · editor`/` · file` on an editor pane,
+/// ` · paused` and the thread count.
 pub fn pane_title(id: PaneId, panel: &Panel, editor: Option<&Nvim>) -> Line<'static> {
     let mut spans = vec![Span::raw(format!("#{id} {}", display_path(&panel.path)))];
     let (added, removed) = panel.diff_stat;
@@ -56,6 +56,9 @@ pub fn pane_title(id: PaneId, panel: &Panel, editor: Option<&Nvim>) -> Line<'sta
     } else {
         if editor.is_some() {
             tail += " · file";
+        }
+        if panel.paused {
+            tail += " · paused";
         }
         if review > 0 {
             let (above, below) = panel.thread_split();
@@ -294,6 +297,7 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
     let newline = newline_key(tab.web);
     let editor_focused = pty && tab.focus != PTY_PANE;
     let editor = tab.editors.contains_key(&tab.focus);
+    let pause = tab.focused_panel().filter(|p| p.pausable());
     let v: Vec<(&'static str, &str)> = match mode {
         Hint::Locked if editor_focused => vec![
             ("", "🔒 locked — every keystroke goes to Neovim"),
@@ -392,6 +396,9 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             } else {
                 vec![("d", "diff"), ("h", "clear highlight")]
             },
+            pause.map_or(vec![], |p| {
+                vec![("p", if p.paused { "resume" } else { "pause" })]
+            }),
             vec![("Ctrl+R", "refresh"), ("x", "close"), ("Esc", "shell")],
             when(!tab.agent, vec![("", READY)]),
         ]
@@ -504,6 +511,7 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
                 ("Ctrl+R", "Refresh the pane"),
                 ("d", "Diff against git HEAD"),
                 ("h", "Clear the highlight"),
+                ("p", "Pause or resume a tail pane"),
                 ("x", "Close the pane"),
                 ("Esc", "Leave the pane"),
             ],

@@ -101,6 +101,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **refresh** | To discard a pane's unsubmitted inline review and reload the file contents (`Ctrl+R`). | clear, reset |
 | **reload** | A file pane re-reads the file contents when it changes on disk. | re-render, auto-update, catch up, live-watched |
 | **frozen** / **freeze** | A file pane whose file changed on disk while it has an unsubmitted inline review. | paused, stale |
+| **pause** / **paused** | A tail pane that the user stopped from reloading (`p`). | freeze, hold |
 | **snapshot** | The content of a pane with an unsubmitted inline review. | reviewed content |
 | **highlight** (n., v.) | Lines marked by `laura highlight`. | spotlight |
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |

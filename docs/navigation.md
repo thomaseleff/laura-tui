@@ -69,6 +69,7 @@ Laura applies its theme to Neovim, including the file view's syntax colors (Nord
 | `d` | Toggle inline diff vs git `HEAD` |
 | `x` | Close the pane |
 | `h` | Clear the pane's highlight |
+| `p` | Pause or resume a tail pane, or a file pane that the agent opened with `--follow` |
 | `Ctrl+L` | In an editor pane, flip between the editor view and the file view |
 | `Esc` | Leave the pane |
 
@@ -91,6 +92,8 @@ A file pane's border shows:
 If an inline review cannot be written into the shell, Laura keeps the threads and review body and shows the notice `⚠ inline review submission failed — Enter to retry · Esc to cancel`. `Enter` retries; `Esc` closes the review body and keeps the threads. Laura records the cause in the journal's `review` event.
 
 A file pane with an unsubmitted inline review **freezes** when its file changes on disk. A focused frozen pane shows the notice `⚠ <file> changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review)` (shortened to `⚠ Shift+S submit · Ctrl+R discards inline review` on a narrow terminal). `Shift+S` submits against the snapshot (the inline review starts with a `⚠ file changed` banner), then the pane reloads. `Ctrl+R` refreshes. If you delete the pane's last comment, Laura also ends the freeze and reloads the pane.
+
+A tail pane that you **pause** with `p` doesn't reload, so you can read, comment on or copy a line while the program writes more output. `laura tail` keeps writing the output to its spool, so you lose no output. The pane's border shows `· paused`. Press `p` again to resume: Laura reloads the pane, and with `--follow` moves the cursor to the last line. If the pane has threads when you resume, the pane freezes instead. `Ctrl+R` also resumes the pane, then refreshes it.
 
 ## Typing a comment or review body
 

@@ -73,6 +73,7 @@ fn build_report(
                 overflow_rows,
                 clipped: overflow_rows > 0 || too_small,
                 title,
+                paused: panels.get(&id).is_some_and(|p| p.paused),
             }
         })
         .collect();
@@ -145,6 +146,10 @@ pub enum UserAction {
         delta: isize,
     },
     ToggleDiff {
+        pane: PaneId,
+    },
+    /// `p`: pause or resume a tail pane; any other pane does nothing.
+    TogglePause {
         pane: PaneId,
     },
     /// `r`: the cursor's thread, else all. `line`: a card's 1-based line; the browser toggles that
@@ -490,6 +495,13 @@ impl Tab {
                 let p = self.panel_mut(pane)?;
                 let want = !p.diff_view;
                 p.set_diff_view(want)?;
+            }
+            A::TogglePause { pane } => {
+                let p = self.panel_mut(pane)?;
+                if p.pausable() {
+                    let on = !p.paused;
+                    p.set_paused(on);
+                }
             }
             A::ToggleThread { pane, line } => {
                 let p = self.panel_mut(pane)?;

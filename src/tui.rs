@@ -545,6 +545,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             KeyCode::Left => tab.act(UserAction::ScrollH { pane, delta: -1 }),
                             KeyCode::Right => tab.act(UserAction::ScrollH { pane, delta: 1 }),
                             KeyCode::Char('d') => tab.act(UserAction::ToggleDiff { pane }),
+                            KeyCode::Char('p') => tab.act(UserAction::TogglePause { pane }),
                             KeyCode::Char('c') => {
                                 let line = tab.focused_panel().map_or(1, Panel::cursor_line);
                                 tab.act(UserAction::BeginComment { pane }).map(|seed| {

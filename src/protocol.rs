@@ -217,6 +217,9 @@ pub struct PaneReport {
     /// A browser pane's page title, so the agent can match the pane to its browser tools' pages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The user paused the pane, so the user doesn't see its new output (#127).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
 }
 
 /// Serializable mirror of a ratatui `Rect` (which isn't `Serialize`).
