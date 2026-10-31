@@ -21,7 +21,7 @@ You do the work from the branch to the merge. Stop for the user at each plan, at
 
 ## Terms
 
-- A **trail** (`<P>`) is the intent: the issue, the decisions and the status. `<P>` is the trail number, for example `6`. Do not add the project, as in `gh/<owner>/6`.
+- A **trail** (`<P>`) is the intent: the issue and the decisions. `<P>` is the trail number, for example `6`. Do not add the project, as in `gh/<owner>/6`.
 - A **change** (`<repo>/<n>`, for example `laura-tui/4`) is the branch of the trail in one repository. Trails and changes have different numbers. Do not use one number for the other.
 - A **finding** is review feedback from an agent. A **comment** is feedback between people. Post your feedback as findings.
 - Read the exact flags with `entire agent-help trail <subcommand>`. Do not guess a flag.
@@ -78,15 +78,15 @@ You do the work from the branch to the merge. Stop for the user at each plan, at
 
 A subagent reviews the draft PR before the Entire reviewer reviews it. The session that wrote the code does not review its own PR.
 
-14. Start one subagent (Agent tool, `isolation: "worktree"`) that runs `/pr-review <PR>`. Do this for every PR, also a small one. Tell the subagent: do not commit, do not post findings, do not change the trail, and return the pr-review answer.
+14. Start one subagent (Agent tool, `isolation: "worktree"`) that runs `/pr-review <PR>`. Do this for every PR, also a small one. Tell the subagent: first run `gh pr checkout <PR> --detach` in your worktree, because the worktree starts at `main` and the trail's worktree has the branch. Do not commit, do not post findings, do not change the trail, and return the pr-review answer.
 15. Check each finding against the code. Post each finding on the change, also each Follow-up. Never post a finding as a comment. Map the severities like this: Blocker → `high`, Should fix → `medium`, Follow-up → `low`.
 
     ```
     entire trail finding add --trail <repo>/<n> --severity <high|medium|low> --confidence <0..1> --file <path> --line <n> -m "…"
     ```
 
-16. Remove the subagent's worktree when the subagent is done. The probe edits of the subagent stay uncommitted in that worktree.
-17. Brief the user (see "Brief"). Stop.
+16. When the subagent is done, check `git worktree list` and `git branch --list 'worktree-agent-*'`. If the subagent's worktree or branch is still there, remove them: `git worktree remove --force <path>` and `git branch -D <branch>`. The probe edits of the subagent stay uncommitted in that worktree, so `--force` is necessary.
+17. Brief the user (see "Brief"). If the review has open findings, stop. If it has none, go to step 20 with no stop.
 18. When the user approves the fixes, switch into plan mode. Write the fix plan from the user's answers, against the current code.
 19. Fix the findings, commit, run the check suite and push. Then resolve each fixed finding. Tell which commit fixed it and how you checked the fix:
 
@@ -94,7 +94,13 @@ A subagent reviews the draft PR before the Entire reviewer reviews it. The sessi
     entire trail finding resolve <id> --trail <repo>/<n> -m "Fixed in <sha>: <how you checked>"
     ```
 
-    For each Follow-up that the user logs as an issue, run `gh issue create`. Then dismiss the finding with `-m "Logged as #<n>, as the user agreed"`.
+    For each finding that the user dismisses, dismiss the finding with the user's reason:
+
+    ```
+    entire trail finding dismiss <id> --trail <repo>/<n> -m "<the user's reason>"
+    ```
+
+    For each Follow-up that the user logs as an issue, run `gh issue create`. Then dismiss the finding with the same command and `-m "Logged as #<n>, as the user agreed"`.
 20. Update the trail body if a decision or a check changed. Mark the PR as ready for review: `gh pr ready <n>`. The Entire reviewer starts.
 
 ### Gates
@@ -102,14 +108,14 @@ A subagent reviews the draft PR before the Entire reviewer reviews it. The sessi
 21. Get all findings, including the findings from the Entire reviewer:
 
     ```
-    entire trail finding <repo>/<n> --freshness any --include-dismissed
+    entire trail finding <repo>/<n> --freshness any --status any
     ```
 
-22. Every open finding blocks the merge, including a low finding. If the round has new open findings, brief the user. Stop.
+22. Every open finding blocks the merge, including a low finding. If the round has open findings, brief the user. Stop. If it has none, go to step 26.
 23. When the user approves the fixes, switch into plan mode. Write a plan that fixes the open findings from the user's answers.
-24. Fix the findings, commit, and resolve each finding as step 19 tells.
+24. Fix the findings, and resolve each finding, as step 19 tells.
 25. Dismiss a finding only when the user agrees.
-26. Push. Then wait for CI: `gh pr checks <n> --watch`.
+26. Wait for CI: `gh pr checks <n> --watch`.
 27. If a CI job fails and your change cannot cause the failure, run the failed jobs again one time: `gh run rerun <run-id> --failed`. Tell the user about the rerun in the next brief.
 28. Run `entire trail merge <repo>/<n> --dry-run`. Entire reviews each new head again, so new findings can come. Do steps 21 to 28 again until the dry run shows only the approval gate.
 
@@ -117,8 +123,8 @@ A subagent reviews the draft PR before the Entire reviewer reviews it. The sessi
 
 29. Start one subagent that runs `/pr-review <PR>` on the full PR, as step 14 tells. Remove its worktree when it is done, as step 16 tells. Do this one time only.
 30. Check each finding against the code. Log each Follow-up as a GitHub issue with `gh issue create`. Write the issue in ASD-STE100, with a link to the PR. Do not post the Follow-up as a finding.
-31. Post each Blocker and Should-fix finding as step 15 tells. Brief the user, and list the issue URLs from step 30. Stop. If the review has no Blocker or Should-fix finding, go to step 33.
-32. When the user approves the fixes, do steps 18 and 19. Then do steps 21 to 28 again. Do not run a second final review.
+31. If the review has no Blocker or Should-fix finding, go to step 33, and list the issue URLs from step 30 in that brief. Otherwise, post each Blocker and Should-fix finding as step 15 tells, brief the user, list the issue URLs from step 30, and stop.
+32. When the user approves the fixes, do steps 18 and 19. Then do steps 21 to 28 again. Do not run a second final review. Then go to step 33.
 
 ### Approve and merge
 
@@ -146,7 +152,7 @@ Write these items in this sequence:
 
 1. **TL;DR**: 2 to 4 sentences. Tell what the round found, and what the user must decide.
 2. **Links**: the trail URL, the change URL and the PR URL.
-3. **Findings**: the number of findings for each severity, open and resolved. Then a table with these columns: the finding id, the severity, the finding in one line, the users that the finding affects, and the recommendation (fix now, log as an issue, or dismiss). For a Follow-up, recommend "fix now" when the fix is small and in the scope of the PR.
+3. **Findings**: the number of findings for each severity, open and resolved. Then a table with these columns: the finding id, the severity, the finding in one line, the users that the finding affects, and the recommendation (fix now, log as an issue, or dismiss). In the Review and Gates rounds, recommend "fix now" for a Follow-up when the fix is small and in the scope of the PR. In the final review, list the Follow-ups as the issue URLs from step 30, not in the table.
 4. **Before / after**: for each finding, what the user sees now and after the fix. Show the command output, the notice text, the doc sentence or a short code snippet. For a UI change, show an ASCII mockup of the pane, the pane header or the notice, before and after.
 5. **Questions**: each decision that the user must make, with the options and a recommendation.
 6. **Gates**: each gate and its state, and each CI rerun.
