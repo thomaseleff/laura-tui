@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -979,19 +979,14 @@ impl Tab {
         changed
     }
 
-    /// Take Laura's browser once its start ends: open every browser pane's page, then the agent's
-    /// parked `open <url>`. On a failure, journal the cause and answer with the reason.
+    /// Take Laura's browser once its start ends: apply the agent's parked `open <url>`, then open
+    /// every other browser pane's page. On a failure, journal the cause and answer with the reason.
     fn poll_start(&mut self, area: Rect) -> bool {
-        let Some((rx, pane)) = &self.starting else {
+        let Some((start, pane)) = &self.starting else {
             return false;
         };
-        let res = match rx.try_recv() {
-            Ok(res) => res,
-            Err(TryRecvError::Empty) => return false,
-            Err(TryRecvError::Disconnected) => Err(browser::StartError {
-                reason: anyhow::anyhow!("the start ended with no result"),
-                output: String::new(),
-            }),
+        let Some(res) = start.poll() else {
+            return false;
         };
         let pane = *pane;
         self.starting = None;
@@ -999,12 +994,14 @@ impl Tab {
         match res {
             Ok(b) => {
                 self.browser = Some(b);
-                if let Err(e) = self.attach_pages() {
-                    self.notices.push((pane, format!("⚠ {e}")));
-                }
+                // The parked message first: an `open <url> --panel` opens its pane's page at the
+                // new URL, and `attach_pages` doesn't open it at the old one.
                 if let Some((msg, reply)) = parked {
                     let resp = self.apply(msg, area);
                     reply.send(&resp);
+                }
+                if let Err(e) = self.attach_pages() {
+                    self.notices.push((pane, format!("⚠ {e}")));
                 }
             }
             Err(e) => {

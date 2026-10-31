@@ -303,6 +303,19 @@ fn a_dead_browser_starts_again() -> Result<()> {
         |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == browser::EXITED && v["pane"] == two),
     );
     assert!(r.tab.panels.contains_key(&id), "the pane stays");
+    // A start that fails shows the fixed notice in the pane, and the next `Ctrl+R` tries again.
+    let chrome = std::mem::replace(
+        &mut r.tab.browser_path,
+        Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")),
+    );
+    let acted = r.act(&mut ws, json!({"act": "refresh", "pane": id}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    r.until(
+        &mut ws,
+        "the start-failed notice",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "notice" && v["text"] == browser::START_FAILED && v["pane"] == id),
+    );
+    r.tab.browser_path = chrome;
     let acted = r.act(&mut ws, json!({"act": "refresh", "pane": id}));
     assert_eq!(acted["ok"], true, "{acted}");
     next_frame(&mut r, &mut ws, id);

@@ -198,15 +198,14 @@ impl Browser {
     /// names the port, and the user starts Laura again.
     pub fn launch(path: &Path, port: u16) -> Start {
         let (tx, rx) = channel();
+        let cancel = Arc::new(AtomicBool::new(false));
         // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
         // that spawned it exits.
         match Browser::spawn(path, port) {
             Ok(proc) => {
-                let path = path.to_path_buf();
-                // With the tab gone, the send fails and drops Laura's browser, which ends Chrome
-                // and deletes the profile.
+                let (path, cancel) = (path.to_path_buf(), cancel.clone());
                 std::thread::spawn(move || {
-                    let _ = tx.send(Browser::connect(proc, &path, port));
+                    let _ = tx.send(Browser::connect(proc, &path, port, &cancel));
                 });
             }
             Err(reason) => {
@@ -216,7 +215,7 @@ impl Browser {
                 }));
             }
         }
-        rx
+        Start { rx, cancel }
     }
 
     /// Start `path`'s process on a fresh profile.
@@ -301,8 +300,13 @@ impl Browser {
 
     /// Wait for `proc` to listen, then connect. A failure carries Chrome's output, read before
     /// `proc` drops and deletes the profile.
-    fn connect(mut proc: Proc, path: &Path, port: u16) -> Result<Browser, StartError> {
-        match Browser::ready(&mut proc, path, port) {
+    fn connect(
+        mut proc: Proc,
+        path: &Path,
+        port: u16,
+        cancel: &AtomicBool,
+    ) -> Result<Browser, StartError> {
+        match Browser::ready(&mut proc, path, port, cancel) {
             Ok((cdp, port, ws_url, start)) => Ok(Browser {
                 cdp,
                 port,
@@ -318,7 +322,12 @@ impl Browser {
     }
 
     /// `proc`'s CDP client, port, websocket URL and start tab, once it listens.
-    fn ready(proc: &mut Proc, path: &Path, port: u16) -> Result<(Cdp, u16, String, Vec<String>)> {
+    fn ready(
+        proc: &mut Proc,
+        path: &Path,
+        port: u16,
+        cancel: &AtomicBool,
+    ) -> Result<(Cdp, u16, String, Vec<String>)> {
         let file = proc.profile.join("DevToolsActivePort");
         let t0 = Instant::now();
         let (port, ws_path) = loop {
@@ -335,6 +344,9 @@ impl Browser {
                 {
                     break (port, ws.trim().to_string());
                 }
+            }
+            if cancel.load(Ordering::SeqCst) {
+                bail!("Laura quit as Laura's browser started");
             }
             if let Ok(Some(status)) = proc.child.try_wait() {
                 bail!("{} exited as it started ({status})", path.display());
@@ -438,8 +450,35 @@ fn version_ws(port: u16) -> Option<String> {
     Some(url[url.find("/devtools/")?..].to_string())
 }
 
-/// Laura's browser as it starts: `Browser::launch` sends it once Chrome listens, or why it didn't.
-pub type Start = Receiver<Result<Browser, StartError>>;
+/// Laura's browser as it starts: `Browser::launch`'s thread sends it once Chrome listens, or why
+/// it didn't.
+pub struct Start {
+    rx: Receiver<Result<Browser, StartError>>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Start {
+    /// The start's result, once it ends.
+    pub fn poll(&self) -> Option<Result<Browser, StartError>> {
+        match self.rx.try_recv() {
+            Ok(res) => Some(res),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err(StartError {
+                reason: anyhow!("the start ended with no result"),
+                output: String::new(),
+            })),
+        }
+    }
+}
+
+impl Drop for Start {
+    /// Laura quits as Laura's browser starts: stop the thread's wait, and wait while its `Proc`
+    /// ends Chrome and deletes the profile, before Laura's process exits.
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        let _ = self.rx.recv();
+    }
+}
 
 /// Why Laura's browser didn't start, and Chrome's output, for the journal.
 pub struct StartError {
