@@ -2,9 +2,9 @@
 //! renders a URL, and its screencast streams to the web app. No other module talks CDP.
 //!
 //! Laura's loop runs the whole workspace on one thread, so nothing here waits on the page except
-//! `Browser::launch`'s start tab, `Page::open`'s setup calls, and `Page::pick` and `Page::find`:
-//! every other call goes out through `Cdp::send`, and its reply comes back through `Page::poll`
-//! like an event.
+//! `Page::open`'s setup calls, and `Page::pick` and `Page::find`: `Browser::launch` waits for
+//! Chrome on its own thread, and every other call goes out through `Cdp::send`, and its reply
+//! comes back through `Page::poll` like an event.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -48,10 +48,13 @@ pub const EXITED: &str = "⚠ To start Laura's browser again, press Ctrl+R in a 
 /// `EXITED` for the agent, in the agent's error format.
 pub const EXITED_AGENT: &str =
     "Laura's browser exited: press Ctrl+R in a browser pane to start it again";
+/// The notice when Laura's browser doesn't start for the user. The cause is in the journal.
+pub const START_FAILED: &str =
+    "⚠ Laura's browser didn't start. To try again, press Ctrl+R in a browser pane.";
 
-/// Chrome was ready in 0.7–1.3 s in the spike, and Edge's first run in 2.6 s; Chrome's first run on
-/// a cold CI runner took longer than 5 s.
-const LAUNCH_TIMEOUT: Duration = Duration::from_secs(20);
+/// A first start on a CI runner took 7–30 s (cold disk, Defender's first scan). Later starts take
+/// 0.1–0.3 s.
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long `Cdp::call` waits for a reply.
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// At most one size per page this often, so a window drag doesn't restart the screencast each step.
@@ -188,12 +191,36 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// Start `path` headless on a fresh profile and connect to it, with CDP on `port` (`0`: the
-    /// OS picks one).
+    /// Start `path` headless on a fresh profile with CDP on `port` (`0`: the OS picks one), and
+    /// connect to it on another thread. The receiver gets Laura's browser, or why it didn't start.
     /// ponytail: `Tab` holds `LAURA_BROWSER_URL`'s port until just before this launch, but another
     /// process can still take it while Chrome starts, or after Laura's browser exits; the error
     /// names the port, and the user starts Laura again.
-    pub fn launch(path: &Path, port: u16) -> Result<Browser> {
+    pub fn launch(path: &Path, port: u16) -> Start {
+        let (tx, rx) = channel();
+        // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
+        // that spawned it exits.
+        match Browser::spawn(path, port) {
+            Ok(proc) => {
+                let path = path.to_path_buf();
+                // With the tab gone, the send fails and drops Laura's browser, which ends Chrome
+                // and deletes the profile.
+                std::thread::spawn(move || {
+                    let _ = tx.send(Browser::connect(proc, &path, port));
+                });
+            }
+            Err(reason) => {
+                let _ = tx.send(Err(StartError {
+                    reason,
+                    output: String::new(),
+                }));
+            }
+        }
+        rx
+    }
+
+    /// Start `path`'s process on a fresh profile.
+    fn spawn(path: &Path, port: u16) -> Result<Proc> {
         // A child that another thread is starting keeps a copy of the hold's socket until it execs.
         let t0 = Instant::now();
         while port != 0 && TcpListener::bind(("127.0.0.1", port)).is_err() {
@@ -205,13 +232,30 @@ impl Browser {
         let profile = std::env::temp_dir().join(format!("laura-browser-{}", crate::web::nonce(8)?));
         std::fs::create_dir_all(&profile)
             .with_context(|| format!("couldn't create {}", profile.display()))?;
+        // Chrome's own output, for the journal when the start fails.
+        let stderr = match std::fs::File::create(profile.join("chrome-stderr.log")) {
+            Ok(f) => f,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(anyhow!("couldn't create {}: {e}", profile.display()));
+            }
+        };
         let mut cmd = Command::new(path);
         // Density 3, so each page can emulate any lower one at full sharpness; no smooth
-        // scrolling, which the viewing browser already does.
+        // scrolling, which the viewing browser already does. The temporary profile's background
+        // work (updates, sync, Translate) only costs CPU and network.
         cmd.args([
             "--headless=new",
             "--no-first-run",
             "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-sync",
+            "--disable-extensions",
+            "--disable-default-apps",
+            "--disable-breakpad",
+            "--disable-client-side-phishing-detection",
+            "--disable-features=Translate,OptimizationHints,MediaRouter",
             "--force-device-scale-factor=3",
             "--disable-smooth-scrolling",
         ])
@@ -219,7 +263,10 @@ impl Browser {
         .arg(format!("--user-data-dir={}", profile.display()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr);
+        // No keyring prompt or D-Bus wait for a profile that Laura deletes on exit.
+        #[cfg(target_os = "linux")]
+        cmd.arg("--password-store=basic");
         #[cfg(target_os = "linux")]
         // SAFETY: `prctl` is async-signal-safe and touches no memory.
         unsafe {
@@ -238,15 +285,40 @@ impl Browser {
                 return Err(anyhow!("couldn't start {}: {e}", path.display()));
             }
         };
+        // `cmd` holds a copy of the log's handle, which on Windows would keep `Proc`'s drop from
+        // deleting the profile.
+        drop(cmd);
         // From here, dropping `proc` ends the process and deletes the profile.
         // ponytail: a killed Laura leaves the profile in the temp folder; sweep stale
         // `laura-browser-*` folders at startup if they pile up.
-        let mut proc = Proc {
+        Ok(Proc {
             #[cfg(windows)]
             job: kill_on_close(&child),
             child,
             profile,
-        };
+        })
+    }
+
+    /// Wait for `proc` to listen, then connect. A failure carries Chrome's output, read before
+    /// `proc` drops and deletes the profile.
+    fn connect(mut proc: Proc, path: &Path, port: u16) -> Result<Browser, StartError> {
+        match Browser::ready(&mut proc, path, port) {
+            Ok((cdp, port, ws_url, start)) => Ok(Browser {
+                cdp,
+                port,
+                ws_url,
+                start,
+                proc,
+            }),
+            Err(reason) => Err(StartError {
+                output: chrome_output(&proc.profile),
+                reason,
+            }),
+        }
+    }
+
+    /// `proc`'s CDP client, port, websocket URL and start tab, once it listens.
+    fn ready(proc: &mut Proc, path: &Path, port: u16) -> Result<(Cdp, u16, String, Vec<String>)> {
         let file = proc.profile.join("DevToolsActivePort");
         let t0 = Instant::now();
         let (port, ws_path) = loop {
@@ -295,13 +367,7 @@ impl Browser {
             .filter(|t| t["type"] == "page")
             .filter_map(|t| t["targetId"].as_str().map(str::to_string))
             .collect();
-        Ok(Browser {
-            cdp,
-            port,
-            ws_url,
-            start,
-            proc,
-        })
+        Ok((cdp, port, ws_url, start))
     }
 
     /// Close Chrome's start tab. Laura calls it after the first page opens, so Laura's browser
@@ -370,6 +436,28 @@ fn version_ws(port: u16) -> Option<String> {
     let v = get_json(port, "/json/version")?;
     let url = v["webSocketDebuggerUrl"].as_str()?;
     Some(url[url.find("/devtools/")?..].to_string())
+}
+
+/// Laura's browser as it starts: `Browser::launch` sends it once Chrome listens, or why it didn't.
+pub type Start = Receiver<Result<Browser, StartError>>;
+
+/// Why Laura's browser didn't start, and Chrome's output, for the journal.
+pub struct StartError {
+    pub reason: anyhow::Error,
+    pub output: String,
+}
+
+/// The last 10 lines of Chrome's stderr in `profile`. Chrome logs the `:ERROR:dbus/` lines at each
+/// start on a host with no session bus, so they're left out.
+fn chrome_output(profile: &Path) -> String {
+    let bytes = std::fs::read(profile.join("chrome-stderr.log")).unwrap_or_default();
+    let s = String::from_utf8_lossy(&bytes);
+    let lines: Vec<&str> = s
+        .trim_end()
+        .lines()
+        .filter(|l| !l.contains(":ERROR:dbus/"))
+        .collect();
+    lines[lines.len().saturating_sub(10)..].join("\n")
 }
 
 /// Laura's browser's process and profile.
@@ -487,8 +575,8 @@ impl Cdp {
     }
 
     /// Send `method` and wait up to 5 s for its result.
-    /// ponytail: blocks Laura's loop; only `Browser::launch`'s start tab, `Page::open`, `Page::pick`
-    /// and `Page::find` use it. Move to `send` plus a pending reply if a slow browser makes the
+    /// ponytail: blocks Laura's loop; only `Page::open`, `Page::pick` and `Page::find` use it there
+    /// (`Browser::launch`'s start tab waits on its own thread). Move to `send` plus a pending reply if a slow browser makes the
     /// workspace stutter.
     pub fn call(&self, method: &str, params: Value, session: Option<&str>) -> Result<Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);

@@ -224,6 +224,7 @@ Laura marks added, modified and deleted lines in every file pane's gutter. On a 
 3. To show another URL in the same pane, run `laura open <url> --panel <id>`.
 4. If your partner sees a notice that the page did not load, start the dev server, and ask your partner to press `Ctrl+R` in the pane.
 5. If `laura open <url>` returns `browser panes are experimental: …`, `browser panes need the web app: …` or `browser panes need Chrome or Edge: …`, don't retry. Give your partner the URL to open in their own browser instead.
+6. If `laura open <url>` returns `couldn't start Laura's browser: …`, run `laura journal type=browser -n 1`. Tell your partner what Chrome's output in the event's `output` says.
 
 **Use when** you build or change a web app and want your partner to see the running page next to the chat, or to show your partner a documentation page or an issue next to the chat.
 
