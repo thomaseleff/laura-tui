@@ -1087,6 +1087,8 @@ impl Panel {
         }
         // Keep `sig`, so the resume sees the change.
         if self.paused {
+            // A submit ends the freeze; the pane keeps the content it holds until resumed.
+            self.source_changed &= !self.threads.is_empty();
             return false;
         }
         let sig = stat_sig(&self.path);

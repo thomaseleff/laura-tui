@@ -93,7 +93,7 @@ If an inline review cannot be written into the shell, Laura keeps the threads an
 
 A file pane with an unsubmitted inline review **freezes** when its file changes on disk. A focused frozen pane shows the notice `⚠ <file> changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review)` (shortened to `⚠ Shift+S submit · Ctrl+R discards inline review` on a narrow terminal). `Shift+S` submits against the snapshot (the inline review starts with a `⚠ file changed` banner), then the pane reloads. `Ctrl+R` refreshes. If you delete the pane's last comment, Laura also ends the freeze and reloads the pane.
 
-A tail pane that you **pause** with `p` doesn't reload, so you can read, comment on or copy a line while the program writes more output. `laura tail` keeps writing the output to its spool, so you lose no output. The pane's border shows `· paused`. Press `p` again to resume: Laura reloads the pane, and with `--follow` moves the cursor to the last line. If the pane has threads when you resume, the pane freezes instead. `Ctrl+R` also resumes the pane, then refreshes it.
+A tail pane that you **pause** with `p` doesn't reload, so you can read, comment on or copy a line while the program writes more output. `laura tail` keeps writing the output to its spool, so you lose no output. The pane's border shows `· paused`. Press `p` again to resume: Laura reloads the pane, and with `--follow` moves the cursor to the last line. If the pane has threads when you resume, the pane freezes instead. When you submit, or delete the last comment, on a paused pane that is frozen, the freeze ends and the pane stays paused. `Ctrl+R` also resumes the pane, then refreshes it.
 
 ## Typing a comment or review body
 

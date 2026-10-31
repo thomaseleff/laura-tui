@@ -425,6 +425,7 @@ fn client_request(msg: Message) -> Result<()> {
                 "layout": layout,
             }))?
         ),
+        Response::Warning { message } => eprintln!("{message}"),
         Response::Error { message } => {
             eprintln!("{message}");
             std::process::exit(1);

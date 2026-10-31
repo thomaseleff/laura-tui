@@ -322,6 +322,63 @@ fn a_paused_pane_freezes_on_resume() -> Result<()> {
 }
 
 #[test]
+fn a_submit_ends_the_freeze_on_a_paused_pane() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    drive_tab(&mut tab, &["ready"], "");
+    let (id, path) = tail(&mut tab)?;
+    drive_tab(
+        &mut tab,
+        &["comment", "1", "look", "--pane", &id.to_string()],
+        "",
+    );
+    append(&mut tab, &path, "more\n")?;
+    assert!(
+        tab.panels[&id].source_changed,
+        "the comment freezes the pane"
+    );
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+
+    tab.act(UserAction::Submit {
+        pane: id,
+        body: String::new(),
+    })
+    .map_err(anyhow::Error::msg)?;
+    tab.drain(Rect::new(0, 0, 120, 40));
+    let p = &tab.panels[&id];
+    assert!(!p.source_changed, "the submit ends the freeze");
+    assert!(p.paused, "the pane stays paused");
+    assert!(!p.content.contains("more"), "the pane holds its content");
+
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let p = &tab.panels[&id];
+    assert!(
+        p.content.contains("more"),
+        "a resume reloads: {}",
+        p.content
+    );
+    Ok(())
+}
+
+#[test]
+fn highlight_warns_on_a_paused_pane() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let (id, _) = tail(&mut tab)?;
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    let out = drive_tab(&mut tab, &["highlight", "--pane", &id.to_string(), "1"], "");
+    let stderr = String::from_utf8(out.stderr)?;
+    assert!(stderr.contains("is paused"), "stderr: {stderr}");
+    assert_eq!(
+        tab.panels[&id].highlight,
+        Some((0, 0)),
+        "the highlight applies"
+    );
+    Ok(())
+}
+
+#[test]
 fn refresh_resumes_a_paused_pane() -> Result<()> {
     let mut tab = spawn_tab()?;
     let (id, path) = tail(&mut tab)?;

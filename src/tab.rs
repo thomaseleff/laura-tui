@@ -1660,9 +1660,17 @@ impl Tab {
                             };
                         }
                         panel.set_highlight(start, end);
+                        let paused = panel.paused;
                         self.log_event(
                             json!({"type":"highlight","pane":target,"start":start,"end":end}),
                         );
+                        if paused {
+                            return Response::Warning {
+                                message: format!(
+                                    "pane #{target} is paused — the user doesn't see new output, so Laura highlights the content that the pane holds"
+                                ),
+                            };
+                        }
                     }
                     None => {
                         panel.clear_highlight();

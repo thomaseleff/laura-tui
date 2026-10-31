@@ -189,6 +189,8 @@ pub enum Response {
         #[serde(default)]
         browser_url: Option<String>,
     },
+    /// The request succeeded, with a nudge for the agent.
+    Warning { message: String },
     /// The request failed.
     Error { message: String },
 }

@@ -246,7 +246,7 @@ Laura marks added, modified and deleted lines in every file pane's gutter. On a 
 
 **Motion**
 1. Pipe a running command into `laura tail` to open a tail pane that follows the newest output: `some-cmd | laura tail --title logs --follow --split <id> --dir v --ratio 30` opens the tail pane below pane `<id>`, at 30% of the height.
-2. Your partner can press `p` to pause a tail pane and read it. When `laura layout` shows `"paused": true` on the pane, your partner does not see the new output. You can't resume the pane, so don't ask your partner to resume it; read the output yourself, or tell your partner what changed.
+2. Your partner can press `p` to pause a tail pane and read it. When `laura layout` shows `"paused": true` on the pane, your partner does not see the new output. You can't resume the pane, so don't ask your partner to resume it; read the output yourself, or tell your partner what changed. `laura highlight` on a paused pane prints a warning, because your partner sees the content that the pane holds, not the new output.
 
 **Use when** you are running or debugging a service and want to show the logs for your partner to watch live, or when your partner asks you to start or monitor a service.
 
