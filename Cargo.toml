@@ -32,7 +32,7 @@ path = "src/lib.rs"
 anyhow = "=1.0.104"
 # Already transitive (plist, termwiz) at this exact pin; promoted direct to decode the browser
 # pane's screencast frames (#107).
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 clap = { version = "=4.6.7", features = ["derive"] }
 # The web app's session token (#88).
 getrandom = "=0.4.3"
