@@ -80,7 +80,7 @@ Click an item to focus its pane. When nothing waits on the user, the status bar 
 
 While Laura submits the inline review, the button reads **Submitting…**. When the submit fails, Laura keeps the threads and the review body, and shows `⚠ inline review submission failed. Laura kept the threads and the review body.` The button reads **Retry submit**, and the pane header shows **Submission failed**. Click **Retry submit** or press `Enter` to try again.
 
-Laura shows each thread right below its line, with the author of each comment. The thread names what it sits on: in a markdown file, the kind of block, such as `paragraph` or `list item`; in an HTML file, the element's start tag, such as `<button#copy>`. Click **–** on a thread or press `r` to collapse the thread, and click **Reply…** to add a comment to the thread. Laura shows the reply box at the end of the thread. On a thread that ends with your own comment, click **Edit…** to change your own last comment, or **Delete** to remove it. Laura opens the comment for editing in its place in the thread. Click the thread count in the pane header to list the pane's threads, then click a thread. Laura moves the cursor to the thread and scrolls the pane to show it. Press `Esc` or click outside the list to close it.
+Laura shows each thread right below its line, with the author of each comment. The thread names what it sits on: in a markdown file, the kind of block, such as `paragraph` or `list item`; in an HTML file, the element's start tag, such as `<button#copy>`. Click **–** on a thread or press `r` to collapse the thread, and click **Reply…** to add a comment to the thread. Laura shows the reply box at the end of the thread. On a thread that ends with your own comment, click **Edit…** to change your own last comment, or **Delete** to remove it. Laura opens the comment for editing in its place in the thread. Click the thread count in the pane header to list the pane's threads, then click a thread. Laura moves the cursor to the thread, expands the thread when the thread is collapsed, and scrolls the pane to show it. In a browser pane, a click on a thread whose element the page lost opens the thread's card in the list instead. See [Comment on a browser pane](web-app.md#comment-on-a-browser-pane). Press `Esc` or click outside the list to close it.
 
 To edit or delete a comment, click **+** or press `c` on its line again. See [Typing a comment or review body](navigation.md#typing-a-comment-or-review-body) for the keystrokes.
 
@@ -157,7 +157,7 @@ In the focused browser pane:
 | — | `↑` `↓` `PageUp` `PageDown` `Space` | Scrolls the page. |
 | — | `c` | Opens a comment on the element under the pointer. When the pointer is not on the page, turns on comment mode. |
 | Comment mode | — | Turns comment mode on or off. In comment mode, a click on an element opens a comment on the element. |
-| — | `n` `N` | Moves the cursor to the next or previous thread. |
+| — | `n` `N` | Moves the cursor to the next or previous thread. Skips a thread whose element the page lost. |
 | — | `r` | Collapses or expands the cursor's thread. |
 | **Submit review** | `Shift+S` | Opens the review body. |
 | **Highlight &lt;selector&gt;** | — | Scrolls the page to the element that the agent highlighted. |

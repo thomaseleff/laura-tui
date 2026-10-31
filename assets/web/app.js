@@ -917,15 +917,14 @@ function wireDraft(box) {
   box.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
 }
 
-// `reply`: the thread on the draft's line, if any. `inside`: the draft goes in that thread's card
-// (`cardHTML`'s slot), so it has no card of its own.
-function makeDraftCard(reply, inside) {
+// `reply`: the thread on the draft's line, if any. `paintThreads` puts the box in that thread's card
+// (`cardHTML`'s slot) or gives the box a card of its own.
+function makeDraftCard(reply) {
   const c = document.createElement("div"), edit = reply?.notes.at(-1)?.author === null;
   const verb = edit ? "Edit" : reply ? "Reply" : "Comment";
   const lbl = [reply && verb, reply?.label ?? draft.anchor?.[1]].filter(Boolean).join(" · ");
   const at = chip(draft.anchor?.[0], draft.line, 40);
-  c.className = inside ? "draft" : "card draft on";
-  c.innerHTML = (inside ? "" : `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`)
+  c.innerHTML = `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`
     + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on ${at}`}"></textarea>`
     + `<div class="holdnote">${HOLD}</div><div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
     + `<button class="btn pri" data-act="save">${edit ? "Save" : verb} <kbd>Enter</kbd></button></div>`;
@@ -953,14 +952,15 @@ function keepDraft(fn) {
 
 // Each thread as a card below its line, after the last unit at or above the line, and the draft
 // in its line's thread, or below its line. A page shows the cursor's thread below its element (`place`), unless the thread is
-// collapsed or comment mode just ended on it (`el.shut`), so the card doesn't cover the page. The diff view shows none.
+// collapsed or comment mode just ended on it (`el.shut`), so the card doesn't cover the page. A page shows no thread whose
+// element the page lost: that thread and its draft are in the thread list (`paintPop`). The diff view shows none.
 function paintThreads(id) {
   const el = $("p" + id), rows = el?.querySelector(".rows"), p = pane(id);
   if (!rows || !p) return;
   const f = frameOf(id), all = el.threads ?? [];
   const d = draft?.pane === id && draft.kind === "comment" ? draft : null;
   let ts = p.diff ? [] : all;
-  if (f) ts = ts.filter(t => t.line === el.line && t.line !== el.shut && !t.collapsed);
+  if (f) ts = ts.filter(t => t.line === el.line && t.line !== el.shut && !t.collapsed && !t.lost);
   const us = [...units(rows)];
   // The cards start at the text column, past the gutter.
   const g = us[0]?.querySelector(".g");
@@ -974,11 +974,16 @@ function paintThreads(id) {
     groups.get(u).push([line, item]);
   };
   // A thread the pane doesn't show (the diff view) leaves the draft a card of its own.
-  const host = d && ts.find(t => t.line === d.line);
+  // A draft whose element the page lost, also mid-draft, goes in its thread's card in the thread list.
+  const lost = d && all.find(t => t.line === d.line && t.lost);
+  if (lost) (listOpen = id), (el.lostOpen = lost.line);
+  const host = d && (ts.find(t => t.line === d.line) ?? lost);
   for (const t of ts) put(t.line, cardHTML(p, t, t.line === el.card && layout.focus === id, t === host));
   if (d) {
     // Laura holds the agent's commands while the user types, so the line's thread can't change mid-draft.
-    draftCard ??= makeDraftCard(all.find(t => t.line === d.line), !!host);
+    draftCard ??= makeDraftCard(all.find(t => t.line === d.line));
+    // The thread's card can go mid-draft (collapsed, lost, back on the page): the box takes or drops a card of its own.
+    draftCard.className = host ? "draft" : "card draft on";
     if (!host) put(d.line + 0.5, '<i class="slot"></i>');
   }
   // A unit with a thread below it is tinted; a thread that wasn't there before eases in.
@@ -1024,6 +1029,8 @@ function paintPop(id) {
   sb.classList.toggle("failed", !!d?.failed);
   el.querySelector(".head .sfail").hidden = !d?.failed;
   paintChipDot(el);
+  // A lost thread's card closes with the list, or when the page shows the thread's element again.
+  if (listOpen !== id || !el.threads?.some(t => t.line === el.lostOpen && t.lost)) el.lostOpen = null;
   const kind = d ? "review" : listOpen === id && p.threads ? "list" : moreOpen === id ? "more" : "";
   el.querySelector(".head .threads").classList.toggle("on", kind === "list");
   el.querySelector(".head .more").classList.toggle("on", kind === "more");
@@ -1075,13 +1082,20 @@ function paintPop(id) {
     if (x < 8) pop.style.right = `${x}px`;
     return;
   }
-  const ts = el.threads ?? [];
-  q(".pop").innerHTML = `<div class="ph">${ts.length} thread${ts.length === 1 ? "" : "s"} <span class="mute">· ${esc(p.name)}</span></div>`
+  // A lost thread's card, and its draft, open below its row (`el.lostOpen`).
+  const ts = el.threads ?? [], dl = draft?.pane === id && draft.kind === "comment" ? draft.line : null;
+  const html = `<div class="ph">${ts.length} thread${ts.length === 1 ? "" : "s"} <span class="mute">· ${esc(p.name)}</span></div>`
     + ts.map(t => `<button class="trow${t.lost ? " lost" : ""}" data-th="${t.line}"><span class="anc">${chip(t.anchor, t.line, 24)}</span>${avs(authors(t))}`
       + `<span class="tx">${esc(t.notes.at(-1)?.body ?? "")}</span>`
       + where(t)
-      + `${t.collapsed ? '<span class="chip sm">collapsed</span>' : ""}</button>`).join("")
+      + `${t.collapsed ? '<span class="chip sm">collapsed</span>' : ""}</button>`
+      + (t.lost && el.lostOpen === t.line ? cardHTML(p, { ...t, collapsed: false }, true, dl === t.line) : "")).join("")
     + '<div class="pf"><kbd>n</kbd> <kbd>N</kbd> next / previous thread · <kbd>r</kbd> collapse</div>';
+  const pop = q(".pop");
+  keepDraft(() => {
+    if (pop.html !== html) pop.innerHTML = pop.html = html;
+    if (draftCard) pop.querySelector(".slot")?.replaceWith(draftCard);
+  });
 }
 const paintPops = () => layout?.panes.forEach(p => paintPop(p.id));
 
@@ -1090,13 +1104,29 @@ function popClick(id, e) {
   // **More**'s rows are the header's buttons.
   if (b?.classList.contains("mrow")) return headClick(id, e);
   e.stopPropagation();
+  const el = $("p" + id), c = b && e.target.closest(".card[data-th]");
+  // While a draft is open, a row or a card doesn't move the cursor or close the draft's card, as on the page.
+  // headClick and cardClick use the same guard, so the only list open during a draft is the draft's own.
+  if (draft && (c || b?.dataset.th)) return followFocus(true);
+  // A lost thread's card in the list: **–** closes it; **Reply…**, **Edit…** and **Delete** act as on the page.
+  if (c && b.dataset.act === "collapse") return (el.lostOpen = null), paintPop(id);
+  if (c) return cardClick(id, e);
+  if (b?.dataset.th && el.threads?.find(t => t.line === +b.dataset.th)?.lost) {
+    el.lostOpen = el.lostOpen === +b.dataset.th ? null : +b.dataset.th;
+    return paintPop(id);
+  }
   if (b?.dataset.th) {
     listOpen = null;
     paintPop(id);
     if (layout.focus !== id) act({ act: "focus", pane: id });
     // The cursor may already be on the thread's line and send no frame, so the reply scrolls too.
-    $("p" + id).goTh = { th: b.dataset.th, block: "center" };
-    return act({ act: "set_cursor", pane: id, line: +b.dataset.th }, () => goThread(id));
+    const line = +b.dataset.th;
+    el.goTh = { th: b.dataset.th, block: "center" };
+    // Comment mode hid the card of the cursor's thread (`el.shut`): the click shows it again.
+    if (el.shut === line) (el.shut = null), paintThreads(id);
+    // A collapsed thread expands, as a click on its pin or its card does.
+    const a = el.threads?.find(t => t.line === line)?.collapsed ? "toggle_thread" : "set_cursor";
+    return act({ act: a, pane: id, line }, () => goThread(id));
   }
   if (b?.dataset.act === "cancel") closeDraft();
   else if (b?.dataset.act === "save") confirmDraft();
@@ -1113,7 +1143,7 @@ function goThread(id) {
 }
 // A click outside the thread list or **More** closes it.
 addEventListener("mousedown", e => {
-  if (listOpen !== null && !e.target.closest(".pop.list, [data-act=list]")) {
+  if (listOpen !== null && !e.target.closest(".pop.list, [data-act=list]") && !draftCard?.closest(".pop.list")) {
     const id = listOpen;
     listOpen = null;
     paintPop(id);

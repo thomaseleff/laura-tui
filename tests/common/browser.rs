@@ -131,15 +131,18 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
              <p class=at style=top:300px>0123456789012345678901234567890123456789012345678901234567890123456789</p>
              <button class=at style=top:400px onclick=\"const li = document.createElement('li'); li.textContent = 'Zero'; document.querySelector('ul').prepend(li); document.title = 'Added'\">Add</button>",
         ),
-        // The title counts the tab's loads.
+        // The title counts the tab's loads. No other element's text starts with "Drop", the
+        // button's quote, so Laura doesn't find the button in another element.
         "/keep" => (
             0,
             "Keep",
             "<button id=b class=at style=top:0>Drop</button><button id=r class=at style=top:100px>Restore</button>
+             <p id=s class=at style=top:200px>Text</p><button id=d class=at style=top:300px>Remove two</button>
              <script>
              const b = document.getElementById('b'), n = sessionStorage.n = +(sessionStorage.n ?? 0) + 1;
              b.onclick = () => b.remove();
              r.onclick = () => document.body.prepend(b);
+             d.onclick = () => (b.remove(), s.remove());
              document.title = n + ':';
              </script>",
         ),

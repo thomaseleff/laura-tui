@@ -2492,6 +2492,67 @@ fn a_thread_in_a_block_toggles_alone() -> Result<()> {
     Ok(())
 }
 
+/// A click on a collapsed thread's row in the thread list sends `toggle_thread` with the row's
+/// line (#125). This test pins what that act does: from a cursor on another line, the act moves
+/// the cursor and expands that thread alone, also in a markdown block. The click itself is
+/// JavaScript, which no test runs, so this test passes without the click's change; the manual
+/// check covers the click.
+#[test]
+fn a_thread_list_click_expands_a_collapsed_thread() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.drive(&["comment", "--pane", "1", "2", "agent note"]);
+    rig.act(
+        &mut ws,
+        json!({"act": "toggle_thread", "pane": 1, "line": 2}),
+    );
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
+    rig.until(
+        &mut ws,
+        "a collapsed thread",
+        |f| matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["collapsed"] == true),
+    );
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "toggle_thread", "pane": 1, "line": 2}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.until(&mut ws, "the expanded thread at the cursor", |f| {
+        matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["collapsed"] == false && v["card"] == 2)
+    });
+
+    // In a block, where `r` toggles each of the block's threads, the row's thread expands alone.
+    let (_dir, path) = file("q.md", "# T\n\n> one\n>\n> two\n")?;
+    rig.drive(&["open", &path]);
+    for line in ["3", "5"] {
+        rig.drive(&["comment", "--pane", "2", line, "agent note"]);
+        rig.act(
+            &mut ws,
+            json!({"act": "toggle_thread", "pane": 2, "line": line.parse::<u32>()?}),
+        );
+    }
+    rig.act(&mut ws, json!({"act": "set_cursor", "pane": 2, "line": 1}));
+    rig.act(
+        &mut ws,
+        json!({"act": "toggle_thread", "pane": 2, "line": 3}),
+    );
+    let collapsed: Vec<bool> = rig.tab.panels[&2]
+        .threads
+        .iter()
+        .map(|t| t.collapsed)
+        .collect();
+    assert_eq!(collapsed, [false, true]);
+    assert_eq!(rig.tab.panels[&2].cursor_line(), 3);
+    rig.until(&mut ws, "the block's first thread expanded", |f| {
+        matches!(f, Frame::Json(v) if v["id"] == 2
+            && v["threads"][0]["collapsed"] == false && v["threads"][1]["collapsed"] == true)
+    });
+    Ok(())
+}
+
 #[test]
 fn an_unfocused_page_keeps_its_cursor_line() -> Result<()> {
     let mut rig = Rig::new()?;

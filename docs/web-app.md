@@ -134,12 +134,16 @@ Laura keeps each thread on its element when the page reloads or the dev server u
 
 After a page starts to load, Laura waits up to 5 seconds for an element that the page shows late, such as after the page gets its data.
 
-When the page doesn't show a thread's element, Laura shows a notice:
+When the page doesn't show a thread's element, Laura shows the thread only in the thread list, and shows a notice:
 
-- For one thread: `⚠ pane #<id>: the thread "<comment>" lost its element`, with the first 40 characters of the thread's first comment.
-- For more threads: `⚠ pane #<id>: <n> threads lost their elements`.
+- For one thread, with the first 40 characters of the thread's first comment: `⚠ pane #<id>: The thread "<comment>" is only in the thread list, because the page lost its element.`
+- For more threads: `⚠ pane #<id>: <n> threads are only in the thread list, because the page lost their elements.`
 
-In the thread list, Laura dims the thread and marks it `not on the page`. Laura keeps the thread in the inline review. When the page shows the element again, Laura outlines the element again and shows no notice.
+Laura shows no outline, pin or card for the thread on the page, and `n` and `N` skip the thread. In the thread list, Laura dims the thread and marks it `not on the page`. Laura keeps the thread in the inline review.
+
+To reply to the thread or delete it, click the thread's row in the thread list. Laura opens the thread's card below the row. The card shows **Reply…**, or **Edit…** and **Delete** when the user wrote the last comment. When the user clicks **Reply…**, Laura opens the comment box in the card. While the user writes the comment, Laura keeps the thread list open. When the page loses the element while the user writes a reply to the thread, Laura moves the comment box into the thread list.
+
+When the page shows the element again, Laura shows the thread on the page again and shows no notice.
 
 Laura keeps each thread on its page. When the user follows a link to another page, the thread list shows the thread's page, such as `/settings`. When the user goes back, Laura shows the thread on the page again. In an app that puts its route after `#/`, such as `/#/settings`, each route is a page.
 
