@@ -1,7 +1,7 @@
-//! Browser panes (#107): the agent's browser tools on a pane's page, through a second CDP client:
-//! the page list, clicks and typing with their marks, navigation, closed pages, emulation and
-//! dialogs. Each test that needs Chrome or Edge skips when neither is
-//! installed; under `CI`, it fails. State and frames, not pixels.
+//! Browser panes (#107): the agent's browser tools on a pane's page, through a second CDP client
+//! at `LAURA_BROWSER_URL` (Laura's proxy, #129): the page list, clicks and typing with their
+//! marks, navigation, closed pages, emulation and dialogs. Each test that needs Chrome or Edge
+//! skips when neither is installed; under `CI`, it fails. State and frames, not pixels.
 
 #[path = "common/browser.rs"]
 #[allow(dead_code)] // each browser test crate uses part of the browser rig
@@ -46,6 +46,32 @@ fn the_tools_see_only_the_panes() -> Result<()> {
             listed(&r)
         );
         r.idle(&mut ws, 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn the_proxy_names_its_own_port() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    load(&mut r, &mut ws, "/one");
+    let port = r.tab.browser_port.expect("a browser port");
+    let chrome = r.tab.browser.as_ref().expect("Laura's browser").port;
+    assert_ne!(port, chrome);
+    let own = format!("ws://127.0.0.1:{port}/devtools/");
+    let version = get(&r, "/json/version");
+    let url = version["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+    assert!(url.starts_with(&own), "{version}");
+    let list = get(&r, "/json/list");
+    let pages = list.as_array().expect("a list");
+    assert!(!pages.is_empty(), "{list}");
+    for p in pages {
+        let url = p["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+        assert!(url.starts_with(&own), "{p}");
+        let front = p["devtoolsFrontendUrl"].as_str().unwrap_or_default();
+        assert!(!front.contains(&format!(":{chrome}/")), "{p}");
     }
     Ok(())
 }

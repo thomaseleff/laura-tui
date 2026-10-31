@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::browser::{self, Browser, Cdp, Page};
+use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp, runtime_dir};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
@@ -366,10 +367,11 @@ pub struct Tab {
     pub browsers: HashMap<PaneId, Page>,
     /// Laura's browser, launched on the first browser pane.
     pub browser: Option<Browser>,
-    /// The CDP port in the shell's `LAURA_BROWSER_URL`, which Laura's browser listens on.
+    /// The port in the shell's `LAURA_BROWSER_URL`, where `cdp_proxy` serves Laura's browser to
+    /// the agent's browser tools.
     pub browser_port: Option<u16>,
-    /// Holds `browser_port` until Laura's browser starts, so no other process takes it meanwhile.
-    browser_hold: Option<std::net::TcpListener>,
+    /// Laura's browser's own CDP port for `cdp_proxy`, `0` while it doesn't run.
+    chrome_port: Arc<AtomicU16>,
     /// Laura's browser while it starts off the loop, with the pane for `START_FAILED` when the
     /// user started it.
     starting: Option<(browser::Start, Option<PaneId>)>,
@@ -423,7 +425,7 @@ impl Tab {
             browsers: HashMap::new(),
             browser: None,
             browser_port: None,
-            browser_hold: None,
+            chrome_port: Arc::default(),
             starting: None,
             parked: None,
             browser_sizes: HashMap::new(),
@@ -438,19 +440,19 @@ impl Tab {
     }
 
     /// `spawn` for `laura --web`, with browser panes resolved to `browser_path`. With a browser to
-    /// run, the shell's `LAURA_BROWSER_URL` names a free port, where Laura's browser listens once
-    /// it starts, so the agent's browser tools reach the panes' pages.
+    /// run, the shell's `LAURA_BROWSER_URL` names a free port, where `cdp_proxy` serves Laura's
+    /// browser, so the agent's browser tools reach the panes' pages.
     pub fn spawn_web(
         mut cmd: CommandBuilder,
         rows: u16,
         cols: u16,
         browser_path: Result<PathBuf, String>,
     ) -> Result<Tab> {
-        let hold = match browser_path {
+        let proxy = match browser_path {
             Ok(_) => Some(std::net::TcpListener::bind(("127.0.0.1", 0))?),
             Err(_) => None,
         };
-        let port = match &hold {
+        let port = match &proxy {
             Some(l) => Some(l.local_addr()?.port()),
             None => None,
         };
@@ -458,12 +460,10 @@ impl Tab {
             cmd.env("LAURA_BROWSER_URL", browser::endpoint(port));
         }
         let mut tab = Tab::spawn(cmd, rows, cols)?;
-        (
-            tab.web,
-            tab.browser_path,
-            tab.browser_port,
-            tab.browser_hold,
-        ) = (true, browser_path, port, hold);
+        if let Some(l) = proxy {
+            cdp_proxy::serve(l, tab.chrome_port.clone());
+        }
+        (tab.web, tab.browser_path, tab.browser_port) = (true, browser_path, port);
         Ok(tab)
     }
 
@@ -941,6 +941,7 @@ impl Tab {
             });
             self.browsers.clear();
             self.browser = None;
+            self.chrome_port.store(0, Ordering::SeqCst);
             self.notices.push((pane, browser::EXITED.into()));
             return true;
         }
@@ -1016,6 +1017,7 @@ impl Tab {
         let parked = self.parked.take();
         match res {
             Ok(b) => {
+                self.chrome_port.store(b.port, Ordering::SeqCst);
                 self.browser = Some(b);
                 // The parked message first: an `open <url> --panel` opens its pane's page at the
                 // new URL, and `attach_pages` doesn't open it at the old one.
@@ -1061,8 +1063,7 @@ impl Tab {
         match &mut self.starting {
             Some((_, p)) => *p = p.or(pane),
             None => {
-                self.browser_hold = None;
-                let rx = Browser::launch(&path, self.browser_port.unwrap_or(0));
+                let rx = Browser::launch(&path);
                 self.starting = Some((rx, pane));
             }
         }
@@ -1891,6 +1892,7 @@ impl Drop for Tab {
         for p in self.panels.values() {
             remove_if_temp(&p.path);
         }
+        self.chrome_port.store(0, Ordering::SeqCst);
         // `rx` first: alive, it would take the wake-up request and `request` would wait on a reply.
         self.rx = channel().1;
         let _ = protocol::request(&self.socket, &Message::Layout);

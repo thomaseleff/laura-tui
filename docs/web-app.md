@@ -186,7 +186,7 @@ claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --browser-url='
 claude mcp add playwright -- npx @playwright/mcp@latest --cdp-endpoint='${LAURA_BROWSER_URL}'
 ```
 
-Laura sets `LAURA_BROWSER_URL` in the shell when Laura can show browser panes. Keep the single quotes: Claude Code then reads `LAURA_BROWSER_URL` each time the tool starts, so the tool works in every workspace. The tool connects to Laura's browser on its first use after a browser pane opens. With `-s project`, Claude Code writes the tool into the project's `.mcp.json` and asks the user to approve the tool once. For another agent, see the setup steps of [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp).
+Laura sets `LAURA_BROWSER_URL` in the shell when Laura can show browser panes. Keep the single quotes: Claude Code then reads `LAURA_BROWSER_URL` each time the tool starts, so the tool works in every workspace. The tool connects to Laura's browser on its first use after a browser pane opens. Before Laura's browser starts, the tool gets the error `Laura's browser is not running. Open a browser pane, then try again.` With `-s project`, Claude Code writes the tool into the project's `.mcp.json` and asks the user to approve the tool once. For another agent, see the setup steps of [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp).
 
 The tool's page list shows only the pages in browser panes. When the agent clicks, types or changes the page with the tool, the user sees each change in the browser pane at once.
 
@@ -203,7 +203,7 @@ When the tool emulates a device, such as a phone, the browser pane shows the pag
 The agent can also answer the page's dialogs with the tool.
 
 > [!IMPORTANT]
-> Laura's browser takes browser tools on a port on `127.0.0.1`. Every program on this computer can connect to the port and control the pages in Laura's browser.
+> Laura takes browser tools on a port on `127.0.0.1` and passes them to Laura's browser. Every program on this computer can connect to the port and control the pages in Laura's browser.
 
 ## Quit
 

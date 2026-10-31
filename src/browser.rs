@@ -7,7 +7,7 @@
 //! comes back through `Page::poll` like an event.
 
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -180,7 +180,8 @@ fn candidates() -> Vec<PathBuf> {
 /// Laura's browser: one headless Chrome or Edge per workspace, with a temporary profile.
 pub struct Browser {
     pub cdp: Cdp,
-    /// The CDP port: `LAURA_BROWSER_URL`'s, else one the OS picks.
+    /// The CDP port the OS picks. The agent reaches Chrome through the proxy at
+    /// `LAURA_BROWSER_URL` (`cdp_proxy`).
     pub port: u16,
     /// The browser-level CDP websocket, for a second client (the tests, and the agent's browser tools).
     pub ws_url: String,
@@ -191,21 +192,18 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// Start `path` headless on a fresh profile with CDP on `port` (`0`: the OS picks one), and
-    /// connect to it on another thread. The receiver gets Laura's browser, or why it didn't start.
-    /// ponytail: `Tab` holds `LAURA_BROWSER_URL`'s port until just before this launch, but another
-    /// process can still take it while Chrome starts, or after Laura's browser exits; the error
-    /// names the port, and the user starts Laura again.
-    pub fn launch(path: &Path, port: u16) -> Start {
+    /// Start `path` headless on a fresh profile with CDP on a port the OS picks, and connect to
+    /// it on another thread. The receiver gets Laura's browser, or why it didn't start.
+    pub fn launch(path: &Path) -> Start {
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
         // that spawned it exits.
-        match Browser::spawn(path, port) {
+        match Browser::spawn(path) {
             Ok(proc) => {
                 let (path, cancel) = (path.to_path_buf(), cancel.clone());
                 std::thread::spawn(move || {
-                    let _ = tx.send(Browser::connect(proc, &path, port, &cancel));
+                    let _ = tx.send(Browser::connect(proc, &path, &cancel));
                 });
             }
             Err(reason) => {
@@ -219,15 +217,7 @@ impl Browser {
     }
 
     /// Start `path`'s process on a fresh profile.
-    fn spawn(path: &Path, port: u16) -> Result<Proc> {
-        // A child that another thread is starting keeps a copy of the hold's socket until it execs.
-        let t0 = Instant::now();
-        while port != 0 && TcpListener::bind(("127.0.0.1", port)).is_err() {
-            if t0.elapsed() > Duration::from_millis(500) {
-                bail!("port {port} for LAURA_BROWSER_URL is in use");
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+    fn spawn(path: &Path) -> Result<Proc> {
         let profile = std::env::temp_dir().join(format!("laura-browser-{}", crate::web::nonce(8)?));
         std::fs::create_dir_all(&profile)
             .with_context(|| format!("couldn't create {}", profile.display()))?;
@@ -258,7 +248,7 @@ impl Browser {
             "--force-device-scale-factor=3",
             "--disable-smooth-scrolling",
         ])
-        .arg(format!("--remote-debugging-port={port}"))
+        .arg("--remote-debugging-port=0")
         .arg(format!("--user-data-dir={}", profile.display()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -300,13 +290,8 @@ impl Browser {
 
     /// Wait for `proc` to listen, then connect. A failure carries Chrome's output, read before
     /// `proc` drops and deletes the profile.
-    fn connect(
-        mut proc: Proc,
-        path: &Path,
-        port: u16,
-        cancel: &AtomicBool,
-    ) -> Result<Browser, StartError> {
-        match Browser::ready(&mut proc, path, port, cancel) {
+    fn connect(mut proc: Proc, path: &Path, cancel: &AtomicBool) -> Result<Browser, StartError> {
+        match Browser::ready(&mut proc, path, cancel) {
             Ok((cdp, port, ws_url, start)) => Ok(Browser {
                 cdp,
                 port,
@@ -325,19 +310,13 @@ impl Browser {
     fn ready(
         proc: &mut Proc,
         path: &Path,
-        port: u16,
         cancel: &AtomicBool,
     ) -> Result<(Cdp, u16, String, Vec<String>)> {
         let file = proc.profile.join("DevToolsActivePort");
         let t0 = Instant::now();
         let (port, ws_path) = loop {
-            // Two lines: the port, then the browser's websocket path. Chrome writes the file only
-            // for port 0, so a fixed port asks `/json/version`.
-            if port != 0 {
-                if let Some(ws) = version_ws(port) {
-                    break (port, ws);
-                }
-            } else if let Ok(s) = std::fs::read_to_string(&file) {
+            // Two lines: the port, then the browser's websocket path.
+            if let Ok(s) = std::fs::read_to_string(&file) {
                 let mut lines = s.lines();
                 if let (Some(Ok(port)), Some(ws)) =
                     (lines.next().map(|p| p.trim().parse::<u16>()), lines.next())
@@ -441,13 +420,6 @@ pub fn get_json(port: u16, path: &str) -> Option<Value> {
             return serde_json::from_str(&body[..len]).ok();
         }
     }
-}
-
-/// The browser's websocket path from `/json/version` on `port`.
-fn version_ws(port: u16) -> Option<String> {
-    let v = get_json(port, "/json/version")?;
-    let url = v["webSocketDebuggerUrl"].as_str()?;
-    Some(url[url.find("/devtools/")?..].to_string())
 }
 
 /// Laura's browser as it starts: `Browser::launch`'s thread sends it once Chrome listens, or why
