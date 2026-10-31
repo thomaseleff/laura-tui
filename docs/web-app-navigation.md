@@ -80,6 +80,8 @@ Click an item to focus its pane. When nothing waits on the user, the status bar 
 
 Laura shows a notice for a pane in the bottom-right corner of that pane. For example, when a page does not load, Laura shows the notice in the page's browser pane.
 
+Laura passes a click or a scroll on a notice to the pane under the notice.
+
 Laura shows a notice in the workspace's bottom-right corner, above the hint line, in these cases:
 
 - The notice is not for a pane.

@@ -508,8 +508,10 @@ button.si:hover { color: var(--fg); }
 .si .d.warn { background: #e09a1c; }
 .si .d.bad { background: var(--bad); }
 #sbar code { font: 12px var(--mono); }
-/* A long notice wraps inside the width of its pane, or of the workspace. */
+/* A long notice wraps inside the width of its pane, or of the workspace. The card has no controls,
+   so a click or a wheel scroll goes to the pane under it. */
 #notice {
+  pointer-events: none;
   position: absolute; right: var(--cw); bottom: 6px; z-index: 2; box-sizing: border-box;
   max-width: min(380px, calc(100% - 28px)); padding: 10px 14px; line-height: 1.5;
   white-space: pre-wrap; overflow-wrap: anywhere; color: var(--warn);
@@ -518,7 +520,7 @@ button.si:hover { color: var(--fg); }
 }
 /* Inside the pane's border, over the page's marks and its dialog's veil, under a popover. */
 .pane > #notice { right: 14px; bottom: 14px; z-index: 6; }
-#notice:not(.on) { opacity: 0; transform: translateY(4px); pointer-events: none; }
+#notice:not(.on) { opacity: 0; transform: translateY(4px); }
 
 .box {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3;
