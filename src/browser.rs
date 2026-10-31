@@ -49,9 +49,9 @@ pub const EXITED: &str = "⚠ To start Laura's browser again, press Ctrl+R in a 
 pub const EXITED_AGENT: &str =
     "Laura's browser exited: press Ctrl+R in a browser pane to start it again";
 
-/// Chrome was ready in 0.7–1.3 s in the spike, and Edge's first run in 2.6 s; Chrome's first run on
-/// a cold CI runner took longer than 5 s.
-const LAUNCH_TIMEOUT: Duration = Duration::from_secs(20);
+/// A first start on a CI runner took 7–30 s (cold disk, Defender's first scan). Later starts take
+/// 0.1–0.3 s.
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long `Cdp::call` waits for a reply.
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// At most one size per page this often, so a window drag doesn't restart the screencast each step.
