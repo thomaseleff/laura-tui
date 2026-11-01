@@ -101,8 +101,9 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
             "Shadow select",
             r#"<x-sel class=at style=top:0></x-sel>
                <script>customElements.define('x-sel', class extends HTMLElement { constructor() { super();
-                 this.attachShadow({mode: 'open'}).innerHTML = '<select style="width:200px; height:50px; margin:0" onchange="document.title=this.value"><option>a<option>b</select>';
-               } })</script>"#,
+                 this.attachShadow({mode: 'open'}).innerHTML = '<select style="width:200px; height:50px; margin:0"><option>a<option>b</select>';
+               } })</script>
+               <script>document.addEventListener('input', e => document.title = e.composedPath()[0].value)</script>"#,
         ),
         "/blank" => (
             0,

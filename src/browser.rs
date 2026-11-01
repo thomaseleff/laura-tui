@@ -818,6 +818,8 @@ const PAGE_JS: &str = "\
 /// On macOS, Chrome opens a dropdown list's popup on `↑` and `↓` instead of changing the choice,
 /// so the page script moves to the next choice that is enabled and shown itself, as Chrome does
 /// elsewhere. `getComputedStyle`, as a closed list's choices have no layout box to check.
+/// The `input` event is composed and `change` is not, as Chrome sends them, so a page outside a
+/// web component sees the `input` event.
 #[cfg(target_os = "macos")]
 const SELECT_KEYS_JS: &str = " \
     addEventListener('keydown', e => { \
@@ -828,7 +830,7 @@ const SELECT_KEYS_JS: &str = " \
       for (let i = s.selectedIndex + d; i >= 0 && i < s.options.length; i += d) \
         if (!s.options[i].matches(':disabled') && !hid(s.options[i]) && !hid(s.options[i].parentElement)) { \
           s.selectedIndex = i; \
-          s.dispatchEvent(new Event('input', {bubbles: true})); \
+          s.dispatchEvent(new Event('input', {bubbles: true, composed: true})); \
           s.dispatchEvent(new Event('change', {bubbles: true})); \
           break; } }, true);";
 #[cfg(not(target_os = "macos"))]
