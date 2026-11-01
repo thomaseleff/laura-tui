@@ -675,9 +675,7 @@ fn submit_in_the_file_view_returns_to_neovim() -> Result<()> {
     assert!(tab.editors[&1].editor_view);
     assert_eq!(tab.panels[&1].thread_count(), 0);
     drain_until(&mut tab, "inline review in the shell", |t| {
-        let s = t.pty.with_screen(|s| s.contents());
-        eprintln!("DIAG screen: {s:?}");
-        s.contains("laura review")
+        t.pty.with_screen(|s| s.contents()).contains("laura review")
     });
     Ok(())
 }

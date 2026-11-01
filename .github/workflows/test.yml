@@ -71,7 +71,7 @@ jobs:
           TESTS: ${{ matrix.tests }}
         run: |
           if [ "$TESTS" = app ]; then
-            LAURA_SKIP_BROWSER_TESTS=1 cargo test --locked --no-fail-fast
+            LAURA_SKIP_BROWSER_TESTS=1 cargo test --locked
           else
             cargo test --locked --test "$TESTS"
           fi
