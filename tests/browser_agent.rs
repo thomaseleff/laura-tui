@@ -108,16 +108,21 @@ fn a_browser_trace_shows_on_every_pane() -> Result<()> {
     // Playwright's `browser.startTracing` traces on the browser's own session.
     let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
     tools.browser_call(&mut r, "Tracing.start", json!({}));
-    both(&mut r, &mut ws, [a, b], true);
+    all(&mut r, &mut ws, &[a, b], true);
+    // A pane that opens during the trace records too.
+    let c = open(&mut r, &format!("{url}/one"));
+    state_until(&mut r, &mut ws, "a new pane records", c, |v| {
+        v["recording"] == true
+    });
     tools.browser_call(&mut r, "Tracing.end", json!({}));
-    both(&mut r, &mut ws, [a, b], false);
+    all(&mut r, &mut ws, &[a, b, c], false);
     Ok(())
 }
 
-/// Wait until both panes show `recording`, in one wait, as Laura sends both panes' state at once.
-fn both(r: &mut Rig, ws: &mut Ws, ids: [u64; 2], recording: bool) {
+/// Wait until the panes show `recording`, in one wait, as Laura sends their state at once.
+fn all(r: &mut Rig, ws: &mut Ws, ids: &[u64], recording: bool) {
     let seen = std::cell::RefCell::new(Vec::new());
-    r.until(ws, "both panes", |f| {
+    r.until(ws, "all panes", |f| {
         if let Frame::Json(v) = f
             && v["t"] == "browser"
             && v["recording"] == recording

@@ -1,6 +1,6 @@
 //! One workspace: a PTY, its panels, the split tree, and the socket that ties them together.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
@@ -374,6 +374,8 @@ pub struct Tab {
     chrome_port: Arc<AtomicU16>,
     /// The agent's captures of Laura's browser's pages, from `cdp_proxy`.
     captures: Option<Receiver<cdp_proxy::Capture>>,
+    /// The tool connections that trace the whole browser, so a page that opens records too.
+    traces: HashSet<u64>,
     /// Laura's browser while it starts off the loop, with the pane for `START_FAILED` when the
     /// user started it.
     starting: Option<(browser::Start, Option<PaneId>)>,
@@ -429,6 +431,7 @@ impl Tab {
             browser_port: None,
             chrome_port: Arc::default(),
             captures: None,
+            traces: HashSet::new(),
             starting: None,
             parked: None,
             browser_sizes: HashMap::new(),
@@ -987,6 +990,13 @@ impl Tab {
         // A capture of a page that no pane shows, such as one the tools opened, shows nothing.
         for c in self.captures.iter().flat_map(Receiver::try_iter) {
             let every = c.target == cdp_proxy::EVERY_PAGE;
+            if every && let cdp_proxy::Kind::Recording(on) = c.kind {
+                if on {
+                    self.traces.insert(c.conn);
+                } else {
+                    self.traces.remove(&c.conn);
+                }
+            }
             for page in self
                 .browsers
                 .values_mut()
@@ -1133,8 +1143,11 @@ impl Tab {
             .get(&id)
             .copied()
             .unwrap_or(browser::DEFAULT_SIZE);
-        let page =
+        let mut page =
             Page::open(&cdp, url, size).map_err(|e| format!("couldn't open {url}: {e:#}"))?;
+        for &conn in &self.traces {
+            page.record(conn, true);
+        }
         if let Some(b) = &mut self.browser {
             b.close_start();
         }
