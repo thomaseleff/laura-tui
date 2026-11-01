@@ -702,6 +702,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             let mut out = std::io::stdout();
                             let _ = out.write_all(&mouse::osc52(&text));
                             let _ = out.flush();
+                            #[cfg(target_os = "macos")]
+                            mouse::pbcopy_in_order(text);
                         }
                     }
                 }

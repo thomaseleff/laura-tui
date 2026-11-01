@@ -8,6 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, TcpStream};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -197,8 +199,6 @@ impl Browser {
     pub fn launch(path: &Path) -> Start {
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
-        // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
-        // that spawned it exits.
         match Browser::spawn(path) {
             Ok(proc) => {
                 let (path, cancel) = (path.to_path_buf(), cancel.clone());
@@ -256,20 +256,76 @@ impl Browser {
         // No keyring prompt or D-Bus wait for a profile that Laura deletes on exit.
         #[cfg(target_os = "linux")]
         cmd.arg("--password-store=basic");
-        #[cfg(target_os = "linux")]
-        // SAFETY: `prctl` is async-signal-safe and touches no memory.
-        unsafe {
-            use std::os::unix::process::CommandExt;
-            cmd.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                Ok(())
-            });
+        // No "Chrome Safe Storage" Keychain prompt for that profile.
+        #[cfg(target_os = "macos")]
+        cmd.arg("--use-mock-keychain");
+        // Chrome leads its own process group, which its helpers join, so the watcher can end them all.
+        #[cfg(unix)]
+        cmd.process_group(0);
+        // The watcher starts first, and Chrome's own process writes its pid to it before Chrome
+        // runs, so no moment exists in which Chrome runs and no watcher knows its pid. Only Laura
+        // holds the write end of the watcher's stdin, so Laura's death, however it happens, closes
+        // the pipe: `read` returns and the watcher ends Chrome, its helpers and its profile. A
+        // helper left alive would write the profile again after `rm -rf`. A Laura that dies before
+        // Chrome starts leaves an empty `pid`, and the watcher only deletes the profile.
+        // The trap keeps a terminal hangup from ending the watcher before it ends Chrome.
+        #[cfg(unix)]
+        let mut watcher = match Command::new("/bin/sh")
+            .args([
+                "-c",
+                "trap '' HUP INT TERM; read pid; read _; \
+                 [ -n \"$pid\" ] && kill -s KILL -- -\"$pid\" 2>/dev/null; rm -rf \"$1\"",
+                "sh",
+            ])
+            .arg(&profile)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            // Its own process group, so a kill of Laura's group doesn't end the watcher before Chrome.
+            .process_group(0)
+            .spawn()
+        {
+            Ok(w) => w,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(anyhow!(
+                    "couldn't start the watcher for Laura's browser: {e}"
+                ));
+            }
+        };
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::fd::{AsRawFd, FromRawFd};
+            let fd = watcher
+                .stdin
+                .as_ref()
+                .expect("the watcher's stdin is piped")
+                .as_raw_fd();
+            // SAFETY: the closure only calls `getpid` and `write`, which are async-signal-safe, and
+            // doesn't allocate or close `fd`. `setpgid` runs before it, so the pid leads Chrome's
+            // group. `fd` is close-on-exec, so Chrome doesn't keep the pipe open.
+            unsafe {
+                cmd.pre_exec(move || {
+                    let mut buf = [0u8; 16];
+                    let n = {
+                        let mut line = std::io::Cursor::new(&mut buf[..]);
+                        writeln!(line, "{}", std::process::id())?;
+                        line.position() as usize
+                    };
+                    let pipe = std::mem::ManuallyDrop::new(std::fs::File::from_raw_fd(fd));
+                    (&*pipe).write_all(&buf[..n])
+                });
+            }
         }
-        // ponytail: on macOS a killed Laura leaves Laura's browser running; a kqueue watcher in
-        // the child if that's reported.
         let child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
+                #[cfg(unix)]
+                {
+                    drop(watcher.stdin.take());
+                    let _ = watcher.wait();
+                }
                 let _ = std::fs::remove_dir_all(&profile);
                 return Err(anyhow!("couldn't start {}: {e}", path.display()));
             }
@@ -278,11 +334,11 @@ impl Browser {
         // deleting the profile.
         drop(cmd);
         // From here, dropping `proc` ends the process and deletes the profile.
-        // ponytail: a killed Laura leaves the profile in the temp folder; sweep stale
-        // `laura-browser-*` folders at startup if they pile up.
         Ok(Proc {
             #[cfg(windows)]
             job: kill_on_close(&child),
+            #[cfg(unix)]
+            watcher,
             child,
             profile,
         })
@@ -490,10 +546,22 @@ struct Proc {
     /// Closing it ends Laura's browser and its helper processes, even when Laura is killed.
     #[cfg(windows)]
     job: Option<std::os::windows::io::OwnedHandle>,
+    /// Ends Laura's browser and deletes the profile when Laura is killed.
+    #[cfg(unix)]
+    watcher: Child,
 }
 
 impl Drop for Proc {
     fn drop(&mut self) {
+        // The watcher kills Chrome's group, also the helpers of a Chrome that already exited, and
+        // deletes the profile. A group id isn't reused while a helper is in the group, and pids
+        // are handed out in order, so an id freed by an earlier reap doesn't come back before the
+        // kill.
+        #[cfg(unix)]
+        {
+            drop(self.watcher.stdin.take());
+            let _ = self.watcher.wait();
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         #[cfg(windows)]
@@ -765,22 +833,9 @@ pub struct Key {
 const TEXT: &str = "textarea, select, input:not([type=checkbox], [type=radio], [type=button], \
                     [type=submit], [type=reset], [type=image], [type=file], [type=color])";
 
-/// Runs in each document before the page's own scripts. Laura's browser is headless, so a new tab
-/// and a dropdown list's popup never reach the screencast: a link or `window.open` that opens a
-/// new tab opens in the same pane, and a click on a dropdown list only focuses it, so `↑` and `↓`
-/// change the choice. A middle-click's tab has no opener, so `Page::on_popup` can't catch it.
-/// ponytail: the script runs in the page's world, `window.open` returns `null`, and a Ctrl+click
-/// still opens a hidden tab; open new tabs as panes if users miss them.
-const PAGE_JS: &str = "\
-    addEventListener('click', e => { \
-      const a = e.target.closest?.('a[target=_blank]'); if (a) a.target = '_self'; }, true); \
-    addEventListener('auxclick', e => { \
-      const a = e.button == 1 && e.target.closest?.('a[href]'); \
-      if (a) { e.preventDefault(); location.assign(a.href); } }, true); \
-    window.open = u => (u && location.assign(u), null); \
-    addEventListener('mousedown', e => { \
-      const s = e.target.closest?.('select'); \
-      if (s && !s.multiple && s.size <= 1) { e.preventDefault(); s.focus(); } }, true);";
+/// Runs in each document before the page's own scripts: see its header. `Page::open` wraps it in a
+/// function, so its names stay out of the page's globals.
+const PAGE_JS: &str = include_str!("../assets/web/browser-page.js");
 
 /// Finds the threads' elements in each document, in the isolated world `laura`.
 const BROWSER_JS: &str = concat!("{\n", include_str!("../assets/web/browser.js"), "\n}");
@@ -988,9 +1043,12 @@ impl Page {
         page.send("Page.enable", json!({}));
         // For the spinner: the requests a click starts.
         page.send("Network.enable", json!({}));
+        // The tests run the macOS dropdown keys on Linux, against Linux Chrome's own.
+        let mac =
+            cfg!(target_os = "macos") || std::env::var_os("LAURA_EMULATE_MAC_SELECT").is_some();
         page.send(
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": PAGE_JS}),
+            json!({"source": format!("(() => {{ 'use strict'; const mac = {mac};\n{PAGE_JS}\n}})()")}),
         );
         // browser.js runs where the page's scripts can't see or change it.
         page.send("Runtime.enable", json!({}));
@@ -1428,8 +1486,9 @@ impl Page {
     /// A field in a same-origin iframe (a Storybook story) has the focus in the iframe's document,
     /// or a field in an open shadow root (a web component) in its shadow root.
     /// A page can focus a field a moment after the click (a form that opens), so with no field
-    /// focused the read waits 100 ms and reads again.
-    // ponytail: a focus later than 100 ms, or in a cross-origin iframe, reads as no field; a
+    /// focused the read waits 100 ms and the next frame, then reads again. Chrome applies
+    /// `autofocus` in a frame, which can come after 100 ms on a slow host.
+    // ponytail: a focus later than that, or in a cross-origin iframe, reads as no field; a
     // `focusin` binding if users hit it. The read also runs after each load, for `autofocus`.
     fn ask_focus(&mut self, x: f64, y: f64, dragged: bool, click: bool) {
         if self.dialog.is_some() {
@@ -1444,7 +1503,8 @@ impl Page {
              || a === t && a.hasAttribute('tabindex')), \
              text: {dragged} ? d.getSelection().toString() : '' }}; }}; \
              let v = read(); \
-             if (!v.editable) {{ await new Promise(r => setTimeout(r, 100)); v = read(); }} \
+             if (!v.editable) {{ await Promise.all([new Promise(r => setTimeout(r, 100)), \
+             new Promise(r => {{ requestAnimationFrame(r); setTimeout(r, 1000); }})]); v = read(); }} \
              return v; }})()"
         );
         self.select_ask = Some((self.evaluate(&js), dragged, click));

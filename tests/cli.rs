@@ -34,7 +34,10 @@ fn area() -> Rect {
 
 /// Run `laura <args>` against a raw socket and return the one decoded request (reply `Ok`).
 fn send_and_recv(args: &[&str]) -> Result<Message> {
-    let name = format!("laura-test-{}-{}.sock", std::process::id(), args.join("-"));
+    // Short: on macOS the name is a `/tmp` path, which `sun_path` caps at 104 bytes.
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let seq = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = format!("laura-test-{}-{seq}.sock", std::process::id());
     let rx = laura::protocol::serve(&name)?;
     let n = name.clone();
     let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();

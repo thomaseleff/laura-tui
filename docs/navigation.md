@@ -119,3 +119,5 @@ In a file pane, Laura scrolls only when the cursor reaches the top or bottom edg
 ## Selection
 
 Drag with the left mouse button to select text within a pane. Laura copies the selection to the system clipboard when you release the button (via OSC 52). From a file pane, Laura copies clean source, without the line-number gutter and with wrapped lines rejoined. From the shell, Laura copies the text exactly as shown.
+
+On macOS, Laura also copies the selection with `pbcopy`, so the copy works in Terminal.app, which ignores OSC 52.

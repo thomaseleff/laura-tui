@@ -211,6 +211,42 @@ pub fn osc52(text: &str) -> Vec<u8> {
     format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes())).into_bytes()
 }
 
+/// Terminal.app ignores OSC 52, so on macOS Laura also hands the selection to `pbcopy`.
+#[cfg(target_os = "macos")]
+pub fn pbcopy(text: &str) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    // Without a UTF-8 locale, pbcopy reads the bytes as Mac Roman. `LC_ALL` overrides a user's
+    // `LC_CTYPE` and `LANG`.
+    let Ok(mut c) = Command::new("pbcopy")
+        .env("LC_ALL", "en_US.UTF-8")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return;
+    };
+    if let Some(mut stdin) = c.stdin.take() {
+        let _ = stdin.write_all(text.as_bytes());
+    }
+    let _ = c.wait();
+}
+
+/// Copies `text` with `pbcopy` off the render loop, as a process start is slow. One worker copies
+/// the selections in order, so a slow `pbcopy` can't put an older selection back on the clipboard.
+#[cfg(target_os = "macos")]
+pub fn pbcopy_in_order(text: String) {
+    use std::sync::{OnceLock, mpsc};
+    static TX: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<String>();
+        std::thread::spawn(move || rx.into_iter().for_each(|t| pbcopy(&t)));
+        tx
+    });
+    let _ = tx.send(text);
+}
+
 /// Standard base64 (RFC 4648). Inline (~15 lines) since base64 is only a transitive dep and the repo
 /// pins every direct dep — a few lines beat a new pin.
 pub fn base64_encode(data: &[u8]) -> String {
@@ -372,5 +408,53 @@ mod tests {
             extract_panel(&buf, inner, 3, 0, &line_at, (5, 0), (5, 2)),
             "llo world\nbye"
         );
+    }
+
+    /// The clipboard tests run in parallel and share one clipboard.
+    #[cfg(target_os = "macos")]
+    static CLIPBOARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(target_os = "macos")]
+    fn pbpaste() -> String {
+        let out = std::process::Command::new("pbpaste")
+            .env("LC_ALL", "en_US.UTF-8")
+            .output()
+            .expect("pbpaste runs on macOS");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pbcopy_puts_the_text_on_the_clipboard() {
+        let _clipboard = CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
+        // shortcut: puts back text only, an image on the clipboard is lost; save the pasteboard
+        // types if a developer hits it.
+        let saved = pbpaste();
+        let text = "laura ✓ copy";
+        pbcopy(text);
+        let got = pbpaste();
+        pbcopy(&saved);
+        assert_eq!(got, text);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn quick_selections_reach_the_clipboard_in_order() {
+        use std::time::{Duration, Instant};
+        let _clipboard = CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
+        // shortcut: puts back text only, as in `pbcopy_puts_the_text_on_the_clipboard`.
+        let saved = pbpaste();
+        for i in 1..=20 {
+            pbcopy_in_order(i.to_string());
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while pbpaste() != "20" && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // A late older copy would replace "20" in this time.
+        std::thread::sleep(Duration::from_millis(300));
+        let got = pbpaste();
+        pbcopy(&saved);
+        assert_eq!(got, "20");
     }
 }

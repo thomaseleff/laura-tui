@@ -922,7 +922,6 @@ dependencies = [
  "clap",
  "getrandom 0.4.3",
  "interprocess",
- "libc",
  "portable-pty",
  "predicates",
  "pulldown-cmark",

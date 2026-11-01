@@ -95,16 +95,106 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
                  this.attachShadow({mode: 'open'}).innerHTML = '<input style="width:200px; height:50px; margin:0" oninput="document.title=this.value">';
                } })</script>"#,
         ),
+        // A web component whose open shadow root holds the dropdown list.
+        "/shadow-select" => (
+            0,
+            "Shadow select",
+            r#"<x-sel class=at style=top:0></x-sel>
+               <script>customElements.define('x-sel', class extends HTMLElement { constructor() { super();
+                 this.attachShadow({mode: 'open'}).innerHTML = '<select style="width:200px; height:50px; margin:0"><option>a<option>b<option>c</select>';
+               } })</script>
+               <script>document.addEventListener('keyup', e => document.title = e.key + ' ' + e.composedPath()[0].value)</script>"#,
+        ),
         "/blank" => (
             0,
             "Blank",
             r#"<a class=at style=top:0 href=/two target=_blank>Two</a>
                <button class=at style=top:100px onclick="window.open('/two')">Open</button>"#,
         ),
+        // The dropdown lists' titles name the last key and the choice, so a title from an earlier
+        // key doesn't match, and ` untrusted` when Laura's page script made the last change (on
+        // macOS).
         "/select" => (
             0,
             "Select",
-            r#"<select class=at style=top:0 onchange="document.title=this.value"><option>a<option>b</select>"#,
+            r#"<select class=at style=top:0 onchange="this.by = event.isTrusted ? '' : ' untrusted'" onkeyup="document.title = event.key + ' ' + this.value + (this.by ?? '')"><option>a<option>b<option>c</select>"#,
+        ),
+        // `b` is hidden, and `c` is in a hidden group: `↓` from `a` picks `d`.
+        "/hidden-select" => (
+            0,
+            "Hidden select",
+            r#"<select class=at style=top:0 onchange="this.by = event.isTrusted ? '' : ' untrusted'" onkeyup="document.title = event.key + ' ' + this.value + (this.by ?? '')"><option>a<option hidden>b<optgroup label=g style=display:none><option>c</optgroup><option>d</select>"#,
+        ),
+        // A disabled `b`, a hidden `d`, a group and an `hr`. `?none` selects no choice.
+        "/select-keys" => (
+            0,
+            "Select keys",
+            r#"<select id=s class=at style=top:0 onchange="this.by = event.isTrusted ? '' : ' untrusted'" onkeyup="document.title = event.key + ' ' + this.value + (this.by ?? '')"><option>a<option disabled>b<option>c<option hidden>d<optgroup label=g><option>e<option>f</optgroup><hr><option>h<option>i<option>j<option>k</select>
+               <script>if (location.search == '?none') s.selectedIndex = -1</script>"#,
+        ),
+        "/select-type" => (
+            0,
+            "Select type",
+            r#"<select class=at style=top:0 onkeyup="document.title = event.key + ' ' + this.value"><option>Newark<option>New York<option selected>Zed</select>"#,
+        ),
+        // The page's own handlers for the key, by `?mode`. The title lists the `input` and
+        // `change` events the page saw, then the last key and the choice.
+        "/select-events" => (
+            0,
+            "Select events",
+            r#"<script>const log = []; for (const t of ['input', 'change']) addEventListener(t, e => log.push(t + (e.isTrusted ? '' : ' untrusted')), true); addEventListener('keyup', e => document.title = [...log, e.key, s.value].join(' '), true)</script>
+               <select id=s class=at style=top:0><option>a<option>b<option>c</select><input id=o class=at style=top:100px>
+               <script>
+               const stop = e => e.stopPropagation(), cancel = e => e.preventDefault();
+               ({
+                 plain() {},
+                 prevent() { s.addEventListener('keydown', cancel) },
+                 'return-false'() { s.onkeydown = () => false },
+                 'return-value'() { s.onkeydown = e => { e.returnValue = false } },
+                 window() { addEventListener('keydown', cancel) },
+                 'window-capture'() { addEventListener('keydown', cancel, true) },
+                 document() { document.addEventListener('keydown', cancel) },
+                 stop() { s.addEventListener('keydown', stop) },
+                 'stop-then-prevent'() { s.addEventListener('keydown', stop); s.addEventListener('keydown', cancel) },
+                 immediate() { s.addEventListener('keydown', e => e.stopImmediatePropagation()) },
+                 'immediate-prevent'() { s.addEventListener('keydown', e => { e.stopImmediatePropagation(); e.preventDefault() }) },
+                 'cancel-bubble'() { s.addEventListener('keydown', e => { e.cancelBubble = true }) },
+                 'window-capture-stop'() { addEventListener('keydown', stop, true) },
+                 'late-stop'() { addEventListener('keydown', () => s.addEventListener('keydown', stop, {once: true}), true) },
+                 nested() { document.addEventListener('keydown', e => { o.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true})); e.preventDefault() }) },
+                 seen() { for (const t of ['keydown', 'keypress']) s.addEventListener(t, e => log.push(t + ' ' + e.defaultPrevented)) },
+               })[location.search.slice(1)]();
+               </script>"#,
+        ),
+        // The page sends its own `keydown` and `mousedown`; the title is the choice and whether
+        // the 2nd list has the focus.
+        "/select-untrusted" => (
+            0,
+            "",
+            r#"<select id=s class=at style=top:0><option>a<option>b<option>c</select><select id=t class=at style=top:100px><option>x</select>
+               <script>s.focus(); s.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', keyCode: 40, bubbles: true})); t.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); setTimeout(() => document.title = s.value + ' ' + (document.activeElement == t), 100)</script>"#,
+        ),
+        "/select-mousedown" => (
+            0,
+            "Select mousedown",
+            r#"<select id=s class=at style=top:0 onchange="this.by = event.isTrusted ? '' : ' untrusted'" onkeyup="document.title = event.key + ' ' + this.value + (this.by ?? '')"><option>a<option>b<option>c</select>
+               <script>
+               if (location.search == '?return-false') s.onmousedown = () => false;
+               if (location.search == '?immediate') addEventListener('mousedown', e => e.stopImmediatePropagation(), true);
+               </script>"#,
+        ),
+        // A dropdown list whose picker Chrome shows in the page. `?focus` focuses it.
+        "/select-base" => (
+            0,
+            "",
+            r#"<style>select, ::picker(select) { appearance: base-select }</style><select id=s class=at style=top:0><option>a<option>b<option>c</select>
+               <script>if (location.search == '?focus') s.focus(); setInterval(() => document.title = 'open ' + s.matches(':open'), 50)</script>"#,
+        ),
+        "/aux-cancel" => (
+            0,
+            "Aux cancel",
+            r#"<a class=at style=top:0 href=/two onauxclick="event.preventDefault()">Two</a>
+               <button class=at style=top:100px onclick="document.title = 'still'">Still</button>"#,
         ),
         "/hover" => (
             0,
@@ -230,6 +320,18 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
     }
 }
 
+/// `path`'s page title: its route's, then its query, so a wait for the title of a page's next
+/// `?mode` doesn't match the page before it. A test page reads `?mode` itself.
+pub fn title(path: &str) -> String {
+    let (page, query) = path.split_once('?').unwrap_or((path, ""));
+    let title = route(page).1;
+    if query.is_empty() {
+        title.into()
+    } else {
+        format!("{title}?{query}")
+    }
+}
+
 /// The server sent `/file.txt`, the download.
 pub static DOWNLOADED: AtomicBool = AtomicBool::new(false);
 pub const DOWNLOAD: &str = "laura-download-test.txt";
@@ -259,7 +361,9 @@ pub fn serve() -> String {
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
                 let path = req.split_whitespace().nth(1).unwrap_or("/");
-                let (delay, title, body) = route(path);
+                let (page, _) = path.split_once('?').unwrap_or((path, ""));
+                let (delay, _, body) = route(page);
+                let title = title(path);
                 let body = format!(
                     "<!doctype html><title>{title}</title><style>{CSS}</style><body>{body}</body>"
                 );
@@ -411,7 +515,7 @@ pub fn event(r: &mut Rig, ws: &mut Ws, t: &str, id: u64) -> Value {
 pub fn load(r: &mut Rig, ws: &mut Ws, path: &str) -> (u64, String) {
     let url = serve();
     let id = open(r, &format!("{url}{path}"));
-    let title = route(path).1;
+    let title = title(path);
     state_until(r, ws, "the page's title", id, |v| {
         v["title"] == title && v["busy"] == false
     });
@@ -446,11 +550,20 @@ pub fn type_key(ws: &mut Ws, id: u64, c: char) {
 
 /// A key's press and release with no text, such as `ArrowDown`, as the web app sends them.
 pub fn press(ws: &mut Ws, id: u64, key: &str, key_code: u32) {
+    press_key(ws, id, (key, key, key_code, 0, ""));
+}
+
+/// A keystroke as the web app sends it: `key`, `code`, `key_code`, CDP's `mods` (Alt 1, Ctrl 2,
+/// Meta 4, Shift 8) and `text`.
+pub type Keystroke<'a> = (&'a str, &'a str, u32, u8, &'a str);
+
+/// `k`'s press and release, as the web app sends them.
+pub fn press_key(ws: &mut Ws, id: u64, (key, code, key_code, mods, text): Keystroke) {
     for kind in ["down", "up"] {
         send(
             ws,
-            json!({"act": "browser_key", "pane": id, "kind": kind, "key": key, "code": key,
-                   "key_code": key_code}),
+            json!({"act": "browser_key", "pane": id, "kind": kind, "key": key, "code": code,
+                   "key_code": key_code, "mods": mods, "text": text}),
         );
     }
 }

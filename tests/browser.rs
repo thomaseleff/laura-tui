@@ -390,18 +390,14 @@ fn a_still_page_sends_no_frames() -> Result<()> {
         }
         out
     };
-    // The page settles: ack what its load paints, until 500 ms pass with no frame.
-    let start = Instant::now();
-    while !frames(&mut r, &mut ws, Duration::from_millis(500)).is_empty() {
-        assert!(
-            start.elapsed() < common::DEADLINE,
-            "timed out: the page settles"
-        );
-    }
-    let late = frames(&mut r, &mut ws, Duration::from_secs(1));
+    // On a busy host, Chrome can send a frame more than 500 ms after it paints the frame, so the
+    // test judges each frame by its paint time. The load's last paints came 660 ms after the load
+    // on macOS CI; a frame painted after 1.5 s is a still page painting again.
+    let painted = frames(&mut r, &mut ws, Duration::from_secs(3));
+    let late: Vec<_> = painted.iter().filter(|&&t| t > 1500.0).collect();
     assert!(
         late.is_empty(),
-        "frames painted at {late:?} ms after the load"
+        "frames painted at {painted:?} ms after the load"
     );
     Ok(())
 }
@@ -595,5 +591,120 @@ fn a_crashed_page_says_so() -> Result<()> {
     let acted = r.act(&mut ws, json!({"act": "refresh", "pane": id}));
     assert_eq!(acted["ok"], true, "{acted}");
     assert!(r.tab.browsers.contains_key(&id));
+    Ok(())
+}
+
+/// #158: a real Chrome's helpers (zygote, GPU, renderers) stay where the watcher's kill reaches
+/// them, so a killed Laura leaves no Chrome process and no profile behind.
+#[cfg(unix)]
+#[test]
+fn a_killed_laura_closes_real_chrome_and_its_helpers() -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let shell = format!(
+        "{} open {}/two & sleep 60",
+        env!("CARGO_BIN_EXE_laura"),
+        serve()
+    );
+    let mut laura = Kill(
+        Command::new(env!("CARGO_BIN_EXE_laura"))
+            .args(["--web", "--", "/bin/sh", "-c", &shell])
+            .env("LAURA_EXPERIMENTAL_WEB", "1")
+            .env("LAURA_EXPERIMENTAL_BROWSER", "1")
+            .env("LAURA_BROWSER", &path)
+            // Journals into the target dir; only this Laura's home moves, not the other tests'.
+            .env("HOME", env!("CARGO_TARGET_TMPDIR"))
+            .env_remove("LAURA_TAB")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            // Laura leads its own process group, so the test can kill the group as a supervisor does.
+            .process_group(0)
+            .spawn()?,
+    );
+    // (pid, ppid, pgid, command) of each running process; zombies are gone already.
+    let procs = || -> Vec<(u32, u32, u32, String)> {
+        let out = Command::new("ps")
+            .args(["-A", "-o", "pid=,ppid=,pgid=,stat=,command="])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        out.lines()
+            .filter_map(|l| {
+                let mut f = l.split_whitespace();
+                let mut num = || f.next()?.parse().ok();
+                let (pid, ppid, pgid) = (num()?, num()?, num()?);
+                let stat = f.next()?;
+                let cmd = f.collect::<Vec<_>>().join(" ");
+                (!stat.starts_with('Z')).then_some((pid, ppid, pgid, cmd))
+            })
+            .collect()
+    };
+    // Chrome is Laura's child with a profile; its tree holds a renderer once the page loads.
+    let t0 = Instant::now();
+    let (chrome_pid, pgid, profile, tree) = loop {
+        let all = procs();
+        let found = all
+            .iter()
+            .find(|p| p.1 == laura.0.id() && p.3.contains("--user-data-dir="))
+            .map(|c| {
+                let mut tree = vec![c.0];
+                let mut i = 0;
+                while i < tree.len() {
+                    let parent = tree[i];
+                    tree.extend(all.iter().filter(|p| p.1 == parent).map(|p| p.0));
+                    i += 1;
+                }
+                (c.clone(), tree)
+            });
+        if let Some((c, tree)) = found
+            && all
+                .iter()
+                .any(|p| tree.contains(&p.0) && p.3.contains("--type=renderer"))
+        {
+            let profile =
+                c.3.split_whitespace()
+                    .find_map(|a| a.strip_prefix("--user-data-dir="))
+                    .map(PathBuf::from)
+                    .expect("a --user-data-dir argument");
+            break (c.0, c.2, profile, tree);
+        }
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "Laura's browser never started a renderer"
+        );
+        thread::sleep(Duration::from_millis(100));
+    };
+    assert!(profile.exists(), "{} is missing", profile.display());
+    assert!(tree.len() > 1, "Chrome {chrome_pid} started no helper");
+
+    // A SIGKILL to Laura's group kills Laura too, so this covers both kinds of kill.
+    Command::new("kill")
+        .args(["-s", "KILL", "--", &format!("-{}", laura.0.id())])
+        .status()?;
+    laura.0.wait()?;
+    let t0 = Instant::now();
+    loop {
+        let left: Vec<_> = procs()
+            .into_iter()
+            .filter(|p| tree.contains(&p.0) || p.2 == pgid)
+            .map(|p| format!("{} {}", p.0, p.3.chars().take(80).collect::<String>()))
+            .collect();
+        if left.is_empty() && !profile.exists() {
+            break;
+        }
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "after Laura's kill, still running: {left:?}; the profile exists: {}",
+            profile.exists()
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    thread::sleep(Duration::from_millis(500));
+    assert!(!profile.exists(), "a helper wrote the profile again");
     Ok(())
 }

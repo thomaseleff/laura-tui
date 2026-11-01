@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest] # Windows exercises the ConPTY path
+        os: [ubuntu-latest, windows-latest, macos-latest] # Windows exercises the ConPTY path
         # `app` runs every test crate but the browser ones; each browser crate gets its own job.
         tests: [app, browser, browser_input, browser_threads, browser_agent]
     runs-on: ${{ matrix.os }}
@@ -32,6 +32,8 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
             chrome="C:/Program Files/Google/Chrome/Application/chrome.exe"
+          elif [ "$RUNNER_OS" = macOS ]; then
+            chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
           else
             chrome=$(command -v google-chrome || true)
           fi
@@ -60,8 +62,22 @@ jobs:
       # Chrome's first start on a new runner takes 7–30 s; the tests' starts are then fast.
       - name: Warm up Chrome
         if: matrix.tests != 'app'
+        timeout-minutes: 2 # macOS has no `timeout`
         shell: bash
-        run: time timeout 120 "$LAURA_BROWSER" --headless=new --no-first-run --user-data-dir="$RUNNER_TEMP/chrome-warm-up" --dump-dom about:blank > /dev/null
+        run: time "$LAURA_BROWSER" --headless=new --no-first-run --user-data-dir="$RUNNER_TEMP/chrome-warm-up" --dump-dom about:blank > /dev/null
+      # The editor tests run a real Neovim.
+      - name: Install Neovim
+        if: matrix.tests == 'app'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            choco install neovim -y # adds its folder to the user PATH, which this job does not read
+            echo "C:/tools/neovim/nvim-win64/bin" >> "$GITHUB_PATH"
+          elif [ "$RUNNER_OS" = macOS ]; then
+            brew install neovim
+          else
+            sudo apt-get update && sudo apt-get install -y neovim
+          fi
       - name: Run the tests
         shell: bash
         env:
@@ -71,4 +87,8 @@ jobs:
             LAURA_SKIP_BROWSER_TESTS=1 cargo test --locked
           else
             cargo test --locked --test "$TESTS"
+          fi
+          # Linux runs the macOS dropdown keys too, against Linux Chrome's own results.
+          if [ "$TESTS" = browser_input ] && [ "$RUNNER_OS" = Linux ]; then
+            LAURA_EMULATE_MAC_SELECT=1 cargo test --locked --test browser_input dropdown
           fi

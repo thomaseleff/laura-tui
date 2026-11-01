@@ -28,7 +28,19 @@ pub fn isolate_home() {
 }
 
 pub fn shell() -> portable_pty::CommandBuilder {
-    portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" })
+    let mut cmd = portable_pty::CommandBuilder::new(if cfg!(windows) {
+        "cmd.exe"
+    } else if cfg!(target_os = "macos") {
+        "/bin/bash"
+    } else {
+        "/bin/sh"
+    });
+    // bash's line editor shows the paste markers and scrolls a long line sideways, so the screen
+    // wouldn't hold a submitted inline review. /bin/sh can be dash, which rejects --noediting.
+    if cfg!(target_os = "macos") {
+        cmd.arg("--noediting");
+    }
+    cmd
 }
 
 /// What a view receives.
@@ -258,5 +270,15 @@ impl Rig {
             self.pump();
             thread::sleep(Duration::from_millis(10));
         }
+    }
+}
+
+/// Kills the child on drop, so a failed assertion doesn't leave a workspace running.
+pub struct Kill(pub std::process::Child);
+
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
