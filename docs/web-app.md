@@ -186,13 +186,17 @@ claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --browser-url='
 claude mcp add playwright -- npx @playwright/mcp@latest --cdp-endpoint='${LAURA_BROWSER_URL}'
 ```
 
-Laura sets `LAURA_BROWSER_URL` in the shell when Laura can show browser panes. Keep the single quotes: Claude Code then reads `LAURA_BROWSER_URL` each time the tool starts, so the tool works in every workspace. The tool connects to Laura's browser on its first use after a browser pane opens. With `-s project`, Claude Code writes the tool into the project's `.mcp.json` and asks the user to approve the tool once. For another agent, see the setup steps of [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp).
+Laura sets `LAURA_BROWSER_URL` in the shell when Laura can show browser panes. Keep the single quotes: Claude Code then reads `LAURA_BROWSER_URL` each time the tool starts, so the tool works in every workspace. The tool connects to Laura's browser on its first use after a browser pane opens. Before Laura's browser starts, the tool returns an error with status 503, such as `HTTP Service Unavailable` or `Unexpected status 503`. Open a browser pane, then use the tool again. With `-s project`, Claude Code writes the tool into the project's `.mcp.json` and asks the user to approve the tool once. For another agent, see the setup steps of [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) or [Playwright MCP](https://github.com/microsoft/playwright-mcp).
 
 The tool's page list shows only the pages in browser panes. When the agent clicks, types or changes the page with the tool, the user sees each change in the browser pane at once.
 
 Laura shows a ring where the agent clicks. Laura shows an outline on the field where the agent types. Each mark goes away after one second. Laura shows no mark for the user's own clicks and typing. When a page's own script clicks or changes a field, Laura can show a mark for it.
 
-While the agent clicks or types with the tool, the pane header shows **Agent**. Laura hides **Agent** five seconds after the agent's last click or keystroke. When the agent only reads the page, opens another page or takes a screenshot, the pane header doesn't show **Agent**.
+While the agent clicks or types with the tool, the pane header shows **Agent**. Laura hides **Agent** five seconds after the agent's last click or keystroke. When the agent only reads the page or opens another page, the pane header doesn't show **Agent**.
+
+When the agent takes a screenshot of the page with the tool, Laura flashes the page in the browser pane once. The pane header shows **Screenshot** for four seconds. When the user's computer is set to reduce motion, Laura shows **Screenshot** with no flash.
+
+While the agent records the page with the tool, such as a screencast, a video or a performance trace, the pane header shows **● Recording** with a red dot. Laura hides **● Recording** when the recording stops or when the tool disconnects. When the tool traces the whole browser, every browser pane shows **● Recording**, also a browser pane that opens during the trace.
 
 The agent's screenshots and page snapshots show the page as the user's own browser would. They don't show Laura's rings, outlines, thread pins or highlights.
 
@@ -203,7 +207,7 @@ When the tool emulates a device, such as a phone, the browser pane shows the pag
 The agent can also answer the page's dialogs with the tool.
 
 > [!IMPORTANT]
-> Laura's browser takes browser tools on a port on `127.0.0.1`. Every program on this computer can connect to the port and control the pages in Laura's browser.
+> Laura takes browser tools on a port on `127.0.0.1` and passes them to Laura's browser. Every program on this computer can connect to the port and control the pages in Laura's browser.
 
 ## Quit
 

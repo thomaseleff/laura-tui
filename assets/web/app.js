@@ -246,6 +246,8 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + `<span class="x" data-act="clear_highlight" ${tip("Clear the highlight  h")}>×</span></button>`
   + '<span class="chip bad sfail" hidden>Submission failed</span></span><i class="cdot" role="img"></i><span class="grow"></span>'
   + `<span class="chip new agent tip-c" ${tip("The agent's browser tool clicks or types on this page")} hidden>Agent</span>`
+  + `<span class="chip new shot tip-c" ${tip("The agent's browser tool took a screenshot of this page")} hidden>Screenshot</span>`
+  + `<span class="chip new rec tip-c" ${tip("The agent's browser tool records this page")} hidden>Recording</span>`
   + `<span class="chip emu tip-c" ${tip("The agent's browser tools set the page to this size")} hidden></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>`
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
@@ -315,6 +317,8 @@ function paintHead(el, p) {
   show(".live", browser && el.live);
   show(".emu", browser && el.emulated);
   show(".agent", browser && !!el.acting);
+  show(".shot", browser && !!el.shot);
+  show(".rec", browser && !!el.recording);
   show(".more", p.id !== 0);
   // An editor pane has no diff view (NO_DIFF_IN_EDITOR), and nor does a file with no changes.
   show(".tools [data-act=toggle_diff]", !p.pty && (p.added || p.removed || p.diff));
@@ -694,6 +698,9 @@ function onBrowser(m) {
   el.live = m.live;
   el.busy = !!m.busy;
   el.querySelector(".head .live").hidden = !m.live;
+  // The agent's tool records the page until the recording stops or the tool disconnects.
+  el.recording = !!m.recording;
+  el.querySelector(".head .rec").hidden = !el.recording;
   el.querySelector(".view canvas").style.cursor = m.cursor ?? "";
   el.querySelector(".head [data-act=back]").disabled = !m.back;
   el.querySelector(".head [data-act=fwd]").disabled = !m.forward;
@@ -752,6 +759,23 @@ function onAgent(m) {
     clearTimeout(d.timer);
     d.timer = setTimeout(() => d.classList.remove("on"), 1000);
   }
+}
+
+// The agent's screenshot of a browser pane's page: one flash over the page, and **Screenshot** in
+// the pane header for 4 s, as **Reloaded**.
+function onShot(m) {
+  const el = $("p" + m.id), view = el?.querySelector(".view");
+  if (!view) return;
+  const chip = () => el.querySelector(".head .shot");
+  el.shot = true;
+  chip().hidden = false;
+  fitHead(el);
+  clearTimeout(el.shotTimer);
+  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true, fitHead(el)), 4000);
+  // A reflow between, so a second screenshot flashes again.
+  view.classList.remove("shot");
+  void view.offsetWidth;
+  view.classList.add("shot");
 }
 
 // A pin's authors: each one's initial, and whether it's an agent.
@@ -1860,6 +1884,9 @@ function connect() {
       }
       case "agent":
         if (pane(m.id)?.kind === "browser") onAgent(m);
+        break;
+      case "screenshot":
+        if (pane(m.id)?.kind === "browser") onShot(m);
         break;
       case "copy":
         navigator.clipboard?.writeText(m.text).catch(() => {});

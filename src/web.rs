@@ -1546,6 +1546,40 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// Peek a request's head, so tungstenite can still read it for a websocket: the head, or `None`
+/// when the client closes or stalls, or sends a head over `MAX_HEAD` (answered 431).
+pub(crate) fn peek_head(stream: &mut TcpStream) -> Result<Option<Vec<u8>>> {
+    stream.set_read_timeout(Some(HEAD_TIMEOUT))?;
+    let deadline = Instant::now() + HEAD_TIMEOUT;
+    let mut buf = vec![0u8; MAX_HEAD];
+    loop {
+        let n = stream.peek(&mut buf)?;
+        if n == 0 {
+            return Ok(None);
+        }
+        if let Some(i) = buf[..n].windows(4).position(|w| w == b"\r\n\r\n") {
+            buf.truncate(i + 4);
+            return Ok(Some(buf));
+        }
+        if n == buf.len() {
+            respond(stream, "431 Request Header Fields Too Large", None)?;
+            return Ok(None);
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Header `name`'s value in a request head.
+pub(crate) fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+    head.lines().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
+    })
+}
+
 /// One connection: a static file, a file beside a pane, or the websocket view.
 fn serve(
     mut stream: TcpStream,
@@ -1554,33 +1588,16 @@ fn serve(
     join: &Sender<Conn>,
     files: &Files,
 ) -> Result<()> {
-    stream.set_read_timeout(Some(HEAD_TIMEOUT))?;
-    // Peek, so tungstenite can still read the head for `/ws`.
-    let deadline = Instant::now() + HEAD_TIMEOUT;
-    let mut buf = vec![0u8; MAX_HEAD];
-    let head = loop {
-        let n = stream.peek(&mut buf)?;
-        if n == 0 {
-            return Ok(());
-        }
-        if let Some(i) = buf[..n].windows(4).position(|w| w == b"\r\n\r\n") {
-            break i + 4;
-        }
-        if n == buf.len() {
-            return respond(&mut stream, "431 Request Header Fields Too Large", None);
-        }
-        if Instant::now() >= deadline {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(5));
+    let Some(mut buf) = peek_head(&mut stream)? else {
+        return Ok(());
     };
-    let text = String::from_utf8_lossy(&buf[..head]).into_owned();
+    let text = String::from_utf8_lossy(&buf).into_owned();
     let target = text.split(' ').nth(1).unwrap_or("/");
     let path = target.split('?').next().unwrap_or("/").to_string();
     if path == "/ws" {
         return view_conn(stream, token, port, join);
     }
-    stream.read_exact(&mut buf[..head])?;
+    stream.read_exact(&mut buf)?;
     // No token, so a page or image URL can't leak it.
     if let Some(rest) = path.strip_prefix("/f/") {
         return match file(rest, files) {
@@ -1590,15 +1607,9 @@ fn serve(
     }
     // A page's `/style.css` is the page's, not the workspace's: a subresource from another site (a
     // page's opaque origin) gets none of these.
-    let header = |name: &str| {
-        text.lines().find_map(|l| {
-            let (k, v) = l.split_once(':')?;
-            k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
-        })
-    };
-    let site = header("Sec-Fetch-Site").unwrap_or("");
+    let site = header(&text, "Sec-Fetch-Site").unwrap_or("");
     if (site.eq_ignore_ascii_case("cross-site") || site.eq_ignore_ascii_case("same-site"))
-        && !header("Sec-Fetch-Mode").is_some_and(|m| m.eq_ignore_ascii_case("navigate"))
+        && !header(&text, "Sec-Fetch-Mode").is_some_and(|m| m.eq_ignore_ascii_case("navigate"))
     {
         return respond(&mut stream, "404 Not Found", None);
     }
@@ -1668,7 +1679,11 @@ fn respond_file(stream: &mut TcpStream, mime: &str, body: &[u8], page_root: bool
     Ok(())
 }
 
-fn respond(stream: &mut TcpStream, status: &str, body: Option<(&str, &[u8])>) -> Result<()> {
+pub(crate) fn respond(
+    stream: &mut TcpStream,
+    status: &str,
+    body: Option<(&str, &[u8])>,
+) -> Result<()> {
     let (mime, body) = body.unwrap_or(("text/plain", b""));
     let charset = if mime.starts_with("text/") {
         "; charset=utf-8"

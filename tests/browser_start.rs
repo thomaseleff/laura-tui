@@ -1,5 +1,6 @@
 //! Laura's browser fails to start (#139): the agent gets the reason, the journal gets Chrome's
-//! own output, and the workspace responds while the start runs. Its own test binary, so no other test's spawn holds a fake Chrome open for writing
+//! own output, and the workspace responds while the start runs. `LAURA_BROWSER_URL` answers
+//! before Laura's browser starts (#129). Its own test binary, so no other test's spawn holds a fake Chrome open for writing
 //! (ETXTBSY on Linux).
 
 mod common;
@@ -7,6 +8,8 @@ mod common;
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -137,5 +140,33 @@ fn a_slow_start_keeps_the_workspace_responding() -> Result<()> {
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("couldn't start Laura's browser"), "{err}");
+    Ok(())
+}
+
+/// A raw `GET /json/version` to `LAURA_BROWSER_URL` with `host`: the status line and the body.
+fn version(port: u16, host: &str) -> Result<(String, String)> {
+    let mut s = TcpStream::connect(("127.0.0.1", port))?;
+    s.set_read_timeout(Some(Duration::from_secs(5)))?;
+    write!(s, "GET /json/version HTTP/1.1\r\nHost: {host}\r\n\r\n")?;
+    let mut out = String::new();
+    s.read_to_string(&mut out)?;
+    let (head, body) = out.split_once("\r\n\r\n").unwrap_or((&out, ""));
+    Ok((head.lines().next().unwrap_or("").into(), body.into()))
+}
+
+#[test]
+fn the_browser_url_answers_before_laura_s_browser_starts() -> Result<()> {
+    isolate_home();
+    // No browser pane, so Laura doesn't start the fake.
+    let tab = laura::Tab::spawn_web(shell(), 24, 80, Ok(fake("fail")))?;
+    let port = tab.browser_port.expect("a browser port");
+    let (status, _) = version(port, &format!("evil.example:{port}"))?;
+    assert_eq!(status, "HTTP/1.1 403 Forbidden");
+    let (status, body) = version(port, &format!("localhost:{port}"))?;
+    assert_eq!(status, "HTTP/1.1 503 Service Unavailable");
+    assert_eq!(
+        body,
+        "Laura's browser is not running. Open a browser pane, then try again."
+    );
     Ok(())
 }

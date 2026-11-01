@@ -7,7 +7,7 @@
 //! comes back through `Page::poll` like an event.
 
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -180,9 +180,10 @@ fn candidates() -> Vec<PathBuf> {
 /// Laura's browser: one headless Chrome or Edge per workspace, with a temporary profile.
 pub struct Browser {
     pub cdp: Cdp,
-    /// The CDP port: `LAURA_BROWSER_URL`'s, else one the OS picks.
+    /// The CDP port the OS picks. The agent reaches Chrome through the proxy at
+    /// `LAURA_BROWSER_URL` (`cdp_proxy`).
     pub port: u16,
-    /// The browser-level CDP websocket, for a second client (the tests, and the agent's browser tools).
+    /// The browser-level CDP websocket, for a second client in the tests.
     pub ws_url: String,
     /// Chrome's start tab, which `close_start` closes once a pane's page opens, so the agent's
     /// tools list only the panes' pages.
@@ -191,21 +192,18 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// Start `path` headless on a fresh profile with CDP on `port` (`0`: the OS picks one), and
-    /// connect to it on another thread. The receiver gets Laura's browser, or why it didn't start.
-    /// ponytail: `Tab` holds `LAURA_BROWSER_URL`'s port until just before this launch, but another
-    /// process can still take it while Chrome starts, or after Laura's browser exits; the error
-    /// names the port, and the user starts Laura again.
-    pub fn launch(path: &Path, port: u16) -> Start {
+    /// Start `path` headless on a fresh profile with CDP on a port the OS picks, and connect to
+    /// it on another thread. The receiver gets Laura's browser, or why it didn't start.
+    pub fn launch(path: &Path) -> Start {
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
         // that spawned it exits.
-        match Browser::spawn(path, port) {
+        match Browser::spawn(path) {
             Ok(proc) => {
                 let (path, cancel) = (path.to_path_buf(), cancel.clone());
                 std::thread::spawn(move || {
-                    let _ = tx.send(Browser::connect(proc, &path, port, &cancel));
+                    let _ = tx.send(Browser::connect(proc, &path, &cancel));
                 });
             }
             Err(reason) => {
@@ -219,15 +217,7 @@ impl Browser {
     }
 
     /// Start `path`'s process on a fresh profile.
-    fn spawn(path: &Path, port: u16) -> Result<Proc> {
-        // A child that another thread is starting keeps a copy of the hold's socket until it execs.
-        let t0 = Instant::now();
-        while port != 0 && TcpListener::bind(("127.0.0.1", port)).is_err() {
-            if t0.elapsed() > Duration::from_millis(500) {
-                bail!("port {port} for LAURA_BROWSER_URL is in use");
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+    fn spawn(path: &Path) -> Result<Proc> {
         let profile = std::env::temp_dir().join(format!("laura-browser-{}", crate::web::nonce(8)?));
         std::fs::create_dir_all(&profile)
             .with_context(|| format!("couldn't create {}", profile.display()))?;
@@ -258,7 +248,7 @@ impl Browser {
             "--force-device-scale-factor=3",
             "--disable-smooth-scrolling",
         ])
-        .arg(format!("--remote-debugging-port={port}"))
+        .arg("--remote-debugging-port=0")
         .arg(format!("--user-data-dir={}", profile.display()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -300,13 +290,8 @@ impl Browser {
 
     /// Wait for `proc` to listen, then connect. A failure carries Chrome's output, read before
     /// `proc` drops and deletes the profile.
-    fn connect(
-        mut proc: Proc,
-        path: &Path,
-        port: u16,
-        cancel: &AtomicBool,
-    ) -> Result<Browser, StartError> {
-        match Browser::ready(&mut proc, path, port, cancel) {
+    fn connect(mut proc: Proc, path: &Path, cancel: &AtomicBool) -> Result<Browser, StartError> {
+        match Browser::ready(&mut proc, path, cancel) {
             Ok((cdp, port, ws_url, start)) => Ok(Browser {
                 cdp,
                 port,
@@ -325,19 +310,13 @@ impl Browser {
     fn ready(
         proc: &mut Proc,
         path: &Path,
-        port: u16,
         cancel: &AtomicBool,
     ) -> Result<(Cdp, u16, String, Vec<String>)> {
         let file = proc.profile.join("DevToolsActivePort");
         let t0 = Instant::now();
         let (port, ws_path) = loop {
-            // Two lines: the port, then the browser's websocket path. Chrome writes the file only
-            // for port 0, so a fixed port asks `/json/version`.
-            if port != 0 {
-                if let Some(ws) = version_ws(port) {
-                    break (port, ws);
-                }
-            } else if let Ok(s) = std::fs::read_to_string(&file) {
+            // Two lines: the port, then the browser's websocket path.
+            if let Ok(s) = std::fs::read_to_string(&file) {
                 let mut lines = s.lines();
                 if let (Some(Ok(port)), Some(ws)) =
                     (lines.next().map(|p| p.trim().parse::<u16>()), lines.next())
@@ -417,10 +396,21 @@ impl Drop for Browser {
 /// A GET of Chrome's JSON at `path` on `port`, such as `/json/list`, as the agent's browser tools
 /// read it. `None` until Chrome answers.
 pub fn get_json(port: u16, path: &str) -> Option<Value> {
+    let (_, body) = http(port, "GET", path)?;
+    serde_json::from_str(&body).ok()
+}
+
+/// A `method` request to Chrome's HTTP endpoint at `path` on `port`: the status, such as `200 OK`,
+/// and the body. `None` until Chrome answers.
+pub fn http(port: u16, method: &str, path: &str) -> Option<(String, String)> {
     use std::io::{Read, Write};
     let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
     s.set_read_timeout(Some(Duration::from_secs(1))).ok()?;
-    write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").ok()?;
+    write!(
+        s,
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"
+    )
+    .ok()?;
     // Chrome keeps the connection open, so the body ends at its `Content-Length`.
     let (mut buf, mut chunk) = (Vec::new(), [0u8; 4096]);
     loop {
@@ -438,16 +428,10 @@ pub fn get_json(port: u16, path: &str) -> Option<Value> {
             })
             .and_then(|(_, v)| v.trim().parse::<usize>().ok())?;
         if body.len() >= len {
-            return serde_json::from_str(&body[..len]).ok();
+            let status = head.lines().next()?.split_once(' ')?.1;
+            return Some((status.to_string(), body[..len].to_string()));
         }
     }
-}
-
-/// The browser's websocket path from `/json/version` on `port`.
-fn version_ws(port: u16) -> Option<String> {
-    let v = get_json(port, "/json/version")?;
-    let url = v["webSocketDebuggerUrl"].as_str()?;
-    Some(url[url.find("/devtools/")?..].to_string())
 }
 
 /// Laura's browser as it starts: `Browser::launch`'s thread sends it once Chrome listens, or why
@@ -850,6 +834,8 @@ pub struct Page {
     size_ask: Option<(u64, (u32, u32))>,
     /// The size the agent's tools hold the page at which Laura shows.
     emulated: Option<(u32, u32)>,
+    /// The agent's tool connections that record the page.
+    recorders: HashSet<u64>,
     /// The last press's point, to tell a drag from a click.
     down: Option<(f64, f64)>,
     /// The last release, for the requests it starts.
@@ -961,6 +947,7 @@ impl Page {
             settling: None,
             size_ask: None,
             emulated: None,
+            recorders: HashSet::new(),
             down: None,
             released: None,
             keyed: None,
@@ -1050,6 +1037,25 @@ impl Page {
 
     pub fn reload(&self) {
         self.send("Page.reload", json!({}));
+    }
+
+    /// The page's CDP target id, which the agent's browser tools name the page by.
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    /// The agent's browser tool took a screenshot of the page.
+    pub fn screenshot(&mut self) {
+        self.out.push(json!({"t": "screenshot"}));
+    }
+
+    /// Tool connection `conn` started (`on`) or stopped recording the page.
+    pub fn record(&mut self, conn: u64, on: bool) {
+        if on {
+            self.recorders.insert(conn);
+        } else {
+            self.recorders.remove(&conn);
+        }
     }
 
     /// The page's title, empty until the page names one.
@@ -1602,12 +1608,13 @@ impl Page {
         m.insert("dialog".into(), self.dialog.clone().unwrap_or_default());
         let emulated = self.emulated.map(|(w, h)| json!({"w": w, "h": h}));
         m.insert("emulated".into(), emulated.unwrap_or_default());
+        m.insert("recording".into(), (!self.recorders.is_empty()).into());
         m
     }
 
     /// The view's events since the last call: `editable` after each release, `copy` after a drag,
-    /// `agent` for the agent's click or input, `rect` for the cursor's element's box, and `marks`
-    /// for the boxes that the web app outlines.
+    /// `agent` for the agent's click or input, `screenshot` for the agent's screenshot, `rect` for
+    /// the cursor's element's box, and `marks` for the boxes that the web app outlines.
     pub fn take_out(&mut self) -> Vec<Value> {
         std::mem::take(&mut self.out)
     }

@@ -1,7 +1,7 @@
-//! Browser panes (#107): the agent's browser tools on a pane's page, through a second CDP client:
-//! the page list, clicks and typing with their marks, navigation, closed pages, emulation and
-//! dialogs. Each test that needs Chrome or Edge skips when neither is
-//! installed; under `CI`, it fails. State and frames, not pixels.
+//! Browser panes (#107): the agent's browser tools on a pane's page, through a second CDP client
+//! at `LAURA_BROWSER_URL` (Laura's proxy, #129): the page list, clicks and typing with their
+//! marks, navigation, closed pages, emulation and dialogs. Each test that needs Chrome or Edge
+//! skips when neither is installed; under `CI`, it fails. State and frames, not pixels.
 
 #[path = "common/browser.rs"]
 #[allow(dead_code)] // each browser test crate uses part of the browser rig
@@ -11,11 +11,13 @@ mod common;
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
+use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde_json::json;
+use tungstenite::Message;
 
 use browser_rig::*;
 use rig::*;
@@ -47,6 +49,168 @@ fn the_tools_see_only_the_panes() -> Result<()> {
         );
         r.idle(&mut ws, 1);
     }
+    Ok(())
+}
+
+#[test]
+fn the_proxy_names_its_own_port() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    load(&mut r, &mut ws, "/one");
+    let port = r.tab.browser_port.expect("a browser port");
+    let chrome = r.tab.browser.as_ref().expect("Laura's browser").port;
+    assert_ne!(port, chrome);
+    let own = format!("ws://127.0.0.1:{port}/devtools/");
+    let version = get(&r, "/json/version");
+    let url = version["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+    assert!(url.starts_with(&own), "{version}");
+    let list = get(&r, "/json/list");
+    let pages = list.as_array().expect("a list");
+    assert!(!pages.is_empty(), "{list}");
+    for p in pages {
+        let url = p["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+        assert!(url.starts_with(&own), "{p}");
+        let front = p["devtoolsFrontendUrl"].as_str().unwrap_or_default();
+        assert!(!front.contains(&format!(":{chrome}/")), "{p}");
+    }
+    // Chrome 111+ opens a tab only on a PUT, and answers the activate and the close with text.
+    let page = format!("http://127.0.0.1:{chrome}/json/version");
+    let (status, new) =
+        laura::browser::http(port, "PUT", &format!("/json/new?{page}")).expect("the proxy answers");
+    assert_eq!(status, "200 OK", "{new}");
+    let new: serde_json::Value = serde_json::from_str(&new)?;
+    let url = new["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+    assert!(url.starts_with(&own), "{new}");
+    assert_eq!(new["url"], page, "a page's own URL keeps Chrome's port");
+    let id = new["id"].as_str().expect("the tab's id");
+    for verb in ["activate", "close"] {
+        let (status, body) = laura::browser::http(port, "GET", &format!("/json/{verb}/{id}"))
+            .expect("the proxy answers");
+        assert_eq!(status, "200 OK", "{verb}: {body}");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&body).is_err(),
+            "{body}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_browser_trace_shows_on_every_pane() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (a, _) = load(&mut r, &mut ws, "/one");
+    let (b, url) = load(&mut r, &mut ws, "/two");
+    // Playwright's `browser.startTracing` traces on the browser's own session.
+    let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    tools.browser_call(&mut r, "Tracing.start", json!({}));
+    all(&mut r, &mut ws, &[a, b], true);
+    // A pane that opens during the trace records too.
+    let c = open(&mut r, &format!("{url}/one"));
+    state_until(&mut r, &mut ws, "a new pane records", c, |v| {
+        v["recording"] == true
+    });
+    tools.browser_call(&mut r, "Tracing.end", json!({}));
+    all(&mut r, &mut ws, &[a, b, c], false);
+    Ok(())
+}
+
+/// Wait until the panes show `recording`, in one wait, as Laura sends their state at once.
+fn all(r: &mut Rig, ws: &mut Ws, ids: &[u64], recording: bool) {
+    let seen = std::cell::RefCell::new(Vec::new());
+    r.until(ws, "all panes", |f| {
+        if let Frame::Json(v) = f
+            && v["t"] == "browser"
+            && v["recording"] == recording
+            && let Some(id) = v["id"].as_u64()
+        {
+            seen.borrow_mut().push(id);
+        }
+        ids.iter().all(|id| seen.borrow().contains(id))
+    });
+}
+
+#[test]
+fn a_screenshot_flashes_the_pane() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, url) = load(&mut r, &mut ws, "/two");
+    // Laura's own screencast takes no screenshot.
+    let frames = r.idle(&mut ws, 20);
+    assert!(!frames.iter().any(|f| f.is("screenshot")));
+    let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    tools.call(&mut r, "Page.captureScreenshot", json!({}));
+    event(&mut r, &mut ws, "screenshot", id);
+    // A tool on the page's own socket sends its commands with no session.
+    let page = get(&r, "/json/list")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|t| t["url"] == format!("{url}/two"))
+        .and_then(|t| t["webSocketDebuggerUrl"].as_str().map(str::to_string))
+        .expect("the page's socket");
+    let port = r.tab.browser_port.expect("a browser port");
+    let (mut own, _) = tungstenite::client(page, TcpStream::connect(("127.0.0.1", port))?)?;
+    own.send(Message::text(
+        json!({"id": 1, "method": "Page.captureScreenshot", "params": {}}).to_string(),
+    ))?;
+    event(&mut r, &mut ws, "screenshot", id);
+    Ok(())
+}
+
+#[test]
+fn a_recording_shows_until_it_stops() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, url) = load(&mut r, &mut ws, "/two");
+    let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    // Chrome rejects the start ("Invalid parameters"), so the pane shows no ● Recording. The
+    // screenshot's chip comes after Chrome's reply to the start.
+    tools.send("Page.startScreencast", json!({"maxWidth": "x"}));
+    tools.call(&mut r, "Page.captureScreenshot", json!({}));
+    let start = Instant::now();
+    'shot: loop {
+        for f in r.idle(&mut ws, 1) {
+            if let Frame::Json(v) = &f
+                && v["id"] == id
+            {
+                assert!(v["recording"] != true, "a rejected start shows: {v}");
+                if v["t"] == "screenshot" {
+                    break 'shot;
+                }
+            }
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no screenshot");
+    }
+    tools.call(&mut r, "Page.startScreencast", json!({"format": "jpeg"}));
+    state_until(&mut r, &mut ws, "recording", id, |v| v["recording"] == true);
+    // Laura's own screencast still sends the pane's frames.
+    r.idle(&mut ws, 5);
+    tools.call(
+        &mut r,
+        "Runtime.evaluate",
+        json!({"expression": "document.querySelector('h1').textContent = 'Changed'"}),
+    );
+    next_frame(&mut r, &mut ws, id);
+    tools.call(&mut r, "Page.stopScreencast", json!({}));
+    state_until(&mut r, &mut ws, "stopped", id, |v| v["recording"] == false);
+    // chrome-devtools-mcp's screencast, which an older Chrome may not answer.
+    tools.send("Page.startScreenRecording", json!({}));
+    state_until(&mut r, &mut ws, "recording again", id, |v| {
+        v["recording"] == true
+    });
+    drop(tools);
+    state_until(&mut r, &mut ws, "disconnected", id, |v| {
+        v["recording"] == false
+    });
     Ok(())
 }
 
