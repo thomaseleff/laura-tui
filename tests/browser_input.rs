@@ -132,8 +132,8 @@ fn a_new_tab_opens_in_the_same_pane() -> Result<()> {
     Ok(())
 }
 
-/// Clicks the dropdown list on `page`, presses `↓`, and waits for the choice `want`.
-fn arrow_down_picks(page: &str, want: &str) -> Result<()> {
+/// Clicks the dropdown list on `page`, presses `before`, then `↓`, and waits for the choice `want`.
+fn arrow_down_picks(page: &str, before: Option<Keystroke>, want: &str) -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
@@ -141,26 +141,43 @@ fn arrow_down_picks(page: &str, want: &str) -> Result<()> {
     let (id, _) = load(&mut r, &mut ws, page);
     click(&mut ws, id, 50.0, 25.0);
     assert_eq!(event(&mut r, &mut ws, "editable", id)["editable"], true);
+    if let Some(k) = before {
+        press_key(&mut ws, id, k);
+    }
     press(&mut ws, id, "ArrowDown", 40);
-    state_until(&mut r, &mut ws, "the next choice", id, |v| {
-        v["title"] == want
-    });
+    let what = format!("the next choice after {before:?}");
+    state_until(&mut r, &mut ws, &what, id, |v| v["title"] == want);
     Ok(())
 }
 
 #[test]
 fn a_dropdown_list_takes_the_arrow_keys() -> Result<()> {
-    arrow_down_picks("/select", "b")
+    arrow_down_picks("/select", None, "b")
 }
 
 #[test]
 fn a_dropdown_list_in_a_web_component_takes_the_arrow_keys() -> Result<()> {
-    arrow_down_picks("/shadow-select", "b")
+    arrow_down_picks("/shadow-select", None, "b")
 }
 
 #[test]
 fn a_dropdown_list_s_arrow_keys_skip_hidden_choices() -> Result<()> {
-    arrow_down_picks("/hidden-select", "d")
+    arrow_down_picks("/hidden-select", None, "d")
+}
+
+/// #157: a popup that opened would take the `↓`, and the user can't see the popup.
+#[test]
+fn a_dropdown_list_opens_no_popup() -> Result<()> {
+    for k in [
+        (" ", "Space", 32, 0, " "),
+        ("Enter", "Enter", 13, 0, ""),
+        ("ArrowUp", "ArrowUp", 38, 1, ""),
+        ("ArrowDown", "ArrowDown", 40, 1, ""),
+        ("F4", "F4", 115, 0, ""),
+    ] {
+        arrow_down_picks("/select", Some(k), "b")?;
+    }
+    Ok(())
 }
 
 #[test]

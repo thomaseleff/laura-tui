@@ -462,11 +462,20 @@ pub fn type_key(ws: &mut Ws, id: u64, c: char) {
 
 /// A key's press and release with no text, such as `ArrowDown`, as the web app sends them.
 pub fn press(ws: &mut Ws, id: u64, key: &str, key_code: u32) {
+    press_key(ws, id, (key, key, key_code, 0, ""));
+}
+
+/// A keystroke as the web app sends it: `key`, `code`, `key_code`, CDP's `mods` (Alt 1, Ctrl 2,
+/// Meta 4, Shift 8) and `text`.
+pub type Keystroke<'a> = (&'a str, &'a str, u32, u8, &'a str);
+
+/// `k`'s press and release, as the web app sends them.
+pub fn press_key(ws: &mut Ws, id: u64, (key, code, key_code, mods, text): Keystroke) {
     for kind in ["down", "up"] {
         send(
             ws,
-            json!({"act": "browser_key", "pane": id, "kind": kind, "key": key, "code": key,
-                   "key_code": key_code}),
+            json!({"act": "browser_key", "pane": id, "kind": kind, "key": key, "code": code,
+                   "key_code": key_code, "mods": mods, "text": text}),
         );
     }
 }

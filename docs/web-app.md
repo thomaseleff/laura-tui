@@ -94,7 +94,7 @@ To refresh the pane, press `Ctrl+R` or click the pane header's refresh button. L
 
 The user uses the page in a browser pane as in a browser tab:
 
-- **Click.** Click a link or a button in the page, and the page responds as in a browser tab. A right-click goes to the page, and the web app shows no menu. A link or a script that opens a new tab or a new window opens the page in the same pane. Click a dropdown list, then press `↑` or `↓` to change the choice.
+- **Click.** Click a link or a button in the page, and the page responds as in a browser tab. A right-click goes to the page, and the web app shows no menu. A link or a script that opens a new tab or a new window opens the page in the same pane. Click a dropdown list, then press `↑` or `↓` to change the choice. Laura's browser shows no popup for a dropdown list, so `Space`, `Enter`, `Alt+↑`, `Alt+↓` and `F4` do not change the choice.
 - **Scroll.** Scroll with the mouse wheel or the touchpad over the page, or press the arrow keys, `PageUp`, `PageDown` or `Space`.
 - **Type.** Click a text field in the page, and the keystrokes go to the page. When the page focuses a text field as it loads, or a click makes the page focus a text field, such as a button that opens a form, the keystrokes go to the page too. The hint line shows `Keystrokes go to the page`. Press `Esc` to give the keystrokes back to Laura. The field in the page loses the focus, and the scroll keys scroll the page again. `Ctrl+V` (`Cmd+V` on macOS) pastes the clipboard into the field.
 - **Copy.** Drag over text in the page to select it. When the user releases the mouse button, Laura copies the selected text to the clipboard.

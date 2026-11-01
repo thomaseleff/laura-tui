@@ -806,7 +806,9 @@ const TEXT: &str = "textarea, select, input:not([type=checkbox], [type=radio], [
 /// Runs in each document before the page's own scripts. Laura's browser is headless, so a new tab
 /// and a dropdown list's popup never reach the screencast: a link or `window.open` that opens a
 /// new tab opens in the same pane, and a click on a dropdown list only focuses it, so `↑` and `↓`
-/// change the choice. A middle-click's tab has no opener, so `Page::on_popup` can't catch it.
+/// change the choice. The keys that open the popup (Space, Enter, Alt+↑/↓, F4) do nothing, as
+/// the user wouldn't see the popup that takes the next keystrokes; Enter doesn't submit a form
+/// from a dropdown list in Chrome either. A middle-click's tab has no opener, so `Page::on_popup` can't catch it.
 /// ponytail: the script runs in the page's world, `window.open` returns `null`, and a Ctrl+click
 /// still opens a hidden tab; open new tabs as panes if users miss them.
 const PAGE_JS: &str = "\
@@ -818,11 +820,17 @@ const PAGE_JS: &str = "\
     window.open = u => (u && location.assign(u), null); \
     addEventListener('mousedown', e => { \
       const s = e.composedPath()[0].closest?.('select'); \
-      if (s && !s.multiple && s.size <= 1) { e.preventDefault(); s.focus(); } }, true);";
+      if (s && !s.multiple && s.size <= 1) { e.preventDefault(); s.focus(); } }, true); \
+    addEventListener('keydown', e => { \
+      const s = e.composedPath()[0]; \
+      if (s instanceof HTMLSelectElement && !s.multiple && s.size <= 1 && \
+          ([' ', 'Enter', 'F4'].includes(e.key) || e.altKey && /^Arrow(Up|Down)$/.test(e.key))) \
+        e.preventDefault(); }, true);";
 
 /// On macOS, Chrome opens a dropdown list's popup on `↑` and `↓` instead of changing the choice,
 /// so the page script moves to the next choice that is enabled and shown itself, as Chrome does
-/// elsewhere. `getComputedStyle`, as a closed list's choices have no layout box to check.
+/// elsewhere. `PAGE_JS` already stops `Alt+↑` and `Alt+↓`. `getComputedStyle`, as a closed list's
+/// choices have no layout box to check.
 /// The `input` event is composed and `change` is not, as Chrome sends them, so a page outside a
 /// web component sees the `input` event.
 #[cfg(target_os = "macos")]
