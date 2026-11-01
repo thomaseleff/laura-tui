@@ -98,6 +98,38 @@ fn the_proxy_names_its_own_port() -> Result<()> {
 }
 
 #[test]
+fn a_browser_trace_shows_on_every_pane() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (a, _) = load(&mut r, &mut ws, "/one");
+    let (b, url) = load(&mut r, &mut ws, "/two");
+    // Playwright's `browser.startTracing` traces on the browser's own session.
+    let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    tools.browser_call(&mut r, "Tracing.start", json!({}));
+    both(&mut r, &mut ws, [a, b], true);
+    tools.browser_call(&mut r, "Tracing.end", json!({}));
+    both(&mut r, &mut ws, [a, b], false);
+    Ok(())
+}
+
+/// Wait until both panes show `recording`, in one wait, as Laura sends both panes' state at once.
+fn both(r: &mut Rig, ws: &mut Ws, ids: [u64; 2], recording: bool) {
+    let seen = std::cell::RefCell::new(Vec::new());
+    r.until(ws, "both panes", |f| {
+        if let Frame::Json(v) = f
+            && v["t"] == "browser"
+            && v["recording"] == recording
+            && let Some(id) = v["id"].as_u64()
+        {
+            seen.borrow_mut().push(id);
+        }
+        ids.iter().all(|id| seen.borrow().contains(id))
+    });
+}
+
+#[test]
 fn a_screenshot_flashes_the_pane() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());

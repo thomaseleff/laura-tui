@@ -38,6 +38,9 @@ pub enum Kind {
     Recording(bool),
 }
 
+/// The target of a trace on the browser's own session, which records every page.
+pub const EVERY_PAGE: &str = "";
+
 /// The methods `Watch` parses a command for.
 const WATCHED: &[&str] = &[
     "Page.captureScreenshot",
@@ -260,7 +263,8 @@ impl Watch {
         let Ok(v) = serde_json::from_str::<Value>(t) else {
             return;
         };
-        let kind = match v["method"].as_str() {
+        let method = v["method"].as_str();
+        let kind = match method {
             Some("Page.captureScreenshot") => Kind::Screenshot,
             // chrome-devtools-mcp's `screencast_start` sends `startScreenRecording`, and
             // Playwright's video and tracing send `startScreencast`.
@@ -273,10 +277,13 @@ impl Watch {
             _ => return,
         };
         let session = v["sessionId"].as_str();
-        // A command on the browser's own session names no page.
-        let target = match session {
-            Some(s) => self.sessions.get(s).cloned(),
-            None => self.own.clone(),
+        // A command on the browser's own session names no page, but a trace there records each.
+        let target = match (session, &self.own) {
+            (Some(s), _) => self.sessions.get(s).cloned(),
+            (None, Some(own)) => Some(own.clone()),
+            (None, None) => method
+                .filter(|m| m.starts_with("Tracing."))
+                .map(|_| EVERY_PAGE.to_string()),
         };
         let Some(target) = target else {
             return;

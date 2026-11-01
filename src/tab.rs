@@ -986,7 +986,12 @@ impl Tab {
         }
         // A capture of a page that no pane shows, such as one the tools opened, shows nothing.
         for c in self.captures.iter().flat_map(Receiver::try_iter) {
-            if let Some(page) = self.browsers.values_mut().find(|p| p.target() == c.target) {
+            let every = c.target == cdp_proxy::EVERY_PAGE;
+            for page in self
+                .browsers
+                .values_mut()
+                .filter(|p| every || p.target() == c.target)
+            {
                 match c.kind {
                     cdp_proxy::Kind::Screenshot => page.screenshot(),
                     cdp_proxy::Kind::Recording(on) => page.record(c.conn, on),
