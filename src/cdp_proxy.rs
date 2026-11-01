@@ -2,7 +2,7 @@
 //! The proxy relays each message unchanged, so the tools work as with Chrome itself, and reads the
 //! method of each command, so the web app shows when the agent captures a browser pane's page.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::sync::Arc;
@@ -34,10 +34,20 @@ pub struct Capture {
 
 pub enum Kind {
     Screenshot,
+    /// A recording, such as a screencast or a performance trace, started (`true`) or stopped.
+    Recording(bool),
 }
 
 /// The methods `Watch` parses a command for.
-const WATCHED: &[&str] = &["Page.captureScreenshot"];
+const WATCHED: &[&str] = &[
+    "Page.captureScreenshot",
+    "Page.startScreencast",
+    "Page.stopScreencast",
+    "Page.startScreenRecording",
+    "Page.stopScreenRecording",
+    "Tracing.start",
+    "Tracing.end",
+];
 
 /// Serve `listener` in front of Laura's browser, which listens on `chrome` (`0` while it doesn't
 /// run). The receiver gets each capture.
@@ -195,6 +205,10 @@ struct Watch {
     /// Session id to target id, from Chrome's `Target.attachedToTarget` events, which Chrome sends
     /// for both an attach and an auto-attach.
     sessions: HashMap<String, String>,
+    /// The pages this connection records, which stop when it closes.
+    /// shortcut: a screencast and a trace on one page at once share one mark, so the first to stop
+    /// hides it; track by method if a tool does both.
+    recording: HashSet<String>,
 }
 
 impl Watch {
@@ -204,6 +218,7 @@ impl Watch {
             tx,
             own: None,
             sessions: HashMap::new(),
+            recording: HashSet::new(),
         }
     }
 
@@ -230,6 +245,14 @@ impl Watch {
         };
         let kind = match v["method"].as_str() {
             Some("Page.captureScreenshot") => Kind::Screenshot,
+            // chrome-devtools-mcp's `screencast_start` sends `startScreenRecording`, and
+            // Playwright's video and tracing send `startScreencast`.
+            Some("Page.startScreencast" | "Page.startScreenRecording" | "Tracing.start") => {
+                Kind::Recording(true)
+            }
+            Some("Page.stopScreencast" | "Page.stopScreenRecording" | "Tracing.end") => {
+                Kind::Recording(false)
+            }
             _ => return,
         };
         // A command on the browser's own session names no page.
@@ -238,10 +261,30 @@ impl Watch {
             None => self.own.clone(),
         };
         if let Some(target) = target {
+            if let Kind::Recording(on) = kind {
+                if on {
+                    self.recording.insert(target.clone());
+                } else {
+                    self.recording.remove(&target);
+                }
+            }
             let _ = self.tx.send(Capture {
                 conn: self.conn,
                 target,
                 kind,
+            });
+        }
+    }
+}
+
+impl Drop for Watch {
+    /// The tool disconnected: its recordings stop.
+    fn drop(&mut self) {
+        for target in self.recording.drain() {
+            let _ = self.tx.send(Capture {
+                conn: self.conn,
+                target,
+                kind: Kind::Recording(false),
             });
         }
     }

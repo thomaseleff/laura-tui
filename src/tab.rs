@@ -989,6 +989,7 @@ impl Tab {
             if let Some(page) = self.browsers.values_mut().find(|p| p.target() == c.target) {
                 match c.kind {
                     cdp_proxy::Kind::Screenshot => page.screenshot(),
+                    cdp_proxy::Kind::Recording(on) => page.record(c.conn, on),
                 }
                 changed = true;
             }

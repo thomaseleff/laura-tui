@@ -196,6 +196,8 @@ While the agent clicks or types with the tool, the pane header shows **Agent**. 
 
 When the agent takes a screenshot of the page with the tool, Laura flashes the page in the browser pane once. The pane header shows **Screenshot** for four seconds. When the user's computer is set to reduce motion, Laura shows **Screenshot** with no flash.
 
+While the agent records the page with the tool, such as a screencast, a video or a performance trace, the pane header shows **● Recording** with a red dot. Laura hides **● Recording** when the recording stops or when the tool disconnects.
+
 The agent's screenshots and page snapshots show the page as the user's own browser would. They don't show Laura's rings, outlines, thread pins or highlights.
 
 The user and the agent comment on the same elements. The agent finds an element with the tool, then runs `laura comment '<selector>'` or `laura highlight '<selector>'` on it. The user's threads and the agent's threads show on the elements in the same pane. When the tool closes the pane's page, Laura opens the page again at the same URL, with the threads.

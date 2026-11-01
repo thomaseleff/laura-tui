@@ -822,6 +822,8 @@ pub struct Page {
     size_ask: Option<(u64, (u32, u32))>,
     /// The size the agent's tools hold the page at which Laura shows.
     emulated: Option<(u32, u32)>,
+    /// The agent's tool connections that record the page.
+    recorders: HashSet<u64>,
     /// The last press's point, to tell a drag from a click.
     down: Option<(f64, f64)>,
     /// The last release, for the requests it starts.
@@ -933,6 +935,7 @@ impl Page {
             settling: None,
             size_ask: None,
             emulated: None,
+            recorders: HashSet::new(),
             down: None,
             released: None,
             keyed: None,
@@ -1032,6 +1035,15 @@ impl Page {
     /// The agent's browser tool took a screenshot of the page.
     pub fn screenshot(&mut self) {
         self.out.push(json!({"t": "screenshot"}));
+    }
+
+    /// Tool connection `conn` started (`on`) or stopped recording the page.
+    pub fn record(&mut self, conn: u64, on: bool) {
+        if on {
+            self.recorders.insert(conn);
+        } else {
+            self.recorders.remove(&conn);
+        }
     }
 
     /// The page's title, empty until the page names one.
@@ -1584,6 +1596,7 @@ impl Page {
         m.insert("dialog".into(), self.dialog.clone().unwrap_or_default());
         let emulated = self.emulated.map(|(w, h)| json!({"w": w, "h": h}));
         m.insert("emulated".into(), emulated.unwrap_or_default());
+        m.insert("recording".into(), (!self.recorders.is_empty()).into());
         m
     }
 

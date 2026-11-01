@@ -109,6 +109,38 @@ fn a_screenshot_flashes_the_pane() -> Result<()> {
 }
 
 #[test]
+fn a_recording_shows_until_it_stops() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, url) = load(&mut r, &mut ws, "/two");
+    let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    tools.call(&mut r, "Page.startScreencast", json!({"format": "jpeg"}));
+    state_until(&mut r, &mut ws, "recording", id, |v| v["recording"] == true);
+    // Laura's own screencast still sends the pane's frames.
+    r.idle(&mut ws, 5);
+    tools.call(
+        &mut r,
+        "Runtime.evaluate",
+        json!({"expression": "document.querySelector('h1').textContent = 'Changed'"}),
+    );
+    next_frame(&mut r, &mut ws, id);
+    tools.call(&mut r, "Page.stopScreencast", json!({}));
+    state_until(&mut r, &mut ws, "stopped", id, |v| v["recording"] == false);
+    // chrome-devtools-mcp's screencast, which an older Chrome may not answer.
+    tools.send("Page.startScreenRecording", json!({}));
+    state_until(&mut r, &mut ws, "recording again", id, |v| {
+        v["recording"] == true
+    });
+    drop(tools);
+    state_until(&mut r, &mut ws, "disconnected", id, |v| {
+        v["recording"] == false
+    });
+    Ok(())
+}
+
+#[test]
 fn the_agents_tools_change_the_page_live() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
