@@ -34,10 +34,15 @@ fn isolate_home() {
 
 fn spawn_tab() -> Result<Tab> {
     isolate_home();
-    let mut cmd =
-        portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
-    // macOS's /bin/sh is bash, whose line editor shows the paste markers and scrolls a long line
-    // sideways, so the screen wouldn't hold a submitted inline review.
+    let mut cmd = portable_pty::CommandBuilder::new(if cfg!(windows) {
+        "cmd.exe"
+    } else if cfg!(target_os = "macos") {
+        "/bin/bash"
+    } else {
+        "/bin/sh"
+    });
+    // bash's line editor shows the paste markers and scrolls a long line sideways, so the screen
+    // wouldn't hold a submitted inline review. /bin/sh can be dash, which rejects --noediting.
     if cfg!(target_os = "macos") {
         cmd.arg("--noediting");
     }
