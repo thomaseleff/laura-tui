@@ -833,55 +833,9 @@ pub struct Key {
 const TEXT: &str = "textarea, select, input:not([type=checkbox], [type=radio], [type=button], \
                     [type=submit], [type=reset], [type=image], [type=file], [type=color])";
 
-/// Runs in each document before the page's own scripts. Laura's browser is headless, so a new tab
-/// and a dropdown list's popup never reach the screencast: a link or `window.open` that opens a
-/// new tab opens in the same pane, and a click on a dropdown list only focuses it, so `↑` and `↓`
-/// change the choice. The keys that open the popup (Space, Enter, Alt+↑/↓, F4) do nothing, as
-/// the user wouldn't see the popup that takes the next keystrokes; Enter doesn't submit a form
-/// from a dropdown list in Chrome either. A middle-click's tab has no opener, so `Page::on_popup` can't catch it.
-/// ponytail: the script runs in the page's world, `window.open` returns `null`, and a Ctrl+click
-/// still opens a hidden tab; open new tabs as panes if users miss them.
-const PAGE_JS: &str = "\
-    addEventListener('click', e => { \
-      const a = e.target.closest?.('a[target=_blank]'); if (a) a.target = '_self'; }, true); \
-    addEventListener('auxclick', e => { \
-      const a = e.button == 1 && e.target.closest?.('a[href]'); \
-      if (a) { e.preventDefault(); location.assign(a.href); } }, true); \
-    window.open = u => (u && location.assign(u), null); \
-    addEventListener('mousedown', e => { \
-      const s = e.composedPath()[0].closest?.('select'); \
-      if (s && !s.multiple && s.size <= 1) { e.preventDefault(); s.focus(); } }, true); \
-    addEventListener('keydown', e => { \
-      const s = e.composedPath()[0]; \
-      if (s instanceof HTMLSelectElement && !s.multiple && s.size <= 1 && \
-          ([' ', 'Enter', 'F4'].includes(e.key) || e.altKey && /^Arrow(Up|Down)$/.test(e.key))) \
-        e.preventDefault(); }, true);";
-
-/// On macOS, Chrome opens a dropdown list's popup on `↑` and `↓` instead of changing the choice,
-/// so the page script moves to the next choice that is enabled and shown itself, as Chrome does
-/// elsewhere. `PAGE_JS` already stops `Alt+↑` and `Alt+↓`. `getComputedStyle`, as a closed list's
-/// choices have no layout box to check.
-/// The `input` event is composed and `change` is not, as Chrome sends them, so a page outside a
-/// web component sees the `input` event. The listener bubbles on `window`, so it runs after the
-/// page's own handlers: a page that cancels the key keeps its choice, and the page sees the
-/// `keydown` before the `input` and `change`, as elsewhere.
-/// shortcut: a page that calls `stopPropagation()` on the key skips this listener, so Chrome's
-/// hidden popup opens; move to a capture listener plus a check after the dispatch if users report it.
-#[cfg(target_os = "macos")]
-const SELECT_KEYS_JS: &str = " \
-    addEventListener('keydown', e => { \
-      const s = e.composedPath()[0], d = {ArrowDown: 1, ArrowUp: -1}[e.key]; \
-      const hid = o => getComputedStyle(o).display == 'none'; \
-      if (!d || e.altKey || e.defaultPrevented || !(s instanceof HTMLSelectElement) || s.multiple || s.size > 1) return; \
-      e.preventDefault(); \
-      for (let i = s.selectedIndex + d; i >= 0 && i < s.options.length; i += d) \
-        if (!s.options[i].matches(':disabled') && !hid(s.options[i]) && !hid(s.options[i].parentElement)) { \
-          s.selectedIndex = i; \
-          s.dispatchEvent(new Event('input', {bubbles: true, composed: true})); \
-          s.dispatchEvent(new Event('change', {bubbles: true})); \
-          break; } });";
-#[cfg(not(target_os = "macos"))]
-const SELECT_KEYS_JS: &str = "";
+/// Runs in each document before the page's own scripts: see its header. `Page::open` wraps it in a
+/// function, so its names stay out of the page's globals.
+const PAGE_JS: &str = include_str!("../assets/web/browser-page.js");
 
 /// Finds the threads' elements in each document, in the isolated world `laura`.
 const BROWSER_JS: &str = concat!("{\n", include_str!("../assets/web/browser.js"), "\n}");
@@ -1089,9 +1043,12 @@ impl Page {
         page.send("Page.enable", json!({}));
         // For the spinner: the requests a click starts.
         page.send("Network.enable", json!({}));
+        // The tests run the macOS dropdown keys on Linux, against Linux Chrome's own.
+        let mac =
+            cfg!(target_os = "macos") || std::env::var_os("LAURA_EMULATE_MAC_SELECT").is_some();
         page.send(
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": format!("{PAGE_JS}{SELECT_KEYS_JS}")}),
+            json!({"source": format!("(() => {{ 'use strict'; const mac = {mac};\n{PAGE_JS}\n}})()")}),
         );
         // browser.js runs where the page's scripts can't see or change it.
         page.send("Runtime.enable", json!({}));

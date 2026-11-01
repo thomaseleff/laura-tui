@@ -132,57 +132,316 @@ fn a_new_tab_opens_in_the_same_pane() -> Result<()> {
     Ok(())
 }
 
-/// Clicks the dropdown list on `page`, presses `before`, then `↓`, and waits for the choice `want`.
-fn arrow_down_picks(page: &str, before: Option<Keystroke>, want: &str) -> Result<()> {
+const DOWN: Keystroke = ("ArrowDown", "ArrowDown", 40, 0, "");
+const UP: Keystroke = ("ArrowUp", "ArrowUp", 38, 0, "");
+const RIGHT: Keystroke = ("ArrowRight", "ArrowRight", 39, 0, "");
+const LEFT: Keystroke = ("ArrowLeft", "ArrowLeft", 37, 0, "");
+const PAGE_DOWN: Keystroke = ("PageDown", "PageDown", 34, 0, "");
+const PAGE_UP: Keystroke = ("PageUp", "PageUp", 33, 0, "");
+const HOME: Keystroke = ("Home", "Home", 36, 0, "");
+const END: Keystroke = ("End", "End", 35, 0, "");
+const SPACE: Keystroke = (" ", "Space", 32, 0, " ");
+
+/// On macOS, Laura's page script changes a dropdown list's choice itself, so the page sees an
+/// untrusted `change`; `LAURA_EMULATE_MAC_SELECT` runs that script on Linux.
+fn mac() -> bool {
+    cfg!(target_os = "macos") || std::env::var_os("LAURA_EMULATE_MAC_SELECT").is_some()
+}
+
+/// `want`, with the mark that the test pages show for Laura's change on macOS.
+fn by_laura(want: &str) -> String {
+    if mac() {
+        format!("{want} untrusted")
+    } else {
+        want.into()
+    }
+}
+
+/// `k` with CDP's `mods`.
+fn with((key, code, key_code, _, text): Keystroke, mods: u8) -> Keystroke {
+    (key, code, key_code, mods, text)
+}
+
+/// Runs `f` with a browser pane and the test pages' server, as `load` returns them.
+fn dropdown(f: impl FnOnce(&mut Rig, &mut Ws, &(u64, String))) -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
     let (mut r, mut ws) = rig(path)?;
-    let (id, _) = load(&mut r, &mut ws, page);
-    click(&mut ws, id, 50.0, 25.0);
-    assert_eq!(event(&mut r, &mut ws, "editable", id)["editable"], true);
-    if let Some(k) = before {
-        press_key(&mut ws, id, k);
-    }
-    press(&mut ws, id, "ArrowDown", 40);
-    let what = format!("the next choice after {before:?}");
-    state_until(&mut r, &mut ws, &what, id, |v| v["title"] == want);
+    let pane = load(&mut r, &mut ws, "/two");
+    f(&mut r, &mut ws, &pane);
     Ok(())
+}
+
+/// Pane `id` loads `page` from the server at `url`, and its title becomes `title`.
+fn goto(r: &mut Rig, ws: &mut Ws, (id, url): &(u64, String), page: &str, title: &str) {
+    let to = format!("{url}{page}");
+    let acted = r.act(
+        ws,
+        json!({"act": "browser_navigate", "pane": id, "url": to}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    state_until(r, ws, &to, *id, |v| {
+        v["url"] == to.as_str() && v["title"] == title && v["busy"] == false
+    });
+}
+
+/// The pane loads `page`, the user clicks its dropdown list and presses `keys`, and the page's
+/// title becomes `want`. The expected titles are plain Chrome's on Linux, with no Laura script,
+/// except that no popup opens.
+fn picks(
+    r: &mut Rig,
+    ws: &mut Ws,
+    pane: &(u64, String),
+    page: &str,
+    keys: &[Keystroke],
+    want: &str,
+) {
+    goto(r, ws, pane, page, route(browser_rig::page(page)).1);
+    click(ws, pane.0, 50.0, 25.0);
+    assert_eq!(event(r, ws, "editable", pane.0)["editable"], true, "{page}");
+    for &k in keys {
+        press_key(ws, pane.0, k);
+    }
+    let what = format!("{page} after {keys:?}");
+    state_until(r, ws, &what, pane.0, |v| v["title"] == want);
 }
 
 #[test]
 fn a_dropdown_list_takes_the_arrow_keys() -> Result<()> {
-    arrow_down_picks("/select", None, "b")
+    dropdown(|r, ws, p| picks(r, ws, p, "/select", &[DOWN], &by_laura("ArrowDown b")))
 }
 
 #[test]
 fn a_dropdown_list_in_a_web_component_takes_the_arrow_keys() -> Result<()> {
-    arrow_down_picks("/shadow-select", None, "b")
+    dropdown(|r, ws, p| picks(r, ws, p, "/shadow-select", &[DOWN], "ArrowDown b"))
 }
 
 #[test]
 fn a_dropdown_list_s_arrow_keys_skip_hidden_choices() -> Result<()> {
-    arrow_down_picks("/hidden-select", None, "d")
-}
-
-/// A page that cancels `↓` keeps its choice, as Chrome does it on Linux and Windows.
-#[test]
-fn a_page_that_cancels_a_key_keeps_its_dropdown_choice() -> Result<()> {
-    arrow_down_picks("/cancel-select", None, "kept a")
+    dropdown(|r, ws, p| {
+        picks(
+            r,
+            ws,
+            p,
+            "/hidden-select",
+            &[DOWN],
+            &by_laura("ArrowDown d"),
+        )
+    })
 }
 
 /// #157: a popup that opened would take the `↓`, and the user can't see the popup.
 #[test]
 fn a_dropdown_list_opens_no_popup() -> Result<()> {
-    for k in [
-        (" ", "Space", 32, 0, " "),
-        ("Enter", "Enter", 13, 0, ""),
-        ("ArrowUp", "ArrowUp", 38, 1, ""),
-        ("ArrowDown", "ArrowDown", 40, 1, ""),
-        ("F4", "F4", 115, 0, ""),
-    ] {
-        arrow_down_picks("/select", Some(k), "b")?;
+    dropdown(|r, ws, p| {
+        for k in [
+            SPACE,
+            ("Enter", "Enter", 13, 0, ""),
+            with(UP, 1),
+            with(DOWN, 1),
+            ("F4", "F4", 115, 0, ""),
+        ] {
+            picks(r, ws, p, "/select", &[k, DOWN], &by_laura("ArrowDown b"));
+        }
+    })
+}
+
+/// Laura's page script changes the choice only after all of the page's own handlers for the key,
+/// and only when the page didn't cancel the key, wherever the page handles it.
+#[test]
+fn a_page_s_dropdown_handlers_run_before_laura() -> Result<()> {
+    dropdown(|r, ws, p| {
+        let moved = if mac() {
+            "input untrusted change untrusted ArrowDown b"
+        } else {
+            "input change ArrowDown b"
+        };
+        let kept = "ArrowDown a";
+        for (mode, want) in [
+            ("plain", moved),
+            ("prevent", kept),
+            ("return-false", kept),
+            ("return-value", kept),
+            // A `window` listener runs after the list's own: the finding.
+            ("window", kept),
+            ("window-capture", kept),
+            ("document", kept),
+            ("stop", moved),
+            ("stop-then-prevent", kept),
+            ("immediate", moved),
+            ("immediate-prevent", kept),
+            ("cancel-bubble", moved),
+            ("window-capture-stop", moved),
+            ("late-stop", moved),
+            ("nested", kept),
+        ] {
+            picks(r, ws, p, &format!("/select-events?{mode}"), &[DOWN], want);
+        }
+        // The page sees no key cancelled that it didn't cancel, and the keypress that it needs.
+        let seen = format!("keydown false keypress false keydown false {moved}");
+        picks(r, ws, p, "/select-events?seen", &[SPACE, DOWN], &seen);
+    })
+}
+
+/// The keys that change the choice in Chrome on Linux, then a `↓` that would go to a popup.
+#[test]
+fn a_dropdown_list_takes_chrome_s_keys() -> Result<()> {
+    dropdown(|r, ws, p| {
+        for (keys, want) in [
+            (&[RIGHT][..], "e"),
+            (&[RIGHT, LEFT], "c"),
+            (&[PAGE_DOWN], "f"),
+            (&[PAGE_DOWN, PAGE_DOWN], "i"),
+            (&[PAGE_DOWN, PAGE_DOWN, PAGE_DOWN], "k"),
+            (&[PAGE_DOWN, PAGE_DOWN, PAGE_UP], "f"),
+            (&[END], "k"),
+            (&[END, HOME], "c"),
+            (&[END, PAGE_UP], "i"),
+            (&[UP], "c"),
+        ] {
+            let keys = [keys, &[DOWN]].concat();
+            picks(
+                r,
+                ws,
+                p,
+                "/select-keys",
+                &keys,
+                &by_laura(&format!("ArrowDown {want}")),
+            );
+        }
+        // With no choice, `↓` picks the first and `↑` does nothing.
+        picks(
+            r,
+            ws,
+            p,
+            "/select-keys?none",
+            &[DOWN],
+            &by_laura("ArrowDown a"),
+        );
+        picks(
+            r,
+            ws,
+            p,
+            "/select-keys?none",
+            &[UP, DOWN],
+            &by_laura("ArrowDown a"),
+        );
+    })
+}
+
+#[test]
+fn a_dropdown_list_ignores_keys_with_modifiers() -> Result<()> {
+    dropdown(|r, ws, p| {
+        for k in [
+            with(DOWN, 8),
+            with(DOWN, 2),
+            with(DOWN, 4),
+            with(RIGHT, 8),
+            with(PAGE_DOWN, 8),
+        ] {
+            picks(r, ws, p, "/select", &[k, DOWN], &by_laura("ArrowDown b"));
+        }
+    })
+}
+
+/// Chrome's type-ahead takes a Space as part of the search.
+#[test]
+fn a_dropdown_list_takes_type_ahead_with_a_space() -> Result<()> {
+    dropdown(|r, ws, p| {
+        let keys = [
+            ("n", "KeyN", 78, 0, "n"),
+            ("e", "KeyE", 69, 0, "e"),
+            ("w", "KeyW", 87, 0, "w"),
+            SPACE,
+            ("y", "KeyY", 89, 0, "y"),
+        ];
+        picks(r, ws, p, "/select-type", &keys, "y New York");
+    })
+}
+
+/// Chrome runs no default action for the page's own events, and nor does Laura.
+#[test]
+fn a_page_s_own_events_change_no_dropdown_list() -> Result<()> {
+    dropdown(|r, ws, p| goto(r, ws, p, "/select-untrusted", "a false"))
+}
+
+#[test]
+fn a_page_that_cancels_mousedown_keeps_the_dropdown_list_unfocused() -> Result<()> {
+    dropdown(|r, ws, p| {
+        let id = p.0;
+        goto(
+            r,
+            ws,
+            p,
+            "/select-mousedown?return-false",
+            "Select mousedown",
+        );
+        click(ws, id, 50.0, 25.0);
+        assert_eq!(event(r, ws, "editable", id)["editable"], false);
+        // As in Chrome, a right-button press focuses the list.
+        goto(r, ws, p, "/select-mousedown", "Select mousedown");
+        for (kind, buttons) in [("down", 2), ("up", 0)] {
+            send(
+                ws,
+                json!({"act": "browser_mouse", "pane": id, "kind": kind, "x": 50.0, "y": 25.0,
+                       "button": 2, "buttons": buttons, "clicks": 1}),
+            );
+        }
+        assert_eq!(event(r, ws, "editable", id)["editable"], true);
+        // The page stops the press before any tail of Laura's: Laura decides once the page's
+        // listener returns, and the click still only focuses the list.
+        picks(
+            r,
+            ws,
+            p,
+            "/select-mousedown?immediate",
+            &[DOWN],
+            &by_laura("ArrowDown b"),
+        );
+    })
+}
+
+/// Chrome shows an `appearance: base-select` list's picker in the page, so Laura leaves it alone.
+#[test]
+fn a_dropdown_list_with_a_base_select_picker_opens_it() -> Result<()> {
+    dropdown(|r, ws, p| {
+        let id = p.0;
+        goto(r, ws, p, "/select-base?focus", "open false");
+        press_key(ws, id, DOWN);
+        state_until(r, ws, "the picker after ↓", id, |v| {
+            v["title"] == "open true"
+        });
+        goto(r, ws, p, "/select-base", "open false");
+        click(ws, id, 50.0, 25.0);
+        state_until(r, ws, "the picker after a click", id, |v| {
+            v["title"] == "open true"
+        });
+    })
+}
+
+#[test]
+fn a_page_that_cancels_a_middle_click_stays() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, url) = load(&mut r, &mut ws, "/aux-cancel");
+    for (kind, buttons) in [("down", 4), ("up", 0)] {
+        send(
+            &mut ws,
+            json!({"act": "browser_mouse", "pane": id, "kind": kind, "x": 50.0, "y": 25.0,
+                   "button": 1, "buttons": buttons, "clicks": 1}),
+        );
     }
+    // A navigation the middle-click started would load `/two` by then.
+    r.idle(&mut ws, 5);
+    thread::sleep(Duration::from_millis(300));
+    click(&mut ws, id, 50.0, 125.0);
+    let aux = format!("{url}/aux-cancel");
+    state_until(&mut r, &mut ws, "the same page", id, |v| {
+        v["title"] == "still" && v["url"] == aux.as_str()
+    });
     Ok(())
 }
 

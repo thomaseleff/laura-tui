@@ -88,3 +88,7 @@ jobs:
           else
             cargo test --locked --test "$TESTS"
           fi
+          # Linux runs the macOS dropdown keys too, against Linux Chrome's own results.
+          if [ "$TESTS" = browser_input ] && [ "$RUNNER_OS" = Linux ]; then
+            LAURA_EMULATE_MAC_SELECT=1 cargo test --locked --test browser_input dropdown
+          fi
