@@ -183,7 +183,7 @@ pub struct Browser {
     /// The CDP port the OS picks. The agent reaches Chrome through the proxy at
     /// `LAURA_BROWSER_URL` (`cdp_proxy`).
     pub port: u16,
-    /// The browser-level CDP websocket, for a second client (the tests, and the agent's browser tools).
+    /// The browser-level CDP websocket, for a second client in the tests.
     pub ws_url: String,
     /// Chrome's start tab, which `close_start` closes once a pane's page opens, so the agent's
     /// tools list only the panes' pages.
