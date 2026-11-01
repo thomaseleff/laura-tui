@@ -197,8 +197,6 @@ impl Browser {
     pub fn launch(path: &Path) -> Start {
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
-        // Spawn on the caller's thread: on Linux, `PR_SET_PDEATHSIG` kills Chrome when the thread
-        // that spawned it exits.
         match Browser::spawn(path) {
             Ok(proc) => {
                 let (path, cancel) = (path.to_path_buf(), cancel.clone());
@@ -256,33 +254,49 @@ impl Browser {
         // No keyring prompt or D-Bus wait for a profile that Laura deletes on exit.
         #[cfg(target_os = "linux")]
         cmd.arg("--password-store=basic");
-        #[cfg(target_os = "linux")]
-        // SAFETY: `prctl` is async-signal-safe and touches no memory.
-        unsafe {
-            use std::os::unix::process::CommandExt;
-            cmd.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                Ok(())
-            });
-        }
-        // ponytail: on macOS a killed Laura leaves Laura's browser running; a kqueue watcher in
-        // the child if that's reported.
-        let child = match cmd.spawn() {
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&profile);
                 return Err(anyhow!("couldn't start {}: {e}", path.display()));
             }
         };
+        // Only Laura holds the write end of the watcher's stdin, so Laura's death, however it
+        // happens, closes the pipe: `read` returns and the watcher ends Chrome and its profile.
+        // The trap keeps a terminal hangup from ending the watcher before it ends Chrome.
+        #[cfg(unix)]
+        let watcher = match Command::new("/bin/sh")
+            .args([
+                "-c",
+                "trap '' HUP INT TERM; read _; kill -9 \"$1\" 2>/dev/null; rm -rf \"$2\"",
+                "sh",
+            ])
+            .arg(child.id().to_string())
+            .arg(&profile)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(w) => w,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(anyhow!(
+                    "couldn't start the watcher for Laura's browser: {e}"
+                ));
+            }
+        };
         // `cmd` holds a copy of the log's handle, which on Windows would keep `Proc`'s drop from
         // deleting the profile.
         drop(cmd);
         // From here, dropping `proc` ends the process and deletes the profile.
-        // ponytail: a killed Laura leaves the profile in the temp folder; sweep stale
-        // `laura-browser-*` folders at startup if they pile up.
         Ok(Proc {
             #[cfg(windows)]
             job: kill_on_close(&child),
+            #[cfg(unix)]
+            watcher,
             child,
             profile,
         })
@@ -490,10 +504,19 @@ struct Proc {
     /// Closing it ends Laura's browser and its helper processes, even when Laura is killed.
     #[cfg(windows)]
     job: Option<std::os::windows::io::OwnedHandle>,
+    /// Ends Laura's browser and deletes the profile when Laura is killed.
+    #[cfg(unix)]
+    watcher: Child,
 }
 
 impl Drop for Proc {
     fn drop(&mut self) {
+        // First, so the watcher can't kill a reused pid once Chrome is reaped.
+        #[cfg(unix)]
+        {
+            let _ = self.watcher.kill();
+            let _ = self.watcher.wait();
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         #[cfg(windows)]

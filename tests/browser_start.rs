@@ -23,7 +23,8 @@ use rig::*;
 /// executing fails with ETXTBSY on Linux). Under the target dir: a `.cmd` whose path has a space
 /// can't be spawned. `fail` prints a D-Bus error and its arguments to stderr, as Chrome does on a
 /// host with no session bus, then exits 1. `slow` writes `started` next to itself, waits about
-/// 3 s, then exits 1.
+/// 3 s, then exits 1. `hang` (Unix) writes its pid and arguments to `argv` next to itself, then
+/// waits 60 s.
 fn fakes() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
@@ -40,7 +41,14 @@ fn fakes() -> &'static Path {
             "#!/bin/sh\necho '[1:1:ERROR:dbus/bus.cc(408)] Failed to connect to the bus' >&2\necho \"$@\" >&2\nexit 1\n",
             "#!/bin/sh\ntouch \"$(dirname \"$0\")/started\"\nsleep 3\nexit 1\n",
         );
-        for (kind, body) in [("fail", fail), ("slow", slow)] {
+        #[allow(unused_mut)] // only Unix adds `hang`
+        let mut kinds = vec![("fail", fail), ("slow", slow)];
+        #[cfg(unix)]
+        kinds.push((
+            "hang",
+            "#!/bin/sh\necho \"$$ $*\" > \"$(dirname \"$0\")/argv\"\nexec sleep 60\n",
+        ));
+        for (kind, body) in kinds {
             let d = dir.join(kind);
             std::fs::create_dir_all(&d).unwrap();
             let f = d.join(name);
@@ -168,5 +176,93 @@ fn the_browser_url_answers_before_laura_s_browser_starts() -> Result<()> {
         body,
         "Laura's browser is not running. Open a browser pane, then try again."
     );
+    Ok(())
+}
+
+/// Kills the child on drop, so a failed assertion doesn't leave a workspace running.
+#[cfg(unix)]
+struct Kill(std::process::Child);
+
+#[cfg(unix)]
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_killed_laura_closes_its_browser() -> Result<()> {
+    use std::process::{Command, Stdio};
+
+    let hang = fake("hang");
+    let argv = hang.with_file_name("argv");
+    let _ = std::fs::remove_file(&argv);
+    isolate_home();
+    let shell = format!(
+        "{} open http://127.0.0.1:1/ & sleep 60",
+        env!("CARGO_BIN_EXE_laura")
+    );
+    let mut laura = Kill(
+        Command::new(env!("CARGO_BIN_EXE_laura"))
+            .args(["--web", "--", "/bin/sh", "-c", &shell])
+            .env("LAURA_EXPERIMENTAL_WEB", "1")
+            .env("LAURA_EXPERIMENTAL_BROWSER", "1")
+            .env("LAURA_BROWSER", &hang)
+            .env_remove("LAURA_TAB")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?,
+    );
+    let t0 = Instant::now();
+    let line = loop {
+        if let Ok(l) = std::fs::read_to_string(&argv)
+            && l.ends_with('\n')
+        {
+            break l;
+        }
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "Laura never started the fake"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let pid = line
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let profile = PathBuf::from(
+        line.split_whitespace()
+            .find_map(|a| a.strip_prefix("--user-data-dir="))
+            .expect("a --user-data-dir argument"),
+    );
+    // Running, and not a zombie.
+    let alive = || {
+        let out = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output();
+        out.is_ok_and(|o| {
+            let stat = String::from_utf8_lossy(&o.stdout);
+            !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+        })
+    };
+    assert!(alive(), "the fake isn't running");
+    assert!(profile.exists(), "{} is missing", profile.display());
+
+    laura.0.kill()?;
+    laura.0.wait()?;
+    let t0 = Instant::now();
+    while alive() || profile.exists() {
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "after Laura's kill, the fake is running: {}, the profile exists: {}",
+            alive(),
+            profile.exists()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
     Ok(())
 }
