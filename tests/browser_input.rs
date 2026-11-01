@@ -132,36 +132,35 @@ fn a_new_tab_opens_in_the_same_pane() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn a_dropdown_list_takes_the_arrow_keys() -> Result<()> {
+/// Clicks the dropdown list on `page`, presses `↓`, and waits for the choice `want`.
+fn arrow_down_picks(page: &str, want: &str) -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
     let (mut r, mut ws) = rig(path)?;
-    let (id, _) = load(&mut r, &mut ws, "/select");
+    let (id, _) = load(&mut r, &mut ws, page);
     click(&mut ws, id, 50.0, 25.0);
     assert_eq!(event(&mut r, &mut ws, "editable", id)["editable"], true);
     press(&mut ws, id, "ArrowDown", 40);
     state_until(&mut r, &mut ws, "the next choice", id, |v| {
-        v["title"] == "b"
+        v["title"] == want
     });
     Ok(())
 }
 
 #[test]
+fn a_dropdown_list_takes_the_arrow_keys() -> Result<()> {
+    arrow_down_picks("/select", "b")
+}
+
+#[test]
 fn a_dropdown_list_in_a_web_component_takes_the_arrow_keys() -> Result<()> {
-    let Some((path, _one)) = chrome() else {
-        return Ok(());
-    };
-    let (mut r, mut ws) = rig(path)?;
-    let (id, _) = load(&mut r, &mut ws, "/shadow-select");
-    click(&mut ws, id, 50.0, 25.0);
-    assert_eq!(event(&mut r, &mut ws, "editable", id)["editable"], true);
-    press(&mut ws, id, "ArrowDown", 40);
-    state_until(&mut r, &mut ws, "the next choice", id, |v| {
-        v["title"] == "b"
-    });
-    Ok(())
+    arrow_down_picks("/shadow-select", "b")
+}
+
+#[test]
+fn a_dropdown_list_s_arrow_keys_skip_hidden_choices() -> Result<()> {
+    arrow_down_picks("/hidden-select", "d")
 }
 
 #[test]
