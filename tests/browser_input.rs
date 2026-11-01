@@ -165,6 +165,12 @@ fn a_dropdown_list_s_arrow_keys_skip_hidden_choices() -> Result<()> {
     arrow_down_picks("/hidden-select", None, "d")
 }
 
+/// A page that cancels `↓` keeps its choice, as Chrome does it on Linux and Windows.
+#[test]
+fn a_page_that_cancels_a_key_keeps_its_dropdown_choice() -> Result<()> {
+    arrow_down_picks("/cancel-select", None, "kept a")
+}
+
 /// #157: a popup that opened would take the `↓`, and the user can't see the popup.
 #[test]
 fn a_dropdown_list_opens_no_popup() -> Result<()> {

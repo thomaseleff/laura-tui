@@ -116,6 +116,11 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
             "Select",
             r#"<select class=at style=top:0 onchange="document.title=this.value"><option>a<option>b</select>"#,
         ),
+        "/cancel-select" => (
+            0,
+            "Cancel select",
+            r#"<select class=at style=top:0 onkeydown="event.preventDefault(); document.title='kept ' + this.value" onchange="document.title=this.value"><option>a<option>b</select>"#,
+        ),
         // `b` is hidden, and `c` is in a hidden group: `↓` from `a` picks `d`.
         "/hidden-select" => (
             0,

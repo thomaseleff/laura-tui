@@ -832,20 +832,24 @@ const PAGE_JS: &str = "\
 /// elsewhere. `PAGE_JS` already stops `Alt+↑` and `Alt+↓`. `getComputedStyle`, as a closed list's
 /// choices have no layout box to check.
 /// The `input` event is composed and `change` is not, as Chrome sends them, so a page outside a
-/// web component sees the `input` event.
+/// web component sees the `input` event. The listener bubbles on `window`, so it runs after the
+/// page's own handlers: a page that cancels the key keeps its choice, and the page sees the
+/// `keydown` before the `input` and `change`, as elsewhere.
+/// shortcut: a page that calls `stopPropagation()` on the key skips this listener, so Chrome's
+/// hidden popup opens; move to a capture listener plus a check after the dispatch if users report it.
 #[cfg(target_os = "macos")]
 const SELECT_KEYS_JS: &str = " \
     addEventListener('keydown', e => { \
       const s = e.composedPath()[0], d = {ArrowDown: 1, ArrowUp: -1}[e.key]; \
       const hid = o => getComputedStyle(o).display == 'none'; \
-      if (!d || e.altKey || !(s instanceof HTMLSelectElement) || s.multiple || s.size > 1) return; \
+      if (!d || e.altKey || e.defaultPrevented || !(s instanceof HTMLSelectElement) || s.multiple || s.size > 1) return; \
       e.preventDefault(); \
       for (let i = s.selectedIndex + d; i >= 0 && i < s.options.length; i += d) \
         if (!s.options[i].matches(':disabled') && !hid(s.options[i]) && !hid(s.options[i].parentElement)) { \
           s.selectedIndex = i; \
           s.dispatchEvent(new Event('input', {bubbles: true, composed: true})); \
           s.dispatchEvent(new Event('change', {bubbles: true})); \
-          break; } }, true);";
+          break; } });";
 #[cfg(not(target_os = "macos"))]
 const SELECT_KEYS_JS: &str = "";
 
