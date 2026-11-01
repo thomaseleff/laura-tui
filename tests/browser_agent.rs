@@ -75,6 +75,25 @@ fn the_proxy_names_its_own_port() -> Result<()> {
         let front = p["devtoolsFrontendUrl"].as_str().unwrap_or_default();
         assert!(!front.contains(&format!(":{chrome}/")), "{p}");
     }
+    // Chrome 111+ opens a tab only on a PUT, and answers the activate and the close with text.
+    let page = format!("http://127.0.0.1:{chrome}/json/version");
+    let (status, new) =
+        laura::browser::http(port, "PUT", &format!("/json/new?{page}")).expect("the proxy answers");
+    assert_eq!(status, "200 OK", "{new}");
+    let new: serde_json::Value = serde_json::from_str(&new)?;
+    let url = new["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+    assert!(url.starts_with(&own), "{new}");
+    assert_eq!(new["url"], page, "a page's own URL keeps Chrome's port");
+    let id = new["id"].as_str().expect("the tab's id");
+    for verb in ["activate", "close"] {
+        let (status, body) = laura::browser::http(port, "GET", &format!("/json/{verb}/{id}"))
+            .expect("the proxy answers");
+        assert_eq!(status, "200 OK", "{verb}: {body}");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&body).is_err(),
+            "{body}"
+        );
+    }
     Ok(())
 }
 

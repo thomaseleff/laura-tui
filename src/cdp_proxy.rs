@@ -89,7 +89,8 @@ fn conn(mut stream: TcpStream, port: u16, chrome: &AtomicU16, mut watch: Watch) 
     if !host {
         return respond(&mut stream, "403 Forbidden", None);
     }
-    if method != "GET" {
+    // Chrome answers each method itself, such as `PUT /json/new`.
+    if !(method == "GET" || (method == "PUT" && path.starts_with("/json"))) {
         return respond(&mut stream, "405 Method Not Allowed", None);
     }
     if chrome == 0 {
@@ -97,16 +98,30 @@ fn conn(mut stream: TcpStream, port: u16, chrome: &AtomicU16, mut watch: Watch) 
         return respond(&mut stream, "503 Service Unavailable", Some(body));
     }
     if path.starts_with("/json") {
-        let Some(v) = browser::get_json(chrome, target) else {
+        let Some((status, body)) = browser::http(chrome, method, target) else {
             return respond(&mut stream, "502 Bad Gateway", None);
         };
-        // Chrome names its own port in `webSocketDebuggerUrl` and `devtoolsFrontendUrl`.
-        let body = v
-            .to_string()
-            .replace(&format!("127.0.0.1:{chrome}"), &format!("127.0.0.1:{port}"));
+        // Chrome answers `/json/activate` and `/json/close` with text.
+        let Ok(mut v) = serde_json::from_str::<Value>(&body) else {
+            return respond(&mut stream, &status, Some(("text/plain", body.as_bytes())));
+        };
+        // Chrome names its own port in the socket URLs; a page's `url` or `title` stays as is.
+        let (from, to) = (format!("127.0.0.1:{chrome}"), format!("127.0.0.1:{port}"));
+        let objects = match &mut v {
+            Value::Array(a) => a.iter_mut().collect(),
+            o => vec![o],
+        };
+        for o in objects {
+            for k in ["webSocketDebuggerUrl", "devtoolsFrontendUrl"] {
+                if let Some(Value::String(s)) = o.get_mut(k) {
+                    *s = s.replace(&from, &to);
+                }
+            }
+        }
+        let body = v.to_string();
         return respond(
             &mut stream,
-            "200 OK",
+            &status,
             Some(("application/json", body.as_bytes())),
         );
     }

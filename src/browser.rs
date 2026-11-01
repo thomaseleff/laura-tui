@@ -396,10 +396,21 @@ impl Drop for Browser {
 /// A GET of Chrome's JSON at `path` on `port`, such as `/json/list`, as the agent's browser tools
 /// read it. `None` until Chrome answers.
 pub fn get_json(port: u16, path: &str) -> Option<Value> {
+    let (_, body) = http(port, "GET", path)?;
+    serde_json::from_str(&body).ok()
+}
+
+/// A `method` request to Chrome's HTTP endpoint at `path` on `port`: the status, such as `200 OK`,
+/// and the body. `None` until Chrome answers.
+pub fn http(port: u16, method: &str, path: &str) -> Option<(String, String)> {
     use std::io::{Read, Write};
     let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
     s.set_read_timeout(Some(Duration::from_secs(1))).ok()?;
-    write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").ok()?;
+    write!(
+        s,
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"
+    )
+    .ok()?;
     // Chrome keeps the connection open, so the body ends at its `Content-Length`.
     let (mut buf, mut chunk) = (Vec::new(), [0u8; 4096]);
     loop {
@@ -417,7 +428,8 @@ pub fn get_json(port: u16, path: &str) -> Option<Value> {
             })
             .and_then(|(_, v)| v.trim().parse::<usize>().ok())?;
         if body.len() >= len {
-            return serde_json::from_str(&body[..len]).ok();
+            let status = head.lines().next()?.split_once(' ')?.1;
+            return Some((status.to_string(), body[..len].to_string()));
         }
     }
 }
