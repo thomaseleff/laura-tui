@@ -97,6 +97,9 @@ fn open_absolutizes_relative_path_against_caller_cwd() -> Result<()> {
     let Message::Open { path, .. } = msg else {
         panic!("expected Open message");
     };
-    assert_eq!(std::path::Path::new(&path), expected);
+    // Canonical: on macOS the caller's cwd reads as `/private/var/…`, the tempdir as `/var/…`.
+    let path = std::path::Path::new(&path);
+    assert!(path.is_absolute(), "{}", path.display());
+    assert_eq!(path.canonicalize()?, expected.canonicalize()?);
     Ok(())
 }
