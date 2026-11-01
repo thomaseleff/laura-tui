@@ -212,18 +212,6 @@ fn the_browser_url_answers_before_laura_s_browser_starts() -> Result<()> {
     Ok(())
 }
 
-/// Kills the child on drop, so a failed assertion doesn't leave a workspace running.
-#[cfg(unix)]
-struct Kill(std::process::Child);
-
-#[cfg(unix)]
-impl Drop for Kill {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 #[cfg(unix)]
 #[test]
 fn a_killed_laura_closes_its_browser() -> Result<()> {

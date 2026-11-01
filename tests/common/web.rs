@@ -272,3 +272,13 @@ impl Rig {
         }
     }
 }
+
+/// Kills the child on drop, so a failed assertion doesn't leave a workspace running.
+pub struct Kill(pub std::process::Child);
+
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
