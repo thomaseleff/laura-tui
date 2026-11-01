@@ -23,7 +23,8 @@ use rig::*;
 /// executing fails with ETXTBSY on Linux). Under the target dir: a `.cmd` whose path has a space
 /// can't be spawned. `fail` prints a D-Bus error and its arguments to stderr, as Chrome does on a
 /// host with no session bus, then exits 1. `slow` writes `started` next to itself, waits about
-/// 3 s, then exits 1. `hang` (Unix) writes its pid and arguments to `argv` next to itself, then
+/// 3 s, then exits 1. `hang` (Unix) writes its pid and arguments to `argv` next to itself, starts
+/// a helper that writes the profile every 50 ms for about 60 s, as Chrome's helpers do, then
 /// waits 60 s.
 fn fakes() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -46,7 +47,10 @@ fn fakes() -> &'static Path {
         #[cfg(unix)]
         kinds.push((
             "hang",
-            "#!/bin/sh\necho \"$$ $*\" > \"$(dirname \"$0\")/argv\"\nexec sleep 60\n",
+            "#!/bin/sh\necho \"$$ $*\" > \"$(dirname \"$0\")/argv\"\n\
+             for a; do case $a in --user-data-dir=*) p=${a#--user-data-dir=};; esac; done\n\
+             (i=0; while [ $i -lt 1200 ]; do mkdir -p \"$p\"; touch \"$p/helper\"; sleep 0.05; i=$((i+1)); done) &\n\
+             exec sleep 60\n",
         ));
         for (kind, body) in kinds {
             let d = dir.join(kind);
@@ -266,5 +270,7 @@ fn a_killed_laura_closes_its_browser() -> Result<()> {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!profile.exists(), "a helper wrote the profile again");
     Ok(())
 }

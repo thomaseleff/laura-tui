@@ -257,6 +257,9 @@ impl Browser {
         // No "Chrome Safe Storage" Keychain prompt for that profile.
         #[cfg(target_os = "macos")]
         cmd.arg("--use-mock-keychain");
+        // Chrome leads its own process group, which its helpers join, so the watcher can end them all.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
@@ -265,13 +268,14 @@ impl Browser {
             }
         };
         // Only Laura holds the write end of the watcher's stdin, so Laura's death, however it
-        // happens, closes the pipe: `read` returns and the watcher ends Chrome and its profile.
+        // happens, closes the pipe: `read` returns and the watcher ends Chrome, its helpers and its
+        // profile. A helper left alive would write the profile again after `rm -rf`.
         // The trap keeps a terminal hangup from ending the watcher before it ends Chrome.
         #[cfg(unix)]
         let watcher = match Command::new("/bin/sh")
             .args([
                 "-c",
-                "trap '' HUP INT TERM; read _; kill -9 \"$1\" 2>/dev/null; rm -rf \"$2\"",
+                "trap '' HUP INT TERM; read _; kill -s KILL -- -\"$1\" 2>/dev/null; rm -rf \"$2\"",
                 "sh",
             ])
             .arg(child.id().to_string())
@@ -514,10 +518,15 @@ struct Proc {
 
 impl Drop for Proc {
     fn drop(&mut self) {
-        // First, so the watcher can't kill a reused pid once Chrome is reaped.
+        // Before Chrome is reaped, so the watcher can't kill a reused group id. While Chrome is
+        // unreaped, closing the watcher's stdin lets the watcher end Chrome's helpers too.
         #[cfg(unix)]
         {
-            let _ = self.watcher.kill();
+            if matches!(self.child.try_wait(), Ok(None)) {
+                drop(self.watcher.stdin.take());
+            } else {
+                let _ = self.watcher.kill();
+            }
             let _ = self.watcher.wait();
         }
         let _ = self.child.kill();
