@@ -173,7 +173,8 @@ fn dropdown(f: impl FnOnce(&mut Rig, &mut Ws, &(u64, String))) -> Result<()> {
     Ok(())
 }
 
-/// Pane `id` loads `page` from the server at `url`, and its title becomes `title`.
+/// Pane `id` loads `page` from the server at `url`, and its title becomes `title`. `title` must
+/// differ from the pane's title before, or the wait can match the new URL before the page loads.
 fn goto(r: &mut Rig, ws: &mut Ws, (id, url): &(u64, String), page: &str, title: &str) {
     let to = format!("{url}{page}");
     let acted = r.act(
@@ -184,6 +185,16 @@ fn goto(r: &mut Rig, ws: &mut Ws, (id, url): &(u64, String), page: &str, title: 
     state_until(r, ws, &to, *id, |v| {
         v["url"] == to.as_str() && v["title"] == title && v["busy"] == false
     });
+}
+
+/// Whether the field under the user's click on pane `id` takes the keystrokes.
+fn editable(r: &mut Rig, ws: &mut Ws, id: u64, what: &str) -> bool {
+    let f = r.until(
+        ws,
+        &format!("editable: {what}"),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "editable" && v["id"] == id),
+    );
+    f.json()["editable"] == true
 }
 
 /// The pane loads `page`, the user clicks its dropdown list and presses `keys`, and the page's
@@ -197,9 +208,9 @@ fn picks(
     keys: &[Keystroke],
     want: &str,
 ) {
-    goto(r, ws, pane, page, route(browser_rig::page(page)).1);
+    goto(r, ws, pane, page, &title(page));
     click(ws, pane.0, 50.0, 25.0);
-    assert_eq!(event(r, ws, "editable", pane.0)["editable"], true, "{page}");
+    assert!(editable(r, ws, pane.0, page), "{page}");
     for &k in keys {
         press_key(ws, pane.0, k);
     }
@@ -370,15 +381,10 @@ fn a_page_s_own_events_change_no_dropdown_list() -> Result<()> {
 fn a_page_that_cancels_mousedown_keeps_the_dropdown_list_unfocused() -> Result<()> {
     dropdown(|r, ws, p| {
         let id = p.0;
-        goto(
-            r,
-            ws,
-            p,
-            "/select-mousedown?return-false",
-            "Select mousedown",
-        );
+        let cancel = "/select-mousedown?return-false";
+        goto(r, ws, p, cancel, &title(cancel));
         click(ws, id, 50.0, 25.0);
-        assert_eq!(event(r, ws, "editable", id)["editable"], false);
+        assert!(!editable(r, ws, id, "the cancelled press"));
         // As in Chrome, a right-button press focuses the list.
         goto(r, ws, p, "/select-mousedown", "Select mousedown");
         for (kind, buttons) in [("down", 2), ("up", 0)] {
@@ -388,7 +394,7 @@ fn a_page_that_cancels_mousedown_keeps_the_dropdown_list_unfocused() -> Result<(
                        "button": 2, "buttons": buttons, "clicks": 1}),
             );
         }
-        assert_eq!(event(r, ws, "editable", id)["editable"], true);
+        assert!(editable(r, ws, id, "the right-button press"));
         // The page stops the press before any tail of Laura's: Laura decides once the page's
         // listener returns, and the click still only focuses the list.
         picks(

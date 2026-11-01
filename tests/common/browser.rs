@@ -320,9 +320,16 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
     }
 }
 
-/// `path` without its query: a test page reads `?mode` itself.
-pub fn page(path: &str) -> &str {
-    path.split('?').next().unwrap_or(path)
+/// `path`'s page title: its route's, then its query, so a wait for the title of a page's next
+/// `?mode` doesn't match the page before it. A test page reads `?mode` itself.
+pub fn title(path: &str) -> String {
+    let (page, query) = path.split_once('?').unwrap_or((path, ""));
+    let title = route(page).1;
+    if query.is_empty() {
+        title.into()
+    } else {
+        format!("{title}?{query}")
+    }
 }
 
 /// The server sent `/file.txt`, the download.
@@ -354,7 +361,9 @@ pub fn serve() -> String {
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
                 let path = req.split_whitespace().nth(1).unwrap_or("/");
-                let (delay, title, body) = route(page(path));
+                let (page, _) = path.split_once('?').unwrap_or((path, ""));
+                let (delay, _, body) = route(page);
+                let title = title(path);
                 let body = format!(
                     "<!doctype html><title>{title}</title><style>{CSS}</style><body>{body}</body>"
                 );
@@ -506,7 +515,7 @@ pub fn event(r: &mut Rig, ws: &mut Ws, t: &str, id: u64) -> Value {
 pub fn load(r: &mut Rig, ws: &mut Ws, path: &str) -> (u64, String) {
     let url = serve();
     let id = open(r, &format!("{url}{path}"));
-    let title = route(page(path)).1;
+    let title = title(path);
     state_until(r, ws, "the page's title", id, |v| {
         v["title"] == title && v["busy"] == false
     });
