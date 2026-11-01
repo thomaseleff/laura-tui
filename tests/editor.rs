@@ -271,13 +271,18 @@ fn open_edit_runs_neovim_in_a_pane_without_focus() -> Result<()> {
     Ok(())
 }
 
-/// Real Neovim: skipped when `nvim` isn't on `PATH`.
+/// Real Neovim: skipped when `nvim` isn't on `PATH`; under `CI`, it fails.
 #[test]
 fn bracket_d_opens_the_next_thread() -> Result<()> {
     let mut tab = spawn_tab()?;
-    let Ok(nvim) = laura::editor::resolve() else {
-        eprintln!("skipped: nvim isn't on PATH");
-        return Ok(());
+    let nvim = match laura::editor::resolve() {
+        Ok(nvim) => nvim,
+        // CI must run this: a runner without Neovim fails instead of passing empty.
+        Err(e) if std::env::var_os("CI").is_some() => panic!("CI needs Neovim: {e}"),
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return Ok(());
+        }
     };
     tab.editor = Ok(nvim);
     let (_dir, path) = file();

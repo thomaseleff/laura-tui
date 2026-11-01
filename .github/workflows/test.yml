@@ -65,6 +65,19 @@ jobs:
         timeout-minutes: 2 # macOS has no `timeout`
         shell: bash
         run: time "$LAURA_BROWSER" --headless=new --no-first-run --user-data-dir="$RUNNER_TEMP/chrome-warm-up" --dump-dom about:blank > /dev/null
+      # The editor tests run a real Neovim.
+      - name: Install Neovim
+        if: matrix.tests == 'app'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            choco install neovim -y
+            echo "C:/Program Files/Neovim/bin" >> "$GITHUB_PATH"
+          elif [ "$RUNNER_OS" = macOS ]; then
+            brew install neovim
+          else
+            sudo apt-get update && sudo apt-get install -y neovim
+          fi
       - name: Run the tests
         shell: bash
         env:
