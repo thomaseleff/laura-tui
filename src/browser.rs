@@ -254,6 +254,9 @@ impl Browser {
         // No keyring prompt or D-Bus wait for a profile that Laura deletes on exit.
         #[cfg(target_os = "linux")]
         cmd.arg("--password-store=basic");
+        // No "Chrome Safe Storage" Keychain prompt for that profile.
+        #[cfg(target_os = "macos")]
+        cmd.arg("--use-mock-keychain");
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {

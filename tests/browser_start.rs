@@ -105,6 +105,8 @@ fn a_failed_start_records_chromes_output() -> Result<()> {
         assert!(output.contains(want), "{want:?} not in {output}");
     }
     assert!(!output.contains(":ERROR:dbus/"), "{output}");
+    #[cfg(target_os = "macos")]
+    assert!(output.contains("--use-mock-keychain"), "{output}");
     Ok(())
 }
 
