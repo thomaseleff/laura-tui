@@ -216,9 +216,10 @@ pub fn osc52(text: &str) -> Vec<u8> {
 pub fn pbcopy(text: &str) {
     use std::io::Write;
     use std::process::{Command, Stdio};
-    // Without a UTF-8 locale, pbcopy reads the bytes as Mac Roman.
+    // Without a UTF-8 locale, pbcopy reads the bytes as Mac Roman. `LC_ALL` overrides a user's
+    // `LC_CTYPE` and `LANG`.
     let Ok(mut c) = Command::new("pbcopy")
-        .env("LANG", "en_US.UTF-8")
+        .env("LC_ALL", "en_US.UTF-8")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -398,12 +399,20 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn pbcopy_puts_the_text_on_the_clipboard() {
+        let pbpaste = || {
+            let out = std::process::Command::new("pbpaste")
+                .env("LC_ALL", "en_US.UTF-8")
+                .output()
+                .expect("pbpaste runs on macOS");
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        // shortcut: puts back text only, an image on the clipboard is lost; save the pasteboard
+        // types if a developer hits it.
+        let saved = pbpaste();
         let text = "laura ✓ copy";
         pbcopy(text);
-        let out = std::process::Command::new("pbpaste")
-            .env("LANG", "en_US.UTF-8")
-            .output()
-            .expect("pbpaste runs on macOS");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), text);
+        let got = pbpaste();
+        pbcopy(&saved);
+        assert_eq!(got, text);
     }
 }
