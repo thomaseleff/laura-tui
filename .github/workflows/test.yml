@@ -71,8 +71,8 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
-            choco install neovim -y
-            echo "C:/Program Files/Neovim/bin" >> "$GITHUB_PATH"
+            choco install neovim -y # adds its folder to the user PATH, which this job does not read
+            echo "C:/tools/neovim/nvim-win64/bin" >> "$GITHUB_PATH"
           elif [ "$RUNNER_OS" = macOS ]; then
             brew install neovim
           else
