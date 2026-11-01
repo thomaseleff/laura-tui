@@ -25,7 +25,8 @@ use rig::*;
 /// host with no session bus, then exits 1. `slow` writes `started` next to itself, waits about
 /// 3 s, then exits 1. `hang` (Unix) writes its pid and arguments to `argv` next to itself, starts
 /// a helper that writes the profile every 50 ms for about 60 s, as Chrome's helpers do, then
-/// waits 60 s.
+/// waits 60 s. `crash` (Unix) does the same as `hang` but exits 1 at once, and leaves the helper
+/// running.
 fn fakes() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
@@ -42,16 +43,16 @@ fn fakes() -> &'static Path {
             "#!/bin/sh\necho '[1:1:ERROR:dbus/bus.cc(408)] Failed to connect to the bus' >&2\necho \"$@\" >&2\nexit 1\n",
             "#!/bin/sh\ntouch \"$(dirname \"$0\")/started\"\nsleep 3\nexit 1\n",
         );
-        #[allow(unused_mut)] // only Unix adds `hang`
+        #[allow(unused_mut)] // only Unix adds `hang` and `crash`
         let mut kinds = vec![("fail", fail), ("slow", slow)];
         #[cfg(unix)]
-        kinds.push((
-            "hang",
-            "#!/bin/sh\necho \"$$ $*\" > \"$(dirname \"$0\")/argv\"\n\
+        let helper = "#!/bin/sh\necho \"$$ $*\" > \"$(dirname \"$0\")/argv\"\n\
              for a; do case $a in --user-data-dir=*) p=${a#--user-data-dir=};; esac; done\n\
-             (i=0; while [ $i -lt 1200 ]; do mkdir -p \"$p\"; touch \"$p/helper\"; sleep 0.05; i=$((i+1)); done) &\n\
-             exec sleep 60\n",
-        ));
+             (i=0; while [ $i -lt 1200 ]; do mkdir -p \"$p\"; touch \"$p/helper\"; sleep 0.05; i=$((i+1)); done) &\n";
+        #[cfg(unix)]
+        let (hang, crash) = (format!("{helper}exec sleep 60\n"), format!("{helper}exit 1\n"));
+        #[cfg(unix)]
+        kinds.extend([("hang", hang.as_str()), ("crash", crash.as_str())]);
         for (kind, body) in kinds {
             let d = dir.join(kind);
             std::fs::create_dir_all(&d).unwrap();
@@ -111,6 +112,32 @@ fn a_failed_start_records_chromes_output() -> Result<()> {
     assert!(!output.contains(":ERROR:dbus/"), "{output}");
     #[cfg(target_os = "macos")]
     assert!(output.contains("--use-mock-keychain"), "{output}");
+    Ok(())
+}
+
+/// Laura reaps a Chrome that exits as it starts before closing it, so the watcher kills a
+/// group whose leader is already gone.
+#[cfg(unix)]
+#[test]
+fn a_crashed_browser_s_helpers_close_with_it() -> Result<()> {
+    let crash = fake("crash");
+    let argv = crash.with_file_name("argv");
+    let _ = std::fs::remove_file(&argv);
+    let mut r = Rig::new()?;
+    r.tab.browser_path = Ok(crash);
+    let out = r.run(&["open", "http://127.0.0.1:1/"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("exited as it started"), "{err}");
+
+    let line = std::fs::read_to_string(&argv)?;
+    let profile = PathBuf::from(
+        line.split_whitespace()
+            .find_map(|a| a.strip_prefix("--user-data-dir="))
+            .expect("a --user-data-dir argument"),
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!profile.exists(), "a helper wrote the profile again");
     Ok(())
 }
 

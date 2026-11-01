@@ -518,15 +518,13 @@ struct Proc {
 
 impl Drop for Proc {
     fn drop(&mut self) {
-        // Before Chrome is reaped, so the watcher can't kill a reused group id. While Chrome is
-        // unreaped, closing the watcher's stdin lets the watcher end Chrome's helpers too.
+        // The watcher kills Chrome's group, also the helpers of a Chrome that already exited, and
+        // deletes the profile. A group id isn't reused while a helper is in the group, and pids
+        // are handed out in order, so an id freed by an earlier reap doesn't come back before the
+        // kill.
         #[cfg(unix)]
         {
-            if matches!(self.child.try_wait(), Ok(None)) {
-                drop(self.watcher.stdin.take());
-            } else {
-                let _ = self.watcher.kill();
-            }
+            drop(self.watcher.stdin.take());
             let _ = self.watcher.wait();
         }
         let _ = self.child.kill();
