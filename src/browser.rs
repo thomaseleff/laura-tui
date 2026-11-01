@@ -808,6 +808,23 @@ const PAGE_JS: &str = "\
       const s = e.target.closest?.('select'); \
       if (s && !s.multiple && s.size <= 1) { e.preventDefault(); s.focus(); } }, true);";
 
+/// On macOS, Chrome opens a dropdown list's popup on `↑` and `↓` instead of changing the choice,
+/// so the page script moves to the next enabled choice itself, as Chrome does elsewhere.
+#[cfg(target_os = "macos")]
+const SELECT_KEYS_JS: &str = " \
+    addEventListener('keydown', e => { \
+      const s = e.target, d = {ArrowDown: 1, ArrowUp: -1}[e.key]; \
+      if (!d || e.altKey || !(s instanceof HTMLSelectElement) || s.multiple || s.size > 1) return; \
+      e.preventDefault(); \
+      for (let i = s.selectedIndex + d; i >= 0 && i < s.options.length; i += d) \
+        if (!s.options[i].matches(':disabled')) { \
+          s.selectedIndex = i; \
+          s.dispatchEvent(new Event('input', {bubbles: true})); \
+          s.dispatchEvent(new Event('change', {bubbles: true})); \
+          break; } }, true);";
+#[cfg(not(target_os = "macos"))]
+const SELECT_KEYS_JS: &str = "";
+
 /// Finds the threads' elements in each document, in the isolated world `laura`.
 const BROWSER_JS: &str = concat!("{\n", include_str!("../assets/web/browser.js"), "\n}");
 
@@ -1016,7 +1033,7 @@ impl Page {
         page.send("Network.enable", json!({}));
         page.send(
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": PAGE_JS}),
+            json!({"source": format!("{PAGE_JS}{SELECT_KEYS_JS}")}),
         );
         // browser.js runs where the page's scripts can't see or change it.
         page.send("Runtime.enable", json!({}));
