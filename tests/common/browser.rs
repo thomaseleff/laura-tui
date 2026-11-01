@@ -95,6 +95,15 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
                  this.attachShadow({mode: 'open'}).innerHTML = '<input style="width:200px; height:50px; margin:0" oninput="document.title=this.value">';
                } })</script>"#,
         ),
+        // A web component whose open shadow root holds the dropdown list.
+        "/shadow-select" => (
+            0,
+            "Shadow select",
+            r#"<x-sel class=at style=top:0></x-sel>
+               <script>customElements.define('x-sel', class extends HTMLElement { constructor() { super();
+                 this.attachShadow({mode: 'open'}).innerHTML = '<select style="width:200px; height:50px; margin:0" onchange="document.title=this.value"><option>a<option>b</select>';
+               } })</script>"#,
+        ),
         "/blank" => (
             0,
             "Blank",

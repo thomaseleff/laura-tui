@@ -149,6 +149,22 @@ fn a_dropdown_list_takes_the_arrow_keys() -> Result<()> {
 }
 
 #[test]
+fn a_dropdown_list_in_a_web_component_takes_the_arrow_keys() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, _) = load(&mut r, &mut ws, "/shadow-select");
+    click(&mut ws, id, 50.0, 25.0);
+    assert_eq!(event(&mut r, &mut ws, "editable", id)["editable"], true);
+    press(&mut ws, id, "ArrowDown", 40);
+    state_until(&mut r, &mut ws, "the next choice", id, |v| {
+        v["title"] == "b"
+    });
+    Ok(())
+}
+
+#[test]
 fn a_move_off_the_page_ends_the_hover() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());

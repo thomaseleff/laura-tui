@@ -814,7 +814,7 @@ const PAGE_JS: &str = "\
       if (a) { e.preventDefault(); location.assign(a.href); } }, true); \
     window.open = u => (u && location.assign(u), null); \
     addEventListener('mousedown', e => { \
-      const s = e.target.closest?.('select'); \
+      const s = e.composedPath()[0].closest?.('select'); \
       if (s && !s.multiple && s.size <= 1) { e.preventDefault(); s.focus(); } }, true);";
 
 /// On macOS, Chrome opens a dropdown list's popup on `↑` and `↓` instead of changing the choice,
@@ -822,7 +822,7 @@ const PAGE_JS: &str = "\
 #[cfg(target_os = "macos")]
 const SELECT_KEYS_JS: &str = " \
     addEventListener('keydown', e => { \
-      const s = e.target, d = {ArrowDown: 1, ArrowUp: -1}[e.key]; \
+      const s = e.composedPath()[0], d = {ArrowDown: 1, ArrowUp: -1}[e.key]; \
       if (!d || e.altKey || !(s instanceof HTMLSelectElement) || s.multiple || s.size > 1) return; \
       e.preventDefault(); \
       for (let i = s.selectedIndex + d; i >= 0 && i < s.options.length; i += d) \
