@@ -251,6 +251,13 @@ kbd {
 .amark.field { margin: -6px; padding: 4px; border: 2px solid var(--acc); border-radius: 8px; opacity: 0; transition: opacity .3s; }
 .amark.field.on { opacity: 1; transition: none; }
 @keyframes ring { 0% { transform: scale(.5); opacity: 1; } 50% { transform: scale(1); opacity: .9; } 100% { opacity: 0; } }
+/* The agent's screenshot: one flash over the page, below the page's dialog. */
+.view.shot::after {
+  content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  box-shadow: inset 0 0 0 3px var(--acc); background: rgb(79 91 213 / .10); animation: shot .6s ease-out forwards;
+}
+@keyframes shot { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .view.shot::after { display: none; } }
 /* A browser pane's thread, highlight, cursor and hover outlines, tags and pins, over the canvas as
    an HTML page's are in the page (draw.js). */
 .marks { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }

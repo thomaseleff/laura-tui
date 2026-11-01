@@ -372,6 +372,8 @@ pub struct Tab {
     pub browser_port: Option<u16>,
     /// Laura's browser's own CDP port for `cdp_proxy`, `0` while it doesn't run.
     chrome_port: Arc<AtomicU16>,
+    /// The agent's captures of Laura's browser's pages, from `cdp_proxy`.
+    captures: Option<Receiver<cdp_proxy::Capture>>,
     /// Laura's browser while it starts off the loop, with the pane for `START_FAILED` when the
     /// user started it.
     starting: Option<(browser::Start, Option<PaneId>)>,
@@ -426,6 +428,7 @@ impl Tab {
             browser: None,
             browser_port: None,
             chrome_port: Arc::default(),
+            captures: None,
             starting: None,
             parked: None,
             browser_sizes: HashMap::new(),
@@ -461,7 +464,7 @@ impl Tab {
         }
         let mut tab = Tab::spawn(cmd, rows, cols)?;
         if let Some(l) = proxy {
-            cdp_proxy::serve(l, tab.chrome_port.clone());
+            tab.captures = Some(cdp_proxy::serve(l, tab.chrome_port.clone()));
         }
         (tab.web, tab.browser_path, tab.browser_port) = (true, browser_path, port);
         Ok(tab)
@@ -926,7 +929,8 @@ impl Tab {
         changed
     }
 
-    /// Take each page's news: a new URL goes into its panel's path, a failed load into a notice.
+    /// Take each page's news: a new URL goes into its panel's path, a failed load into a notice, and
+    /// the agent's capture of it to the view.
     /// When Laura's browser exits, drop it and its pages, and keep the panes for `Ctrl+R`.
     fn poll_browsers(&mut self) -> bool {
         if self.browser.as_ref().is_some_and(|b| b.cdp.closed()) {
@@ -978,6 +982,15 @@ impl Tab {
             }
             if let Some(p) = self.panels.get(id) {
                 page.draw(p.scene(self.focus == *id, self.hold));
+            }
+        }
+        // A capture of a page that no pane shows, such as one the tools opened, shows nothing.
+        for c in self.captures.iter().flat_map(Receiver::try_iter) {
+            if let Some(page) = self.browsers.values_mut().find(|p| p.target() == c.target) {
+                match c.kind {
+                    cdp_proxy::Kind::Screenshot => page.screenshot(),
+                }
+                changed = true;
             }
         }
         // No reopen here, so a page that crashes as it loads doesn't loop: `Ctrl+R` opens it.

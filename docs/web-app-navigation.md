@@ -35,6 +35,7 @@ The pane header shows a chip for each state the pane is in:
 - Laura shows **Reloaded** for a few seconds after the file changes on disk. Laura flashes the changed lines or blocks in green. In a tail pane, Laura flashes the new lines as output arrives. When the agent shows another file in the pane, Laura shows no **Reloaded**.
 - Laura shows **Diff view** when the pane shows the inline diff view.
 - Laura shows **Highlight L…** with the lines that the agent highlighted. Click the chip to scroll to the highlight. Click **×** on the chip to clear the highlight, as `h` does.
+- In a browser pane, Laura shows **Screenshot** when the agent's browser tool takes a screenshot of the page. See [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent).
 - Laura shows **Submission failed** when Laura couldn't submit the inline review into the chat. See [Threads and inline reviews](#threads-and-inline-reviews).
 
 Each button in the pane header does what its keystroke does:

@@ -192,7 +192,9 @@ The tool's page list shows only the pages in browser panes. When the agent click
 
 Laura shows a ring where the agent clicks. Laura shows an outline on the field where the agent types. Each mark goes away after one second. Laura shows no mark for the user's own clicks and typing. When a page's own script clicks or changes a field, Laura can show a mark for it.
 
-While the agent clicks or types with the tool, the pane header shows **Agent**. Laura hides **Agent** five seconds after the agent's last click or keystroke. When the agent only reads the page, opens another page or takes a screenshot, the pane header doesn't show **Agent**.
+While the agent clicks or types with the tool, the pane header shows **Agent**. Laura hides **Agent** five seconds after the agent's last click or keystroke. When the agent only reads the page or opens another page, the pane header doesn't show **Agent**.
+
+When the agent takes a screenshot of the page with the tool, Laura flashes the page in the browser pane once. The pane header shows **Screenshot** for four seconds. When the user's computer is set to reduce motion, Laura shows **Screenshot** with no flash.
 
 The agent's screenshots and page snapshots show the page as the user's own browser would. They don't show Laura's rings, outlines, thread pins or highlights.
 

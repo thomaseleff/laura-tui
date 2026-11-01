@@ -1,13 +1,17 @@
 //! `LAURA_BROWSER_URL` (#129): Laura serves the agent's browser tools in front of Laura's browser.
-//! The proxy relays each message unchanged, so the tools work as with Chrome itself.
+//! The proxy relays each message unchanged, so the tools work as with Chrome itself, and reads the
+//! method of each command, so the web app shows when the agent captures a browser pane's page.
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use anyhow::Result;
+use serde_json::Value;
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
 use tungstenite::protocol::WebSocketConfig;
@@ -20,24 +24,41 @@ use crate::web::{header, nothing_yet, peek_head, respond};
 pub const NOT_RUNNING: &str =
     "Laura's browser is not running. Open a browser pane, then try again.";
 
+/// A capture by the agent's browser tool on Laura's browser's page `target`, from tool
+/// connection `conn`.
+pub struct Capture {
+    pub conn: u64,
+    pub target: String,
+    pub kind: Kind,
+}
+
+pub enum Kind {
+    Screenshot,
+}
+
+/// The methods `Watch` parses a command for.
+const WATCHED: &[&str] = &["Page.captureScreenshot"];
+
 /// Serve `listener` in front of Laura's browser, which listens on `chrome` (`0` while it doesn't
-/// run).
-pub fn serve(listener: TcpListener, chrome: Arc<AtomicU16>) {
+/// run). The receiver gets each capture.
+pub fn serve(listener: TcpListener, chrome: Arc<AtomicU16>) -> Receiver<Capture> {
     let port = listener.local_addr().map_or(0, |a| a.port());
+    let (tx, rx) = channel();
     // shortcut: the thread blocks in `accept` and ends with the process, as the tab's socket
     // listener does; a nonblocking listener with a stop flag if tabs come and go in one process.
     std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            let chrome = chrome.clone();
+        for (n, stream) in (0..).zip(listener.incoming().flatten()) {
+            let (chrome, tx) = (chrome.clone(), tx.clone());
             std::thread::spawn(move || {
-                let _ = conn(stream, port, &chrome);
+                let _ = conn(stream, port, &chrome, Watch::new(n, tx));
             });
         }
     });
+    rx
 }
 
 /// One connection: Chrome's `/json` list, or a CDP websocket relayed to Chrome.
-fn conn(mut stream: TcpStream, port: u16, chrome: &AtomicU16) -> Result<()> {
+fn conn(mut stream: TcpStream, port: u16, chrome: &AtomicU16, mut watch: Watch) -> Result<()> {
     let Some(mut head) = peek_head(&mut stream)? else {
         return Ok(());
     };
@@ -90,7 +111,9 @@ fn conn(mut stream: TcpStream, port: u16, chrome: &AtomicU16) -> Result<()> {
         }
     };
     let client = tungstenite::accept_with_config(stream, Some(config()))?;
-    relay(client, up);
+    // A page's own socket takes commands with no session.
+    watch.own = path.strip_prefix("/devtools/page/").map(str::to_string);
+    relay(client, up, &mut watch);
     Ok(())
 }
 
@@ -125,14 +148,14 @@ fn upstream(chrome: u16, target: &str, origin: Option<&str>) -> Result<WebSocket
 
 /// Relay both ways until one side closes, then close the other. One loop, as `browser::io`: a
 /// short polling read on each side.
-fn relay(mut client: WebSocket<TcpStream>, mut chrome: WebSocket<TcpStream>) {
+fn relay(mut client: WebSocket<TcpStream>, mut chrome: WebSocket<TcpStream>, watch: &mut Watch) {
     for ws in [&client, &chrome] {
         let _ = ws
             .get_ref()
             .set_read_timeout(Some(Duration::from_millis(4)));
     }
-    while pass(&mut client, &mut chrome).unwrap_or(false)
-        && pass(&mut chrome, &mut client).unwrap_or(false)
+    while pass(&mut client, &mut chrome, watch, true).unwrap_or(false)
+        && pass(&mut chrome, &mut client, watch, false).unwrap_or(false)
     {}
     for ws in [&mut client, &mut chrome] {
         let _ = ws.close(None);
@@ -140,17 +163,86 @@ fn relay(mut client: WebSocket<TcpStream>, mut chrome: WebSocket<TcpStream>) {
     }
 }
 
-/// One message from `from` to `to`, if one arrived; `false` once `from` closes.
+/// One message from `from` to `to`, if one arrived; `false` once `from` closes. `up`: from the
+/// tool to Chrome.
 fn pass(
     from: &mut WebSocket<TcpStream>,
     to: &mut WebSocket<TcpStream>,
+    watch: &mut Watch,
+    up: bool,
 ) -> tungstenite::Result<bool> {
     match from.read() {
-        Ok(m @ (Message::Text(_) | Message::Binary(_))) => to.send(m)?,
+        Ok(m @ (Message::Text(_) | Message::Binary(_))) => {
+            if let Message::Text(t) = &m {
+                watch.read(t, up);
+            }
+            to.send(m)?;
+        }
         Ok(Message::Close(_)) => return Ok(false),
         Ok(_) => {}
         Err(e) if nothing_yet(&e) => {}
         Err(e) => return Err(e),
     }
     Ok(true)
+}
+
+/// One tool connection's view of its commands: which page each session names, and the captures.
+struct Watch {
+    conn: u64,
+    tx: Sender<Capture>,
+    /// The page of a `/devtools/page/<id>` socket.
+    own: Option<String>,
+    /// Session id to target id, from Chrome's `Target.attachedToTarget` events, which Chrome sends
+    /// for both an attach and an auto-attach.
+    sessions: HashMap<String, String>,
+}
+
+impl Watch {
+    fn new(conn: u64, tx: Sender<Capture>) -> Watch {
+        Watch {
+            conn,
+            tx,
+            own: None,
+            sessions: HashMap::new(),
+        }
+    }
+
+    /// A text message: from Chrome (`up` false), an attach; from the tool, a capture. A substring
+    /// check first, as a screencast frame is MBs of JSON.
+    fn read(&mut self, t: &str, up: bool) {
+        if !up {
+            if t.contains("\"Target.attachedToTarget\"")
+                && let Ok(v) = serde_json::from_str::<Value>(t)
+                && let (Some(s), Some(id)) = (
+                    v["params"]["sessionId"].as_str(),
+                    v["params"]["targetInfo"]["targetId"].as_str(),
+                )
+            {
+                self.sessions.insert(s.into(), id.into());
+            }
+            return;
+        }
+        if !WATCHED.iter().any(|m| t.contains(m)) {
+            return;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(t) else {
+            return;
+        };
+        let kind = match v["method"].as_str() {
+            Some("Page.captureScreenshot") => Kind::Screenshot,
+            _ => return,
+        };
+        // A command on the browser's own session names no page.
+        let target = match v["sessionId"].as_str() {
+            Some(s) => self.sessions.get(s).cloned(),
+            None => self.own.clone(),
+        };
+        if let Some(target) = target {
+            let _ = self.tx.send(Capture {
+                conn: self.conn,
+                target,
+                kind,
+            });
+        }
+    }
 }

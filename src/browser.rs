@@ -1024,6 +1024,16 @@ impl Page {
         self.send("Page.reload", json!({}));
     }
 
+    /// The page's CDP target id, which the agent's browser tools name the page by.
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    /// The agent's browser tool took a screenshot of the page.
+    pub fn screenshot(&mut self) {
+        self.out.push(json!({"t": "screenshot"}));
+    }
+
     /// The page's title, empty until the page names one.
     pub fn title(&self) -> &str {
         &self.title
@@ -1578,8 +1588,8 @@ impl Page {
     }
 
     /// The view's events since the last call: `editable` after each release, `copy` after a drag,
-    /// `agent` for the agent's click or input, `rect` for the cursor's element's box, and `marks`
-    /// for the boxes that the web app outlines.
+    /// `agent` for the agent's click or input, `screenshot` for the agent's screenshot, `rect` for
+    /// the cursor's element's box, and `marks` for the boxes that the web app outlines.
     pub fn take_out(&mut self) -> Vec<Value> {
         std::mem::take(&mut self.out)
     }

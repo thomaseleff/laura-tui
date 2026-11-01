@@ -11,11 +11,13 @@ mod common;
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
+use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde_json::json;
+use tungstenite::Message;
 
 use browser_rig::*;
 use rig::*;
@@ -73,6 +75,36 @@ fn the_proxy_names_its_own_port() -> Result<()> {
         let front = p["devtoolsFrontendUrl"].as_str().unwrap_or_default();
         assert!(!front.contains(&format!(":{chrome}/")), "{p}");
     }
+    Ok(())
+}
+
+#[test]
+fn a_screenshot_flashes_the_pane() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, url) = load(&mut r, &mut ws, "/two");
+    // Laura's own screencast takes no screenshot.
+    let frames = r.idle(&mut ws, 20);
+    assert!(!frames.iter().any(|f| f.is("screenshot")));
+    let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    tools.call(&mut r, "Page.captureScreenshot", json!({}));
+    event(&mut r, &mut ws, "screenshot", id);
+    // A tool on the page's own socket sends its commands with no session.
+    let page = get(&r, "/json/list")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|t| t["url"] == format!("{url}/two"))
+        .and_then(|t| t["webSocketDebuggerUrl"].as_str().map(str::to_string))
+        .expect("the page's socket");
+    let port = r.tab.browser_port.expect("a browser port");
+    let (mut own, _) = tungstenite::client(page, TcpStream::connect(("127.0.0.1", port))?)?;
+    own.send(Message::text(
+        json!({"id": 1, "method": "Page.captureScreenshot", "params": {}}).to_string(),
+    ))?;
+    event(&mut r, &mut ws, "screenshot", id);
     Ok(())
 }
 
