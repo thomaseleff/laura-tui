@@ -157,7 +157,7 @@ fn upstream(chrome: u16, target: &str, origin: Option<&str>) -> Result<WebSocket
 }
 
 /// Relay both ways until one side closes, then close the other. One loop, as `browser::io`: a
-/// short polling read on each side.
+/// short polling read on each side, which drains that side's burst before the other side's read.
 fn relay(mut client: WebSocket<TcpStream>, mut chrome: WebSocket<TcpStream>, watch: &mut Watch) {
     for ws in [&client, &chrome] {
         let _ = ws
@@ -173,28 +173,34 @@ fn relay(mut client: WebSocket<TcpStream>, mut chrome: WebSocket<TcpStream>, wat
     }
 }
 
-/// One message from `from` to `to`, if one arrived; `false` once `from` closes. `up`: from the
-/// tool to Chrome.
+/// Up to `BURST` messages from `from` to `to`, until `from` has nothing; `false` once `from`
+/// closes. `up`: from the tool to Chrome.
 fn pass(
     from: &mut WebSocket<TcpStream>,
     to: &mut WebSocket<TcpStream>,
     watch: &mut Watch,
     up: bool,
 ) -> tungstenite::Result<bool> {
-    match from.read() {
-        Ok(m @ (Message::Text(_) | Message::Binary(_))) => {
-            if let Message::Text(t) = &m {
-                watch.read(t, up);
+    for _ in 0..BURST {
+        match from.read() {
+            Ok(m @ (Message::Text(_) | Message::Binary(_))) => {
+                if let Message::Text(t) = &m {
+                    watch.read(t, up);
+                }
+                to.send(m)?;
             }
-            to.send(m)?;
+            Ok(Message::Close(_)) => return Ok(false),
+            Ok(_) => {}
+            Err(e) if nothing_yet(&e) => return Ok(true),
+            Err(e) => return Err(e),
         }
-        Ok(Message::Close(_)) => return Ok(false),
-        Ok(_) => {}
-        Err(e) if nothing_yet(&e) => {}
-        Err(e) => return Err(e),
     }
     Ok(true)
 }
+
+/// The most messages one side relays before the other side's turn, so a page that logs without
+/// end doesn't hold up the tool's commands.
+const BURST: usize = 256;
 
 /// One tool connection's view of its commands: which page each session names, and the captures.
 struct Watch {
