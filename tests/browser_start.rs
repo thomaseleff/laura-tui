@@ -227,6 +227,7 @@ impl Drop for Kill {
 #[cfg(unix)]
 #[test]
 fn a_killed_laura_closes_its_browser() -> Result<()> {
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
     let hang = fake("hang");
@@ -247,6 +248,8 @@ fn a_killed_laura_closes_its_browser() -> Result<()> {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            // Laura leads its own process group, so the test can kill the group as a supervisor does.
+            .process_group(0)
             .spawn()?,
     );
     let t0 = Instant::now();
@@ -285,7 +288,10 @@ fn a_killed_laura_closes_its_browser() -> Result<()> {
     assert!(alive(), "the fake isn't running");
     assert!(profile.exists(), "{} is missing", profile.display());
 
-    laura.0.kill()?;
+    // A SIGKILL to Laura's group kills Laura too, so this covers both kinds of kill.
+    Command::new("kill")
+        .args(["-s", "KILL", "--", &format!("-{}", laura.0.id())])
+        .status()?;
     laura.0.wait()?;
     let t0 = Instant::now();
     while alive() || profile.exists() {

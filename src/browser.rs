@@ -272,7 +272,9 @@ impl Browser {
         // profile. A helper left alive would write the profile again after `rm -rf`.
         // The trap keeps a terminal hangup from ending the watcher before it ends Chrome.
         #[cfg(unix)]
-        let watcher = match Command::new("/bin/sh")
+        let mut watch = Command::new("/bin/sh");
+        #[cfg(unix)]
+        watch
             .args([
                 "-c",
                 "trap '' HUP INT TERM; read _; kill -s KILL -- -\"$1\" 2>/dev/null; rm -rf \"$2\"",
@@ -282,9 +284,12 @@ impl Browser {
             .arg(&profile)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        {
+            .stderr(Stdio::null());
+        // Its own process group, so a kill of Laura's group doesn't end the watcher before Chrome.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut watch, 0);
+        #[cfg(unix)]
+        let watcher = match watch.spawn() {
             Ok(w) => w,
             Err(e) => {
                 let _ = child.kill();
