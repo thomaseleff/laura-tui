@@ -702,9 +702,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             let mut out = std::io::stdout();
                             let _ = out.write_all(&mouse::osc52(&text));
                             let _ = out.flush();
-                            // Off the render loop: pbcopy is a process start.
                             #[cfg(target_os = "macos")]
-                            std::thread::spawn(move || mouse::pbcopy(&text));
+                            mouse::pbcopy_in_order(text);
                         }
                     }
                 }
