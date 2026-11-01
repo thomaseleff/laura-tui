@@ -8,6 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, TcpStream};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -259,45 +261,73 @@ impl Browser {
         cmd.arg("--use-mock-keychain");
         // Chrome leads its own process group, which its helpers join, so the watcher can end them all.
         #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&profile);
-                return Err(anyhow!("couldn't start {}: {e}", path.display()));
-            }
-        };
-        // Only Laura holds the write end of the watcher's stdin, so Laura's death, however it
-        // happens, closes the pipe: `read` returns and the watcher ends Chrome, its helpers and its
-        // profile. A helper left alive would write the profile again after `rm -rf`.
+        cmd.process_group(0);
+        // The watcher starts first, and Chrome's own process writes its pid to it before Chrome
+        // runs, so no moment exists in which Chrome runs and no watcher knows its pid. Only Laura
+        // holds the write end of the watcher's stdin, so Laura's death, however it happens, closes
+        // the pipe: `read` returns and the watcher ends Chrome, its helpers and its profile. A
+        // helper left alive would write the profile again after `rm -rf`. A Laura that dies before
+        // Chrome starts leaves an empty `pid`, and the watcher only deletes the profile.
         // The trap keeps a terminal hangup from ending the watcher before it ends Chrome.
         #[cfg(unix)]
-        let mut watch = Command::new("/bin/sh");
-        #[cfg(unix)]
-        watch
+        let mut watcher = match Command::new("/bin/sh")
             .args([
                 "-c",
-                "trap '' HUP INT TERM; read _; kill -s KILL -- -\"$1\" 2>/dev/null; rm -rf \"$2\"",
+                "trap '' HUP INT TERM; read pid; read _; \
+                 [ -n \"$pid\" ] && kill -s KILL -- -\"$pid\" 2>/dev/null; rm -rf \"$1\"",
                 "sh",
             ])
-            .arg(child.id().to_string())
             .arg(&profile)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        // Its own process group, so a kill of Laura's group doesn't end the watcher before Chrome.
-        #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut watch, 0);
-        #[cfg(unix)]
-        let watcher = match watch.spawn() {
+            .stderr(Stdio::null())
+            // Its own process group, so a kill of Laura's group doesn't end the watcher before Chrome.
+            .process_group(0)
+            .spawn()
+        {
             Ok(w) => w,
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
                 let _ = std::fs::remove_dir_all(&profile);
                 return Err(anyhow!(
                     "couldn't start the watcher for Laura's browser: {e}"
                 ));
+            }
+        };
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::fd::{AsRawFd, FromRawFd};
+            let fd = watcher
+                .stdin
+                .as_ref()
+                .expect("the watcher's stdin is piped")
+                .as_raw_fd();
+            // SAFETY: the closure only calls `getpid` and `write`, which are async-signal-safe, and
+            // doesn't allocate or close `fd`. `setpgid` runs before it, so the pid leads Chrome's
+            // group. `fd` is close-on-exec, so Chrome doesn't keep the pipe open.
+            unsafe {
+                cmd.pre_exec(move || {
+                    let mut buf = [0u8; 16];
+                    let n = {
+                        let mut line = std::io::Cursor::new(&mut buf[..]);
+                        writeln!(line, "{}", std::process::id())?;
+                        line.position() as usize
+                    };
+                    let pipe = std::mem::ManuallyDrop::new(std::fs::File::from_raw_fd(fd));
+                    (&*pipe).write_all(&buf[..n])
+                });
+            }
+        }
+        let child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                #[cfg(unix)]
+                {
+                    drop(watcher.stdin.take());
+                    let _ = watcher.wait();
+                }
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(anyhow!("couldn't start {}: {e}", path.display()));
             }
         };
         // `cmd` holds a copy of the log's handle, which on Windows would keep `Proc`'s drop from
