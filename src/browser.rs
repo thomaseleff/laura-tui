@@ -1471,8 +1471,9 @@ impl Page {
     /// A field in a same-origin iframe (a Storybook story) has the focus in the iframe's document,
     /// or a field in an open shadow root (a web component) in its shadow root.
     /// A page can focus a field a moment after the click (a form that opens), so with no field
-    /// focused the read waits 100 ms and reads again.
-    // ponytail: a focus later than 100 ms, or in a cross-origin iframe, reads as no field; a
+    /// focused the read waits 100 ms and the next frame, then reads again. Chrome applies
+    /// `autofocus` in a frame, which can come after 100 ms on a slow host.
+    // ponytail: a focus later than that, or in a cross-origin iframe, reads as no field; a
     // `focusin` binding if users hit it. The read also runs after each load, for `autofocus`.
     fn ask_focus(&mut self, x: f64, y: f64, dragged: bool, click: bool) {
         if self.dialog.is_some() {
@@ -1487,7 +1488,8 @@ impl Page {
              || a === t && a.hasAttribute('tabindex')), \
              text: {dragged} ? d.getSelection().toString() : '' }}; }}; \
              let v = read(); \
-             if (!v.editable) {{ await new Promise(r => setTimeout(r, 100)); v = read(); }} \
+             if (!v.editable) {{ await Promise.all([new Promise(r => setTimeout(r, 100)), \
+             new Promise(r => {{ requestAnimationFrame(r); setTimeout(r, 1000); }})]); v = read(); }} \
              return v; }})()"
         );
         self.select_ask = Some((self.evaluate(&js), dragged, click));
