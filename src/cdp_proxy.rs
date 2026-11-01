@@ -215,6 +215,9 @@ struct Watch {
     /// shortcut: a screencast and a trace on one page at once share one mark, so the first to stop
     /// hides it; track by method if a tool does both.
     recording: HashSet<String>,
+    /// The page of each start command that Chrome hasn't answered, by the command's session and
+    /// id: a tool can number its commands for each session.
+    starts: HashMap<(Option<String>, u64), String>,
 }
 
 impl Watch {
@@ -225,22 +228,15 @@ impl Watch {
             own: None,
             sessions: HashMap::new(),
             recording: HashSet::new(),
+            starts: HashMap::new(),
         }
     }
 
-    /// A text message: from Chrome (`up` false), an attach; from the tool, a capture. A substring
-    /// check first, as a screencast frame is MBs of JSON.
+    /// A text message: from Chrome (`up` false), an attach or the reply to a start; from the tool,
+    /// a capture. A substring check first, as a screencast frame is MBs of JSON.
     fn read(&mut self, t: &str, up: bool) {
         if !up {
-            if t.contains("\"Target.attachedToTarget\"")
-                && let Ok(v) = serde_json::from_str::<Value>(t)
-                && let (Some(s), Some(id)) = (
-                    v["params"]["sessionId"].as_str(),
-                    v["params"]["targetInfo"]["targetId"].as_str(),
-                )
-            {
-                self.sessions.insert(s.into(), id.into());
-            }
+            self.read_chrome(t);
             return;
         }
         if !WATCHED.iter().any(|m| t.contains(m)) {
@@ -261,37 +257,77 @@ impl Watch {
             }
             _ => return,
         };
+        let session = v["sessionId"].as_str();
         // A command on the browser's own session names no page.
-        let target = match v["sessionId"].as_str() {
+        let target = match session {
             Some(s) => self.sessions.get(s).cloned(),
             None => self.own.clone(),
         };
-        if let Some(target) = target {
-            if let Kind::Recording(on) = kind {
-                if on {
-                    self.recording.insert(target.clone());
-                } else {
-                    self.recording.remove(&target);
+        let Some(target) = target else {
+            return;
+        };
+        match kind {
+            // The page shows ● Recording once Chrome accepts the start.
+            Kind::Recording(true) => {
+                if let Some(id) = v["id"].as_u64() {
+                    self.starts
+                        .insert((session.map(str::to_string), id), target);
                 }
             }
-            let _ = self.tx.send(Capture {
-                conn: self.conn,
-                target,
-                kind,
-            });
+            Kind::Recording(false) => {
+                self.recording.remove(&target);
+                self.starts.retain(|_, t| *t != target);
+                self.send(target, kind);
+            }
+            Kind::Screenshot => self.send(target, kind),
         }
+    }
+
+    /// A message from Chrome: an attach names a session's page; a reply with no error to a start
+    /// starts a recording. Chrome's events, such as the screencast's frames, start with `method`.
+    fn read_chrome(&mut self, t: &str) {
+        if t.contains("\"Target.attachedToTarget\"")
+            && let Ok(v) = serde_json::from_str::<Value>(t)
+            && let (Some(s), Some(id)) = (
+                v["params"]["sessionId"].as_str(),
+                v["params"]["targetInfo"]["targetId"].as_str(),
+            )
+        {
+            self.sessions.insert(s.into(), id.into());
+            return;
+        }
+        if self.starts.is_empty() || t.starts_with("{\"method\"") {
+            return;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(t) else {
+            return;
+        };
+        let Some(id) = v["id"].as_u64() else {
+            return;
+        };
+        let key = (v["sessionId"].as_str().map(str::to_string), id);
+        if let Some(target) = self.starts.remove(&key)
+            && v.get("error").is_none()
+        {
+            self.recording.insert(target.clone());
+            self.send(target, Kind::Recording(true));
+        }
+    }
+
+    fn send(&self, target: String, kind: Kind) {
+        let _ = self.tx.send(Capture {
+            conn: self.conn,
+            target,
+            kind,
+        });
     }
 }
 
 impl Drop for Watch {
     /// The tool disconnected: its recordings stop.
     fn drop(&mut self) {
-        for target in self.recording.drain() {
-            let _ = self.tx.send(Capture {
-                conn: self.conn,
-                target,
-                kind: Kind::Recording(false),
-            });
+        for target in std::mem::take(&mut self.recording) {
+            self.send(target, Kind::Recording(false));
         }
     }
 }

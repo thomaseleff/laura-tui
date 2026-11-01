@@ -116,6 +116,24 @@ fn a_recording_shows_until_it_stops() -> Result<()> {
     let (mut r, mut ws) = rig(path)?;
     let (id, url) = load(&mut r, &mut ws, "/two");
     let mut tools = Tools::attach(&mut r, &format!("{url}/two"));
+    // Chrome rejects the start ("Invalid parameters"), so the pane shows no ● Recording. The
+    // screenshot's chip comes after Chrome's reply to the start.
+    tools.send("Page.startScreencast", json!({"maxWidth": "x"}));
+    tools.call(&mut r, "Page.captureScreenshot", json!({}));
+    let start = Instant::now();
+    'shot: loop {
+        for f in r.idle(&mut ws, 1) {
+            if let Frame::Json(v) = &f
+                && v["id"] == id
+            {
+                assert!(v["recording"] != true, "a rejected start shows: {v}");
+                if v["t"] == "screenshot" {
+                    break 'shot;
+                }
+            }
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no screenshot");
+    }
     tools.call(&mut r, "Page.startScreencast", json!({"format": "jpeg"}));
     state_until(&mut r, &mut ws, "recording", id, |v| v["recording"] == true);
     // Laura's own screencast still sends the pane's frames.
