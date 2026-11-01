@@ -390,18 +390,14 @@ fn a_still_page_sends_no_frames() -> Result<()> {
         }
         out
     };
-    // The page settles: ack what its load paints, until 500 ms pass with no frame.
-    let start = Instant::now();
-    while !frames(&mut r, &mut ws, Duration::from_millis(500)).is_empty() {
-        assert!(
-            start.elapsed() < common::DEADLINE,
-            "timed out: the page settles"
-        );
-    }
-    let late = frames(&mut r, &mut ws, Duration::from_secs(1));
+    // On a busy host, Chrome can send a frame more than 500 ms after it paints the frame, so the
+    // test judges each frame by its paint time. The load's last paints came 660 ms after the load
+    // on macOS CI; a frame painted after 1.5 s is a still page painting again.
+    let painted = frames(&mut r, &mut ws, Duration::from_secs(3));
+    let late: Vec<_> = painted.iter().filter(|&&t| t > 1500.0).collect();
     assert!(
         late.is_empty(),
-        "frames painted at {late:?} ms after the load"
+        "frames painted at {painted:?} ms after the load"
     );
     Ok(())
 }
