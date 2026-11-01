@@ -211,6 +211,27 @@ pub fn osc52(text: &str) -> Vec<u8> {
     format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes())).into_bytes()
 }
 
+/// Terminal.app ignores OSC 52, so on macOS Laura also hands the selection to `pbcopy`.
+#[cfg(target_os = "macos")]
+pub fn pbcopy(text: &str) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    // Without a UTF-8 locale, pbcopy reads the bytes as Mac Roman.
+    let Ok(mut c) = Command::new("pbcopy")
+        .env("LANG", "en_US.UTF-8")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return;
+    };
+    if let Some(mut stdin) = c.stdin.take() {
+        let _ = stdin.write_all(text.as_bytes());
+    }
+    let _ = c.wait();
+}
+
 /// Standard base64 (RFC 4648). Inline (~15 lines) since base64 is only a transitive dep and the repo
 /// pins every direct dep — a few lines beat a new pin.
 pub fn base64_encode(data: &[u8]) -> String {
@@ -372,5 +393,17 @@ mod tests {
             extract_panel(&buf, inner, 3, 0, &line_at, (5, 0), (5, 2)),
             "llo world\nbye"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pbcopy_puts_the_text_on_the_clipboard() {
+        let text = "laura ✓ copy";
+        pbcopy(text);
+        let out = std::process::Command::new("pbpaste")
+            .env("LANG", "en_US.UTF-8")
+            .output()
+            .expect("pbpaste runs on macOS");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), text);
     }
 }
