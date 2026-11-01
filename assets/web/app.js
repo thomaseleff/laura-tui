@@ -769,8 +769,9 @@ function onShot(m) {
   const chip = () => el.querySelector(".head .shot");
   el.shot = true;
   chip().hidden = false;
+  fitHead(el);
   clearTimeout(el.shotTimer);
-  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true), 4000);
+  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true, fitHead(el)), 4000);
   // A reflow between, so a second screenshot flashes again.
   view.classList.remove("shot");
   void view.offsetWidth;
