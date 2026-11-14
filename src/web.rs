@@ -669,11 +669,6 @@ fn shown_root(root: &Path) -> String {
     }
 }
 
-/// A `laura tail` pane, whose file is Laura's spool.
-fn is_tail(p: &Panel) -> bool {
-    crate::journal::is_runtime_temp(&p.path)
-}
-
 /// An HTML file, which the web app shows as a page. A browser pane's URL isn't one.
 pub(crate) fn is_page(p: &Panel) -> bool {
     !p.browser
@@ -864,7 +859,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
             let icon = match p {
                 Some(p) if p.browser => Some("globe"),
                 Some(p) if is_page(p) => Some("page"),
-                Some(p) if is_tail(p) => Some("log"),
+                Some(p) if p.tail => Some("log"),
                 _ => None,
             };
             json!({"id": id, "x": r.x, "y": r.y, "w": r.width, "h": r.height,

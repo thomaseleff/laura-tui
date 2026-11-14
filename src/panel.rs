@@ -52,6 +52,8 @@ pub struct Panel {
     pub threads: Vec<Thread>,
     /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
     pub follow: bool,
+    /// Opened by `laura tail`: pausable whatever its spool path (#152).
+    pub tail: bool,
     /// Last-seen source signature (mtime, byte len); drives `reload_if_changed`.
     sig: Option<(SystemTime, u64)>,
     /// Terse read error from the last render, or `None` if the file read cleanly. Drives the open-time stderr warning.
@@ -207,6 +209,7 @@ impl Panel {
             recenter: Cell::default(),
             threads: vec![],
             follow: false,
+            tail: false,
             sig,
             read_error: error,
             changes: vec![],
@@ -1119,9 +1122,8 @@ impl Panel {
     }
 
     /// A tail pane, or a file pane with `--follow`, can pause (#127).
-    /// shortcut: a fallback spool outside the runtime dir pauses only with --follow; widen if users hit it.
     pub fn pausable(&self) -> bool {
-        !self.browser && (self.follow || crate::journal::is_runtime_temp(&self.path))
+        !self.browser && (self.follow || self.tail)
     }
 
     /// `p`: pause or resume. A resume reloads; with threads, the reload freezes the pane instead.

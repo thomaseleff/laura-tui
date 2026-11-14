@@ -1467,6 +1467,7 @@ impl Tab {
                 side,
                 focus,
                 follow,
+                tail,
                 dry_run,
                 highlight,
                 diff,
@@ -1560,6 +1561,9 @@ impl Tab {
                         let dup = self.already_open(&path, new);
                         let mut warnings =
                             self.install_panel(new, &path, follow, highlight, diff, area);
+                        if let Some(p) = self.panels.get_mut(&new) {
+                            p.tail = tail;
+                        }
                         if let Some(page) = page {
                             self.browsers.insert(new, page);
                         }

@@ -44,6 +44,8 @@ Split a pane and render a file in the new pane, or show a page from a URL in a b
 <dd><code>first</code>/<code>second</code> — where the new pane lands.</dd>
 <dt><code>focus</code> · boolean · <em>default: <code>true</code></em></dt>
 <dd>Move focus into the new pane.</dd>
+<dt><code>tail</code> · boolean · <em>default: <code>false</code></em></dt>
+<dd>Marks the pane as a tail pane: the user can pause it, and the web app shows the log icon. <code>laura tail</code> sets it.</dd>
 <dt><code>dry_run</code> · boolean · <em>default: <code>false</code></em></dt>
 <dd>Report the resulting layout without changing anything.</dd>
 <dt><code>highlight</code> · [int, int] · <em>default: <code>null</code></em></dt>

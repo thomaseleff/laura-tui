@@ -52,6 +52,7 @@ fn open_wire_shape_is_stable() {
         side: Some(Side::Second),
         focus: true,
         follow: false,
+        tail: false,
         dry_run: false,
         highlight: None,
         diff: false,
@@ -61,7 +62,7 @@ fn open_wire_shape_is_stable() {
     .unwrap();
     assert_eq!(
         json,
-        r#"{"type":"open","path":"docs/spec.md","split":null,"dir":"horizontal","ratio":40,"side":"second","focus":true,"follow":false,"dry_run":false,"highlight":null,"diff":false,"panel":null,"edit":false}"#
+        r#"{"type":"open","path":"docs/spec.md","split":null,"dir":"horizontal","ratio":40,"side":"second","focus":true,"follow":false,"tail":false,"dry_run":false,"highlight":null,"diff":false,"panel":null,"edit":false}"#
     );
 }
 
@@ -112,6 +113,7 @@ fn open_back_compat_defaults() {
             side: None,
             focus: true,
             follow: false,
+            tail: false,
             dry_run: false,
             highlight: None,
             diff: false,
