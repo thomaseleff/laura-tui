@@ -947,12 +947,12 @@ fn highlight_collapsed_block_covers_all_its_rows() -> Result<()> {
 
     // Every lit row belongs to the table block — its gutter falls within the table's lines (L3-6).
     let layout = panel.layout(80);
-    for i in lo..=hi {
-        let g = layout.rows[i].gutter.expect("table row has a gutter");
+    for (i, row) in layout.rows.iter().enumerate().take(hi + 1).skip(lo) {
+        let g = row.gutter.expect("table row has a gutter");
         assert!(
             (3..=6).contains(&g),
             "row {i} is part of the highlighted table block (L3-6), got L{g}: {:?}",
-            layout.rows[i].text()
+            row.text()
         );
     }
     Ok(())

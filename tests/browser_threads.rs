@@ -551,8 +551,12 @@ fn comment_mode_turns_off() -> Result<()> {
             &mut ws,
             json!({"act": "browser_comment_mode", "pane": id, "on": on}),
         );
-        r.idle(&mut ws, 5);
-        assert_eq!(r.tab.browsers[&id].comment, on);
+        // The act has no reply and arrives through the view's reader thread: pump until it applies.
+        let start = Instant::now();
+        while r.tab.browsers[&id].comment != on {
+            assert!(start.elapsed() < common::DEADLINE, "comment mode {on}");
+            r.idle(&mut ws, 1);
+        }
     }
     Ok(())
 }
