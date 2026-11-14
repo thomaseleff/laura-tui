@@ -72,6 +72,9 @@ pub enum Message {
         /// Autoscroll: pin the cursor to the last line on open and every reload (tail-style).
         #[serde(default)]
         follow: bool,
+        /// Opened by `laura tail`: the pane can pause and shows the log icon.
+        #[serde(default)]
+        tail: bool,
         /// Report the would-be layout without committing.
         #[serde(default)]
         dry_run: bool,

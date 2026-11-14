@@ -235,6 +235,30 @@ fn tail_falls_back_when_laura_runtime_is_unusable() -> Result<()> {
     Ok(())
 }
 
+/// A spool outside Laura's runtime dir (the agent's shell has its own) still pauses
+/// without `--follow`: the `tail` mark, not the path, makes the pane a tail pane (#152).
+#[test]
+fn a_tail_pane_outside_the_runtime_dir_pauses_without_follow() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    let elsewhere = tempfile::tempdir()?;
+    let runtime = elsewhere.path().join("laura");
+    let env = [("LAURA_RUNTIME", runtime.to_str().unwrap())];
+    let out = drive_tab_env(&mut tab, &["tail", "--title", "t"], "hello\n", &env);
+    let id: PaneId = String::from_utf8(out.stdout)?.trim().parse()?;
+    let path = tab.panels[&id].path.clone();
+    assert!(Path::new(&path).starts_with(&runtime), "{path}");
+
+    assert_eq!(
+        layout_paused(&mut tab, id)?,
+        None,
+        "a fresh pane isn't paused"
+    );
+    tab.act(UserAction::TogglePause { pane: id })
+        .map_err(anyhow::Error::msg)?;
+    assert_eq!(layout_paused(&mut tab, id)?, Some(true.into()));
+    Ok(())
+}
+
 /// Append `text` to the spool at `path`, then let the tab reload.
 fn append(tab: &mut Tab, path: &str, text: &str) -> Result<()> {
     std::fs::OpenOptions::new()
