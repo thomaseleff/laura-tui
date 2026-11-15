@@ -131,25 +131,23 @@ pub fn open_app(page: &Path) -> std::io::Result<()> {
     let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some();
     let app = match std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
         Some(p) => vec![PathBuf::from(p)],
-        None if wsl => [
-            "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
-            "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-        ]
-        .into_iter()
-        .map(PathBuf::from)
-        // A per-user Chrome install lives under %LOCALAPPDATA%.
-        .chain(
-            std::fs::read_dir("/mnt/c/Users")
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|u| {
-                    u.path()
-                        .join("AppData/Local/Google/Chrome/Application/chrome.exe")
-                }),
-        )
-        .chain(candidates())
-        .collect(),
+        None if wsl => {
+            let mut app: Vec<PathBuf> = [
+                "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+            // Only then ask Windows, since a WSL call into Windows takes noticeable time.
+            if !app.iter().any(|p| p.is_file()) {
+                app.extend(
+                    local_app_data().map(|d| d.join("Google/Chrome/Application/chrome.exe")),
+                );
+            }
+            app.extend(candidates());
+            app
+        }
         None => candidates(),
     };
     let mut cmd = match app.into_iter().find(|p| p.is_file()) {
@@ -193,6 +191,28 @@ pub fn open_app(page: &Path) -> std::io::Result<()> {
         }
     });
     Ok(())
+}
+
+/// The user's own %LOCALAPPDATA%, where a per-user Chrome lives, as a WSL path. Not every folder
+/// under `/mnt/c/Users`: any Windows user can write to `Public` and `All Users`. `cmd.exe` by its
+/// full path, since `appendWindowsPath=false` keeps it off PATH; run in a Windows folder, so it
+/// doesn't warn about a UNC one.
+fn local_app_data() -> Option<PathBuf> {
+    let out = Command::new("/mnt/c/Windows/System32/cmd.exe")
+        .args(["/d", "/c", "echo %LOCALAPPDATA%"])
+        .current_dir("/mnt/c/Windows/System32")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let win = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    // An unset variable echoes as itself.
+    if win.is_empty() || win.contains('%') {
+        return None;
+    }
+    let out = Command::new("wslpath").args(["-u", &win]).output().ok()?;
+    let unix = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (out.status.success() && !unix.is_empty()).then(|| PathBuf::from(unix))
 }
 
 /// `page` as a `file:` URL for `program`. A Windows browser that WSL starts reads the page
