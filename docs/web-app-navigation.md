@@ -35,7 +35,7 @@ The pane header shows a chip for each state the pane is in:
 - Laura shows **Reloaded** for a few seconds after the file changes on disk. Laura flashes the changed lines or blocks in green. In a tail pane, Laura flashes the new lines as output arrives. When the agent shows another file in the pane, Laura shows no **Reloaded**.
 - Laura shows **Diff view** when the pane shows the inline diff view.
 - Laura shows **Highlight L…** with the lines that the agent highlighted. Click the chip to scroll to the highlight. Click **×** on the chip to clear the highlight, as `h` does.
-- In a browser pane, Laura shows **Screenshot** when the agent's browser tool takes a screenshot of the page, and **● Recording** while the tool records the page. See [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent).
+- In a browser pane, Laura shows **Agent** while the agent's browser tool clicks or types on the page, **Screenshot** when the tool takes a screenshot of the page, **● Recording** while the tool records the page, and the page's size, such as `393×852`, when the tool emulates a device. See [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent).
 - Laura shows **Submission failed** when Laura couldn't submit the inline review into the chat. See [Threads and inline reviews](#threads-and-inline-reviews).
 
 Each button in the pane header does what its keystroke does:
@@ -56,14 +56,16 @@ Laura shows the comment, refresh and close buttons on a file pane, and on an edi
 When the pane header doesn't fit, Laura shows less in the pane header, in steps, until the pane header fits:
 
 1. Laura hides the file icon and shortens the button labels, such as **Submit** for **Submit review**.
-2. Laura replaces the chips and the `+3 −1` count with a dot. Hover over the dot to see the chips' names.
+2. Laura replaces the chips and the `+3 −1` count with a dot. Hover over the dot to see the chips' names. In a browser pane, Laura also hides the URL, the spinner and the live badge.
 3. Laura moves the comment, pause, diff, refresh and close buttons into **More**. Click **More** to list them.
 4. Laura moves **Submit review**, the thread count and the **Editor** | **File** buttons into **More**, and shortens the file's name. The pane header keeps only the pane's id, its name, the dot and **More**.
 5. Laura hides the pane's id and the dot.
 
 Laura shortens a long file name before it takes a step, but keeps at least part of the name in view.
 
-When a pane is too narrow to read, Laura hides the pane's file and shows `This pane is too narrow to show <file>. Widen the window or close a pane.` In a very narrow pane, Laura shows only `⚠`. Hover over `⚠` to read the text.
+When a pane is narrower than 160 pixels, Laura hides the pane's content and shows `This pane is too narrow to show <name>. Widen the window or close a pane.` Laura shows this line in every kind of pane: the shell, a file pane, a browser pane and an editor pane. In a very narrow pane, Laura shows only `⚠`. Hover over `⚠` to read the text.
+
+When the window is narrower than 400 pixels or shorter than 300 pixels, Laura hides the workspace and shows `Make the window larger to show the workspace.` Make the window larger to show the workspace again.
 
 In an editor pane's editor view, a click on **Submit review** or the thread count flips the pane to the file view first.
 

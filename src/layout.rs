@@ -150,6 +150,14 @@ fn split_rect(area: Rect, dir: Dir, ratio: u16) -> (Rect, Rect) {
 /// Smallest rect that can render a bordered pane: 3×3 (1 content cell inside a 1-cell border).
 pub const MIN_PANE: (u16, u16) = (3, 3);
 
+/// Smallest terminal (columns, rows) that shows the workspace; below it the TUI shows one line.
+pub const MIN_WORKSPACE: (u16, u16) = (40, 10);
+
+/// True if a terminal of `area` clears `MIN_WORKSPACE`.
+pub fn workspace_fits(area: Rect) -> bool {
+    area.width >= MIN_WORKSPACE.0 && area.height >= MIN_WORKSPACE.1
+}
+
 /// True if every pane in `layout` at `area` clears `MIN_PANE`.
 pub fn all_panes_fit(layout: &Layout, area: Rect) -> bool {
     rects(layout, area)

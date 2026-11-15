@@ -244,11 +244,12 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + '<span class="chip paused">Paused</span><span class="chip warn frozen">Frozen</span><span class="chip diffc">Diff view</span>'
   + `<button class="chip hlc tip-l" data-act="highlight" data-tip="Scroll to the highlight">${ic("target")}<span class="l"></span>`
   + `<span class="x" data-act="clear_highlight" ${tip("Clear the highlight  h")}>×</span></button>`
-  + '<span class="chip bad sfail" hidden>Submission failed</span></span><i class="cdot" role="img"></i><span class="grow"></span>'
+  + '<span class="chip bad sfail" hidden>Submission failed</span>'
   + `<span class="chip new agent tip-c" ${tip("The agent's browser tool clicks or types on this page")} hidden>Agent</span>`
   + `<span class="chip new shot tip-c" ${tip("The agent's browser tool took a screenshot of this page")} hidden>Screenshot</span>`
   + `<span class="chip new rec tip-c" ${tip("The agent's browser tool records this page")} hidden>Recording</span>`
-  + `<span class="chip emu tip-c" ${tip("The agent's browser tools set the page to this size")} hidden></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>`
+  + `<span class="chip emu tip-c" ${tip("The agent's browser tools set the page to this size")} hidden></span></span>`
+  + '<i class="cdot" role="img"></i><span class="grow"></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>'
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
   + `<span class="tools">${TOOLS.map(([a, i, t]) => `<button class="tool" data-act="${a}" ${tip(t)}>${ic(i)}</button>`).join("")}</span>`
@@ -258,7 +259,7 @@ const head = () => `<div class="head"><span class="pid"></span>`
 const hlLabel = h => (typeof h === "string" ? `Highlight ${h}` : `Highlight L${h[0]}${h[1] !== h[0] ? "–" + h[1] : ""}`);
 
 // A narrow header folds its chips into one dot, which names them in its tooltip. The chips change
-// the header's width, so the header fits again.
+// the header's width, so the header fits again (the header's `MutationObserver` in `makePane`).
 function paintChipDot(el) {
   const names = [...el.querySelectorAll(".head .chips > :not([hidden])")].map(c => (c.querySelector(".l") ?? c).textContent);
   const d = el.querySelector(".head .cdot");
@@ -334,7 +335,6 @@ function paintHead(el, p) {
   const nw = el.querySelector(".narrow"), nt = strings.narrow?.replace("{name}", p.name) ?? "";
   nw.textContent = nw.dataset.tip = nt;
   nw.setAttribute("aria-label", nt);
-  paintChipDot(el);
 }
 
 // A header button does what its keystroke does.
@@ -406,6 +406,10 @@ function makePane(p) {
   new ResizeObserver(() => el.style.setProperty("--bn", banner.offsetHeight + "px")).observe(banner);
   // `data-fit` doesn't resize the pane, so this doesn't loop.
   new ResizeObserver(() => fitHead(el)).observe(el);
+  // Any change to the header (a chip, the spinner, the live badge, a name) fits it again. The
+  // chip dot's own change is taken, so it doesn't call this again.
+  const mo = new MutationObserver(() => (paintChipDot(el), mo.takeRecords()));
+  mo.observe(el.querySelector(".head"), { childList: true, characterData: true, subtree: true, attributeFilter: ["hidden", "class"] });
   // A page's thread or comment box grows as the user types.
   new ResizeObserver(() => place(p.id)).observe(rows);
   el.lags = [];
@@ -609,7 +613,6 @@ function pointer(el, id) {
 // request the click started.
 function paintSpin(el) {
   el.querySelector(".head .spin").hidden = !el.busy;
-  fitHead(el);
 }
 
 // A browser pane's frame: `[paint time, 8 bytes BE f64 ms][PNG]`. The ack goes at once, so Laura's
@@ -676,7 +679,9 @@ function paintLive(el) {
   if (lag > 100) [el.lagUntil, el.lagShown] = [now + 1000, lag];
   const slow = now < (el.lagUntil ?? 0);
   live.classList.toggle("lag", slow);
-  live.textContent = slow ? `${Math.round(el.lagShown)} ms` : "live";
+  // Only a new text fits the header again, not every frame.
+  const text = slow ? `${Math.round(el.lagShown)} ms` : "live";
+  if (live.textContent !== text) live.textContent = text;
   const t = `${el.lags.length} frames a second · lag ${Math.round(lag)} ms`;
   live.dataset.tip = t;
   live.setAttribute("aria-label", t);
@@ -769,9 +774,8 @@ function onShot(m) {
   const chip = () => el.querySelector(".head .shot");
   el.shot = true;
   chip().hidden = false;
-  fitHead(el);
   clearTimeout(el.shotTimer);
-  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true, fitHead(el)), 4000);
+  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true), 4000);
   // A reflow between, so a second screenshot flashes again.
   view.classList.remove("shot");
   void view.offsetWidth;
@@ -906,9 +910,8 @@ function reloaded(id) {
   const el = $("p" + id), chip = el?.querySelector(".head .reloaded");
   if (!chip) return;
   chip.hidden = false;
-  paintChipDot(el);
   clearTimeout(el.reloadTimer);
-  el.reloadTimer = setTimeout(() => ((chip.hidden = true), paintChipDot(el)), 4000);
+  el.reloadTimer = setTimeout(() => (chip.hidden = true), 4000);
   if (id === layout.focus) return;
   unseen.add(id);
   el.classList.add("unseen");
@@ -1072,7 +1075,6 @@ function paintPop(id) {
   sb.classList.toggle("submitting", !!d?.busy);
   sb.classList.toggle("failed", !!d?.failed);
   el.querySelector(".head .sfail").hidden = !d?.failed;
-  paintChipDot(el);
   // A lost thread's card closes with the list, or when the page shows the thread's element again.
   if (listOpen !== id || !el.threads?.some(t => t.line === el.lostOpen && t.lost)) el.lostOpen = null;
   const kind = d ? "review" : listOpen === id && p.threads ? "list" : moreOpen === id ? "more" : "";
@@ -1852,6 +1854,7 @@ function connect() {
         strings = m;
         paintHelp(m.help, m.help_note);
         $("folder").textContent = m.root;
+        $("small").textContent = m.small;
         document.title = `Laura · ${m.root.split("/").filter(Boolean).at(-1) ?? m.root}`;
         break;
       case "layout":
