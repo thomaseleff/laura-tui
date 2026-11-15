@@ -150,7 +150,7 @@ Do not review your own PR. A subagent does the first review, before the Entire r
 
 33. Stop. Brief the user, and ask the user to approve the trail.
 34. When the user says "Approve", approve the trail: `entire trail approve <repo>/<n> -m "<what the user approved>"`. Do not approve the trail before the user says "Approve".
-35. Run `entire trail merge <repo>/<n> --dry-run` again. If a gate fails, tell the user the name of the gate and the cause of the failure, and do not merge. Record the head commit of the PR: `gh pr view <n> --json headRefOid -q .headRefOid`.
+35. Record the head commit of the PR: `gh pr view <n> --json headRefOid -q .headRefOid`. Then run `entire trail merge <repo>/<n> --dry-run` again. If a gate fails, tell the user the name of the gate and the cause of the failure, and do not merge. If the `Head:` line of the dry run is not the start of the head commit, do not merge, and do step 35 again.
 36. When the user tells you to merge the PR and the dry run in step 35 passes, squash-merge the PR: `gh pr merge <n> --squash --match-head-commit <head commit from step 35>`. If `gh pr merge` fails because the head commit changed, stop and brief the user.
 37. Make sure that GitHub closed the issue: `gh issue view <N> --json state`.
 38. Do not close the trail.
