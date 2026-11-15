@@ -270,6 +270,8 @@ pub enum Hint {
     },
     Review,
     Panes,
+    /// The web app's pane selector with a workspace's row selected.
+    Workspace,
     /// No popup or draft: the focused pane's keystrokes.
     Pane,
     /// The web app's comment mode on an HTML page.
@@ -344,6 +346,12 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             ("↑ ↓", "select"),
             ("Enter", "focus"),
             ("", "type an id to focus at once"),
+            ("Esc", "close"),
+        ],
+        Hint::Workspace => vec![
+            ("↑ ↓", "select"),
+            ("Enter", "open"),
+            ("Ctrl+Enter", "new tab"),
             ("Esc", "close"),
         ],
         Hint::Panes => vec![
@@ -606,6 +614,9 @@ pub const TOO_SMALL: &str = "Make the window larger to show the workspace.";
 
 /// The web app's overlay once the workspace ended (the shell exited or the user quit).
 pub const ENDED: &str = "The workspace stopped. To use Laura again, start Laura in the terminal.";
+
+/// [`ENDED`] when a Laura server runs: the overlay's **Show the workspaces** tells the way on.
+pub const ENDED_SERVER: &str = "The workspace stopped.";
 
 /// A path's file name (last `/`- or `\`-separated segment).
 pub fn base_name(path: &str) -> &str {

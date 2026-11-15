@@ -208,6 +208,9 @@ pub struct WebServer {
     bases: Bases,
     /// When the workspace started, in Unix ms: the order of the workspaces' records.
     started: u64,
+    /// The `workspaces` frames from `watch`'s thread, and the last one, which a new view gets.
+    watch: Option<Receiver<String>>,
+    workspaces: Option<String>,
 }
 
 impl WebServer {
@@ -242,6 +245,8 @@ impl WebServer {
             started: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
+            watch: None,
+            workspaces: None,
         })
     }
 
@@ -261,6 +266,39 @@ impl WebServer {
             &record_path(std::process::id()),
             record.to_string().as_bytes(),
         )
+    }
+
+    /// Tell the view which workspaces run, and whether a Laura server runs: a thread reads the
+    /// records every 2 s, and `sync` sends the `workspaces` frame when the list changes. The view
+    /// then holds the other workspaces' tokens: the same user, the same files on disk.
+    pub fn watch(&mut self) {
+        let (tx, rx) = channel();
+        let url = self.url.clone();
+        std::thread::spawn(move || {
+            let mut last = String::new();
+            loop {
+                // Oldest first, so a row doesn't move when another workspace starts.
+                let list: Vec<Value> = live()
+                    .iter()
+                    .map(|w| {
+                        let root = shown_root(Path::new(w["root"].as_str().unwrap_or("")));
+                        json!({"url": w["url"], "title": w["title"], "root": root,
+                               "program": w["program"], "current": w["url"] == url.as_str()})
+                    })
+                    .collect();
+                let frame = json!({"t": "workspaces", "list": list,
+                                   "server": crate::serve::running()})
+                .to_string();
+                if frame != last {
+                    if tx.send(frame.clone()).is_err() {
+                        return; // the workspace ended
+                    }
+                    last = frame;
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        });
+        self.watch = Some(rx);
     }
 
     /// Delete this workspace's record. A workspace that ends without it (`Ctrl+C`, a crash) leaves
@@ -307,6 +345,13 @@ impl WebServer {
     /// forward PTY bytes, and send the panes whose HTML changed. `changed` is `drain`'s return
     /// this frame. Returns false once the user quits.
     pub fn sync(&mut self, tab: &mut Tab, changed: bool) -> bool {
+        let fresh = self.watch.as_ref().and_then(|w| w.try_iter().last());
+        if let Some(frame) = fresh {
+            if let Some(v) = self.view.as_mut() {
+                v.send(Outbound::Text(frame.clone()));
+            }
+            self.workspaces = Some(frame);
+        }
         while let Ok((rx, tx)) = self.conns.try_recv() {
             // The token is in the browser now: the page has done its job.
             if let Some(page) = self.page.take() {
@@ -340,9 +385,12 @@ impl WebServer {
             };
             let help = view::help(tab.web);
             v.text(json!({"t": "strings", "help": help, "help_note": view::HELP_NOTE, "moved": view::MOVED,
-                           "ended": view::ENDED, "root": shown_root(&self.root),
+                           "ended": view::ENDED, "ended_server": view::ENDED_SERVER, "root": shown_root(&self.root),
                            "draft": {"failed": crate::tab::SUBMIT_FAILED_WEB},
                            "narrow": "This pane is too small to show {name}. Make the window larger or close a pane."}));
+            if let Some(frame) = &self.workspaces {
+                v.send(Outbound::Text(frame.clone()));
+            }
             if let Err(e) = &tab.editor
                 && e == crate::editor::NO_NVIM
             {
@@ -1021,6 +1069,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
         "locked": view::hint(tab, view::Hint::Locked),
         "quit": view::hint(tab, view::Hint::Quit),
         "panes": view::hint(tab, view::Hint::Panes),
+        "workspace": view::hint(tab, view::Hint::Workspace),
         "comment_mode": view::hint(tab, view::Hint::CommentMode),
         "browser_typing": view::hint(tab, view::Hint::BrowserTyping),
         "browser_url": view::hint(tab, view::Hint::BrowserUrl),

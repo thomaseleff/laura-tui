@@ -415,6 +415,7 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
         }
     };
     record(&web, None);
+    web.watch();
     let mut title = None;
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");

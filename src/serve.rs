@@ -38,6 +38,14 @@ fn state_path() -> PathBuf {
     data_dir().join("serve.json")
 }
 
+/// The Laura server's URL with its token, when a Laura server runs.
+pub(crate) fn running() -> Option<String> {
+    let v: Value = serde_json::from_slice(&std::fs::read(state_path()).ok()?).ok()?;
+    let port = u16::try_from(v["port"].as_u64()?).ok()?;
+    let token = v["token"].as_str()?;
+    web::answers(port).then(|| format!("http://127.0.0.1:{port}/?t={token}"))
+}
+
 /// `laura --serve`: listen on `port` until the user stops the Laura server.
 pub fn run(port: u16) -> Result<()> {
     let listener = web::listen(port)?;

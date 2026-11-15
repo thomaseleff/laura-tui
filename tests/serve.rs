@@ -386,3 +386,81 @@ fn a_port_in_use_returns_an_error_that_names_the_port() -> Result<()> {
     }
     Ok(())
 }
+
+/// Read `view` until a `workspaces` frame holds `want`; the frame.
+fn workspaces_frame(view: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Result<Value> {
+    let mut found = None;
+    until(what, || {
+        while let Some(f) = read(view) {
+            assert!(!matches!(f, Frame::Closed), "the view closed: {what}");
+            if f.is("workspaces") {
+                found = Some(f.json()).filter(&want);
+            }
+        }
+        Ok(found.is_some())
+    })?;
+    Ok(found.expect("until found the frame"))
+}
+
+#[test]
+fn a_view_lists_the_running_workspaces_oldest_first() -> Result<()> {
+    let home = temp()?;
+    let (dir_a, dir_b) = (temp()?, temp()?);
+    let args = ["--web", "--", PROGRAM];
+    let (_a, url_a) = laura_start(dir_a.path(), &args, Some(home.path()))?;
+    let mut view = view(&url_a)?;
+    workspaces_frame(&mut view, "workspace A alone", |f| {
+        f["list"].as_array().is_some_and(|l| l.len() == 1)
+    })?;
+    // The records order by the start time in ms: B starts later.
+    thread::sleep(Duration::from_millis(20));
+    let (b, url_b) = laura_start(dir_b.path(), &args, Some(home.path()))?;
+    let frame = workspaces_frame(&mut view, "workspaces A and B", |f| {
+        f["list"].as_array().is_some_and(|l| l.len() == 2)
+    })?;
+    let list = &frame["list"];
+    assert_eq!(list[0]["url"], url_a.as_str(), "{frame}");
+    assert_eq!(list[0]["current"], true, "{frame}");
+    assert_eq!(list[1]["url"], url_b.as_str(), "{frame}");
+    assert_eq!(list[1]["current"], false, "{frame}");
+    assert_eq!(list[1]["program"], PROGRAM, "{frame}");
+    let name = dir_b.path().canonicalize()?;
+    let name = name.file_name().expect("a name").to_string_lossy();
+    assert!(
+        list[1]["root"]
+            .as_str()
+            .is_some_and(|r| r.ends_with(&*name)),
+        "{frame}"
+    );
+    assert!(list[1]["title"].is_null(), "{frame}");
+
+    drop(b);
+    let frame = workspaces_frame(&mut view, "workspace B goes", |f| {
+        f["list"].as_array().is_some_and(|l| l.len() == 1)
+    })?;
+    assert_eq!(frame["list"][0]["url"], url_a.as_str(), "{frame}");
+    Ok(())
+}
+
+#[test]
+fn a_view_learns_the_laura_servers_address_when_it_starts() -> Result<()> {
+    let home = temp()?;
+    let dir = temp()?;
+    let args = ["--web", "--", PROGRAM];
+    let (_ws, url) = laura_start(dir.path(), &args, Some(home.path()))?;
+    let mut view = view(&url)?;
+    let frame = workspaces_frame(&mut view, "the first frame", |_| true)?;
+    assert!(frame["server"].is_null(), "{frame}");
+
+    let s = Server::start_in(home)?;
+    let server = format!("http://127.0.0.1:{}/?t={}", s.port, s.token);
+    // A new view gets the kept frame too.
+    workspaces_frame(&mut view, "the Laura server's address", |f| {
+        f["server"] == server.as_str()
+    })?;
+    let mut second = self::view(&url)?;
+    workspaces_frame(&mut second, "the kept frame", |f| {
+        f["server"] == server.as_str()
+    })?;
+    Ok(())
+}

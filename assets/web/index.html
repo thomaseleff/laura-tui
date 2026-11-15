@@ -12,14 +12,14 @@
 <script src="idiomorph.js"></script>
 </head>
 <body>
-<header id="top"><div class="l"><span class="brand">Laura</span><span class="crumb" id="folder"></span></div><button class="find tip-c" id="findbtn" data-tip="Find a pane  Ctrl+P" aria-label="Find a pane  Ctrl+P"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Find a pane</span><kbd>Ctrl</kbd><kbd>P</kbd></button><div class="r"><button class="iconbtn" id="helpbtn" data-tip="Keystrokes  Ctrl+H" aria-label="Keystrokes  Ctrl+H">?</button></div></header>
+<header id="top"><div class="l"><span class="brand">Laura</span><button class="wsw tip-l" id="wsw" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" disabled><span class="wl" id="wlabel"></span><span class="crumb" id="wroot"></span><span class="caret" id="caret" hidden>▾</span></button></div><button class="find tip-c" id="findbtn" data-tip="Find a pane  Ctrl+P" aria-label="Find a pane  Ctrl+P"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Find a pane</span><kbd>Ctrl</kbd><kbd>P</kbd></button><div class="r"><button class="iconbtn" id="helpbtn" data-tip="Keystrokes  Ctrl+H" aria-label="Keystrokes  Ctrl+H">?</button></div><div class="menu" id="menu" role="menu" aria-label="Workspaces" tabindex="-1" hidden></div></header>
 <div id="grid">
 <div id="ws" tabindex="-1"></div>
 <div id="notice"></div>
 </div>
 <div id="status"><div id="hint"></div><div id="sbar"></div></div>
-<div id="veil" class="veil" hidden><div id="help" class="modal help" hidden></div><div id="popup" class="modal" hidden><input id="pq" placeholder="Find a pane by file name or id" autocomplete="off"><div id="prows"></div></div></div>
-<div id="overlay" hidden><div class="box"><p id="overlay-text"></p><button id="continue" hidden>Use this tab</button></div></div>
+<div id="veil" class="veil" hidden><div id="help" class="modal help" hidden></div><div id="popup" class="modal" hidden><input id="pq" placeholder="Find a pane or a workspace" autocomplete="off"><div id="prows"></div></div></div>
+<div id="overlay" hidden><div class="box"><p id="overlay-text"></p><div class="obtns"><button id="continue" hidden>Use this tab</button><button id="showws" hidden>Show the workspaces</button></div></div></div>
 <script src="app.js"></script>
 </body>
 </html>

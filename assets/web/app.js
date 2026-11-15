@@ -22,6 +22,9 @@ const unseen = new Set();
 // The open comment or review body: `{pane, line, kind, hint, busy, failed, text}`. A comment's box
 // is `draftCard`, in its line's thread or below its line; a review body's is in the pane's popover.
 let draft = null, draftCard = null;
+// The `workspaces` frame: the running workspaces, oldest first, and the Laura server's URL or null.
+// `leaving` is set by a switch to another workspace, which skips the leave question.
+let spaces = [], server = null, leaving = false;
 // The pane whose thread list is open, and the pane whose **More** is open.
 let listOpen = null, moreOpen = null;
 // The page's pane in comment mode, where a click on the page picks an element to comment on.
@@ -56,7 +59,7 @@ const browserKey = (pane, kind, e) => ({
 });
 const pane = id => layout?.panes.find(p => p.id === id);
 const focused = () => pane(layout?.focus);
-const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden;
+const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
 
 function showNotice(text, secs, pane) {
   notice = text;
@@ -88,7 +91,7 @@ function paintHint() {
     : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : typing ? h.browser_typing : h.pane;
   // As the keydown listener: comment mode's hint only over a file or browser pane's own plain hint.
   const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
-    : popup !== null ? h.panes : commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
+    : !$("menu").hidden ? h.workspace : popup !== null ? ($("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes) : commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
   hintEl.replaceChildren(...(pairs ?? []).flatMap(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
@@ -1536,13 +1539,37 @@ function matches() {
     .sort((a, b) => id(b) - id(a));
 }
 
-// Each row shows the header's chips. Static markup; the frame's strings go in as text.
+// A row of the pane selector's Workspaces section: another workspace, or the Laura server's page.
+function spaceRow(w) {
+  const b = document.createElement("button");
+  b.className = "prow";
+  b.dataset.url = w ? w.url : server;
+  b.innerHTML = w ? '<span class="wdot"></span><span class="name"></span><span class="mute"></span>' : '<span class="pid">+</span><span class="name">New workspace…</span>';
+  if (w) {
+    b.querySelector(".name").textContent = spaceLabel(w);
+    b.querySelector(".name").classList.toggle("fallback", !w.title);
+    b.querySelector(".mute").textContent = w.root;
+  }
+  return b;
+}
+
+// Each row shows the header's chips. Static markup; the frame's strings go in as text. The panes
+// come first, so `Ctrl+P` then `Enter` focuses a pane; then the other workspaces whose session
+// label or folder holds the query, then **New workspace…** with a Laura server.
 function paintSelector() {
-  const ps = matches();
-  popup = Math.max(0, Math.min(popup, ps.length - 1));
-  const rows = ps.map((p, i) => {
+  const ps = matches(), q = pq.value.trim().toLowerCase();
+  const others = spaces.filter(w => !w.current && `${spaceLabel(w)} ${w.root}`.toLowerCase().includes(q)).map(spaceRow);
+  if (server && "new workspace".includes(q)) others.push(spaceRow());
+  popup = Math.max(0, Math.min(popup, ps.length + others.length - 1));
+  const head = text => {
+    const h = document.createElement("div");
+    h.className = "ph";
+    h.textContent = text;
+    return h;
+  };
+  const rows = ps.map(p => {
     const b = document.createElement("button");
-    b.className = `prow${i === popup ? " on" : ""}`;
+    b.className = "prow";
     b.dataset.id = p.id;
     b.innerHTML = `<span class="pid"></span>${ic(p.id === 0 ? "term" : p.icon ?? "file")}`
       + '<span class="name"></span><span class="mute"></span><span class="grow"></span>';
@@ -1569,9 +1596,14 @@ function paintSelector() {
   });
   const empty = document.createElement("div");
   empty.className = "empty";
-  empty.textContent = "No pane matches.";
-  $("prows").replaceChildren(...(rows.length ? rows : [empty]));
-  rows[popup]?.scrollIntoView({ block: "nearest" });
+  empty.textContent = "Nothing matches.";
+  const all = [...rows, ...others];
+  all[popup]?.classList.add("on");
+  // The headings show only with a Workspaces section, so one workspace alone looks as before.
+  const parts = others.length ? [...(rows.length ? [head("Panes"), ...rows] : []), head("Workspaces"), ...others] : rows;
+  $("prows").replaceChildren(...(all.length ? parts : [empty]));
+  all[popup]?.scrollIntoView({ block: "nearest" });
+  paintHint();
 }
 
 function openSelector() {
@@ -1603,10 +1635,14 @@ pq.addEventListener("input", () => {
   popup = 0;
   paintSelector();
 });
-$("prows").addEventListener("click", e => {
-  const b = e.target.closest(".prow");
-  if (b) closeSelector(+b.dataset.id);
-});
+// A pane's row focuses the pane. A workspace's row loads the workspace, in a new tab with `tab`.
+function pickRow(b, tab) {
+  if (!b) return;
+  if (!b.dataset.url) return closeSelector(+b.dataset.id);
+  closeSelector();
+  go(b.dataset.url, tab);
+}
+$("prows").addEventListener("click", e => pickRow(e.target.closest(".prow"), e.ctrlKey || e.metaKey));
 $("findbtn").addEventListener("mousedown", e => e.preventDefault());
 $("findbtn").addEventListener("click", () => (draft ? followFocus(true) : openSelector()));
 
@@ -1668,6 +1704,17 @@ addEventListener("keydown", e => {
     followFocus(true);
     return paintHint();
   }
+  // The workspace switcher's menu takes every keystroke while it is open.
+  if (!$("menu").hidden) {
+    take();
+    const items = [...$("menu").querySelectorAll(".mi[data-url]")], i = items.findIndex(m => m.classList.contains("on"));
+    const mark = n => items.forEach((m, j) => m.classList.toggle("on", j === n));
+    if (e.key === "ArrowDown") mark(Math.min(i + 1, items.length - 1));
+    else if (e.key === "ArrowUp") mark(Math.max(i - 1, 0));
+    else if (e.key === "Enter" && items[i]) (closeMenu(), go(items[i].dataset.url, e.ctrlKey || e.metaKey));
+    else if (e.key === "Escape" || e.key === "Tab") closeMenu();
+    return;
+  }
   if (help) return take(), toggleHelp();
   // A click can open the pane selector under the lock; it still takes its keystrokes.
   if (popup !== null) {
@@ -1680,8 +1727,8 @@ addEventListener("keydown", e => {
     }
     if (e.key === "Enter" && !e.isComposing) {
       take();
-      const id = $("prows").children[popup]?.dataset.id;
-      return id !== undefined && closeSelector(+id);
+      // The headings are not rows: count only the rows.
+      return pickRow($("prows").querySelectorAll(".prow")[popup], e.ctrlKey || e.metaKey);
     }
     if ((ctrl && "rlqh".includes(k)) || e.key === "Tab") return take();
     if (document.activeElement !== pq) pq.focus();
@@ -1854,11 +1901,98 @@ addEventListener("resize", () => {
   layout?.panes.forEach(p => sizeView(p.id));
 });
 // Ask before a stray Ctrl+W closes the tab.
-addEventListener("beforeunload", e => ended || e.preventDefault());
+addEventListener("beforeunload", e => ended || leaving || e.preventDefault());
+
+// Load another workspace, or the Laura server's page, in this tab; `tab` opens a new tab. The
+// workspace that the user leaves keeps running. The browser asks before it leaves only while a
+// comment box is open, so the comment is not lost. `<base target="_blank">` would open a new tab.
+function go(url, tab) {
+  if (tab) return window.open(url, "_blank");
+  leaving = draft === null;
+  location.assign(url);
+}
+const folderName = root => root.split("/").filter(Boolean).at(-1) ?? root;
+const spaceLabel = w => w.title ?? folderName(w.root);
+
+// The workspace switcher: the session label and the folder, or the folder name in grey before the
+// agent sets a session label. With one workspace and no Laura server, the button has no menu.
+function paintSwitcher() {
+  const root = strings.root ?? "", title = spaces.find(w => w.current)?.title;
+  $("wlabel").textContent = title ?? folderName(root);
+  $("wlabel").classList.toggle("fallback", !title);
+  $("wroot").textContent = title ? root : "";
+  const menu = spaces.length > 1 || !!server;
+  $("caret").hidden = $("wsw").disabled = !menu;
+  if (menu) $("wsw").dataset.tip = "Switch workspace";
+  else delete $("wsw").dataset.tip;
+  if (!menu) closeMenu();
+  else if (!$("menu").hidden) paintMenu();
+  if (popup !== null) paintSelector();
+}
+
+// Static markup; the frame's strings go in as text.
+function paintMenu() {
+  const on = $("menu").querySelector(".mi.on")?.dataset.url;
+  const div = (cls, text) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    if (text !== undefined) d.textContent = text;
+    return d;
+  };
+  const rows = spaces.map(w => {
+    const mi = div(`mi${w.current ? " cur" : ""}${w.url === on ? " on" : ""}`);
+    mi.setAttribute("role", "menuitem");
+    mi.innerHTML = '<span class="wdot"></span><div class="mt"><div class="wl"></div><div class="p"></div></div>'
+      + (w.current ? '<span class="chk" aria-label="This workspace">✓</span>' : '<button class="nt" aria-label="Open in a new tab" data-tip="Open in a new tab">↗</button>');
+    if (w.current) mi.setAttribute("aria-current", "true");
+    else mi.dataset.url = w.url;
+    mi.querySelector(".wl").textContent = spaceLabel(w);
+    mi.querySelector(".wl").classList.toggle("fallback", !w.title);
+    mi.querySelector(".p").textContent = `${w.root} · ${w.program}`;
+    return mi;
+  });
+  let last = div("mfoot", "Run laura --serve to start more workspaces.");
+  if (server) {
+    last = div(`mi mnew${server === on ? " on" : ""}`, "+ New workspace…");
+    last.setAttribute("role", "menuitem");
+    last.dataset.url = server;
+  }
+  $("menu").replaceChildren(div("mh", "Workspaces"), ...rows, div("msep"), last);
+}
+function openMenu() {
+  paintMenu();
+  $("menu").style.left = $("wsw").offsetLeft + "px";
+  $("menu").hidden = false;
+  $("wsw").setAttribute("aria-expanded", "true");
+  $("menu").focus();
+  paintHint();
+}
+function closeMenu() {
+  if ($("menu").hidden) return;
+  $("menu").hidden = true;
+  $("wsw").setAttribute("aria-expanded", "false");
+  followFocus(true);
+  paintHint();
+}
+$("wsw").addEventListener("mousedown", e => e.preventDefault());
+$("wsw").addEventListener("click", () => ($("menu").hidden ? openMenu() : closeMenu()));
+// A row loads its workspace in this tab; ↗, `Ctrl`+click, `Cmd`+click and a middle click open a new tab.
+function menuClick(e, tab) {
+  const mi = e.target.closest(".mi[data-url]");
+  if (!mi) return;
+  closeMenu();
+  go(mi.dataset.url, tab || !!e.target.closest(".nt") || e.ctrlKey || e.metaKey);
+}
+$("menu").addEventListener("click", e => menuClick(e, false));
+$("menu").addEventListener("auxclick", e => e.button === 1 && menuClick(e, true));
+// A click outside the menu closes it.
+addEventListener("mousedown", e => e.target.closest("#menu, #wsw") || closeMenu(), true);
 
 function showOverlay(text, button) {
   $("overlay-text").textContent = text;
   $("continue").hidden = !button;
+  $("showws").hidden = !server;
+  closeMenu();
   $("overlay").hidden = false;
   document.activeElement?.blur();
 }
@@ -1866,6 +2000,7 @@ $("continue").addEventListener("click", () => {
   $("overlay").hidden = true;
   connect();
 });
+$("showws").addEventListener("click", () => go(server));
 
 function connect() {
   // The replay assumes a blank terminal; reset after anything still queued is parsed.
@@ -1896,8 +2031,13 @@ function connect() {
       case "strings":
         strings = m;
         paintHelp(m.help, m.help_note);
-        $("folder").textContent = m.root;
+        paintSwitcher();
         document.title = `Laura · ${m.root.split("/").filter(Boolean).at(-1) ?? m.root}`;
+        break;
+      case "workspaces":
+        spaces = m.list;
+        server = m.server;
+        paintSwitcher();
         break;
       case "layout":
         // A draft open when the socket dropped: hold again and refocus its pane, or close it.
@@ -1970,7 +2110,7 @@ function connect() {
     if (moved) return showOverlay(strings.moved, true);
     if (ended) {
       document.body.classList.add("ended");
-      return showOverlay(strings.ended, false);
+      return showOverlay(server ? strings.ended_server : strings.ended, false);
     }
     // Laura drops a view that falls behind; a fresh connection gets a fresh replay.
     if (laid) return setTimeout(connect, 500);

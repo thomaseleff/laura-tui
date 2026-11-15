@@ -11,7 +11,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 
 | Keystroke | What Laura does |
 |---|---|
-| `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. |
+| `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. The pane selector also finds a workspace: see [Switch workspaces](#switch-workspaces). |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
 | `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. |
@@ -28,6 +28,30 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 1. Laura focuses the first editor pane with unsaved edits and shows the notice `⚠ To close Laura after the shell stopped, save or quit Neovim.`
 2. When you save or quit that Neovim, Laura does the same for the next editor pane with unsaved edits.
 3. Laura closes when no Neovim has unsaved edits.
+
+## Switch workspaces
+
+The workspace switcher is at the left of the top bar. The workspace switcher shows the session label and the folder of the workspace. Before the agent sets a session label, the workspace switcher shows the folder name in grey.
+
+To switch to another workspace:
+
+1. Click the workspace switcher. Laura lists the running workspaces, oldest first, and marks the workspace that you are in with ✓.
+2. Press `↑` or `↓` to select a workspace, then press `Enter`. You can also click the workspace.
+
+Laura loads the other workspace in the same browser tab. The workspace that you leave keeps running.
+
+- To open a workspace in a new browser tab, click **↗** on its row or press `Ctrl+Enter`. `Ctrl`+click, `Cmd`+click and a middle click also open a new browser tab.
+- To close the list, press `Esc` or click outside the list.
+- While a comment box is open, the browser asks before it leaves the workspace, so you do not lose the comment.
+
+The pane selector finds a workspace too. Press `Ctrl+P` and type part of a session label or a folder. Laura lists the panes under **Panes** and the other workspaces under **Workspaces**. Press `Enter` to switch to the selected workspace, or `Ctrl+Enter` to open the workspace in a new browser tab.
+
+What Laura shows depends on [the Laura server](workspace.md#the-laura-server):
+
+| The Laura server | The workspace switcher | The pane selector |
+|---|---|---|
+| Runs | The list ends with **New workspace…**, which opens the Laura server's page. | **Workspaces** ends with **New workspace…**. |
+| Does not run | The list ends with the line `Run laura --serve to start more workspaces.` With only one workspace, the workspace switcher shows no ▾ and no list. | **Workspaces** lists only the other workspaces. |
 
 ## In a focused pane
 
@@ -175,4 +199,5 @@ Each `laura` run is one workspace, shown in one browser tab at a time.
 - When you open the URL in a second tab, Laura moves the workspace there. The first tab shows `The workspace is open in another tab.` and a **Use this tab** button.
 - When you close the browser tab, the workspace keeps running. Open the URL again to return.
 - When the workspace ends, the tab shows `The workspace stopped. To use Laura again, start Laura in the terminal.`
+- While [the Laura server](workspace.md#the-laura-server) runs, both messages have a **Show the workspaces** button, which opens the Laura server's page. The message for a workspace that ended is then `The workspace stopped.`
 - When the tab can't connect, Laura shows `This tab cannot connect to the workspace. Make sure that Laura did not stop and that you used the full URL from the terminal.` Check that Laura still runs, then open the full URL that Laura printed.
