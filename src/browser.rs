@@ -176,6 +176,7 @@ pub fn open_app(page: &Path) -> std::io::Result<()> {
     // The browser outlives Laura: the terminal's Ctrl+C and hangup go to Laura's group only.
     #[cfg(unix)]
     cmd.process_group(0);
+    let start = Instant::now();
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -187,6 +188,8 @@ pub fn open_app(page: &Path) -> std::io::Result<()> {
     std::thread::spawn(move || {
         if let Ok(status) = child.wait()
             && !status.success()
+            // Later, the exit is the end of the user's own Chrome session, not a failed open.
+            && start.elapsed() < Duration::from_secs(5)
         {
             no_browser(format!("{name} exited with {status}"));
         }

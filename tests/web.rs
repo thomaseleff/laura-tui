@@ -3161,6 +3161,28 @@ fn a_browser_that_fails_shows_why() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
+fn a_browser_that_fails_later_shows_nothing() -> Result<()> {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    // A Chrome that opened the window, and then exited with an error when the user closed it.
+    let (mut laura, master, rx) = laura_in_a_terminal(dir.path(), "sleep 6; exit 3\n")?;
+    let mut out = String::new();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(7) {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(100)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+    }
+    master.take_writer()?.write_all(b"\x03")?;
+    while laura.try_wait()?.is_none() {
+        assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!out.contains("could not open a web browser"), "{out:?}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
 fn a_missing_browser_names_the_program_and_the_tui() -> Result<()> {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
     let bin = dir.path().join("bin");
