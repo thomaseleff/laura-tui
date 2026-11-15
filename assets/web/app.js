@@ -1030,8 +1030,8 @@ function paintThreads(id) {
     draftCard.className = host ? "draft" : "card draft on";
     if (!host) put(d.line + 0.5, '<i class="slot"></i>');
   }
-  // A unit with a thread below it is tinted; a thread that wasn't there before eases in.
-  const anchored = new Set(ts.map(t => at(t.line)));
+  // The thread's line is tinted, not a removed-lines row below it; a thread that wasn't there before eases in.
+  const anchored = new Set(ts.map(t => f ? null : us.findLast(u => +u.dataset.line <= t.line && !u.classList.contains("gap")) ?? null));
   for (const u of us) u.classList.toggle("has-th", anchored.has(u));
   const fresh = el.thLines ? ts.filter(t => !el.thLines.has(t.line)) : [];
   el.thLines = new Set(all.map(t => t.line));

@@ -1242,13 +1242,24 @@ fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
             .to_string()
     };
 
-    let rows = rows(&html(&mut rig, &mut ws, 1));
+    let txt_html = html(&mut rig, &mut ws, 1);
+    let rows = rows(&txt_html);
     let at = |s: &str| {
         rows.iter()
             .position(|(_, t)| t.contains(s))
             .unwrap_or_else(|| panic!("no {s}: {rows:?}"))
     };
     assert!(at("two") < at("1 line removed"), "{rows:?}");
+    // The removed-lines row carries the last line's `data-line`; `gap` keeps a thread's tint off it.
+    let class = |s: &str| {
+        let row = txt_html
+            .split(r#"<div class="row"#)
+            .find(|r| r.contains(s))
+            .unwrap_or_else(|| panic!("no {s}: {txt_html}"));
+        row[..row.find('"').unwrap_or(0)].to_string()
+    };
+    assert_eq!(class("1 line removed"), " gap");
+    assert!(!class("two").contains("gap"), "{txt_html}");
 
     let html = html(&mut rig, &mut ws, 2);
     let at = |s: &str| html.find(s).unwrap_or_else(|| panic!("no {s}: {html}"));

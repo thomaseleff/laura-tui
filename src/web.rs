@@ -1074,7 +1074,9 @@ fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
     let mut h = String::with_capacity(160);
     let _ = write!(
         h,
-        r#"<div class="row{}{}" data-line="{}" data-row="{}"{diff}{}>{GAP}"#,
+        r#"<div class="row{}{}{}" data-line="{}" data-row="{}"{diff}{}>{GAP}"#,
+        // Only removed-lines rows reach here as comment rows: the browser draws the cards.
+        if row.comment { " gap" } else { "" },
         if highlighted { " hl" } else { "" },
         if cur { " cur" } else { "" },
         panel.row_source_line(row),
