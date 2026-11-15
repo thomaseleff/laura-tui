@@ -1,12 +1,12 @@
-# Web app
+# Use the workspace
 
-Laura shows a workspace in a browser tab: the shell, file panes and editor panes. The user drives them with the same keystrokes as the TUI. The agent runs in the shell and uses the `laura` CLI exactly as it does in the TUI.
+Laura shows the workspace in a browser tab: the shell, file panes, browser panes and editor panes. The agent runs in the shell and uses the `laura` CLI to open and arrange the panes.
 
 Laura shows the workspace in light colors, and shows the shell and the editor view in dark colors.
 
-For each button, chip and keystroke, see [Navigating the web app](web-app-navigation.md).
+For each button, chip and keystroke, see [Navigating the workspace](navigation.md).
 
-## Start the web app
+## Start Laura
 
 Before you start, install Laura and the skills. See the [Quickstart](index.md#quickstart).
 
@@ -22,13 +22,13 @@ To host your shell instead of an agent CLI, run `laura`. To show the workspace i
 
 Laura opens a web browser only when Laura runs in a terminal. To choose the browser, set `LAURA_BROWSER` to its path. When Laura can't open a web browser, Laura shows `Laura could not open a web browser: <reason>`, and the workspace keeps running.
 
-Laura serves the web app to this computer only. While the workspace runs, Laura shows the line `Open this URL in a web browser:` and the URL in the terminal that started it. When the shell exits while Neovim has unsaved edits, Laura also shows the notice in that terminal. See [Global keystrokes](navigation.md#global-keystrokes).
+Laura serves the web app to this computer only. While the workspace runs, Laura shows the line `Open this URL in a web browser:` and the URL in the terminal that started it. When the shell exits while Neovim has unsaved edits, Laura also shows the notice in that terminal. See [Global keystrokes](tui-navigation.md#global-keystrokes).
 
 The top bar shows the folder that Laura started in, such as `~/projects/laura`.
 
 ## Review a file
 
-The user reviews a file pane in the web app as in the TUI, with buttons to comment, submit, and refresh.
+The user reviews a file pane with the buttons in the pane header, or with keystrokes.
 
 1. Hover a line and click **+** at its right edge, or move the cursor to the line and press `c`.
 2. Type the comment in the box that Laura shows right below the line, then press `Enter`.
@@ -37,7 +37,7 @@ The user reviews a file pane in the web app as in the TUI, with buttons to comme
 
 To discard the pane's unsubmitted inline review and reload the file, click the pane header's refresh button or press `Ctrl+R`.
 
-For threads, failed submits, frozen panes and held commands, see [Threads and inline reviews](web-app-navigation.md#threads-and-inline-reviews).
+For threads, failed submits, frozen panes and held commands, see [Threads and inline reviews](navigation.md#threads-and-inline-reviews).
 
 ## Comment on an HTML page
 
@@ -49,7 +49,7 @@ To comment on an element with a click, turn on comment mode:
 
 Press `c` to comment on the element at the cursor; Laura shows no **+** in a page. When no element sits at the cursor, `c` turns on comment mode. Press `Shift+S` to submit the inline review. Laura quotes the line of the element's start tag in the inline review, as in the TUI.
 
-For how Laura shows an HTML page, see [HTML files](web-app-navigation.md#html-files).
+For how Laura shows an HTML page, see [HTML files](navigation.md#html-files).
 
 ## Show a web app in a browser pane
 
@@ -73,7 +73,7 @@ Laura finds Chrome, Edge or Chromium where their installers put them. To use a d
 
 Laura's browser is separate from the user's own browser. Laura's browser starts with the first browser pane, and stops when the workspace ends.
 
-The pane header shows the page's title and URL. The **live badge** shows `● live` while the pane shows the page. When the page's frames arrive more than 100 ms late, the live badge shows the lag in amber, such as `● 140 ms`. Hover the live badge to see the frames a second and the lag. In a narrow pane, Laura hides the live badge. See [Pane header](web-app-navigation.md#pane-header).
+The pane header shows the page's title and URL. The **live badge** shows `● live` while the pane shows the page. When the page's frames arrive more than 100 ms late, the live badge shows the lag in amber, such as `● 140 ms`. Hover the live badge to see the frames a second and the lag. In a narrow pane, Laura hides the live badge. See [Pane header](navigation.md#pane-header).
 
 To refresh the pane, press `Ctrl+R` or click the pane header's refresh button. Laura discards the pane's unsubmitted inline review and the agent's highlight, and reloads the page.
 
@@ -157,7 +157,7 @@ When the user presses `Ctrl+R` or enters a URL in the address field, and Laura's
 
 When Laura's browser stops, Laura shows the notice `⚠ To start Laura's browser again, press Ctrl+R in a browser pane.` Laura keeps the browser panes. Press `Ctrl+R` in a browser pane, and Laura starts Laura's browser again with every browser pane's page.
 
-For the browser pane's buttons and keystrokes, see [Browser panes](web-app-navigation.md#browser-panes).
+For the browser pane's buttons and keystrokes, see [Browser panes](navigation.md#browser-panes).
 
 ### Work on a page with the agent
 
@@ -198,7 +198,7 @@ The agent can also answer the page's dialogs with the tool.
 
 ## Quit
 
-Press `Ctrl+Q`, then `y`, to end the workspace, as in the [TUI](navigation.md#global-keystrokes).
+Press `Ctrl+Q`, then `y`, to end the workspace, as in the [TUI](tui-navigation.md#global-keystrokes).
 
 Don't press `Ctrl+C` in the terminal that started Laura. Laura ends the workspace at once, and you lose Neovim's unsaved edits.
 

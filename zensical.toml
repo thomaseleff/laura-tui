@@ -8,13 +8,12 @@ extra_css = ["stylesheets/extra.css"]
 nav = [
   { "Home" = "index.md" },
   { "Tutorial" = "tutorial.md" },
-  { "How Laura got here" = "history.md" },
   { "How-to guides" = [
-    { "Web app" = "web-app.md" },
+    { "Use the workspace" = "workspace.md" },
   ] },
   { "Reference" = [
-    { "Navigating the TUI" = "navigation.md" },
-    { "Navigating the web app" = "web-app-navigation.md" },
+    { "Navigating the workspace" = "navigation.md" },
+    { "Navigating the TUI" = "tui-navigation.md" },
     { "Agent reference" = "agent-reference.md" },
     { "CLI reference" = "cli.md" },
     { "Protocol reference" = "protocol.md" },
@@ -35,3 +34,13 @@ callouts = true
 anchor_linenums = true
 line_spans = "__span"
 pygments_lang_class = true
+
+# Old pages and anchors, so links from before the rename still land.
+[project.plugins.redirects.redirect_maps]
+"web-app.md" = "workspace.md"
+"web-app.md#start-the-web-app" = "workspace.md#start-laura"
+"web-app-navigation.md" = "navigation.md"
+"navigation.md#small-terminals" = "tui-navigation.md#small-terminals"
+"navigation.md#scrolling" = "tui-navigation.md#scrolling"
+"navigation.md#selection" = "tui-navigation.md#selection"
+"navigation.md#lauras-theme" = "tui-navigation.md#lauras-theme"

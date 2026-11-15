@@ -41,7 +41,7 @@ async def scene(user, agent, camera):
 
     # What Laura is
     await agent.say(
-        "Laura is a TUI workspace that gives your agent an API over the TUI, so your agent can tile panes "
+        "Laura is a workspace that gives your agent an API over the UI, so your agent can tile panes "
         "while you pair-program.\n\n"
         "Each pane shows a file or the output of a running command, and you can work with your agent in every pane.\n\n"
         "In this demo, I'll walk you through the inline review loop, show how your agent lays out different "

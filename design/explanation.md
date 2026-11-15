@@ -6,7 +6,7 @@ Coding agents run in the terminal, but the terminal is a stream you scroll, not 
 
 ## What Laura is
 
-Laura is an **API over the TUI**. The agent assembles the screen for the task at hand — what to show, where, how it refreshes — instead of handing you the same fixed layout every session. One rendered pane is the proof of concept; the protocol is the general form for external processes to interact with the TUI.
+Laura is an **API over the UI**. The agent assembles the screen for the task at hand — what to show, where, how it refreshes — instead of handing you the same fixed layout every session. One rendered pane is the proof of concept; the protocol is the general form for external processes to interact with the workspace.
 
 Laura owns the screen and hosts one workspace per process. The workspace holds one shell — a PTY where an agent or you runs — and the panes the agent opens beside it. Running several workspaces means running several Laura processes; see [technical-vision.md](technical-vision.md) for how a hub fronts them. Every draw and update goes through one mutation protocol: the agent is a client, and so is any future producer — a statusline, a status pane, an extension — over the same protocol.
 

@@ -47,9 +47,9 @@ laura close --all
 
 **Say:**
 
-> **Laura** is a TUI workspace that gives your agent an **API over the TUI**, so your agent can tile panes while you pair-program.
+> **Laura** is a workspace that gives your agent an **API over the UI**, so your agent can tile panes while you pair-program.
 >
-> Each pane shows a file or the output of a running command, and you can work with your agent in every pane without leaving the terminal.
+> Each pane shows a file or the output of a running command, and you can work with your agent in every pane, next to the chat.
 >
 > Your agent learns Laura from its skills, and you can run the skills anytime in the chat:
 >
@@ -135,7 +135,7 @@ laura comment 6 "suggest 1 hour — 24h is a long window for a bearer token" --p
 
 > **[2 / 5] The pane interactions**
 >
-> Beyond laying out panes, Laura lets you review with your agent in every pane, without leaving the terminal.
+> Beyond laying out panes, Laura lets you review with your agent in every pane, next to the chat.
 >
 > I opened a plan in the pane to the right and left a comment for you. Reply to my comment and add your own:
 >
@@ -183,7 +183,7 @@ EOF
 >
 > Your threads add up to one inline review. When you submit with `Shift+S`, Laura writes the whole inline review into the chat and clears the threads from the pane.
 >
-> If I edit a file while you have an unsubmitted inline review on its pane, Laura freezes the pane. The frozen pane keeps showing the snapshot, so your comments stay on the original lines. In the terminal, Laura shows ⚠ on the pane's bottom border. In the browser, Laura shows **Frozen** in the pane header and a banner with **Submit review** and **Refresh**. To continue, submit with `Shift+S`, or press `Ctrl+R` to refresh: Laura discards the unsubmitted inline review and reloads the file.
+> If I edit a file while you have an unsubmitted inline review on its pane, Laura freezes the pane. The frozen pane keeps showing the snapshot, so your comments stay on the original lines. Laura shows **Frozen** in the pane header and a banner with **Submit review** and **Refresh**. In the TUI, Laura shows ⚠ on the pane's bottom border. To continue, submit with `Shift+S`, or press `Ctrl+R` to refresh: Laura discards the unsubmitted inline review and reloads the file.
 >
 > Your agent can also have subagents annotate the pane, for extra opinions before you submit.
 >
@@ -309,7 +309,7 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 >
 > Send `Next` to learn how to record feedback.
 
-_If `laura ready` listed `editor` under `experimental`, end with "Send `Next` to try the experimental features." instead. Then **wait for `Next`**, and `laura close --all`._
+_If `laura ready` listed `editor` under `experimental`, end with "Send `Next` to try the experimental features." instead. If `laura ready` printed a `browser_url` and did not list `editor`, end with "Send `Next` to see a page." instead. Then **wait for `Next`**, and `laura close --all`._
 
 ---
 

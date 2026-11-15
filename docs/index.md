@@ -1,23 +1,26 @@
 # Laura
 
-Laura is a TUI workspace that gives your agent an **API over the TUI**, so your agent can tile panes while you pair-program.
+Laura is a workspace that gives your agent an **API over the UI**, so your agent can tile panes while you pair-program.
 
 ![Laura demo](assets/laura-demo.gif)
 
 Your agent can open the file you're discussing, the plan you're following, the diff you just made, or tail the logs of your running service. Laura works with every coding agent CLI, and your agent learns the `laura` CLI from Laura's agent skills.
 
 > [!NOTE]
-> Laura makes collaborating with your coding agent more enjoyable: riffing, reviewing live, solving problems and improvising together, without leaving the terminal.
+> Laura makes collaborating with your coding agent more enjoyable: riffing, reviewing live, solving problems and improvising together, without leaving the workspace.
+
+> [!TIP]
+> **New:** Laura started as a TUI workspace. Laura now opens in your browser, with rendered markdown, HTML pages and live web pages in browser panes. To keep working in the terminal, run `laura --tui`. See [Navigating the TUI](tui-navigation.md).
 
 **Laura lets you:**
 
-- **Stay in the flow** - view a file, a plan, a diff, or a log right in the TUI, without switching windows between the terminal, IDE, and browser.
-- **Compose the TUI** - your agent tiles the workspace as you chat, using the `laura` CLI and skills.
+- **Stay in the flow** - view a file, a plan, a diff, or a log right in the workspace, without switching windows between the terminal, IDE, and browser.
+- **Compose the workspace** - your agent tiles the workspace as you chat, using the `laura` CLI and skills.
 - **Pick your coding agent CLI** - Laura runs your agent in a plain shell, so Laura works with every agent CLI and model.
-- **Interact in every pane** - comment on any file pane and submit the inline review into the chat.
+- **Interact in every pane** - comment on a file pane, a rendered markdown file or HTML page, or a browser pane, and submit the inline review into the chat.
 - **Edit alongside your agent** *(experimental)* - edit a file in Neovim in an editor pane next to the chat, then flip to the file view to review your edits with your agent. [Enable editor panes](cli.md#editor-panes).
-- **Work in a browser** - run the workspace in a browser tab, or in the terminal with `laura --tui`, with the same keystrokes. Laura shows [HTML files as rendered pages](web-app-navigation.md#html-files) only in the web app. You comment on a page and submit the inline review as you do on a markdown file in the TUI. [Start the web app](web-app.md).
-- **See your web app** - show your dev server's page, or any web page, live in a browser pane in the web app, next to the chat. [Show a page in a browser pane](web-app.md#show-a-web-app-in-a-browser-pane).
+- **See rendered pages** - Laura renders markdown files, and shows [HTML files as rendered pages](navigation.md#html-files) with their scripts running.
+- **See your web app** - show your dev server's page, or any web page, live in a browser pane, next to the chat. [Show a page in a browser pane](workspace.md#show-a-web-app-in-a-browser-pane).
 - **Learn while staying focused** - your agent shows and explains concepts live, step by step.
 
 ## How it works
@@ -46,27 +49,26 @@ cargo install laura-tui --locked   # or build from source, with Rust (stable)
 laura -- claude "/laura:demo"
 ```
 
-Laura opens the workspace in your web browser. See [Start the web app](web-app.md#start-the-web-app).
+Laura opens the workspace in your web browser. See [Start Laura](workspace.md#start-laura).
 
 **4. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 
-Laura reloads a file pane when its file changes. Laura renders markdown with terminal styling in the TUI and as rendered markdown in the [web app](web-app-navigation.md#markdown-files). Laura shows other files with syntax colours, and marks the lines changed since git `HEAD` in the gutter.
+Laura reloads a file pane when its file changes. Laura shows [markdown as rendered markdown](navigation.md#markdown-files) and other files with syntax colours. Laura marks the lines changed since git `HEAD` in the gutter.
 
 ## Where to go next
 
 **Tutorial**
 
 - **[Tutorial](tutorial.md)** A step-by-step walkthrough.
-- **[How Laura got here](history.md)** How Laura grew from a TUI into the browser, and how to run the TUI.
 
 **How-to guides**
 
-- **[Web app](web-app.md)** Start the web app, review a file, comment on an HTML page and show a page in a browser pane.
+- **[Use the workspace](workspace.md)** Start Laura, review a file, comment on an HTML page and show a page in a browser pane.
 
 **Reference**
 
-- **[Navigating the TUI](navigation.md)** The workspace keystrokes.
-- **[Navigating the web app](web-app-navigation.md)** The web app keystrokes and clicks.
+- **[Navigating the workspace](navigation.md)** The keystrokes and clicks in the workspace.
+- **[Navigating the TUI](tui-navigation.md)** What is different in the terminal (`laura --tui`).
 - **[Agent reference](agent-reference.md)** How your agent uses the `laura` CLI.
 - **[CLI reference](cli.md)** Every `laura` command and its flags.
 - **[Protocol reference](protocol.md)** The messages the `laura` CLI sends to the workspace.

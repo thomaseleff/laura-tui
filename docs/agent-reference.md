@@ -1,7 +1,7 @@
 # Agent reference
 
 > [!TIP]
-> The agent reference is for coding agents. For the keystrokes the user presses in the workspace, see [Navigating the TUI](navigation.md).
+> The agent reference is for coding agents. For the keystrokes the user presses in the workspace, see [Navigating the workspace](navigation.md).
 
 ## Enable interaction
 
@@ -125,7 +125,7 @@ When the user submits an inline review, you receive a `[laura review · pane #<i
 
 Each `L<n>` is a thread, and each comment starts with its author (`> [user] …`, `> [agent] …`). Each line of a multi-line comment starts with `> `. An inline review is a **call and response**: the block holds the whole conversation on that file. You only see the user's comments when the user submits (`Shift+S`); you can't read them from the pane.
 
-An inline review from a [browser pane](web-app.md#comment-on-a-browser-pane) has the page's URL in its header. Each thread starts with the element's CSS selector and quote (the first 60 characters of the element's text) in place of `L<n>`. A thread on another page starts with that page's URL:
+An inline review from a [browser pane](workspace.md#comment-on-a-browser-pane) has the page's URL in its header. Each thread starts with the element's CSS selector and quote (the first 60 characters of the element's text) in place of `L<n>`. A thread on another page starts with that page's URL:
 
 ```text
 [laura review · pane #4 · http://localhost:5173/settings]

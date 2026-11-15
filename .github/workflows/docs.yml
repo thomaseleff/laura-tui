@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install zensical==0.0.18 # pinned: pre-1.0, API still moving
+      - run: pip install zensical==0.1.1 # pinned: pre-1.0, API still moving
       - run: zensical build
       - name: Publish raw markdown for agents at /content/
         run: |

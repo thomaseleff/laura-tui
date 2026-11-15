@@ -24,8 +24,8 @@ use ratatui::crossterm::execute;
 
 use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
 
-/// Laura hosts your coding agent's shell in a PTY with a live side-pane for showing files and
-/// receiving inline reviews.
+/// Laura is a workspace that gives your coding agent an API over the UI: panes for showing files
+/// and receiving inline reviews, in a web browser or the terminal.
 ///
 /// Agents: install the skill — `claude plugin marketplace add thomaseleff/laura-tui`.
 ///

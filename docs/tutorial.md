@@ -12,7 +12,7 @@ Start your coding agent in Laura's TUI:
 laura --tui -- claude
 ```
 
-This tutorial uses the TUI, in the terminal. Plain `laura` shows the workspace in the [web app](web-app.md) instead, with the same keystrokes.
+This tutorial uses the TUI, in the terminal. Plain `laura` shows the workspace in the [web app](workspace.md) instead, with the same keystrokes.
 
 Laura opens with your agent running in the shell:
 

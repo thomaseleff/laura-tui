@@ -1,6 +1,6 @@
 ---
 name: laura
-description: Dynamically tile panes while you pair-program using `laura`, an API over the TUI.
+description: Dynamically tile panes while you pair-program using `laura`, an API over the UI.
 when_to_use: You are running inside a Laura workspace, or a "[laura review · …]" block arrives in your input.
 user-invocable: true
 argument-hint: [path | prompt]
@@ -8,7 +8,7 @@ argument-hint: [path | prompt]
 
 # laura
 
-Laura is a TUI workspace that gives you an **API over the TUI**, so you can tile panes while you pair-program with your partner. Use this skill for the CLI reference, the common motions, and the workflow skills for longer sessions.
+Laura is a workspace that gives you an **API over the UI**, so you can tile panes while you pair-program with your partner. Use this skill for the CLI reference, the common motions, and the workflow skills for longer sessions.
 
 Pair-programming is two people at one workstation. The **driver** writes the code. The **navigator** reviews as the driver works and guides the strategic direction, such as edge cases, conventions and future problems. The navigator frees the driver to focus on the tactical task. You and your partner collaborate, learn, riff and improvise throughout.
 
@@ -235,7 +235,7 @@ Laura marks added, modified and deleted lines in every file pane's gutter. On a 
 
 **Motion**
 1. Only if `laura ready` printed a `browser_url` that is not `null`: run `laura open <url>`. To move the pane to another page, run `laura open <url> --panel <id>`.
-2. If you have no browser tool (chrome-devtools-mcp or Playwright MCP), use only `laura` commands: open pages, highlight and comment. Suggest a browser tool only when your partner asks for something that needs one, such as clicking through a flow or reading the console. Link your partner to the setup in "Work on a page with the agent" at https://thomaseleff.github.io/laura-tui/content/web-app.md. Never install a browser tool yourself.
+2. If you have no browser tool (chrome-devtools-mcp or Playwright MCP), use only `laura` commands: open pages, highlight and comment. Suggest a browser tool only when your partner asks for something that needs one, such as clicking through a flow or reading the console. Link your partner to the setup in "Work on a page with the agent" at https://thomaseleff.github.io/laura-tui/content/workspace.md. Never install a browser tool yourself.
 3. With a browser tool, select the page whose title and URL match the pane in `laura layout`. Open pages for your partner with `laura open`, not with the tool. If you open a page with the tool, close the page when you are done, so each page in the tool's list stays a pane.
 4. Click, type, run scripts, and read the console and screenshots with the tool. Your partner sees each change live. A ring shows where you click, an outline shows the field where you type, and the pane header shows **Agent** while you click or type. Your screenshots and snapshots show the page without Laura's marks, threads or highlights.
 5. To show your partner an element, run `laura highlight '<selector>' --pane <id>`. To ask or answer a question on an element, run `laura comment '<selector>' "…" --pane <id>`.
