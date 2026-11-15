@@ -110,6 +110,10 @@ To delete your comment, press `c` on it, clear the text, and press `Enter`.
 
 While you type a comment, Laura shows `Comment L<n>` in the hint line, where `<n>` is the file's line number. In a markdown block, `<n>` is the block's first line. When the block spans several rows, Laura moves the cursor to the block's first row.
 
+## Small terminals
+
+The TUI needs a terminal of at least 40 columns and 10 rows. In a smaller terminal, Laura hides the workspace and shows `Make the window larger to show the workspace.` Until the terminal is large enough, Laura ignores keystrokes, pastes and clicks. Make the terminal larger to show the workspace again.
+
 ## Scrolling
 
 In the shell, use `PageUp/PageDown` or the mouse wheel to scroll back through the shell's output. When a full-screen program runs in the shell (claude, vim, less), Laura passes those keystrokes to the program, which handles its own scrolling, and Laura shows no scrollbar.

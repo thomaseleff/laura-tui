@@ -30,6 +30,10 @@
 }
 
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); }
+/* A window smaller than the workspace's minimum scrolls; `#top`, `#grid` and `#status` lay out on
+   the body, not on the window. */
+html { overflow: auto; }
+body { position: relative; min-width: 400px; min-height: 300px; }
 body, button { font: 14px var(--sans); -webkit-font-smoothing: antialiased; }
 body { line-height: 1.5; }
 /* The cell grid stays monospace, so measurement and the rows don't move. */
@@ -60,7 +64,8 @@ body { line-height: 1.5; }
 #top .l, #top .r { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #top .r { grid-column: 3; justify-content: flex-end; }
 .brand { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
-.crumb { color: var(--mute); white-space: nowrap; }
+/* A long folder ends in … at its column's edge, short of **Find a pane**. */
+.crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }
 .crumb:empty { display: none; }
 .iconbtn {
@@ -74,6 +79,12 @@ body { line-height: 1.5; }
 }
 .find:hover { border-color: #cfd2da; }
 .find span { flex: 1; text-align: left; }
+/* In a narrow window the top bar has no room for the 360px box, so it shows only the ⌕; its
+   tooltip names it. */
+@media (width < 600px) {
+  .find { width: auto; }
+  .find :is(span, kbd) { display: none; }
+}
 
 /* Laura's cell grid, right below the top bar and centered across. Not `transform`, which blurs
    xterm's WebGL canvas. */
@@ -85,9 +96,11 @@ body { line-height: 1.5; }
 
 /* Every pane sits on Laura's cell grid: x/y/w/h are cells, --cw/--ch one cell in px. The card is
    inset 5px in the pane's cells, so two panes are 10px apart and the card's inner edge is 6px in. */
-/* A size container, so a narrow pane's header drops its parts in steps (below). Containment makes
-   each pane a stacking context: the hovered pane comes forward, so its tooltips cover its neighbors. */
-.pane { position: absolute; box-sizing: border-box; container-type: inline-size; }
+/* A size container, so a narrow pane's header drops its parts in steps and a short pane shows its
+   line (below); the layout sets each pane's width and height, so containment changes no size.
+   Containment makes each pane a stacking context: the hovered pane comes forward, so its tooltips
+   cover its neighbors. */
+.pane { position: absolute; box-sizing: border-box; container-type: size; }
 .pane:hover { z-index: 1; }
 /* A popover can extend past its pane, over the neighbors. */
 .pane:has(> .popwrap) { z-index: 2; }
@@ -155,7 +168,7 @@ body { line-height: 1.5; }
 /* A narrow pane's header drops its parts in steps until it fits (`fitHead` in app.js sets
    `data-fit`); every action stays one click away in **More**. */
 .pane:is([data-fit="1"], [data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) :is(.tl, .head > .ic) { display: none; }
-.pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head :is(.chips, .delta, .url) { display: none; }
+.pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head :is(.chips, .delta, .url, .spin, .live) { display: none; }
 .pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head .cdot { display: block; }
 .pane:is([data-fit="3"], [data-fit="4"], [data-fit="5"]) .head .tools { display: none; }
 .pane:is([data-fit="3"], [data-fit="4"], [data-fit="5"]) .head .more { display: grid; }
@@ -166,10 +179,12 @@ body { line-height: 1.5; }
 .pane.editor[data-fit="3"] .head .more { display: none; }
 .pane[data-fit="5"] .head :is(.pid, .cdot) { display: none; }
 .pane[data-fit="5"] .head { padding-left: 8px; }
-/* A pane too narrow to read shows a line in place of its body. */
-@container (max-width: 160px) {
-  .pane.file .narrow { display: grid; }
-  .pane.file :is(.rows, iframe, .cbtn, .banner) { display: none !important; }
+/* A pane too small to read shows a line in place of its body. `visibility`, so the shell's
+   terminal and a browser pane's page keep their size. */
+@container (max-width: 160px) or (max-height: 100px) {
+  .pane .narrow { display: grid; }
+  .pane :is(.rows, iframe, .cbtn, .banner) { display: none !important; }
+  .pane :is(.term, .view, .cmhint) { visibility: hidden !important; }
 }
 .narrow {
   display: none; position: absolute; inset: calc(3 * var(--ch)) 12px 12px; place-items: center;
@@ -177,12 +192,15 @@ body { line-height: 1.5; }
   overflow: hidden; overflow-wrap: anywhere;
 }
 .narrow:hover::after { display: none; }
-/* Narrower still, a ⚠ in place of the line; its tooltip reads the line. */
-@container (max-width: 100px) {
-  .narrow { font-size: 0; overflow: visible; }
-  .narrow::before { content: "⚠"; font-size: 16px; color: var(--warn); }
-  .narrow:hover::after { display: block; top: 50%; right: auto; left: 50%; transform: translateX(-50%); width: max-content; max-width: 200px; white-space: normal; }
+/* A short pane has no room below its header: the line takes the whole card. */
+@container (max-height: 100px) {
+  .pane .head { display: none; }
+  .narrow { inset: 5px 12px; }
 }
+/* A line that overflows its box shows as a ⚠; its tooltip reads the line (`fitNarrow`). */
+.pane[data-clip] .narrow { font-size: 0; overflow: visible; }
+.pane[data-clip] .narrow::before { content: "⚠"; font-size: 16px; color: var(--warn); }
+.pane[data-clip] .narrow:hover::after { display: block; top: 50%; right: auto; left: 50%; transform: translateX(-50%); width: max-content; max-width: 200px; white-space: normal; }
 .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: #f0f1f4; }
 .seg button { height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--mute); }
 .seg button.on { background: #fff; color: var(--fg); box-shadow: 0 1px 2px rgb(16 24 40 / .1); }

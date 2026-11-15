@@ -13,12 +13,15 @@ use ratatui::crossterm::event::{
 use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{
+    Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+};
 use ratatui::{Frame, Terminal};
 use tui_term::widget::PseudoTerminal;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use laura::editor::Nvim;
+use laura::layout::workspace_fits;
 use laura::protocol::PTY_PANE;
 use laura::tab::{SHELL_EXITED, SUBMIT_FAILED};
 use laura::view::{self, Hint};
@@ -235,6 +238,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     loop {
         // Content rect sits above the 1-line hint line.
         let content = content_rect(terminal)?;
+        let fits = workspace_fits(terminal.get_frame().area());
         // A comment/review-body draft holds requests so the pane under it can't move; the theme
         // wizard holds them too, so an `open --edit` launches with the answer.
         tab.hold = wizard || draft.is_some();
@@ -260,6 +264,21 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             .inner(Margin::new(1, 1));
 
         let completed = terminal.draw(|f| {
+            if !fits {
+                // One more row than the characters need, for the words the wrap moves down.
+                let (n, w) = (view::TOO_SMALL.width() as u16, f.area().width.max(1));
+                let h = n.div_ceil(w) + u16::from(w < n);
+                let [line] = Layout::vertical([Constraint::Length(h)])
+                    .flex(Flex::Center)
+                    .areas(f.area());
+                f.render_widget(
+                    Paragraph::new(view::TOO_SMALL)
+                        .centered()
+                        .wrap(Wrap { trim: true }),
+                    line,
+                );
+                return;
+            }
             let rows =
                 Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
             for (id, rect) in &rect_map {
@@ -386,6 +405,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 ev = coalesce_paste_burst(*k)?;
             }
             match ev {
+                // The user can't see what a keystroke or a click would do.
+                _ if !fits && !matches!(ev, Event::Resize(..)) => {}
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     if wizard {

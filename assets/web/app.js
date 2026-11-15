@@ -131,12 +131,14 @@ const MARGIN = 0.5;
 const STATUS = 34;
 function report() {
   measure();
-  const cols = Math.floor(innerWidth / cw - 2 * MARGIN);
-  const rows = Math.floor((innerHeight - $("top").offsetHeight - STATUS) / ch);
+  // The body, not the window: the body keeps the workspace's minimum size (style.css).
+  const { clientWidth: w, clientHeight: h } = document.body;
+  const cols = Math.floor(w / cw - 2 * MARGIN);
+  const rows = Math.floor((h - $("top").offsetHeight - STATUS) / ch);
   const style = document.documentElement.style;
   style.setProperty("--cols", cols);
   style.setProperty("--rows", rows);
-  style.setProperty("--side", (innerWidth - cols * cw) / 2 + "px");
+  style.setProperty("--side", (w - cols * cw) / 2 + "px");
   send({ view: { cols, rows } });
 }
 
@@ -244,11 +246,12 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + '<span class="chip paused">Paused</span><span class="chip warn frozen">Frozen</span><span class="chip diffc">Diff view</span>'
   + `<button class="chip hlc tip-l" data-act="highlight" data-tip="Scroll to the highlight">${ic("target")}<span class="l"></span>`
   + `<span class="x" data-act="clear_highlight" ${tip("Clear the highlight  h")}>×</span></button>`
-  + '<span class="chip bad sfail" hidden>Submission failed</span></span><i class="cdot" role="img"></i><span class="grow"></span>'
+  + '<span class="chip bad sfail" hidden>Submission failed</span>'
   + `<span class="chip new agent tip-c" ${tip("The agent's browser tool clicks or types on this page")} hidden>Agent</span>`
   + `<span class="chip new shot tip-c" ${tip("The agent's browser tool took a screenshot of this page")} hidden>Screenshot</span>`
   + `<span class="chip new rec tip-c" ${tip("The agent's browser tool records this page")} hidden>Recording</span>`
-  + `<span class="chip emu tip-c" ${tip("The agent's browser tools set the page to this size")} hidden></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>`
+  + `<span class="chip emu tip-c" ${tip("The agent's browser tools set the page to this size")} hidden></span></span>`
+  + '<i class="cdot" role="img"></i><span class="grow"></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>'
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
   + `<span class="tools">${TOOLS.map(([a, i, t]) => `<button class="tool" data-act="${a}" ${tip(t)}>${ic(i)}</button>`).join("")}</span>`
@@ -258,7 +261,7 @@ const head = () => `<div class="head"><span class="pid"></span>`
 const hlLabel = h => (typeof h === "string" ? `Highlight ${h}` : `Highlight L${h[0]}${h[1] !== h[0] ? "–" + h[1] : ""}`);
 
 // A narrow header folds its chips into one dot, which names them in its tooltip. The chips change
-// the header's width, so the header fits again.
+// the header's width, so the header fits again (the header's `MutationObserver` in `makePane`).
 function paintChipDot(el) {
   const names = [...el.querySelectorAll(".head .chips > :not([hidden])")].map(c => (c.querySelector(".l") ?? c).textContent);
   const d = el.querySelector(".head .cdot");
@@ -277,6 +280,19 @@ function fitHead(el) {
     if (h.scrollWidth <= h.clientWidth && nm.clientWidth >= Math.min(nm.scrollWidth, 120)) break;
   }
 }
+
+// The line shows as a ⚠ when it overflows its box (CSS keys on `data-clip`); a name's length
+// decides that, so no container size can. A Range, since `.narrow` centers its text and text
+// that overflows at the top doesn't count in `scrollHeight`.
+function fitNarrow(el) {
+  const nw = el.querySelector(".narrow"), r = document.createRange();
+  el.removeAttribute("data-clip");
+  r.selectNodeContents(nw);
+  el.toggleAttribute("data-clip", r.getBoundingClientRect().height > nw.clientHeight);
+}
+
+// The "too small" line shows only while the pane is too small (style.css).
+const tooSmall = el => el.querySelector(".narrow").offsetHeight > 0;
 
 function paintHead(el, p) {
   const q = s => el.querySelector(".head " + s);
@@ -330,11 +346,14 @@ function paintHead(el, p) {
   pb.innerHTML = ic(pb.dataset.ic = p.paused ? "play" : "pause");
   pb.dataset.tip = pt;
   pb.setAttribute("aria-label", pt);
-  // The narrowest pane shows only a ⚠, whose tooltip reads the line.
+  // A pane with no room for the line shows only a ⚠, whose tooltip reads the line. The fit
+  // forces a layout, and this runs on each frame.
   const nw = el.querySelector(".narrow"), nt = strings.narrow?.replace("{name}", p.name) ?? "";
-  nw.textContent = nw.dataset.tip = nt;
-  nw.setAttribute("aria-label", nt);
-  paintChipDot(el);
+  if (nw.textContent !== nt) {
+    nw.textContent = nw.dataset.tip = nt;
+    nw.setAttribute("aria-label", nt);
+    fitNarrow(el);
+  }
 }
 
 // A header button does what its keystroke does.
@@ -406,10 +425,22 @@ function makePane(p) {
   new ResizeObserver(() => el.style.setProperty("--bn", banner.offsetHeight + "px")).observe(banner);
   // `data-fit` doesn't resize the pane, so this doesn't loop.
   new ResizeObserver(() => fitHead(el)).observe(el);
+  // Any change to the header (a chip, the spinner, the live badge, a name) fits it again. The
+  // chip dot's own change is taken, so it doesn't call this again.
+  const mo = new MutationObserver(() => (paintChipDot(el), mo.takeRecords()));
+  mo.observe(el.querySelector(".head"), { childList: true, characterData: true, subtree: true, attributeFilter: ["hidden", "class"] });
   // A page's thread or comment box grows as the user types.
   new ResizeObserver(() => place(p.id)).observe(rows);
   el.lags = [];
   new ResizeObserver(() => sizeView(p.id)).observe(el.querySelector(".view"));
+  // The line's box changes with the pane and when the line shows; `data-clip` changes only the
+  // font, so this doesn't loop. A terminal that shows again takes the focus that it could not take
+  // while it was hidden, and rows that show again scroll to the highlight they missed.
+  new ResizeObserver(() => {
+    fitNarrow(el);
+    if (layout?.focus === p.id) followFocus(true);
+    if (el.hlLater && !tooSmall(el)) toHighlight(p.id);
+  }).observe(el.querySelector(".narrow"));
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
@@ -609,7 +640,6 @@ function pointer(el, id) {
 // request the click started.
 function paintSpin(el) {
   el.querySelector(".head .spin").hidden = !el.busy;
-  fitHead(el);
 }
 
 // A browser pane's frame: `[paint time, 8 bytes BE f64 ms][PNG]`. The ack goes at once, so Laura's
@@ -675,8 +705,15 @@ function paintLive(el) {
   const lag = Math.max(0, ...el.lags.filter(([t]) => now - t < 500).map(([, l]) => l));
   if (lag > 100) [el.lagUntil, el.lagShown] = [now + 1000, lag];
   const slow = now < (el.lagUntil ?? 0);
+  // A new text fits the header again, so one lag gives way to the next at most 4 times a second;
+  // "live" and a lag swap at once. `liveTimer` paints the last lag.
+  const text = slow ? `${Math.round(el.lagShown)} ms` : "live";
+  const swap = slow !== live.classList.contains("lag");
+  if (live.textContent !== text && (swap || now - (el.liveAt ?? 0) >= 250)) {
+    live.textContent = text;
+    el.liveAt = now;
+  }
   live.classList.toggle("lag", slow);
-  live.textContent = slow ? `${Math.round(el.lagShown)} ms` : "live";
   const t = `${el.lags.length} frames a second · lag ${Math.round(lag)} ms`;
   live.dataset.tip = t;
   live.setAttribute("aria-label", t);
@@ -769,9 +806,8 @@ function onShot(m) {
   const chip = () => el.querySelector(".head .shot");
   el.shot = true;
   chip().hidden = false;
-  fitHead(el);
   clearTimeout(el.shotTimer);
-  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true, fitHead(el)), 4000);
+  el.shotTimer = setTimeout(() => (el.shot = false, chip().hidden = true), 4000);
   // A reflow between, so a second screenshot flashes again.
   view.classList.remove("shot");
   void view.offsetWidth;
@@ -906,9 +942,8 @@ function reloaded(id) {
   const el = $("p" + id), chip = el?.querySelector(".head .reloaded");
   if (!chip) return;
   chip.hidden = false;
-  paintChipDot(el);
   clearTimeout(el.reloadTimer);
-  el.reloadTimer = setTimeout(() => ((chip.hidden = true), paintChipDot(el)), 4000);
+  el.reloadTimer = setTimeout(() => (chip.hidden = true), 4000);
   if (id === layout.focus) return;
   unseen.add(id);
   el.classList.add("unseen");
@@ -1072,7 +1107,6 @@ function paintPop(id) {
   sb.classList.toggle("submitting", !!d?.busy);
   sb.classList.toggle("failed", !!d?.failed);
   el.querySelector(".head .sfail").hidden = !d?.failed;
-  paintChipDot(el);
   // A lost thread's card closes with the list, or when the page shows the thread's element again.
   if (listOpen !== id || !el.threads?.some(t => t.line === el.lostOpen && t.lost)) el.lostOpen = null;
   const kind = d ? "review" : listOpen === id && p.threads ? "list" : moreOpen === id ? "more" : "";
@@ -1183,7 +1217,14 @@ function goThread(id) {
   const card = go && el.querySelector(`.card[data-th="${go.th}"]`);
   if (!card) return;
   el.goTh = null;
-  card.scrollIntoView({ block: go.block });
+  reveal(card, go.block);
+}
+// Below the workspace's minimum size the window scrolls (style.css); a pane's scroll leaves it
+// where the user put it.
+function reveal(el, block) {
+  const { scrollX, scrollY } = window;
+  el?.scrollIntoView({ block });
+  scrollTo(scrollX, scrollY);
 }
 // A click outside the thread list or **More** closes it.
 addEventListener("mousedown", e => {
@@ -1290,7 +1331,8 @@ function followFocus(force) {
   const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
-  root.focus();
+  // Below the workspace's minimum size the window scrolls; a focus change leaves it where the user put it.
+  root.focus({ preventScroll: true });
 }
 
 function onPane(m) {
@@ -1337,10 +1379,10 @@ function onPane(m) {
   const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line ?? "L" + cur?.dataset.th}`;
   if (m.recenter) toHighlight(m.id);
   else if (key !== rows.dataset.key) {
-    cur?.scrollIntoView({ block: "nearest" });
+    reveal(cur, "nearest");
     // The cursor's row stays in view above its tall thread.
     const u = units(rows)[rows.dataset.cursor];
-    if (u?.classList.contains("row")) u.scrollIntoView({ block: "nearest" });
+    if (u?.classList.contains("row")) reveal(u, "nearest");
   }
   rows.dataset.key = key;
   goThread(m.id);
@@ -1354,9 +1396,12 @@ const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? 
 function toHighlight(id) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
+  const el = $("p" + id);
+  // A too-small pane hides its rows and page, which can't scroll; the `.narrow` observer scrolls again.
+  if (!el || (el.hlLater = tooSmall(el))) return;
   const f = frameOf(id);
   if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
-  const rows = $("p" + id)?.querySelector(".rows");
+  const rows = el.querySelector(".rows");
   // ponytail: row-proportional, exact for code, approximate for wrapped prose
   const h = rows?.querySelector(".hl");
   if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
@@ -1451,13 +1496,13 @@ addEventListener("message", e => {
     if (layout.focus !== id) act({ act: "focus", pane: id });
     if (Number.isInteger(m.line)) act({ act: "set_cursor", pane: id, line: m.line });
     // A text field or a selection keeps the keystrokes; anything else gives them back to Laura.
-    if (!m.editable) root.focus();
+    if (!m.editable) root.focus({ preventScroll: true });
     paintHint();
     // Only in comment mode, so a page's script can't open a comment box.
     if (m.pick === true && commentMode === id && Number.isInteger(m.line)) begin(id, "comment");
   } else if (m.laura === "esc") {
     // The field takes `Esc` first: comment mode stays on until the next `Esc`.
-    root.focus();
+    root.focus({ preventScroll: true });
     paintHint();
   }
   else if (m.laura === "link" && typeof m.href === "string") {
@@ -1473,7 +1518,7 @@ function pinClick(id, line) {
   const el = $("p" + id);
   if (!el || !Number.isInteger(line)) return;
   if (layout.focus !== id) act({ act: "focus", pane: id });
-  root.focus();
+  root.focus({ preventScroll: true });
   if (el.threads?.find(t => t.line === line)?.collapsed) return act({ act: "toggle_thread", pane: id, line });
   if (line === el.line) {
     el.shut = el.shut === line ? null : line;
@@ -1669,9 +1714,9 @@ addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.isComposing) {
       take();
       if (url.value.trim()) act({ act: "browser_navigate", pane: +url.closest(".pane").id.slice(1), url: url.value });
-      return root.focus();
+      return root.focus({ preventScroll: true });
     }
-    if (e.key === "Escape") return take(), root.focus();
+    if (e.key === "Escape") return take(), root.focus({ preventScroll: true });
     if (ctrl && "rl".includes(k)) return take(); // the viewing browser's reload and address bar
     if (!(ctrl && "pq".includes(k))) return; // Ctrl+P and Ctrl+Q go on to Laura
   }
