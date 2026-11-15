@@ -64,7 +64,8 @@ body { line-height: 1.5; }
 #top .l, #top .r { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #top .r { grid-column: 3; justify-content: flex-end; }
 .brand { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
-.crumb { color: var(--mute); white-space: nowrap; }
+/* A long folder ends in … at its column's edge, short of **Find a pane**. */
+.crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }
 .crumb:empty { display: none; }
 .iconbtn {
@@ -78,6 +79,12 @@ body { line-height: 1.5; }
 }
 .find:hover { border-color: #cfd2da; }
 .find span { flex: 1; text-align: left; }
+/* In a narrow window the top bar has no room for the 360px box, so it shows only the ⌕; its
+   tooltip names it. */
+@media (width < 600px) {
+  .find { width: auto; }
+  .find :is(span, kbd) { display: none; }
+}
 
 /* Laura's cell grid, right below the top bar and centered across. Not `transform`, which blurs
    xterm's WebGL canvas. */

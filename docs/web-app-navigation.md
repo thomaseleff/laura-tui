@@ -14,6 +14,7 @@ Laura uses the TUI's keystrokes in the web app. See [Navigating the TUI](navigat
 - Drag to select text. Laura copies the selection when the user releases the button. From a file pane, Laura copies the text without the line-number gutter.
 - Press `Ctrl+Shift+V` to paste. Laura sends `Ctrl+V` to the shell, as a terminal does.
 - Press `Ctrl+P` or click **Find a pane** in the top bar to open the pane selector. Type part of a file name or a pane id, then press `Enter` or click a row to focus that pane.
+  - In a window narrower than 600 pixels, Laura shows only the ⌕ icon of **Find a pane**.
   - When the user types a pane id that only one pane matches, Laura focuses that pane at once. With panes `1` and `10`, `1` lists both panes and `10` focuses pane `10`. `0` focuses the shell.
   - Each row shows the pane's state: **New** when the pane changed while the user worked in another pane, **Paused**, **Frozen**, **Unsaved**, **Highlight**, and `N unsubmitted` with the authors of the pane's threads.
 - Press `Ctrl+H` or click **?** in the top bar to show the keystrokes in a sheet. To close the sheet, click outside the sheet or press a keystroke.
