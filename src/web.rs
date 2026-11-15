@@ -985,13 +985,15 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Ba
             block_units(panel, &layout, &lines, tab.focus == id, base)
         } else {
             // The thread cards go; the browser draws threads from `threads`. The removed-lines rows
-            // sit before their line's start, so they stay.
+            // sit before their line's start, or in `eof` below the last line, so they stay.
             let shown: Vec<(&PanelRow, &Line)> = layout
                 .rows
                 .iter()
                 .zip(&lines)
                 .enumerate()
-                .filter(|(j, (row, _))| !row.comment || *j <= layout.starts[row.line])
+                .filter(|(j, (row, _))| {
+                    !row.comment || *j <= layout.starts[row.line] || layout.eof.contains(j)
+                })
                 .map(|(_, rl)| rl)
                 .collect();
             // The row `panel_lines` draws the band on.
@@ -1312,7 +1314,7 @@ fn block_units(
         for j in span {
             let row = &layout.rows[j];
             // A thread's card rows: the browser draws the card from `threads`.
-            if row.comment && j > layout.starts[row.line] {
+            if row.comment && j > layout.starts[row.line] && !layout.eof.contains(&j) {
                 continue;
             }
             if !row.comment && row.line == panel.cursor {
@@ -1329,10 +1331,12 @@ fn block_units(
             continue;
         };
         rows(next..first, &mut units, &mut cursor);
+        // The EOF gap tags the last line but shows below the last block, from the tail `rows` call.
         let end = layout.rows[first..]
             .iter()
             .position(|r| r.line >= b.rows.end)
-            .map_or(layout.rows.len(), |k| first + k);
+            .map_or(layout.rows.len(), |k| first + k)
+            .min(layout.eof.start);
         let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
         for (i, (row, line)) in layout.rows[first..end]
             .iter()

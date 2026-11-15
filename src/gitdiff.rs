@@ -79,20 +79,17 @@ pub fn hunks(path: &str) -> DiffOutcome {
 }
 
 /// Fold hunks → per-source-line marker, 1:1 with a `line_count`-line file.
-/// `None` = unchanged. `Removed(n)` lands on the surviving line below the gap.
+/// `None` = unchanged. `Removed(n)` lands on the surviving line below the gap. An EOF deletion has
+/// no line below it, so it marks none; `removed_lines` keys it at `line_count` (#142).
 pub fn line_changes(hunks: &[Hunk], line_count: usize) -> Vec<Option<ChangeKind>> {
     let mut out = vec![None; line_count];
-    if line_count == 0 {
-        return out;
-    }
     for h in hunks {
         if h.added.is_empty() {
             // Pure deletion: `new_start` is the last surviving line above the gap,
             // so the line *below* the gap is 0-based index `new_start`.
-            // ponytail: an EOF deletion clamps onto the last line (gap can't render
-            // below it); good enough until someone misses a trailing-line delete.
-            let idx = h.new_start.min(line_count - 1);
-            out[idx] = Some(ChangeKind::Removed(h.removed.len()));
+            if let Some(slot) = out.get_mut(h.new_start) {
+                *slot = Some(ChangeKind::Removed(h.removed.len()));
+            }
         } else {
             let kind = if h.removed.is_empty() {
                 ChangeKind::Added
@@ -219,13 +216,16 @@ index 111..222 100644
             ]
         );
 
-        // New file has 6 lines (5 - 1 deleted + 1 added = ... conceptually).
-        let changes = line_changes(&hunks, 6);
+        // A 7th line puts the deletion mid-file.
+        let changes = line_changes(&hunks, 7);
         assert_eq!(changes[1], Some(ChangeKind::Modified)); // line 2
         assert_eq!(changes[3], Some(ChangeKind::Added)); // line 4
-        assert_eq!(changes[5], Some(ChangeKind::Removed(1))); // gap above line 6
+        assert_eq!(changes[6], Some(ChangeKind::Removed(1))); // gap above line 7
         assert_eq!(changes[0], None);
         assert_eq!(changes[2], None);
         assert_eq!(changes[4], None);
+        assert_eq!(changes[5], None);
+        // With 6 lines the deletion ends the file, so no line carries it (#142).
+        assert_eq!(line_changes(&hunks, 6)[5], None);
     }
 }

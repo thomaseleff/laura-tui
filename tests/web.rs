@@ -1226,6 +1226,39 @@ fn a_code_block_that_ends_the_file_shows_its_removed_lines_above_it() -> Result<
 }
 
 #[test]
+fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
+    // #142: no line comes after the deleted ones, so the gap goes below the last row.
+    let mut rig = Rig::new()?;
+    let (_dir, txt) = changed_file("f.txt", "one\ntwo\nthree\n", "one\ntwo\n")?;
+    let (_dir, md) = changed_file("doc.md", "one\n\ntwo\n\nthree\n", "one\n\ntwo\n")?;
+    rig.drive(&["open", &txt]);
+    rig.drive(&["open", &md]);
+    rig.drive(&["comment", "--pane", "2", "3", "agent note"]);
+    let mut ws = rig.connect();
+    let html = |rig: &mut Rig, ws: &mut Ws, id| {
+        pane_frame(rig, ws, id)["html"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let rows = rows(&html(&mut rig, &mut ws, 1));
+    let at = |s: &str| {
+        rows.iter()
+            .position(|(_, t)| t.contains(s))
+            .unwrap_or_else(|| panic!("no {s}: {rows:?}"))
+    };
+    assert!(at("two") < at("1 line removed"), "{rows:?}");
+
+    let html = html(&mut rig, &mut ws, 2);
+    let at = |s: &str| html.find(s).unwrap_or_else(|| panic!("no {s}: {html}"));
+    assert!(at("<p>two") < at("2 lines removed"), "{html}");
+    // The browser draws the card from `threads`; the rows hold no copy of it.
+    assert!(!html.contains('╭'), "{html}");
+    Ok(())
+}
+
+#[test]
 fn a_markdown_block_shows_its_removed_lines_above_it() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

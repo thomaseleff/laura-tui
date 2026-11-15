@@ -93,6 +93,7 @@ Laura marks each line changed since git `HEAD` in a file pane's gutter: a **gree
 
 - Laura needs `git` on `PATH` for the markers. Without `git`, `laura open` warns `diff markers unavailable` on stderr, and Laura shows a notice and no markers.
 - In markdown, Laura marks the rendered row whose paragraph or block holds the changed source line.
+- When the user deletes the last lines of a file, Laura shows the `── N lines removed ──` row below the last line.
 - Laura shows no markers on an untracked file until the file is committed.
 
 ## See the full diff inline
