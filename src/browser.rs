@@ -123,11 +123,16 @@ pub fn resolve() -> Result<PathBuf, String> {
         .ok_or_else(|| NO_BROWSER.into())
 }
 
-/// Open the user's browser at `page`, a file: an app window of Chrome or Edge, in `resolve`'s
-/// order, else the OS's default browser. On WSL, Laura's Linux candidates are often missing, so
-/// Windows's Chrome and Edge come first; they stay out of `candidates`, which Laura's browser runs
-/// over CDP.
-pub fn open_app(page: &Path) -> std::io::Result<()> {
+/// The program that opens the user's browser, and the folder where that browser can read the page.
+pub struct Opener {
+    app: Option<PathBuf>,
+    pub dir: PathBuf,
+}
+
+/// The user's browser: an app window of Chrome or Edge, in `resolve`'s order, else the OS's
+/// default browser. On WSL, Laura's Linux candidates are often missing, so Windows's Chrome and
+/// Edge come first; they stay out of `candidates`, which Laura's browser runs over CDP.
+pub fn opener() -> Opener {
     let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some();
     let app = match std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
         Some(p) => vec![PathBuf::from(p)],
@@ -150,51 +155,98 @@ pub fn open_app(page: &Path) -> std::io::Result<()> {
         }
         None => candidates(),
     };
-    let mut cmd = match app.into_iter().find(|p| p.is_file()) {
-        Some(p) => {
-            let url = file_url(&p, page)?;
-            let mut c = Command::new(p);
-            c.arg(format!("--app={url}"));
-            c
-        }
-        None if cfg!(windows) => {
-            let mut c = Command::new("cmd");
-            c.args(["/C", "start", ""]).arg(page);
-            c
+    let app = app.into_iter().find(|p| p.is_file());
+    let dir = snap_dir(app.as_deref()).unwrap_or_else(crate::journal::runtime_dir);
+    Opener { app, dir }
+}
+
+impl Opener {
+    /// Open the browser at `page`, a file in `self.dir`.
+    pub fn open(self, page: &Path) -> std::io::Result<()> {
+        let mut cmd = match self.app {
+            Some(p) => {
+                let url = file_url(&p, page)?;
+                let mut c = Command::new(p);
+                c.arg(format!("--app={url}"));
+                c
+            }
+            None if cfg!(windows) => {
+                let mut c = Command::new("cmd");
+                c.args(["/C", "start", ""]).arg(page);
+                c
+            }
+            None => {
+                let mut c = Command::new(if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                });
+                c.arg(page);
+                c
+            }
+        };
+        let name = cmd.get_program().to_string_lossy().into_owned();
+        // The browser outlives Laura: the terminal's Ctrl+C and hangup go to Laura's group only.
+        #[cfg(unix)]
+        cmd.process_group(0);
+        let start = Instant::now();
+        let mut child = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?;
+        // Chrome hands the page to a running Chrome and exits with 0; reap it so it leaves no zombie.
+        // A failed exit is the only sign that no browser opened (no display over SSH).
+        std::thread::spawn(move || {
+            if let Ok(status) = child.wait()
+                && !status.success()
+                // Later, the exit is the end of the user's own Chrome session, not a failed open.
+                && start.elapsed() < Duration::from_secs(5)
+            {
+                no_browser(format!("{name} exited with {status}"));
+            }
+        });
+        Ok(())
+    }
+}
+
+/// A snap browser (Ubuntu's Firefox, snap Chromium) can't read hidden folders or `/run/user`,
+/// only its own `~/snap/<name>/common`.
+fn snap_dir(app: Option<&Path>) -> Option<PathBuf> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let name = match app {
+        // `/snap/bin/<name>` links to `/usr/bin/snap`, which runs the snap that the link names.
+        Some(app) => {
+            let target = std::fs::canonicalize(app).ok()?;
+            if target.file_name()? != "snap" {
+                return None;
+            }
+            app.file_name()?.to_str()?.to_string()
         }
         None => {
-            let mut c = Command::new(if cfg!(target_os = "macos") {
-                "open"
-            } else {
-                "xdg-open"
-            });
-            c.arg(page);
-            c
+            let out = Command::new("xdg-mime")
+                .args(["query", "default", "text/html"])
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+                .ok()?;
+            let desktop = String::from_utf8(out.stdout).ok()?.trim().to_string();
+            // snapd names a snap's desktop file `<snap>_<app>.desktop`.
+            let (name, _) = desktop.split_once('_')?;
+            if name.contains('/')
+                || !Path::new("/var/lib/snapd/desktop/applications")
+                    .join(&desktop)
+                    .is_file()
+            {
+                return None;
+            }
+            name.to_string()
         }
     };
-    let name = cmd.get_program().to_string_lossy().into_owned();
-    // The browser outlives Laura: the terminal's Ctrl+C and hangup go to Laura's group only.
-    #[cfg(unix)]
-    cmd.process_group(0);
-    let start = Instant::now();
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?;
-    // Chrome hands the page to a running Chrome and exits with 0; reap it so it leaves no zombie.
-    // A failed exit is the only sign that no browser opened (no display over SSH).
-    std::thread::spawn(move || {
-        if let Ok(status) = child.wait()
-            && !status.success()
-            // Later, the exit is the end of the user's own Chrome session, not a failed open.
-            && start.elapsed() < Duration::from_secs(5)
-        {
-            no_browser(format!("{name} exited with {status}"));
-        }
-    });
-    Ok(())
+    Some(std::env::home_dir()?.join("snap").join(name).join("common"))
 }
 
 /// The URL that Laura printed still works on this computer; over SSH, the TUI does.

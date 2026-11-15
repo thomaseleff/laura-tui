@@ -393,12 +393,14 @@ fn web(program: Vec<String>) -> Result<()> {
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
     // From a pipe (a script or a test), the caller opens the URL itself.
-    if std::io::stdout().is_terminal()
-        && let Err(e) = web
-            .open_page()
-            .and_then(|p| laura::browser::open_app(&p).map_err(Into::into))
-    {
-        laura::browser::no_browser(e);
+    if std::io::stdout().is_terminal() {
+        let opener = laura::browser::opener();
+        if let Err(e) = web
+            .open_page(&opener.dir)
+            .and_then(|p| opener.open(&p).map_err(Into::into))
+        {
+            laura::browser::no_browser(e);
+        }
     }
     let mut told = false;
     loop {

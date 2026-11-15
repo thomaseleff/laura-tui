@@ -3160,6 +3160,70 @@ fn a_browser_that_fails_shows_why() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn a_snap_browser_reads_the_page_from_its_own_folder() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    // `/snap/bin/chromium` links to `/usr/bin/snap`, which runs the snap that the link names.
+    let snap = dir.path().join("usr/bin/snap");
+    std::fs::create_dir_all(snap.parent().expect("a folder"))?;
+    std::fs::write(
+        &snap,
+        "#!/bin/sh\nd=\"$(dirname \"$0\")\"\n\
+         echo \"$@\" > \"$d/args.tmp\" && mv \"$d/args.tmp\" \"$d/args\"\n",
+    )?;
+    std::fs::set_permissions(&snap, std::fs::Permissions::from_mode(0o755))?;
+    let chromium = dir.path().join("bin/chromium");
+    std::fs::create_dir_all(chromium.parent().expect("a folder"))?;
+    std::os::unix::fs::symlink(&snap, &chromium)?;
+    let mut cmd = laura_cmd(dir.path(), "")?;
+    cmd.env("LAURA_BROWSER", &chromium);
+    let (mut laura, master, rx) = in_a_terminal(cmd)?;
+    let args = dir.path().join("bin/args");
+    let start = Instant::now();
+    let mut out = String::new();
+    while !args.exists() {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(50)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "Laura opened no browser: {out:?}"
+        );
+    }
+    let args = std::fs::read_to_string(&args)?;
+    let page = std::path::PathBuf::from(
+        args.trim()
+            .strip_prefix("--app=file://")
+            .unwrap_or_else(|| panic!("the browser opened another page: {args}")),
+    );
+    assert_eq!(
+        page.parent(),
+        Some(dir.path().join("snap/chromium/common").as_path()),
+        "{page:?}"
+    );
+    assert!(
+        page.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("open-")),
+        "{page:?}"
+    );
+    assert!(std::fs::read_to_string(&page)?.contains("/?t="));
+    assert_eq!(
+        std::fs::metadata(&page)?.permissions().mode() & 0o777,
+        0o600,
+        "other users can read the page"
+    );
+    master.take_writer()?.write_all(b"\x03")?;
+    while laura.try_wait()?.is_none() {
+        assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
+        thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn a_browser_that_fails_later_shows_nothing() -> Result<()> {
@@ -3217,7 +3281,8 @@ fn a_missing_browser_names_the_program_and_the_tui() -> Result<()> {
 #[test]
 fn the_open_page_redirects_to_the_workspace_until_a_view_connects() -> Result<()> {
     let mut rig = Rig::new()?;
-    let page = rig.web.open_page()?;
+    let dir = tempfile::tempdir()?;
+    let page = rig.web.open_page(dir.path())?;
     assert!(
         std::fs::read_to_string(&page)?.contains(rig.web.url()),
         "the page doesn't redirect to the workspace"

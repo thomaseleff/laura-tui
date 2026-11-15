@@ -247,10 +247,10 @@ impl WebServer {
     /// A page that redirects to `url`, for the user's browser: the browser's command line, which
     /// `ps` shows to other users, then holds only a path that they can't read (Jupyter's redirect
     /// file). The page holds only the port and a hex token, so `url` needs no escaping.
-    pub fn open_page(&mut self) -> Result<PathBuf> {
-        // `runtime_dir` creates only the env-chosen dirs; its per-OS fallback can be missing on a first launch.
-        let dir = crate::journal::runtime_dir();
-        std::fs::create_dir_all(&dir)?;
+    pub fn open_page(&mut self, dir: &Path) -> Result<PathBuf> {
+        // `runtime_dir` creates only the env-chosen dirs; its per-OS fallback can be missing on a
+        // first launch, as can a snap's folder.
+        std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("open-{}.html", nonce(8)?));
         let mut f = std::fs::OpenOptions::new();
         f.write(true).create_new(true);
