@@ -431,8 +431,9 @@ function makePane(p) {
   el.lags = [];
   new ResizeObserver(() => sizeView(p.id)).observe(el.querySelector(".view"));
   // The line's box changes with the pane and when the line shows; `data-clip` changes only the
-  // font, so this doesn't loop.
-  new ResizeObserver(() => fitNarrow(el)).observe(el.querySelector(".narrow"));
+  // font, so this doesn't loop. A terminal that shows again takes the focus that it could not take
+  // while it was hidden.
+  new ResizeObserver(() => (fitNarrow(el), layout?.focus === p.id && followFocus(true))).observe(el.querySelector(".narrow"));
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
