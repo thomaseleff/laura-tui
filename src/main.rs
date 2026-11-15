@@ -52,6 +52,12 @@ struct Cli {
     /// Show the workspace in the terminal instead of a web browser.
     #[arg(long, conflicts_with = "web")]
     tui: bool,
+    /// Run the Laura server: one address that lists the workspaces and starts new ones.
+    #[arg(long, conflicts_with_all = ["web", "tui"])]
+    serve: bool,
+    /// The port to listen on; `0` picks a free port (default: a free port, or 1989 with `--serve`).
+    #[arg(long, conflicts_with = "tui")]
+    port: Option<u16>,
 }
 
 #[derive(Subcommand)]
@@ -365,7 +371,15 @@ fn main() -> Result<()> {
             ratatui::restore();
             result
         }
-        None => web(cli.program),
+        None if cli.serve => {
+            if !cli.program.is_empty() {
+                bail!(
+                    "--serve takes no program: start a workspace with a program on the Laura server's page"
+                );
+            }
+            laura::serve::run(cli.port.unwrap_or(laura::serve::DEFAULT_PORT))
+        }
+        None => web(cli.program, cli.port.unwrap_or(0)),
     }
 }
 
@@ -384,11 +398,24 @@ fn abort_unguarded() {
 /// no unsaved Neovim edits, or the user quits in the browser. `Ctrl+C` here skips `Tab`'s `Drop`
 /// and the unsaved-edits check, as closing the TUI's terminal does.
 /// ponytail: no signal handler; add one if leftover spools or lost Neovim edits get reported.
-fn web(program: Vec<String>) -> Result<()> {
+fn web(program: Vec<String>, port: u16) -> Result<()> {
     abort_unguarded();
-    let mut web = laura::web::WebServer::bind()?;
+    let mut web = laura::web::WebServer::bind(port)?;
     let area = laura::web::DEFAULT_AREA;
     let mut tab = tui::spawn_tab(&program, area.height, area.width, true)?;
+    // After the program starts, so a program that Laura can't start leaves no record.
+    let shown = if program.is_empty() {
+        "shell".to_string()
+    } else {
+        program.join(" ")
+    };
+    let record = |web: &laura::web::WebServer, title: Option<&str>| {
+        if let Err(e) = web.register(title, &shown) {
+            eprintln!("couldn't write the workspace's record: {e}");
+        }
+    };
+    record(&web, None);
+    let mut title = None;
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
@@ -411,6 +438,10 @@ fn web(program: Vec<String>) -> Result<()> {
         if quit || tab.shell_done() {
             break;
         }
+        if tab.title != title {
+            title = tab.title.clone();
+            record(&web, title.as_deref());
+        }
         // Past `shell_done`, an exited shell means unsaved edits: tell a user with no browser open.
         if tab.pty.has_exited() && !told {
             told = true;
@@ -418,6 +449,7 @@ fn web(program: Vec<String>) -> Result<()> {
         }
         std::thread::sleep(std::time::Duration::from_millis(16));
     }
+    web.unregister();
     web.close();
     Ok(())
 }

@@ -1,13 +1,15 @@
 //! The web app's test rig: a workspace hosted by the web server, run in-process, and a view's
 //! websocket. Included with `#[path]` by the test crates that drive the web app.
 
+use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
-use std::process::Output;
+use std::path::Path;
+use std::process::{Output, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use assert_cmd::Command;
 use laura::Tab;
 use laura::web::{DEFAULT_AREA, WebServer};
@@ -128,7 +130,7 @@ impl Rig {
         isolate_home();
         // As `laura` starts it, with browser panes off.
         let tab = Tab::spawn_web(cmd, 24, 80, Err(laura::browser::NO_BROWSER.into()))?;
-        let web = WebServer::bind()?;
+        let web = WebServer::bind(0)?;
         let (port, token) = port_token(web.url());
         Ok(Rig {
             tab,
@@ -281,4 +283,48 @@ impl Drop for Kill {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
+}
+
+/// `laura <args>` started in `dir`; the process and the URL that it prints. With `home`, Laura
+/// keeps its data there, so a test's records and Laura server stay apart from the other tests'.
+/// `LAURA_BROWSER` names `dir/browser.sh`, so a test can stub the browser that Laura opens.
+pub fn laura_start(dir: &Path, args: &[&str], home: Option<&Path>) -> Result<(Kill, String)> {
+    isolate_home();
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_laura"));
+    cmd.args(args)
+        .current_dir(dir)
+        .env("LAURA_BROWSER", dir.join("browser.sh"))
+        .env_remove("LAURA_TAB")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if let Some(home) = home {
+        cmd.env("HOME", home).env("USERPROFILE", home);
+    }
+    let mut child = Kill(cmd.spawn()?);
+    let stdout = child.0.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut line = String::new();
+        let _ = BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let url = rx.recv_timeout(crate::common::DEADLINE)?;
+    Ok((child, url.trim().to_string()))
+}
+
+/// The shell that a started workspace hosts.
+pub const PROGRAM: &str = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
+
+/// `laura <args> -- <shell>` started in `dir`, and a view connected to it. See [`laura_start`].
+pub fn laura_web(dir: &Path, args: &[&str]) -> Result<(Kill, Ws)> {
+    let args = [args, &["--", PROGRAM]].concat();
+    let (child, url) = laura_start(dir, &args, None)?;
+    let (port, token) = port_token(&url);
+    let ws = connect_to(
+        port,
+        Some(&token),
+        Some(&format!("http://localhost:{port}")),
+    )?;
+    Ok((child, ws))
 }

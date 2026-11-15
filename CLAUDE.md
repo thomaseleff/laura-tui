@@ -107,6 +107,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
 | **workspace** | The panes Laura shows, in the web app or the TUI. | — |
 | **session label** | A short name for the task in a workspace, set by the agent with `laura ready --title`. | tab name, title (in prose) |
+| **the Laura server** | The page at one fixed address that lists the running workspaces and starts new ones (`laura --serve`). | hub, daemon |
 | **web app** | The workspace in a browser tab (`laura`). Name the web app only to tell it from the TUI. | web UI, frontend |
 | **TUI** | The workspace in a terminal (`laura --tui`). | terminal UI, terminal mode |
 | **notice** | A message in the bottom-right corner of a pane, or of the workspace above the hint line. | toast, standing warning |

@@ -394,7 +394,7 @@ pub fn bare() -> Result<Rig> {
 /// `bare`, with browser panes resolved to `path` as `laura --web` resolves them.
 pub fn hosted(path: Result<PathBuf, String>) -> Result<Rig> {
     let tab = laura::Tab::spawn_web(shell(), 24, 80, path)?;
-    let web = laura::web::WebServer::bind()?;
+    let web = laura::web::WebServer::bind(0)?;
     let (port, token) = port_token(web.url());
     Ok(Rig {
         tab,

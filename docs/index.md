@@ -48,6 +48,8 @@ laura -- claude "/laura:demo"
 
 Laura opens the workspace in your web browser. See [Start Laura](workspace.md#start-laura).
 
+To start workspaces from one address in the browser, run `laura --serve`. See [The Laura server](workspace.md#the-laura-server).
+
 **4. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 
 Laura reloads a file pane when its file changes. Laura shows [markdown as rendered markdown](navigation.md#markdown-files) and other files with syntax colours. Laura marks the lines changed since git `HEAD` in the gutter.

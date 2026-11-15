@@ -7,10 +7,10 @@ mod common;
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::{Child, Command as StdCommand, Stdio};
+use std::process::Command as StdCommand;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -2834,7 +2834,7 @@ fn ready_lists_no_web_or_browser() -> Result<()> {
 fn the_shell_has_the_browser_url() -> Result<()> {
     isolate_home();
     let tab = laura::Tab::spawn_web(shell(), 24, 80, Ok("chrome".into()))?;
-    let web = laura::web::WebServer::bind()?;
+    let web = laura::web::WebServer::bind(0)?;
     let (port, token) = port_token(web.url());
     let mut rig = Rig {
         tab,
@@ -2858,50 +2858,6 @@ fn the_shell_has_the_browser_url() -> Result<()> {
     // The typed line names the variable; only the echo shows the URL.
     rig.shell_shows(&url);
     Ok(())
-}
-
-/// Kills the child on drop, so a failed assertion doesn't leave a workspace running.
-struct Kill(Child);
-
-impl Drop for Kill {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-/// `laura <args>` started in `dir`, and a view connected to it. `LAURA_BROWSER` names
-/// `dir/browser.sh`, so a test can stub the browser that Laura opens.
-fn laura_web(dir: &Path, args: &[&str]) -> Result<(Kill, Ws)> {
-    isolate_home();
-    let program = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
-    let mut child = Kill(
-        StdCommand::new(env!("CARGO_BIN_EXE_laura"))
-            .args(args)
-            .args(["--", program])
-            .current_dir(dir)
-            .env("LAURA_BROWSER", dir.join("browser.sh"))
-            .env_remove("LAURA_TAB")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?,
-    );
-    let stdout = child.0.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut line = String::new();
-        let _ = BufReader::new(stdout).read_line(&mut line);
-        let _ = tx.send(line);
-    });
-    let url = rx.recv_timeout(common::DEADLINE)?;
-    let (port, token) = port_token(url.trim());
-    let ws = connect_to(
-        port,
-        Some(&token),
-        Some(&format!("http://localhost:{port}")),
-    )?;
-    Ok((child, ws))
 }
 
 #[test]
