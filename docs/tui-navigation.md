@@ -1,127 +1,59 @@
 # Navigating the TUI
 
-This reference describes the keystrokes for navigating the workspace and interacting with Laura. Use `Ctrl+H` within Laura to pull up the full keystroke reference.
+Laura started as a TUI workspace, and the TUI is still supported. To show the workspace in the terminal, run `laura --tui`. The TUI uses the keystrokes in [Navigating the workspace](navigation.md). This page lists what is different.
 
-Laura passes keystrokes it doesn't use to the shell, or to Neovim in an editor pane's editor view.
+In the TUI, `laura open <url>` returns `browser panes need the web app: start Laura without --tui`. See [Browser panes](cli.md#browser-panes).
+
+## Pane borders
+
+A pane's border shows what the pane header shows in the browser:
+
+- `#<id>`: the pane id. The focused pane's border is bright, and the others are gray.
+- `+N -M`: the lines added and removed since git `HEAD`.
+- `[review: N ↑a ↓b]`: `N` threads, `a` at or above the cursor and `b` below it.
+- `· editor` or `· file`: the view of an editor pane, and `● unsaved` while Neovim has unsaved edits.
+- `· paused`: you paused the tail pane.
 
 ## Global keystrokes
 
-| Keystroke | Action |
-|-----------|--------|
-| `Ctrl+P` | Panes popup — type a pane **id** then `Enter` to focus (single-digit ids focus on keypress). In the web app, the [pane selector](navigation.md#keystrokes-and-clicks) also finds a pane by file name. |
-| `Ctrl+H` | Help |
-| `Ctrl+Q` | Quit (then `y` to confirm). While any Neovim has unsaved edits, shows a notice naming its pane instead: save (`:w`) or quit it first (`:qa!` discards) |
-| `F12` | Lock all input to the shell, or to the focused editor pane |
+`Ctrl+P` opens the panes popup, which finds a pane by id only. Type a pane id, then press `Enter`. A single-digit id focuses the pane at once.
 
-When the shell exits while Neovim has unsaved edits, Laura stays open:
+## Typing a comment or review body
 
-1. Laura focuses the first editor pane with unsaved edits, shows the editor view and shows the notice "⚠ To close Laura after the shell stopped, save or quit Neovim."
-2. When the user saves or quits that Neovim, Laura does the same for the next editor pane with unsaved edits.
-3. Laura closes when no Neovim has unsaved edits.
+| Keystroke | What Laura does |
+|---|---|
+| `\`+`Enter` | Inserts a new line. |
+| `←` `→` | Moves the cursor. |
+| `Home` `End` | Moves the cursor to the start or the end of the line. |
+| `Backspace` `Delete` | Deletes before or after the cursor. |
+
+## Notices
+
+The TUI shows these notices in place of the browser's banner and buttons:
+
+- A frozen pane shows `⚠ <file> changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review)`, shortened to `⚠ Shift+S submit · Ctrl+R discards inline review` in a narrow pane.
+- A failed submit shows `⚠ inline review submission failed — Enter to retry · Esc to cancel`. `Enter` retries, and `Esc` closes the review body and keeps the threads. Laura records the cause in the journal's `review` event.
 
 ## In an editor pane
 
-> [!WARNING]
-> Editor panes are [experimental](cli.md#experimental-features).
-
-An editor pane (`laura open --edit`) supports two views, an **Editor view** and a **File view**. Use `Ctrl+L` to flip between the views.
-
-- **Editor view** (the default): edit the file in Neovim. Every keystroke goes to Neovim, including `Esc` and `PageUp/PageDown`, except `Ctrl+L`, `Ctrl+P`, `Ctrl+H`, `Ctrl+Q` and `F12`.
-  - Comments show as an inline `✎` diagnostic.
-  - Press `]d` to jump to the next thread and read it in full, or `[d` for the previous one. Laura maps these keystrokes to threads only and skips a language server's diagnostics.
-  - Press `Ctrl+W` then `d` to show the thread under the cursor.
-  - The editor view does not support comment interactions, so flip to the file view to comment or submit.
-- **File view**: comment on the saved file and submit the inline review, with the same keystrokes as a file pane (below). Diff (`d`) and highlight (`h`) are not available.
-
-The border shows the view (`· editor` or `· file`), `● unsaved` while Neovim has unsaved edits, and `[review: N]` when the pane has threads.
-
-When you submit an inline review from the file view, Laura returns focus to the shell and flips the pane back to the editor view. `Ctrl+L` flips views only in a focused editor pane; in the shell it clears the screen. To use Neovim's own `Ctrl+L`, run `:noh` instead.
-
-The file view has these limits:
-
-- It shows the **saved file**, so save before `Ctrl+L`.
-- Threads stay on the line they were made on; they don't follow your edits.
-- If you save while the pane has an unsubmitted inline review, Laura freezes the pane, as with any file pane (below). Submit or refresh (`Ctrl+R`) to end the freeze.
-
-Laura never focuses an editor pane when it opens, so you can keep typing in the chat. To leave an editor pane, press `Ctrl+P` then a pane id (`0` is the shell).
-
-- If the agent turns the pane you're in into an editor pane, Laura opens it in the file view, so you keep using the file pane keystrokes.
-- If the agent opens another file in the editor pane you're in, Laura keeps the pane's current view.
-- If the editor pane has unsaved edits, `x` in the file view shows a notice instead of closing the pane. Save (`:w`) or quit Neovim first.
+The border shows the view and the unsaved edits (see [Pane borders](#pane-borders)). `Ctrl+L` flips the view only in a focused editor pane. In the shell, `Ctrl+L` clears the screen.
 
 ### Laura's theme
 
 The first time you start Laura with editor panes enabled, Laura asks if you want to use its theme in Neovim: `y` yes, `n` keep your Neovim as it is, `Esc` ask again next launch. Laura holds the agent's commands until you answer.
 
-Laura applies its theme to Neovim, including the file view's syntax colors (Nord, over the terminal's background), line numbers and a sign column, so Neovim and the file view look the same when you flip with `Ctrl+L`. Laura applies the theme only inside Laura, after Neovim loads your config, and never changes your config. Laura saves your answer in `~/.laura/editor-theme`. To be asked again, delete the file and restart Laura.
-
-## In a focused pane
-
-| Keystroke | Action |
-|-----------|--------|
-| `↑/↓` | Move the cursor |
-| `n/N` | Jump the cursor to the next / previous thread |
-| `←/→` | Scroll pre-formatted lines sideways (code, diffs, markdown tables/code blocks/HTML) |
-| `c` | Comment on a line: start a thread, edit or delete your last comment, or reply (needs `laura ready`) |
-| `r` | Collapse/expand the cursor's thread — or, off a thread, all of them |
-| `Shift+S` | Submit the inline review (needs `laura ready`) |
-| `Ctrl+R` | Refresh the pane: discard the unsubmitted inline review and reload the file |
-| `d` | Toggle inline diff vs git `HEAD` |
-| `x` | Close the pane |
-| `h` | Clear the pane's highlight |
-| `p` | Pause or resume a tail pane, or a file pane that the agent opened with `--follow` |
-| `Ctrl+L` | In an editor pane, flip between the editor view and the file view |
-| `Esc` | Leave the pane |
-
-An inline review is a **call and response**. Comments and threads stay in the pane until you press `Shift+S` to submit the inline review. While you type a comment or review body, Laura holds the agent's commands until you press `Enter` or `Esc`.
-
-Laura shows a notice instead of acting when:
-
-- You press `c` or `Shift+S` before the agent runs `laura ready`: `` ⚠ The agent must run `laura ready` before you can comment. ``.
-- You press `Shift+S` on a pane with no comments: `⚠ Add a comment before you submit the inline review.`.
-- You press `Shift+S` after the shell exits: `⚠ The shell stopped, so Laura cannot submit the inline review.`.
-- You press `d` in an editor pane's file view: `⚠ An editor pane does not show the diff view.`.
-- You press `c` in diff view: `⚠ Press d to close the diff view before you comment.`.
-
-A file pane's border shows:
-
-- `#<id>`, its pane id, so `Ctrl+P <id>` focuses it. The focused pane's border is bright, the others gray.
-- `+N -M` after the file name: lines added (green) and removed (red) since git `HEAD`. Nothing shows when the file is clean, untracked, or `git` isn't installed. In an editor pane, both views count the saved file.
-- `[review: N ↑a ↓b]` when the pane has threads: `N` threads, `a` at or above the cursor, `b` below it.
-
-If an inline review cannot be written into the shell, Laura keeps the threads and review body and shows the notice `⚠ inline review submission failed — Enter to retry · Esc to cancel`. `Enter` retries; `Esc` closes the review body and keeps the threads. Laura records the cause in the journal's `review` event.
-
-A file pane with an unsubmitted inline review **freezes** when its file changes on disk. A focused frozen pane shows the notice `⚠ <file> changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review)` (shortened to `⚠ Shift+S submit · Ctrl+R discards inline review` on a narrow terminal). `Shift+S` submits against the snapshot (the inline review starts with a `⚠ file changed` banner), then the pane reloads. `Ctrl+R` refreshes. If you delete the pane's last comment, Laura also ends the freeze and reloads the pane.
-
-A tail pane that you **pause** with `p` doesn't reload, so you can read, comment on or copy a line while the program writes more output. `laura tail` keeps writing the output to its spool, so you lose no output. The pane's border shows `· paused`. Press `p` again to resume: Laura reloads the pane, and with `--follow` moves the cursor to the last line. If the pane has threads when you resume, the pane freezes instead. When you submit, or delete the last comment, on a paused pane that is frozen, the freeze ends and the pane stays paused. `Ctrl+R` also resumes the pane, then refreshes it.
-
-## Typing a comment or review body
-
-| Keystroke | Action |
-|-----------|--------|
-| `←/→` | Move the cursor |
-| `Home/End` | Jump to the start / end of the line |
-| `Backspace/Delete` | Delete before / after the cursor |
-| `\`+`Enter` (`Shift+Enter` in the [web app](workspace.md)) | Insert a newline |
-| `Enter` | Add the comment, save the edit, or submit the review body |
-| `Esc` | Cancel |
-
-To delete your comment, press `c` on it, clear the text, and press `Enter`.
-
-While you type a comment, Laura shows `Comment L<n>` in the hint line, where `<n>` is the file's line number. In a markdown block, `<n>` is the block's first line. When the block spans several rows, Laura moves the cursor to the block's first row.
+Laura's theme gives Neovim the file view's colors (Nord, over the terminal's background), line numbers and a sign column, so both views look the same. Laura applies the theme only inside Laura and never changes your config. Laura saves your answer in `~/.laura/editor-theme`. To be asked again, delete the file and restart Laura. Until you answer, editor panes in the browser use your Neovim's own theme.
 
 ## Small terminals
 
-The TUI needs a terminal of at least 40 columns and 10 rows. In a smaller terminal, Laura hides the workspace and shows `Make the window larger to show the workspace.` Until the terminal is large enough, Laura ignores keystrokes, pastes and clicks. Make the terminal larger to show the workspace again.
+The TUI needs a terminal of at least 40 columns and 10 rows. In a smaller terminal, Laura shows `Make the window larger to show the workspace.` and ignores keystrokes, pastes and clicks until the terminal is large enough.
 
 ## Scrolling
 
-In the shell, use `PageUp/PageDown` or the mouse wheel to scroll back through the shell's output. When a full-screen program runs in the shell (claude, vim, less), Laura passes those keystrokes to the program, which handles its own scrolling, and Laura shows no scrollbar.
+In the shell, press `PageUp` or `PageDown` or use the mouse wheel to scroll back through the output. When a full-screen program runs in the shell, such as claude, vim or less, Laura passes those keystrokes to the program.
 
-In a file pane, Laura scrolls only when the cursor reaches the top or bottom edge of the pane. Opening or collapsing a comment above the view doesn't scroll it. The mouse wheel scrolls the pane and moves the cursor with it. `laura highlight` scrolls its lines to the center once and moves the cursor to the first highlighted line, so pressing `c` right after a highlight comments there.
+In a file pane, Laura scrolls only when the cursor reaches the top or bottom edge of the pane. The mouse wheel scrolls the pane and moves the cursor with it. `laura highlight` moves the cursor to the first highlighted line, so `c` right after a highlight comments there.
 
 ## Selection
 
-Drag with the left mouse button to select text within a pane. Laura copies the selection to the system clipboard when you release the button (via OSC 52). From a file pane, Laura copies clean source, without the line-number gutter and with wrapped lines rejoined. Laura puts each `── N lines removed ──` row and each row of a thread card on a line of its own. From the shell, Laura copies the text exactly as shown.
-
-On macOS, Laura also copies the selection with `pbcopy`, so the copy works in Terminal.app, which ignores OSC 52.
+Drag with the left mouse button to select text in a pane. Laura copies the selection to the clipboard when you release the button (OSC 52, and also `pbcopy` on macOS, because Terminal.app ignores OSC 52). From a file pane, Laura copies the source without the line-number gutter and rejoins wrapped lines.

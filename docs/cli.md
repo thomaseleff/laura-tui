@@ -129,7 +129,7 @@ Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each
 
 `overflow_rows` counts the rows that don't fit in the pane. When it's above 0, or `clipped` is `true`, the content **overflows** the pane and the user has to scroll to read the full content. `laura open` also warns on stderr when a file's content overflows (`pane #N overflows: …`), and when the pane is too small to show any of it (`pane #N too small to render …`).
 
-Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](tui-navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output.
+Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output.
 
 ## Experimental features
 
