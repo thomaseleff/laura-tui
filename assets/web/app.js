@@ -131,12 +131,14 @@ const MARGIN = 0.5;
 const STATUS = 34;
 function report() {
   measure();
-  const cols = Math.floor(innerWidth / cw - 2 * MARGIN);
-  const rows = Math.floor((innerHeight - $("top").offsetHeight - STATUS) / ch);
+  // The body, not the window: the body keeps the workspace's minimum size (style.css).
+  const { clientWidth: w, clientHeight: h } = document.body;
+  const cols = Math.floor(w / cw - 2 * MARGIN);
+  const rows = Math.floor((h - $("top").offsetHeight - STATUS) / ch);
   const style = document.documentElement.style;
   style.setProperty("--cols", cols);
   style.setProperty("--rows", rows);
-  style.setProperty("--side", (innerWidth - cols * cw) / 2 + "px");
+  style.setProperty("--side", (w - cols * cw) / 2 + "px");
   send({ view: { cols, rows } });
 }
 
@@ -678,10 +680,15 @@ function paintLive(el) {
   const lag = Math.max(0, ...el.lags.filter(([t]) => now - t < 500).map(([, l]) => l));
   if (lag > 100) [el.lagUntil, el.lagShown] = [now + 1000, lag];
   const slow = now < (el.lagUntil ?? 0);
-  live.classList.toggle("lag", slow);
-  // Only a new text fits the header again, not every frame.
+  // A new text fits the header again, so one lag gives way to the next at most 4 times a second;
+  // "live" and a lag swap at once. `liveTimer` paints the last lag.
   const text = slow ? `${Math.round(el.lagShown)} ms` : "live";
-  if (live.textContent !== text) live.textContent = text;
+  const swap = slow !== live.classList.contains("lag");
+  if (live.textContent !== text && (swap || now - (el.liveAt ?? 0) >= 250)) {
+    live.textContent = text;
+    el.liveAt = now;
+  }
+  live.classList.toggle("lag", slow);
   const t = `${el.lags.length} frames a second · lag ${Math.round(lag)} ms`;
   live.dataset.tip = t;
   live.setAttribute("aria-label", t);
@@ -1854,7 +1861,6 @@ function connect() {
         strings = m;
         paintHelp(m.help, m.help_note);
         $("folder").textContent = m.root;
-        $("small").textContent = m.small;
         document.title = `Laura · ${m.root.split("/").filter(Boolean).at(-1) ?? m.root}`;
         break;
       case "layout":

@@ -289,9 +289,9 @@ impl WebServer {
             };
             let help = view::help(tab.web);
             v.text(json!({"t": "strings", "help": help, "help_note": view::HELP_NOTE, "moved": view::MOVED,
-                           "ended": view::ENDED, "small": view::TOO_SMALL, "root": shown_root(&self.root),
+                           "ended": view::ENDED, "root": shown_root(&self.root),
                            "draft": {"failed": crate::tab::SUBMIT_FAILED_WEB},
-                           "narrow": "This pane is too narrow to show {name}. Widen the window or close a pane."}));
+                           "narrow": "This pane is too small to show {name}. Make the window larger or close a pane."}));
             if let Err(e) = &tab.editor
                 && e == crate::editor::NO_NVIM
             {

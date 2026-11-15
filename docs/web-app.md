@@ -86,7 +86,7 @@ Laura finds Chrome, Edge or Chromium where their installers put them. To use a d
 
 Laura's browser is separate from the user's own browser. Laura's browser starts with the first browser pane, and stops when the workspace ends.
 
-The pane header shows the page's title and URL. The **live badge** shows `● live` while the pane shows the page. When the page's frames arrive more than 100 ms late, the live badge shows the lag in amber, such as `● 140 ms`. Hover the live badge to see the frames a second and the lag.
+The pane header shows the page's title and URL. The **live badge** shows `● live` while the pane shows the page. When the page's frames arrive more than 100 ms late, the live badge shows the lag in amber, such as `● 140 ms`. Hover the live badge to see the frames a second and the lag. In a narrow pane, Laura hides the live badge. See [Pane header](web-app-navigation.md#pane-header).
 
 To refresh the pane, press `Ctrl+R` or click the pane header's refresh button. Laura discards the pane's unsubmitted inline review and the agent's highlight, and reloads the page.
 

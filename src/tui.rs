@@ -238,6 +238,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     loop {
         // Content rect sits above the 1-line hint line.
         let content = content_rect(terminal)?;
+        let fits = workspace_fits(terminal.get_frame().area());
         // A comment/review-body draft holds requests so the pane under it can't move; the theme
         // wizard holds them too, so an `open --edit` launches with the answer.
         tab.hold = wizard || draft.is_some();
@@ -263,7 +264,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             .inner(Margin::new(1, 1));
 
         let completed = terminal.draw(|f| {
-            if !workspace_fits(f.area()) {
+            if !fits {
                 // One more row than the characters need, for the words the wrap moves down.
                 let (n, w) = (view::TOO_SMALL.width() as u16, f.area().width.max(1));
                 let h = n.div_ceil(w) + u16::from(w < n);
@@ -404,6 +405,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 ev = coalesce_paste_burst(*k)?;
             }
             match ev {
+                // The user can't see what a keystroke or a click would do.
+                _ if !fits && !matches!(ev, Event::Resize(..)) => {}
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     if wizard {

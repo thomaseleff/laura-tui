@@ -63,9 +63,9 @@ When the pane header doesn't fit, Laura shows less in the pane header, in steps,
 
 Laura shortens a long file name before it takes a step, but keeps at least part of the name in view.
 
-When a pane is narrower than 160 pixels, Laura hides the pane's content and shows `This pane is too narrow to show <name>. Widen the window or close a pane.` Laura shows this line in every kind of pane: the shell, a file pane, a browser pane and an editor pane. In a very narrow pane, Laura shows only `⚠`. Hover over `⚠` to read the text.
+When a pane is narrower than 160 pixels or shorter than 100 pixels, Laura hides the pane's content and shows `This pane is too small to show <name>. Make the window larger or close a pane.` Laura shows this line in every kind of pane: the shell, a file pane, a browser pane and an editor pane. In a pane shorter than 100 pixels, Laura also hides the pane header. To close the pane, click the pane and press `x`. In a very narrow pane, Laura shows only `⚠`. Hover over `⚠` to read the text.
 
-When the window is narrower than 400 pixels or shorter than 300 pixels, Laura hides the workspace and shows `Make the window larger to show the workspace.` Make the window larger to show the workspace again.
+When the window is narrower than 400 pixels or shorter than 300 pixels, Laura keeps the workspace at 400 × 300 pixels. Scroll the window to see all of the workspace.
 
 In an editor pane's editor view, a click on **Submit review** or the thread count flips the pane to the file view first.
 

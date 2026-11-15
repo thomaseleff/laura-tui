@@ -601,7 +601,7 @@ pub const NO_GIT: &str = "diff views not available — install `git`";
 /// The web app's overlay on a browser tab another tab took the workspace from.
 pub const MOVED: &str = "The workspace is open in another tab.";
 
-/// The TUI's and the web app's line in place of a workspace too small to use.
+/// The TUI's line in place of a terminal too small for the workspace.
 pub const TOO_SMALL: &str = "Make the window larger to show the workspace.";
 
 /// The web app's overlay once the workspace ended (the shell exited or the user quit).

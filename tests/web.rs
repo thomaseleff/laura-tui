@@ -148,10 +148,6 @@ fn first_frames_carry_the_layout_and_the_replay() -> Result<()> {
     rig.shell_shows("webmark");
     let mut ws = rig.connect();
     let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
-    assert_eq!(
-        strings["small"],
-        "Make the window larger to show the workspace."
-    );
     let groups = strings["help"].as_array().expect("help groups");
     assert!(groups.iter().any(|g| {
         g[1].as_array()

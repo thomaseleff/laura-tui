@@ -112,7 +112,7 @@ While you type a comment, Laura shows `Comment L<n>` in the hint line, where `<n
 
 ## Small terminals
 
-The TUI needs a terminal of at least 40 columns and 10 rows. In a smaller terminal, Laura hides the workspace and shows `Make the window larger to show the workspace.` Make the terminal larger to show the workspace again.
+The TUI needs a terminal of at least 40 columns and 10 rows. In a smaller terminal, Laura hides the workspace and shows `Make the window larger to show the workspace.` Until the terminal is large enough, Laura ignores keystrokes, pastes and clicks. Make the terminal larger to show the workspace again.
 
 ## Scrolling
 
