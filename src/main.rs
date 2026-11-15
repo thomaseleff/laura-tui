@@ -144,6 +144,9 @@ enum Cmd {
         /// Attribute journal events to this agent name.
         #[arg(long)]
         agent: Option<String>,
+        /// Label the session in a few words, such as "flat elevation profile".
+        #[arg(long)]
+        title: Option<String>,
     },
     /// Append a feedback signal (layout/render quality, a missing tool) to the journal.
     Feedback {
@@ -288,7 +291,15 @@ fn main() -> Result<()> {
             })
         }
         Some(Cmd::Layout) => client_request(Message::Layout),
-        Some(Cmd::Ready { session, agent }) => client_request(Message::Ready { session, agent }),
+        Some(Cmd::Ready {
+            session,
+            agent,
+            title,
+        }) => client_request(Message::Ready {
+            session,
+            agent,
+            title,
+        }),
         Some(Cmd::Feedback {
             positive,
             negative,

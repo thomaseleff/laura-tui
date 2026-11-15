@@ -146,12 +146,15 @@ pub enum Message {
     /// Query the current layout + per-pane geometry/overflow.
     Layout,
     /// Mark the tab as hosting an agent; enables inline review submission. Optionally names the
-    /// journal `session` and the `agent`; the reply carries the journal path.
+    /// journal `session`, the `agent` and the session label (`title`); the reply carries the
+    /// journal path. A `ready` without `title` keeps the workspace's label.
     Ready {
         #[serde(default)]
         session: Option<String>,
         #[serde(default)]
         agent: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
     },
     /// Append a meta-signal to the journal: how well Laura/the agent performed
     /// (layout, render quality, a missing tool) — not inline review content.

@@ -421,6 +421,8 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 <dd>Names the journal session.</dd>
 <dt><code>agent</code> · string | null · <em>default: <code>null</code></em></dt>
 <dd>Attributes journal events, and the agent's comments, to this name.</dd>
+<dt><code>title</code> · string | null · <em>default: <code>null</code></em></dt>
+<dd>Sets the session label: a short name for the task, such as <code>flat elevation profile</code>.</dd>
 </dl>
 
 </td>
@@ -431,7 +433,8 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 {
   "type": "ready",
   "session": "demo",
-  "agent": "claude"
+  "agent": "claude",
+  "title": "flat elevation profile"
 }
 </pre>
 
@@ -451,6 +454,8 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 </table>
 
 `journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); `browser`: [browser panes](cli.md#browser-panes), listed only when the web app runs and Laura found Chrome or Edge; see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `browser_url` is the shell's `LAURA_BROWSER_URL`, where the agent's browser tools connect to Laura's browser (see [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent)). `browser_url` is set only when `experimental` lists `browser`, and is `null` otherwise. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+
+A `ready` without `title` keeps the workspace's session label. A `ready` with a new `session` starts a new journal, and Laura writes the later events to the new journal.
 
 ### `update`
 
