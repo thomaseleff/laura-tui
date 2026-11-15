@@ -359,7 +359,7 @@ pub struct Tab {
     pub editor: Result<PathBuf, String>,
     /// Editor panes use Laura's theme (the startup wizard's answer). The TUI sets it.
     pub editor_theme: bool,
-    /// Hosted by `laura --web`; `ready` lists `web` under `experimental`.
+    /// Hosted by the web app; browser panes need it.
     pub web: bool,
     /// The browser to run for `open <url>`, or why browser panes are off. `spawn_tab` sets it
     /// from `browser::resolve()`; defaults to off.
@@ -428,7 +428,7 @@ impl Tab {
             editor: Err(editor::FLAG_OFF.into()),
             editor_theme: false,
             web: false,
-            browser_path: Err(browser::FLAG_OFF.into()),
+            browser_path: Err(browser::NO_BROWSER.into()),
             browsers: HashMap::new(),
             browser: None,
             browser_port: None,
@@ -448,7 +448,7 @@ impl Tab {
         })
     }
 
-    /// `spawn` for `laura --web`, with browser panes resolved to `browser_path`. With a browser to
+    /// `spawn` for the web app, with browser panes resolved to `browser_path`. With a browser to
     /// run, the shell's `LAURA_BROWSER_URL` names a free port, where `cdp_proxy` serves Laura's
     /// browser, so the agent's browser tools reach the panes' pages.
     pub fn spawn_web(
@@ -1078,14 +1078,13 @@ impl Tab {
         true
     }
 
-    /// Why `open <url>` can't open a browser pane, in the order the user fixes them: the flag,
-    /// then `--web`, then a browser to run.
+    /// Why `open <url>` can't open a browser pane, in the order the user fixes them: the web app,
+    /// then a browser to run.
     fn browser_gate(&self) -> Result<PathBuf, String> {
-        match &self.browser_path {
-            Err(e) if e == browser::FLAG_OFF => Err(e.clone()),
-            _ if !self.web => Err(browser::NEED_WEB.into()),
-            r => r.clone(),
+        if !self.web {
+            return Err(browser::NEED_WEB.into());
         }
+        self.browser_path.clone()
     }
 
     /// Start Laura's browser off the loop, unless it is starting; `poll_start` takes it. `pane`
@@ -1845,20 +1844,18 @@ impl Tab {
                 if title.is_some() {
                     self.title = title;
                 }
-                let experimental = [
-                    self.editor.is_ok().then_some("editor"),
-                    self.web.then_some("web"),
-                    (self.web && self.browser_path.is_ok()).then_some("browser"),
-                ]
-                .into_iter()
-                .flatten()
-                .map(String::from)
-                .collect();
+                let experimental = self
+                    .editor
+                    .is_ok()
+                    .then(|| "editor".to_string())
+                    .into_iter()
+                    .collect();
                 Response::Ready {
                     journal: path,
                     experimental,
                     layout: Some(self.report(area)),
                     browser_url: self.browser_port.map(browser::endpoint),
+                    web_app: self.web,
                 }
             }
             Message::Feedback { sentiment, body } => {

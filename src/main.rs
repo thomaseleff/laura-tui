@@ -2,13 +2,16 @@
 //!
 //! Two modules split by concern: [`tui`] is the draw loop and its widgets (it hosts the workspace,
 //! renders panes, routes input); [`keys`] turns a key event into the bytes a child expects on
-//! stdin. `main` here is just args + dispatch: with no subcommand it launches the TUI, otherwise
+//! stdin. `main` here is just args + dispatch: with no subcommand it hosts the web app (`--tui`: the
+//! TUI), otherwise
 //! it sends one request to the current workspace's socket and prints the reply. Nothing in the engine
 //! depends on this crate.
 
 mod keys;
 mod mouse;
 mod tui;
+
+use std::io::IsTerminal;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -21,8 +24,8 @@ use ratatui::crossterm::execute;
 
 use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
 
-/// Laura hosts your coding agent's shell in a PTY with a live side-pane for showing files and
-/// receiving inline reviews.
+/// Laura is a workspace that gives your coding agent an API over the UI: panes for showing files
+/// and receiving inline reviews, in a web browser or the terminal.
 ///
 /// Agents: install the skill — `claude plugin marketplace add thomaseleff/laura-tui`.
 ///
@@ -33,9 +36,9 @@ use laura::protocol::{self, Dir, Message, PaneId, Response, Side};
     about,
     args_conflicts_with_subcommands = true,
     after_help = "Experimental features (opt-in: set the variable before starting Laura; `laura ready` lists the ones on):\n  LAURA_EXPERIMENTAL_EDITOR=1  Editor panes: `laura open --edit <path>` runs Neovim in a pane (needs nvim on PATH)
-  LAURA_EXPERIMENTAL_WEB=1     The web app: `laura --web` shows the workspace in a web browser instead of the terminal
-  LAURA_EXPERIMENTAL_BROWSER=1 Browser panes: `laura open <url>` shows a page live in the web app (needs --web, and Chrome or Edge)
-  LAURA_BROWSER=<path>         The Chrome or Edge that browser panes run (default: the installed one)"
+
+Environment:
+  LAURA_BROWSER=<path>         The Chrome or Edge that browser panes run and that Laura opens the workspace in (default: the installed one)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -43,16 +46,19 @@ struct Cli {
     /// Program to host in the workspace (after `--`); defaults to your shell.
     #[arg(last = true)]
     program: Vec<String>,
-    /// Show the workspace in a web browser instead of the terminal (experimental).
+    /// Show the workspace in a web browser (the default).
     #[arg(long)]
     web: bool,
+    /// Show the workspace in the terminal instead of a web browser.
+    #[arg(long, conflicts_with = "web")]
+    tui: bool,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
     /// Open a file, or an http(s) URL in a browser pane, in a new pane. Prints the new pane id.
     Open {
-        /// A file, or an `http://` / `https://` URL (experimental browser pane).
+        /// A file, or an `http://` / `https://` URL (browser pane).
         path: String,
         /// Pane to split (default: the focused pane).
         #[arg(long)]
@@ -344,8 +350,7 @@ fn main() -> Result<()> {
             dir,
             ratio,
         }) => tail(title, follow, split, dir, ratio),
-        None if cli.web => web(cli.program),
-        None => {
+        None if cli.tui => {
             let mut terminal = ratatui::init();
             abort_unguarded();
             // Capture the wheel so panes scroll and drags select; bracketed paste keeps a pasted
@@ -360,6 +365,7 @@ fn main() -> Result<()> {
             ratatui::restore();
             result
         }
+        None => web(cli.program),
     }
 }
 
@@ -374,21 +380,28 @@ fn abort_unguarded() {
     }));
 }
 
-/// `laura --web`: host the workspace with no terminal UI until the shell exits with no unsaved
-/// Neovim edits, or the user quits in the browser. `Ctrl+C` here skips `Tab`'s `Drop` and the unsaved-edits check, as closing the
-/// TUI's terminal does.
+/// `laura` (or `laura --web`): host the workspace with no terminal UI until the shell exits with
+/// no unsaved Neovim edits, or the user quits in the browser. `Ctrl+C` here skips `Tab`'s `Drop`
+/// and the unsaved-edits check, as closing the TUI's terminal does.
 /// ponytail: no signal handler; add one if leftover spools or lost Neovim edits get reported.
 fn web(program: Vec<String>) -> Result<()> {
     abort_unguarded();
-    if !laura::web::enabled() {
-        bail!(laura::web::FLAG_OFF);
-    }
     let mut web = laura::web::WebServer::bind()?;
     let area = laura::web::DEFAULT_AREA;
     let mut tab = tui::spawn_tab(&program, area.height, area.width, true)?;
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
+    // From a pipe (a script or a test), the caller opens the URL itself.
+    if std::io::stdout().is_terminal() {
+        let opener = laura::browser::opener();
+        if let Err(e) = web
+            .open_page(&opener.dir)
+            .and_then(|p| opener.open(&p).map_err(Into::into))
+        {
+            laura::browser::no_browser(e);
+        }
+    }
     let mut told = false;
     loop {
         let area = web.area().unwrap_or(laura::web::DEFAULT_AREA);
@@ -428,11 +441,13 @@ fn client_request(msg: Message) -> Result<()> {
             experimental,
             layout,
             browser_url,
+            web_app,
         } => println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "journal": journal,
                 "experimental": experimental,
+                "web_app": web_app,
                 "browser_url": browser_url,
                 "layout": layout,
             }))?

@@ -272,7 +272,6 @@ def make_home(scene, scene_path, home):
 def start_laura(laura, repo, home, port, log):
     env = {
         **os.environ,
-        "LAURA_EXPERIMENTAL_WEB": "1",
         "LAURA_EXPERIMENTAL_EDITOR": "1",
         "LAURA_DEMO_PORT": str(port),
         "LAURA_DEMO_BIN": str(laura),

@@ -14,10 +14,7 @@ use rig::*;
 #[test]
 fn a_missing_browser_shows_how_to_get_one() -> Result<()> {
     // SAFETY: the binary's one test, before anything reads the environment.
-    unsafe {
-        std::env::set_var("LAURA_EXPERIMENTAL_BROWSER", "1");
-        std::env::set_var("LAURA_BROWSER", "/no/such/chrome");
-    }
+    unsafe { std::env::set_var("LAURA_BROWSER", "/no/such/chrome") };
     assert_eq!(browser::resolve(), Err(browser::NO_BROWSER.to_string()));
     let mut r = Rig::new()?;
     r.tab.browser_path = browser::resolve();

@@ -26,14 +26,6 @@ use browser_rig::*;
 use rig::*;
 
 #[test]
-fn a_url_needs_the_browser_flag() -> Result<()> {
-    let mut r = bare()?;
-    let err = error(&mut r, &["open", "http://127.0.0.1:1/"]);
-    assert!(err.contains(browser::FLAG_OFF), "{err}");
-    Ok(())
-}
-
-#[test]
 fn a_url_needs_the_web_app() -> Result<()> {
     let mut r = bare()?;
     r.tab.web = false;
@@ -613,8 +605,6 @@ fn a_killed_laura_closes_real_chrome_and_its_helpers() -> Result<()> {
     let mut laura = Kill(
         Command::new(env!("CARGO_BIN_EXE_laura"))
             .args(["--web", "--", "/bin/sh", "-c", &shell])
-            .env("LAURA_EXPERIMENTAL_WEB", "1")
-            .env("LAURA_EXPERIMENTAL_BROWSER", "1")
             .env("LAURA_BROWSER", &path)
             // Journals into the target dir; only this Laura's home moves, not the other tests'.
             .env("HOME", env!("CARGO_TARGET_TMPDIR"))

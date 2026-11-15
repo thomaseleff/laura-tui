@@ -1,6 +1,6 @@
 ---
 name: laura
-description: Dynamically tile panes while you pair-program using `laura`, an API over the TUI.
+description: Dynamically tile panes while you pair-program using `laura`, an API over the UI.
 when_to_use: You are running inside a Laura workspace, or a "[laura review · …]" block arrives in your input.
 user-invocable: true
 argument-hint: [path | prompt]
@@ -8,7 +8,7 @@ argument-hint: [path | prompt]
 
 # laura
 
-Laura is a TUI workspace that gives you an **API over the TUI**, so you can tile panes while you pair-program with your partner. Use this skill for the CLI reference, the common motions, and the workflow skills for longer sessions.
+Laura is a workspace that gives you an **API over the UI**, so you can tile panes while you pair-program with your partner. Use this skill for the CLI reference, the common motions, and the workflow skills for longer sessions.
 
 Pair-programming is two people at one workstation. The **driver** writes the code. The **navigator** reviews as the driver works and guides the strategic direction, such as edge cases, conventions and future problems. The navigator frees the driver to focus on the tactical task. You and your partner collaborate, learn, riff and improvise throughout.
 
@@ -23,12 +23,14 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 - **Run `laura ready --session <id> --agent <name>` at the start of every new chat.** `laura ready` enables commenting and inline reviews. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop. `laura ready` prints JSON with:
   - `journal`: the journal path.
   - `experimental`: the experimental features enabled in this workspace. Use only those.
-    - `web` means your partner is using the workspace in a browser tab instead of the terminal. Every `laura` command works the same. Your partner sees each thread right below its line, or below its block in a markdown file, with your name on your comments.
-      - Laura hides a narrow pane's file and asks your partner to widen the window. Prefer stacking (`--dir v`) over a side-by-side split that leaves a pane narrow.
-      - In a markdown file, your partner sees rendered markdown and moves the cursor one block at a time (a heading, paragraph, list item, table, quote or code block), and one line at a time through code lines, table rows and nested list items. When your partner comments on one of those lines, Laura puts the comment on that line. Anywhere else in a block, Laura puts the comment on the block's first line. `laura highlight` on any line of a block highlights the whole block. To show your partner an image, save the image and the markdown file below the folder Laura started in, outside hidden folders, and reference the image by relative path, such as `![Flow](img/flow.png)`. Laura shows only the alt text of an image referenced by an absolute path or a remote URL. Link related files by relative path in what you write, such as `[Setup](setup.md#install)`. Your partner opens the file with a click, in a new pane or the pane that already shows it. You see an `open` event in the journal when Laura opens a new pane.
-      - When you open an HTML file you built, your partner sees the page with its scripts running. Keep the page's stylesheets, scripts, images and fonts in the page's folder or below it, outside hidden folders. Reference them by relative path, such as `css/site.css`, not `/css/site.css`. Put the page's data, such as JSON, in the page itself, since Laura serves only those file types. Don't use `alert()`, `localStorage` or cookies: Laura runs the page in a sandbox, where they throw or do nothing. Handle a form's submit in the page's script: Laura keeps the page in the pane when a form submits. A `method="dialog"` form still closes its `<dialog>`. For a page that reads keystrokes, such as a game, put `tabindex="0"` on the element that the user clicks, such as the canvas. Put it on that element itself, not on an element around it: a click inside an element with a `tabindex` keeps the keystrokes with Laura. Your partner clicks the element to play and presses `Esc` to go back to Laura. Your partner clicks an element to move the cursor to the line of its start tag, and comments on that line. To annotate an element, run `laura comment <line>` on the line of its start tag; your partner sees a pin with your initial and the thread's count on the element, while the element shows on the page. `laura highlight` outlines the elements that start on the highlighted lines, so point it at a start tag.
-    - `browser` means you can show your partner a page from a URL, such as your dev server, in a browser pane. See **Show your web app**. With `browser`, `laura ready` also prints `browser_url`, where a browser tool connects to the panes' pages. See **Work on a page together**.
+  - `web_app`: `true` when your partner uses the workspace in a browser tab, the web app. `false` when your partner started Laura with `laura --tui` and uses the workspace in the terminal, the TUI.
+  - `browser_url`: set when you can show your partner a page from a URL, such as your dev server, in a browser pane. See **Show your web app**. A browser tool connects to the panes' pages at `browser_url`. See **Work on a page together**.
   - `layout`: what's already open. `laura close` anything no longer relevant. If `layout` is `null`, run `laura layout`.
+- **Check `web_app` before you describe what your partner sees.** Every `laura` command works the same in the web app and the TUI. When `web_app` is `false`, your partner is in the TUI and sees markdown and HTML files as plain text. In the web app:
+  - Your partner sees each thread right below its line, or below its block in a markdown file, with your name on your comments.
+  - Laura hides a narrow pane's file and asks your partner to widen the window. Prefer stacking (`--dir v`) over a side-by-side split that leaves a pane narrow.
+  - In a markdown file, your partner sees rendered markdown and moves the cursor one block at a time (a heading, paragraph, list item, table, quote or code block), and one line at a time through code lines, table rows and nested list items. When your partner comments on one of those lines, Laura puts the comment on that line. Anywhere else in a block, Laura puts the comment on the block's first line. `laura highlight` on any line of a block highlights the whole block. To show your partner an image, save the image and the markdown file below the folder Laura started in, outside hidden folders, and reference the image by relative path, such as `![Flow](img/flow.png)`. Laura shows only the alt text of an image referenced by an absolute path or a remote URL. Link related files by relative path in what you write, such as `[Setup](setup.md#install)`. Your partner opens the file with a click, in a new pane or the pane that already shows it. You see an `open` event in the journal when Laura opens a new pane.
+  - When you open an HTML file you built, your partner sees the page with its scripts running. Keep the page's stylesheets, scripts, images and fonts in the page's folder or below it, outside hidden folders. Reference them by relative path, such as `css/site.css`, not `/css/site.css`. Put the page's data, such as JSON, in the page itself, since Laura serves only those file types. Don't use `alert()`, `localStorage` or cookies: Laura runs the page in a sandbox, where they throw or do nothing. Handle a form's submit in the page's script: Laura keeps the page in the pane when a form submits. A `method="dialog"` form still closes its `<dialog>`. For a page that reads keystrokes, such as a game, put `tabindex="0"` on the element that the user clicks, such as the canvas. Put it on that element itself, not on an element around it: a click inside an element with a `tabindex` keeps the keystrokes with Laura. Your partner clicks the element to play and presses `Esc` to go back to Laura. Your partner clicks an element to move the cursor to the line of its start tag, and comments on that line. To annotate an element, run `laura comment <line>` on the line of its start tag; your partner sees a pin with your initial and the thread's count on the element, while the element shows on the page. `laura highlight` outlines the elements that start on the highlighted lines, so point it at a start tag.
 - **When your partner names the task, run `laura ready` again** with the same `--session` and `--title "<2–4 words>"`, such as `--title "flat elevation profile"`. The title is the session label: Laura records the session label in the journal and keeps the latest one for the workspace.
 - **Run `laura layout`** before later opens or closes to see what's open, and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
@@ -68,7 +70,7 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         focus. With --panel on the same file, attaches in place and keeps
                         its threads. Errors (exit 1) with the reason when editor panes are
                         off, and with --highlight or --diff: editor panes show neither.
-laura open <url>        Experimental: show an http(s) URL in a browser pane. Takes the split
+laura open <url>        Show an http(s) URL in a browser pane. Takes the split
                         flags, --no-focus and --panel. Errors (exit 1) with --highlight,
                         --diff or --edit, and with the reason when browser panes are off.
 laura close [<id>]      Close a pane (default: the focused one). Errors (exit 1) while the
@@ -217,7 +219,7 @@ Laura marks added, modified and deleted lines in every file pane's gutter. On a 
 ### Show your web app
 
 **Motion**
-1. Only if `laura ready` listed `browser` under `experimental`: start the dev server, then run `laura open <url>`, such as `laura open http://localhost:5173`. Laura shows the page live in a browser pane. When the page changes, your partner sees the change. You can also open a page from the web for your partner, such as a library's documentation or an issue.
+1. Start the dev server, then run `laura open <url>`, such as `laura open http://localhost:5173`. Laura shows the page live in a browser pane. When the page changes, your partner sees the change. You can also open a page from the web for your partner, such as a library's documentation or an issue.
 2. Your partner clicks, scrolls and types in the page in the browser pane, and presses `Esc` to give the keystrokes back to Laura. Tell your partner what to try.
    - Your partner points at an element and presses `c` to comment on the element, then presses `Shift+S` to submit the inline review into the chat. See **Review** for the block.
    - To show your partner an element, run `laura highlight '<selector>' --pane <id>`. To ask about an element, run `laura comment '<selector>' "…" --pane <id>`. Use a selector that finds one element on the page that the pane shows now, such as `#email` or `main > h1`.
@@ -225,7 +227,7 @@ Laura marks added, modified and deleted lines in every file pane's gutter. On a 
    - If the command returns `… is showing a dialog: …`, answer the dialog with your browser tool or ask your partner to answer it in the pane. If it returns `… is still loading: …`, run the command again. Only if it returns `no element matches …`, check the selector against the page's code.
 3. To show another URL in the same pane, run `laura open <url> --panel <id>`.
 4. If your partner sees a notice that the page did not load, start the dev server, and ask your partner to press `Ctrl+R` in the pane.
-5. If `laura open <url>` returns `browser panes are experimental: …`, `browser panes need the web app: …` or `browser panes need Chrome or Edge: …`, don't retry. Give your partner the URL to open in their own browser instead.
+5. If `laura open <url>` returns `browser panes need the web app: …` or `browser panes need Chrome or Edge: …`, don't retry. Give your partner the URL to open in their own browser instead.
 6. If `laura open <url>` returns `couldn't start Laura's browser: …`, run `laura journal type=browser -n 1`. Tell your partner what Chrome's output in the event's `output` says.
 
 **Use when** you build or change a web app and want your partner to see the running page next to the chat, or to show your partner a documentation page or an issue next to the chat.
@@ -234,7 +236,7 @@ Laura marks added, modified and deleted lines in every file pane's gutter. On a 
 
 **Motion**
 1. Only if `laura ready` printed a `browser_url` that is not `null`: run `laura open <url>`. To move the pane to another page, run `laura open <url> --panel <id>`.
-2. If you have no browser tool (chrome-devtools-mcp or Playwright MCP), use only `laura` commands: open pages, highlight and comment. Suggest a browser tool only when your partner asks for something that needs one, such as clicking through a flow or reading the console. Link your partner to the setup in "Work on a page with the agent" at https://thomaseleff.github.io/laura-tui/content/web-app.md. Never install a browser tool yourself.
+2. If you have no browser tool (chrome-devtools-mcp or Playwright MCP), use only `laura` commands: open pages, highlight and comment. Suggest a browser tool only when your partner asks for something that needs one, such as clicking through a flow or reading the console. Link your partner to the setup in "Work on a page with the agent" at https://thomaseleff.github.io/laura-tui/content/workspace.md. Never install a browser tool yourself.
 3. With a browser tool, select the page whose title and URL match the pane in `laura layout`. Open pages for your partner with `laura open`, not with the tool. If you open a page with the tool, close the page when you are done, so each page in the tool's list stays a pane.
 4. Click, type, run scripts, and read the console and screenshots with the tool. Your partner sees each change live. A ring shows where you click, an outline shows the field where you type, and the pane header shows **Agent** while you click or type. Your screenshots and snapshots show the page without Laura's marks, threads or highlights.
 5. To show your partner an element, run `laura highlight '<selector>' --pane <id>`. To ask or answer a question on an element, run `laura comment '<selector>' "…" --pane <id>`.

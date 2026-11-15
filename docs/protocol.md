@@ -3,7 +3,7 @@
 The protocol is NDJSON over a socket, either a Windows named pipe or a Unix namespaced socket, that lets external processes tile panes and interact with a Laura workspace. All external interactions, including the `laura` CLI, flow through the protocol.
 
 > [!TIP]
-> Laura handles interactions in two ways: over the protocol, from an outside process, and in-process, inside the TUI. In-process interactions, like commenting on a line, scrolling, and submitting an inline review, don't use the protocol (see [In-process interactions](#in-process-interactions)).
+> Laura handles interactions in two ways: over the protocol, from an outside process, and in-process, inside the workspace. In-process interactions, like commenting on a line, scrolling, and submitting an inline review, don't use the protocol (see [In-process interactions](#in-process-interactions)).
 
 ## Addressing
 
@@ -33,7 +33,7 @@ Split a pane and render a file in the new pane, or show a page from a URL in a b
 
 <dl>
 <dt><code>path</code> · string · <strong>required</strong></dt>
-<dd>File to render, or an <code>http://</code> or <code>https://</code> URL for a <a href="web-app.md#show-a-web-app-in-a-browser-pane">browser pane</a> (experimental). With a URL, Laura returns <code>error</code> with <code>highlight</code>, <code>diff</code> or <code>edit</code>, and ignores <code>follow</code>. With <code>panel</code> on a browser pane, Laura loads the URL in the same pane.</dd>
+<dd>File to render, or an <code>http://</code> or <code>https://</code> URL for a <a href="workspace.md#show-a-web-app-in-a-browser-pane">browser pane</a>. With a URL, Laura returns <code>error</code> with <code>highlight</code>, <code>diff</code> or <code>edit</code>, and ignores <code>follow</code>. With <code>panel</code> on a browser pane, Laura loads the URL in the same pane.</dd>
 <dt><code>split</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to split.</dd>
 <dt><code>dir</code> · string · <em>optional — absent → inferred</em></dt>
@@ -443,7 +443,8 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 {
   "type": "ready",
   "journal": "~/.laura/sessions/&lt;session&gt;.ndjson",
-  "experimental": ["web", "browser"],
+  "experimental": ["editor"],
+  "web_app": true,
   "browser_url": "http://127.0.0.1:&lt;port&gt;",
   "layout": { "area": {}, "panes": [ … ] }
 }
@@ -453,7 +454,7 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 </tr>
 </table>
 
-`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); `browser`: [browser panes](cli.md#browser-panes), listed only when the web app runs and Laura found Chrome or Edge; see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `browser_url` is the shell's `LAURA_BROWSER_URL`, where the agent's browser tools connect to Laura's browser (see [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent)). `browser_url` is set only when `experimental` lists `browser`, and is `null` otherwise. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `web_app` is `true` when the user uses the web app, and `false` in the TUI. `browser_url` is the shell's `LAURA_BROWSER_URL`, where the agent's browser tools connect to Laura's browser (see [Work on a page with the agent](workspace.md#work-on-a-page-with-the-agent)). `browser_url` is set only when the web app runs and Laura found Chrome or Edge, and is `null` otherwise. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 A `ready` without `title` keeps the workspace's session label. A `ready` without `agent` for the same `session` keeps the session's agent name. A `ready` with a new `session` starts a new journal, and Laura writes the later events to the new journal.
 
@@ -487,13 +488,13 @@ Reserved for asking a file pane to reload. The `laura` CLI doesn't send `update`
 
 ## In-process interactions
 
-Laura handles the user's keystrokes inside the TUI process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
+Laura handles the user's keystrokes inside the Laura process, which already holds the layout, so in-process interactions never use the socket. The in-process interactions are:
 
 - comment (`c`), collapse/expand threads (`r`), jump to the next/prev thread (`n`/`N`), submit (`Shift+S`), and refresh (`Ctrl+R`)
 - focus (`Ctrl+P`), scrolling, diff toggle (`d`), and pause/resume a tail pane (`p`)
 
-See [navigating the TUI](navigation.md) for the in-TUI keystrokes for all interactions.
+See [Navigating the workspace](navigation.md) for the keystrokes for all interactions.
 
-The user's actions in the TUI or the [web app](web-app.md) aren't protocol messages, and the agent can't send them.
+The user's actions in the [workspace](workspace.md) aren't protocol messages, and the agent can't send them.
 
 Until the workspace receives a `ready` message, the user can't comment or submit an inline review.

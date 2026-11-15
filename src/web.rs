@@ -1,4 +1,4 @@
-//! The web app (#88): `laura --web` serves one workspace to a browser tab over a websocket.
+//! The web app (#88): `laura` serves one workspace to a browser tab over a websocket.
 //!
 //! Threads own the sockets; the loop that owns the `Tab` talks to the active view only through a
 //! channel pair in `sync`.
@@ -29,17 +29,8 @@ use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::{Block, escape};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
-/// The error when `LAURA_EXPERIMENTAL_WEB` isn't set.
-pub const FLAG_OFF: &str =
-    "the web app is experimental: set LAURA_EXPERIMENTAL_WEB=1 before you start Laura";
-
 /// The workspace's size until a view reports one.
 pub const DEFAULT_AREA: Rect = Rect::new(0, 0, 120, 40);
-
-/// The startup gate, as `editor::resolve` reads `LAURA_EXPERIMENTAL_EDITOR`.
-pub fn enabled() -> bool {
-    std::env::var("LAURA_EXPERIMENTAL_WEB").is_ok_and(|v| !v.is_empty() && v != "0")
-}
 
 const REFERRER_POLICY: &str = "no-referrer";
 /// `'unsafe-inline'` styles: pane rows carry inline `style`. Script only from Laura's own files,
@@ -205,6 +196,8 @@ pub fn nothing_yet(e: &tungstenite::Error) -> bool {
 /// The web app's server for one workspace. The loop that owns the `Tab` calls `sync` every frame.
 pub struct WebServer {
     url: String,
+    /// The page from `open_page`, until a view connects.
+    page: Option<PathBuf>,
     conns: Receiver<Conn>,
     view: Option<View>,
     area: Option<Rect>,
@@ -236,6 +229,7 @@ impl WebServer {
         });
         Ok(WebServer {
             url,
+            page: None,
             conns,
             view: None,
             area: None,
@@ -250,6 +244,29 @@ impl WebServer {
         &self.url
     }
 
+    /// A page that redirects to `url`, for the user's browser: the browser's command line, which
+    /// `ps` shows to other users, then holds only a path that they can't read (Jupyter's redirect
+    /// file). The page holds only the port and a hex token, so `url` needs no escaping.
+    pub fn open_page(&mut self, dir: &Path) -> Result<PathBuf> {
+        // `runtime_dir` creates only the env-chosen dirs; its per-OS fallback can be missing on a
+        // first launch, as can a snap's folder.
+        std::fs::create_dir_all(dir)?;
+        let path = dir.join(format!("open-{}.html", nonce(8)?));
+        let mut f = std::fs::OpenOptions::new();
+        f.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
+        let url = &self.url;
+        write!(
+            f.open(&path)?,
+            "<!doctype html><meta charset=\"utf-8\"><title>Laura</title>\
+             <meta http-equiv=\"refresh\" content=\"0;url={url}\">\
+             <script>location.replace(\"{url}\")</script>"
+        )?;
+        self.page = Some(path.clone());
+        Ok(path)
+    }
+
     /// The last view's workspace size in cells, kept after the view disconnects so the shell
     /// doesn't resize when a tab closes; `None` until a view first reports one.
     pub fn area(&self) -> Option<Rect> {
@@ -261,6 +278,10 @@ impl WebServer {
     /// this frame. Returns false once the user quits.
     pub fn sync(&mut self, tab: &mut Tab, changed: bool) -> bool {
         while let Ok((rx, tx)) = self.conns.try_recv() {
+            // The token is in the browser now: the page has done its job.
+            if let Some(page) = self.page.take() {
+                let _ = std::fs::remove_file(page);
+            }
             if let Some(old) = self.view.take() {
                 // A takeover drops the old view's draft hold.
                 tab.hold = false;
@@ -539,6 +560,9 @@ impl WebServer {
 
     /// Send `{"t":"exit"}` and wait (briefly) for the connection thread to write it.
     pub fn close(mut self) {
+        if let Some(page) = self.page.take() {
+            let _ = std::fs::remove_file(page);
+        }
         let Some(View { rx, tx, .. }) = self.view.take() else {
             return;
         };
@@ -782,7 +806,7 @@ fn segment(s: &str) -> bool {
 }
 
 /// `s` with every byte but `A-Za-z0-9-._~` percent-encoded.
-fn pct_encode(s: &str) -> String {
+pub(crate) fn pct_encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {

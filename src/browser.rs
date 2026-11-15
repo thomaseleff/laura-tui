@@ -1,4 +1,4 @@
-//! Browser panes (experimental, #107): Laura's own headless Chrome or Edge (Laura's browser)
+//! Browser panes (#107): Laura's own headless Chrome or Edge (Laura's browser)
 //! renders a URL, and its screencast streams to the web app. No other module talks CDP.
 //!
 //! Laura's loop runs the whole workspace on one thread, so nothing here waits on the page except
@@ -24,11 +24,8 @@ use serde_json::{Map, Value, json};
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
-/// The error when `LAURA_EXPERIMENTAL_BROWSER` isn't set.
-pub const FLAG_OFF: &str =
-    "browser panes are experimental: set LAURA_EXPERIMENTAL_BROWSER=1 before starting Laura";
-/// The error for a URL outside `laura --web`.
-pub const NEED_WEB: &str = "browser panes need the web app: start Laura with --web";
+/// The error for a URL in the TUI.
+pub const NEED_WEB: &str = "browser panes need the web app: start Laura without --tui";
 /// The error when Laura finds no browser, or `LAURA_BROWSER` names a missing file.
 pub const NO_BROWSER: &str =
     "browser panes need Chrome or Edge: install one or set LAURA_BROWSER to its path";
@@ -112,10 +109,6 @@ pub fn address(s: &str) -> Result<String, String> {
 /// The startup gate: the browser to run, or why browser panes are off. `LAURA_BROWSER` wins, with
 /// no fallback, so a wrong path reads as an error instead of another browser.
 pub fn resolve() -> Result<PathBuf, String> {
-    let on = std::env::var("LAURA_EXPERIMENTAL_BROWSER").is_ok_and(|v| !v.is_empty() && v != "0");
-    if !on {
-        return Err(FLAG_OFF.into());
-    }
     if let Some(p) = std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
         let p = PathBuf::from(p);
         return if p.is_file() {
@@ -128,6 +121,198 @@ pub fn resolve() -> Result<PathBuf, String> {
         .into_iter()
         .find(|p| p.is_file())
         .ok_or_else(|| NO_BROWSER.into())
+}
+
+/// The program that opens the user's browser, and the folder where that browser can read the page.
+pub struct Opener {
+    app: Option<PathBuf>,
+    pub dir: PathBuf,
+}
+
+/// The user's browser: an app window of Chrome or Edge, in `resolve`'s order, else the OS's
+/// default browser. On WSL, Laura's Linux candidates are often missing, so Windows's Chrome and
+/// Edge come first; they stay out of `candidates`, which Laura's browser runs over CDP.
+pub fn opener() -> Opener {
+    let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some();
+    let app = match std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
+        Some(p) => vec![PathBuf::from(p)],
+        None if wsl => {
+            let mut app: Vec<PathBuf> = [
+                "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+            // Only then ask Windows, since a WSL call into Windows takes noticeable time.
+            if !app.iter().any(|p| p.is_file()) {
+                app.extend(
+                    local_app_data().map(|d| d.join("Google/Chrome/Application/chrome.exe")),
+                );
+            }
+            app.extend(candidates());
+            app
+        }
+        None => candidates(),
+    };
+    let app = app.into_iter().find(|p| p.is_file());
+    let dir = snap_dir(app.as_deref()).unwrap_or_else(crate::journal::runtime_dir);
+    Opener { app, dir }
+}
+
+impl Opener {
+    /// Open the browser at `page`, a file in `self.dir`.
+    pub fn open(self, page: &Path) -> std::io::Result<()> {
+        let mut cmd = match self.app {
+            Some(p) => {
+                let url = file_url(&p, page)?;
+                let mut c = Command::new(p);
+                c.arg(format!("--app={url}"));
+                c
+            }
+            None if cfg!(windows) => {
+                let mut c = Command::new("cmd");
+                c.args(["/C", "start", ""]).arg(page);
+                c
+            }
+            None => {
+                let mut c = Command::new(if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                });
+                c.arg(page);
+                c
+            }
+        };
+        let name = cmd.get_program().to_string_lossy().into_owned();
+        // The browser outlives Laura: the terminal's Ctrl+C and hangup go to Laura's group only.
+        #[cfg(unix)]
+        cmd.process_group(0);
+        let start = Instant::now();
+        let mut child = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?;
+        // Chrome hands the page to a running Chrome and exits with 0; reap it so it leaves no zombie.
+        // A failed exit is the only sign that no browser opened (no display over SSH).
+        std::thread::spawn(move || {
+            if let Ok(status) = child.wait()
+                && !status.success()
+                // Later, the exit is the end of the user's own Chrome session, not a failed open.
+                && start.elapsed() < Duration::from_secs(5)
+            {
+                no_browser(format!("{name} exited with {status}"));
+            }
+        });
+        Ok(())
+    }
+}
+
+/// A snap browser (Ubuntu's Firefox, snap Chromium) can't read hidden folders or `/run/user`,
+/// only its own `~/snap/<name>/common`.
+fn snap_dir(app: Option<&Path>) -> Option<PathBuf> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let name = match app {
+        // `/snap/bin/<name>` links to `/usr/bin/snap`, which runs the snap that the link names.
+        Some(app) => {
+            let target = std::fs::canonicalize(app).ok()?;
+            if target.file_name()? != "snap" {
+                return None;
+            }
+            app.file_name()?.to_str()?.to_string()
+        }
+        None => {
+            let out = Command::new("xdg-mime")
+                .args(["query", "default", "text/html"])
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+                .ok()?;
+            let desktop = String::from_utf8(out.stdout).ok()?.trim().to_string();
+            // snapd names a snap's desktop file `<snap>_<app>.desktop`.
+            let (name, _) = desktop.split_once('_')?;
+            if name.contains('/')
+                || !Path::new("/var/lib/snapd/desktop/applications")
+                    .join(&desktop)
+                    .is_file()
+            {
+                return None;
+            }
+            name.to_string()
+        }
+    };
+    Some(std::env::home_dir()?.join("snap").join(name).join("common"))
+}
+
+/// The URL that Laura printed still works on this computer; over SSH, the TUI does.
+pub fn no_browser(reason: impl std::fmt::Display) {
+    eprintln!("Laura could not open a web browser: {reason}");
+    eprintln!("To use Laura in this terminal instead, press Ctrl+C and run laura --tui.");
+}
+
+/// The user's own %LOCALAPPDATA%, where a per-user Chrome lives, as a WSL path. Not every folder
+/// under `/mnt/c/Users`: any Windows user can write to `Public` and `All Users`. `cmd.exe` by its
+/// full path, since `appendWindowsPath=false` keeps it off PATH; run in a Windows folder, so it
+/// doesn't warn about a UNC one.
+fn local_app_data() -> Option<PathBuf> {
+    let out = Command::new("/mnt/c/Windows/System32/cmd.exe")
+        .args(["/d", "/c", "echo %LOCALAPPDATA%"])
+        .current_dir("/mnt/c/Windows/System32")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let win = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    // An unset variable echoes as itself.
+    if win.is_empty() || win.contains('%') {
+        return None;
+    }
+    let out = Command::new("wslpath").args(["-u", &win]).output().ok()?;
+    let unix = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (out.status.success() && !unix.is_empty()).then(|| PathBuf::from(unix))
+}
+
+/// `page` as a `file:` URL for `program`. A Windows browser that WSL starts reads the page
+/// through `\\wsl.localhost\<distro>`.
+fn file_url(program: &Path, page: &Path) -> std::io::Result<String> {
+    let exe = program
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+    let path = if cfg!(unix) && exe {
+        let out = Command::new("wslpath").arg("-w").arg(page).output()?;
+        let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() || win.is_empty() {
+            return Err(std::io::Error::other(format!(
+                "wslpath could not convert {}",
+                page.display()
+            )));
+        }
+        win
+    } else {
+        page.to_string_lossy().into_owned()
+    };
+    // A drive (`C:`) stays as is; `\\host\share` and `/abs` keep their leading slashes.
+    let path = path
+        .replace('\\', "/")
+        .split('/')
+        .map(|s| match s.as_bytes() {
+            [d, b':'] if d.is_ascii_alphabetic() => s.to_string(),
+            _ => crate::web::pct_encode(s),
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(if path.starts_with("//") {
+        format!("file:{path}")
+    } else if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    })
 }
 
 /// `LAURA_BROWSER_URL`: where the agent's browser tools reach Laura's browser on `port`.
