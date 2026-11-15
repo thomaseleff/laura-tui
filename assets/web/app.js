@@ -281,6 +281,16 @@ function fitHead(el) {
   }
 }
 
+// The line shows as a ⚠ when it overflows its box (CSS keys on `data-clip`); a name's length
+// decides that, so no container size can. A Range, since `.narrow` centers its text and text
+// that overflows at the top doesn't count in `scrollHeight`.
+function fitNarrow(el) {
+  const nw = el.querySelector(".narrow"), r = document.createRange();
+  el.removeAttribute("data-clip");
+  r.selectNodeContents(nw);
+  el.toggleAttribute("data-clip", r.getBoundingClientRect().height > nw.clientHeight);
+}
+
 function paintHead(el, p) {
   const q = s => el.querySelector(".head " + s);
   const show = (s, on) => (q(s).hidden = !on);
@@ -333,10 +343,14 @@ function paintHead(el, p) {
   pb.innerHTML = ic(pb.dataset.ic = p.paused ? "play" : "pause");
   pb.dataset.tip = pt;
   pb.setAttribute("aria-label", pt);
-  // The narrowest pane shows only a ⚠, whose tooltip reads the line.
+  // A pane with no room for the line shows only a ⚠, whose tooltip reads the line. The fit
+  // forces a layout, and this runs on each frame.
   const nw = el.querySelector(".narrow"), nt = strings.narrow?.replace("{name}", p.name) ?? "";
-  nw.textContent = nw.dataset.tip = nt;
-  nw.setAttribute("aria-label", nt);
+  if (nw.textContent !== nt) {
+    nw.textContent = nw.dataset.tip = nt;
+    nw.setAttribute("aria-label", nt);
+    fitNarrow(el);
+  }
 }
 
 // A header button does what its keystroke does.
@@ -416,6 +430,9 @@ function makePane(p) {
   new ResizeObserver(() => place(p.id)).observe(rows);
   el.lags = [];
   new ResizeObserver(() => sizeView(p.id)).observe(el.querySelector(".view"));
+  // The line's box changes with the pane and when the line shows; `data-clip` changes only the
+  // font, so this doesn't loop.
+  new ResizeObserver(() => fitNarrow(el)).observe(el.querySelector(".narrow"));
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
