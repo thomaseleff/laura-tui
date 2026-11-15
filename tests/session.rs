@@ -72,14 +72,24 @@ fn a_second_ready_switches_the_session_and_keeps_the_title() -> Result<()> {
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
     let mut tab = Tab::spawn(cmd, 24, 80)?;
 
-    drive_tab(&mut tab, &["ready", "--session", "a", "--title", "one"]);
+    drive_tab(
+        &mut tab,
+        &["ready", "--session", "a", "--agent", "x", "--title", "one"],
+    );
     drive_tab(&mut tab, &["open", p1]);
     assert_eq!(tab.title.as_deref(), Some("one"));
+
+    // Setting a title with a second `ready` keeps the session's agent name.
+    drive_tab(
+        &mut tab,
+        &["ready", "--session", "a", "--title", "one-more"],
+    );
+    assert_eq!(tab.title.as_deref(), Some("one-more"));
 
     // A new chat without --title keeps the workspace's title.
     drive_tab(&mut tab, &["ready", "--session", "b"]);
     drive_tab(&mut tab, &["open", p2]);
-    assert_eq!(tab.title.as_deref(), Some("one"));
+    assert_eq!(tab.title.as_deref(), Some("one-more"));
 
     drive_tab(&mut tab, &["ready", "--session", "b", "--title", "two"]);
     assert_eq!(tab.title.as_deref(), Some("two"));
@@ -99,8 +109,13 @@ fn a_second_ready_switches_the_session_and_keeps_the_title() -> Result<()> {
     let ready = &events(home, "a", "ready")?[0];
     assert!(ready["pid"].is_u64(), "ready has no pid: {ready}");
     assert_eq!(ready["title"], "one");
+    let readies = events(home, "a", "ready")?;
+    assert_eq!(readies.len(), 2);
+    assert!(readies.iter().all(|r| r["agent"] == "x"), "{readies:?}");
     let readies = events(home, "b", "ready")?;
     assert_eq!(readies[0]["title"], Value::Null);
+    // A new session doesn't inherit the earlier agent name.
+    assert!(readies[0].get("agent").is_none(), "{}", readies[0]);
     assert_eq!(readies.last().unwrap()["title"], "two");
     Ok(())
 }

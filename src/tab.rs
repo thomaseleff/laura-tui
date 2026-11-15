@@ -17,7 +17,7 @@ use serde_json::json;
 use crate::browser::{self, Browser, Cdp, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, is_runtime_temp, runtime_dir};
+use crate::journal::{Journal, is_runtime_temp, runtime_dir, session_path};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
 use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{
@@ -1831,6 +1831,13 @@ impl Tab {
                 self.agent = true;
                 let session =
                     session.unwrap_or_else(|| format!("laura-{}-{}", std::process::id(), self.seq));
+                // A re-`ready` of the same session (to set a title) keeps its agent name.
+                let agent = agent.or_else(|| {
+                    self.journal
+                        .as_ref()
+                        .filter(|j| j.path() == session_path(&session))
+                        .and_then(Journal::agent)
+                });
                 let journal = Journal::open(&session, agent);
                 let path = journal.path().to_string_lossy().into_owned();
                 journal.log(json!({"type": "ready", "pid": std::process::id(), "title": title}));

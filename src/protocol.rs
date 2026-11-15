@@ -147,7 +147,8 @@ pub enum Message {
     Layout,
     /// Mark the tab as hosting an agent; enables inline review submission. Optionally names the
     /// journal `session`, the `agent` and the session label (`title`); the reply carries the
-    /// journal path. A `ready` without `title` keeps the workspace's label.
+    /// journal path. A `ready` without `title` keeps the workspace's label. A `ready` without
+    /// `agent` for the same `session` keeps the session's agent name.
     Ready {
         #[serde(default)]
         session: Option<String>,
