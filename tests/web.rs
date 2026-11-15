@@ -1226,6 +1226,51 @@ fn a_code_block_that_ends_the_file_shows_its_removed_lines_above_it() -> Result<
 }
 
 #[test]
+fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
+    // #142: no line comes after the deleted ones, so the gap goes below the last row.
+    let mut rig = Rig::new()?;
+    let (_dir, txt) = changed_file("f.txt", "one\ntwo\nthree\n", "one\ntwo\n")?;
+    let (_dir, md) = changed_file("doc.md", "one\n\ntwo\n\nthree\n", "one\n\ntwo\n")?;
+    rig.drive(&["open", &txt]);
+    rig.drive(&["open", &md]);
+    rig.drive(&["comment", "--pane", "2", "3", "agent note"]);
+    // A fresh view per pane: each view replays every pane, and `pane_frame` drops the other pane's.
+    let html = |rig: &mut Rig, id| {
+        let mut ws = rig.connect();
+        pane_frame(rig, &mut ws, id)["html"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let txt_html = html(&mut rig, 1);
+    let rows = rows(&txt_html);
+    let at = |s: &str| {
+        rows.iter()
+            .position(|(_, t)| t.contains(s))
+            .unwrap_or_else(|| panic!("no {s}: {rows:?}"))
+    };
+    assert!(at("two") < at("1 line removed"), "{rows:?}");
+    // The removed-lines row carries the last line's `data-line`; `gap` keeps a thread's tint off it.
+    let class = |s: &str| {
+        let row = txt_html
+            .split(r#"<div class="row"#)
+            .find(|r| r.contains(s))
+            .unwrap_or_else(|| panic!("no {s}: {txt_html}"));
+        row[..row.find('"').unwrap_or(0)].to_string()
+    };
+    assert_eq!(class("1 line removed"), " gap");
+    assert!(!class("two").contains("gap"), "{txt_html}");
+
+    let html = html(&mut rig, 2);
+    let at = |s: &str| html.find(s).unwrap_or_else(|| panic!("no {s}: {html}"));
+    assert!(at("<p>two") < at("2 lines removed"), "{html}");
+    // The browser draws the card from `threads`; the rows hold no copy of it.
+    assert!(!html.contains('╭'), "{html}");
+    Ok(())
+}
+
+#[test]
 fn a_markdown_block_shows_its_removed_lines_above_it() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

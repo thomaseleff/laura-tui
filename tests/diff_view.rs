@@ -145,6 +145,20 @@ fn open_diff_shows_removed_text_then_toggles_off() -> Result<()> {
 }
 
 #[test]
+fn an_end_of_file_deletion_shows_below_the_last_row_in_the_diff_view() -> Result<()> {
+    // #142: the diff view already drew this right; keep it so.
+    let (_dir, path) = repo_with("f.txt", "one\ntwo\nthree\n")?;
+    std::fs::write(&path, "one\ntwo\n")?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus", "--diff"]).parse()?;
+    let text = rows_text(&tab, id);
+    let at = |s: &str| text.find(s).unwrap_or_else(|| panic!("no {s}:\n{text}"));
+    assert!(at(" two") < at("-three"), "{text}");
+    Ok(())
+}
+
+#[test]
 fn markdown_diff_shows_the_raw_source_patch() -> Result<()> {
     // #32: the block-map unblocks markdown diff. Rendered view lights a change bar on the row whose
     // source range covers the edit; diff-view drops the reflowed prose for a raw-source `+`/`-` patch.

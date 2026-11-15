@@ -263,6 +263,48 @@ fn a_deletion_at_a_closing_fence_that_ends_the_file_shows_on_the_last_row() -> R
 }
 
 #[test]
+fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
+    // #142: no line comes after the deleted ones, so the gap goes below the last row, above its card.
+    let (_dir, path) = repo_with("f.txt", "one\ntwo\nthree\n")?;
+    std::fs::write(&path, "one\ntwo\n")?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let text = |tab: &Tab| -> Vec<String> {
+        tab.panels[&id]
+            .layout(78)
+            .rows
+            .iter()
+            .map(|r| r.text())
+            .collect()
+    };
+    let at = |rows: &[String], s: &str| {
+        rows.iter()
+            .position(|r| r.contains(s))
+            .unwrap_or_else(|| panic!("no {s}: {rows:#?}"))
+    };
+    let rows = text(&tab);
+    assert!(at(&rows, "two") < at(&rows, "1 line removed"), "{rows:#?}");
+    let layout = tab.panels[&id].layout(78);
+    assert_eq!(layout.rows[at(&rows, "two")].change, None);
+    assert!(
+        !tab.panels[&id]
+            .changes
+            .iter()
+            .any(|c| matches!(c, Some(ChangeKind::Removed(_)))),
+        "the last line carries no removed mark"
+    );
+
+    drive(
+        &mut tab,
+        &["comment", "--pane", &id.to_string(), "2", "note"],
+    );
+    let rows = text(&tab);
+    assert!(at(&rows, "1 line removed") < at(&rows, "╭"), "{rows:#?}");
+    Ok(())
+}
+
+#[test]
 fn change_bar_runs_every_wrapped_row() -> Result<()> {
     // #35: the change bar paints every visual row of a changed wrapped paragraph, while
     // the gutter number stays on the first row only.

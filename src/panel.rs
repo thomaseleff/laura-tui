@@ -1,7 +1,7 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
 
 use std::cell::Cell;
-use std::ops::RangeInclusive;
+use std::ops::{Range, RangeInclusive};
 use std::time::SystemTime;
 
 use ratatui::style::{Color, Style};
@@ -884,6 +884,33 @@ impl Panel {
         let mut rows = vec![];
         let mut starts = vec![];
         let mut block_start = 0;
+        let gap = |n: usize, line: usize| {
+            let word = if n == 1 { "line" } else { "lines" };
+            let mut label = format!("── {n} {word} removed ");
+            // +2 so the separator still reaches the pane edge from the caret-aligned indent (+3, not +5).
+            let dashes = (tw + 2).saturating_sub(label.chars().count());
+            label.push_str(&"─".repeat(dashes));
+            PanelRow {
+                line,
+                gutter: None,
+                spans: vec![Span::styled(
+                    label,
+                    Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
+                )],
+                comment: true,
+                change: None,
+                review: None,
+            }
+        };
+        // An EOF deletion has no line below it, so its gap goes below the last line (#142). An emptied
+        // file shows no gap.
+        let eof_n: usize = self
+            .removed
+            .iter()
+            .filter(|(at, _)| !self.source_lines.is_empty() && *at == self.source_lines.len())
+            .map(|(_, texts)| texts.len())
+            .sum();
+        let mut eof = None;
         for (i, line) in self.styled.iter().enumerate() {
             // Rows of one block share a source range; its first row is where threads key.
             if i == 0 || self.source[i] != self.source[i - 1] {
@@ -893,22 +920,7 @@ impl Panel {
             // *above* line `i`. Pushed before `starts[i]` so the row sits outside
             // line `i`'s selectable span and the `starts` invariant holds.
             if let Some(n) = self.removed_in_row(i) {
-                let word = if n == 1 { "line" } else { "lines" };
-                let mut label = format!("── {n} {word} removed ");
-                // +2 so the separator still reaches the pane edge from the caret-aligned indent (+3, not +5).
-                let dashes = (tw + 2).saturating_sub(label.chars().count());
-                label.push_str(&"─".repeat(dashes));
-                rows.push(PanelRow {
-                    line: i,
-                    gutter: None,
-                    spans: vec![Span::styled(
-                        label,
-                        Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
-                    )],
-                    comment: true,
-                    change: None,
-                    review: None,
-                });
+                rows.push(gap(n, i));
             }
             starts.push(rows.len());
             let nowrap = self.nowrap.get(i).copied().unwrap_or(false);
@@ -954,6 +966,11 @@ impl Panel {
                         .map(|t| t.collapsed),
                 });
             }
+            // The EOF gap sits between the last line and its card, as the web app orders them.
+            if i + 1 == self.styled.len() && eof_n > 0 {
+                eof = Some(rows.len()..rows.len() + 1);
+                rows.push(gap(eof_n, i));
+            }
             // A folded block's card lands after its last row so it never splits the block (#70).
             if self.source.get(i + 1) != self.source.get(i) {
                 rows.extend(self.thread_rows(block_start, i, inner_w));
@@ -963,6 +980,7 @@ impl Panel {
         // stays valid.
         box_fenced(&mut rows, &self.styled, &self.nowrap);
         PanelLayout {
+            eof: eof.unwrap_or(rows.len()..rows.len()),
             rows,
             starts,
             gutter_width,
@@ -1029,8 +1047,10 @@ impl Panel {
                 });
             }
         }
+        let eof_start = rows.len();
         removed_at(&mut rows, line_count); // trailing EOF deletion
         PanelLayout {
+            eof: eof_start..rows.len(),
             rows,
             starts,
             gutter_width,
@@ -1182,6 +1202,9 @@ pub struct PanelLayout {
     pub rows: Vec<PanelRow>,
     pub starts: Vec<usize>,
     pub gutter_width: usize,
+    /// The rows of a deletion at the end of the file, below the last line. Empty, at `rows.len()`,
+    /// when there is none.
+    pub eof: Range<usize>,
 }
 
 /// The last row belonging to source `line`, scanning forward from its `starts` entry.

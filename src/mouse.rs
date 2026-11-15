@@ -170,7 +170,9 @@ pub fn extract(buf: &Buffer, inner: Rect, anchor: (u16, u16), head: (u16, u16)) 
 /// Panel twin of `extract`: reads the same drawn glyphs but drops the leading `gutter` columns and
 /// rejoins a source line's soft-wrapped rows with a space — only *distinct* source lines break with
 /// `\n`, so a drag copies clean source, not gutter digits or display wrapping. `off` is the panel's
-/// scroll offset; `line_at[layout_row]` maps a laid-out row to its source line.
+/// scroll offset; `line_at[layout_row]` maps a laid-out row to its source line, `None` for a comment
+/// row (a removed-lines row or a thread card row), which always takes a line of its own. Rows past
+/// `line_at` (below the file) are not copied.
 ///
 /// ponytail: a word hard-split mid-token across rows (word wider than the pane) rejoins with a stray
 /// space — rare; live with it until it bites.
@@ -179,15 +181,19 @@ pub fn extract_panel(
     inner: Rect,
     gutter: u16,
     off: usize,
-    line_at: &[usize],
+    line_at: &[Option<usize>],
     anchor: (u16, u16),
     head: (u16, u16),
 ) -> String {
     let (start, end) = normalize(anchor, head);
     let text_x0 = inner.x + gutter;
     let mut out = String::new();
-    let mut prev_line: Option<usize> = None;
+    let mut prev: Option<Option<usize>> = None; // None before the first row
     for y in start.1..=end.1 {
+        // `off + y` only grows, so every later row is below the file too.
+        let Some(&line) = line_at.get(off + (y - inner.y) as usize) else {
+            break;
+        };
         let (x0, x1) = row_span(inner, start, end, y);
         let mut row = String::new();
         for x in x0.max(text_x0)..=x1 {
@@ -196,12 +202,15 @@ pub fn extract_panel(
             }
         }
         let row = row.trim_end();
-        let line = line_at.get(off + (y - inner.y) as usize).copied();
-        if let Some(p) = prev_line {
-            out.push(if line == Some(p) { ' ' } else { '\n' });
+        if let Some(p) = prev {
+            out.push(if line.is_some() && line == p {
+                ' '
+            } else {
+                '\n'
+            });
         }
         out.push_str(row);
-        prev_line = line;
+        prev = Some(line);
     }
     out
 }
@@ -397,7 +406,7 @@ mod tests {
         for (y, s) in [" 1 hello", "   world", " 2 bye"].iter().enumerate() {
             buf.set_string(0, y as u16, s, ratatui::style::Style::default());
         }
-        let line_at = [0usize, 0, 1];
+        let line_at = [Some(0), Some(0), Some(1)];
         // Whole selection: gutter dropped, wrap rejoined with a space, distinct line breaks.
         assert_eq!(
             extract_panel(&buf, inner, 3, 0, &line_at, (3, 0), (5, 2)),
@@ -407,6 +416,25 @@ mod tests {
         assert_eq!(
             extract_panel(&buf, inner, 3, 0, &line_at, (5, 0), (5, 2)),
             "llo world\nbye"
+        );
+        // A removed-lines row tagged with line 1 still takes a line of its own; row 2 is below the file.
+        let inner = Rect::new(0, 0, 22, 3);
+        let mut buf = Buffer::empty(inner);
+        for (y, s) in [" 2 bye", "   ── 1 line removed"].iter().enumerate() {
+            buf.set_string(0, y as u16, s, ratatui::style::Style::default());
+        }
+        assert_eq!(
+            extract_panel(&buf, inner, 3, 0, &[Some(1), None], (3, 0), (21, 1)),
+            "bye\n── 1 line removed"
+        );
+        // Rows below the file copy nothing.
+        assert_eq!(
+            extract_panel(&buf, inner, 3, 0, &[Some(1)], (3, 0), (21, 2)),
+            "bye"
+        );
+        assert_eq!(
+            extract_panel(&buf, inner, 3, 0, &[Some(1)], (3, 1), (21, 2)),
+            ""
         );
     }
 

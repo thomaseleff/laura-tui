@@ -688,8 +688,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             Some(panel) => {
                                 let layout = panel.layout(inner.width as usize);
                                 let off = panel.scroll_offset(&layout, inner.height as usize);
-                                let line_at: Vec<usize> =
-                                    layout.rows.iter().map(|r| r.line).collect();
+                                let line_at: Vec<Option<usize>> = layout
+                                    .rows
+                                    .iter()
+                                    .map(|r| (!r.comment).then_some(r.line))
+                                    .collect();
                                 let gutter = layout.gutter_width as u16 + 5;
                                 mouse::extract_panel(
                                     buf, inner, gutter, off, &line_at, sel.anchor, sel.head,
