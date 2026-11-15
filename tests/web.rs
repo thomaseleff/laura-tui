@@ -2996,24 +2996,24 @@ impl Drop for KillPid {
     }
 }
 
+/// Laura in a terminal: the process, the terminal and the terminal's output.
 #[cfg(unix)]
-#[test]
-fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Result<()> {
+type Terminal = (
+    Box<dyn portable_pty::Child + Send + Sync>,
+    Box<dyn portable_pty::MasterPty + Send>,
+    mpsc::Receiver<Vec<u8>>,
+);
+
+/// `laura -- /bin/sh` in a terminal in `dir`, with `LAURA_BROWSER` = `stub` and the runtime folder
+/// at `<dir>/laura`, where Laura writes the page that it opens the browser at.
+#[cfg(unix)]
+fn laura_in_a_terminal(dir: &Path, stub: &str) -> Result<Terminal> {
     use std::os::unix::fs::PermissionsExt;
 
     isolate_home();
-    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
-    let stub = dir.path().join("browser.sh");
-    // The traps go in before `args`, so the test sends Ctrl+C only once they catch it.
-    std::fs::write(
-        &stub,
-        "#!/bin/sh\nd=\"$(dirname \"$0\")\"\necho $$ > \"$d/pid\"\n\
-         trap 'echo INT >> \"$d/signals\"' INT\ntrap 'echo HUP >> \"$d/signals\"' HUP\n\
-         echo \"$@\" > \"$d/args.tmp\" && mv \"$d/args.tmp\" \"$d/args\"\n\
-         while :; do sleep 1; done\n",
-    )?;
-    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))?;
-    let _stub = KillPid(dir.path().join("pid"));
+    let browser = dir.join("browser.sh");
+    std::fs::write(&browser, format!("#!/bin/sh\n{stub}"))?;
+    std::fs::set_permissions(&browser, std::fs::Permissions::from_mode(0o755))?;
     let pty = portable_pty::native_pty_system().openpty(portable_pty::PtySize {
         rows: 24,
         cols: 200,
@@ -3022,11 +3022,12 @@ fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Resul
     })?;
     let mut cmd = portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_laura"));
     cmd.args(["--", "/bin/sh"]);
-    cmd.cwd(dir.path());
+    cmd.cwd(dir);
     cmd.env("HOME", env!("CARGO_TARGET_TMPDIR"));
-    cmd.env("LAURA_BROWSER", &stub);
+    cmd.env("LAURA_BROWSER", &browser);
+    cmd.env("LAURA_RUNTIME", dir.join("laura"));
     cmd.env_remove("LAURA_TAB");
-    let mut laura = pty.slave.spawn_command(cmd)?;
+    let laura = pty.slave.spawn_command(cmd)?;
     drop(pty.slave);
     let mut reader = pty.master.try_clone_reader()?;
     let (tx, rx) = mpsc::channel();
@@ -3036,19 +3037,54 @@ fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Resul
             let _ = tx.send(buf[..n].to_vec());
         }
     });
+    Ok((laura, pty.master, rx))
+}
+
+/// The pages that Laura wrote in `runtime` to open the browser at.
+#[cfg(unix)]
+fn open_pages(runtime: &Path) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(runtime)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("open-") && n.ends_with(".html"))
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    // The traps go in before `args`, so the test sends Ctrl+C only once they catch it.
+    let (mut laura, master, rx) = laura_in_a_terminal(
+        dir.path(),
+        "d=\"$(dirname \"$0\")\"\necho $$ > \"$d/pid\"\n\
+         trap 'echo INT >> \"$d/signals\"' INT\ntrap 'echo HUP >> \"$d/signals\"' HUP\n\
+         echo \"$@\" > \"$d/args.tmp\" && mv \"$d/args.tmp\" \"$d/args\"\n\
+         while :; do sleep 1; done\n",
+    )?;
+    let _stub = KillPid(dir.path().join("pid"));
     let mut out = String::new();
     let start = Instant::now();
-    let token = loop {
+    let url = loop {
         if let Ok(b) = rx.recv_timeout(Duration::from_millis(100)) {
             out.push_str(&String::from_utf8_lossy(&b));
         }
         if let Some(line) = out.split('\n').find(|l| l.contains("/?t="))
             && line.ends_with('\r')
         {
-            break port_token(line.trim()).1;
+            break line.trim().to_string();
         }
         assert!(start.elapsed() < common::DEADLINE, "no URL: {out:?}");
     };
+    let token = port_token(&url).1;
     let args = dir.path().join("args");
     while !args.exists() {
         assert!(
@@ -3058,15 +3094,25 @@ fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Resul
         thread::sleep(Duration::from_millis(50));
     }
     let args = std::fs::read_to_string(&args)?;
-    assert!(
-        args.starts_with("--app=http://127.0.0.1:") && args.contains("/?o="),
-        "{args}"
+    let runtime = dir.path().join("laura");
+    let pages = open_pages(&runtime);
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    assert_eq!(
+        args.trim(),
+        format!("--app=file://{}", pages[0].display()),
+        "the browser opened another page"
     );
     assert!(
         !args.contains(&token),
         "the token is on the command line: {args}"
     );
-    pty.master.take_writer()?.write_all(b"\x03")?;
+    assert!(std::fs::read_to_string(&pages[0])?.contains(&url));
+    assert_eq!(
+        std::fs::metadata(&pages[0])?.permissions().mode() & 0o777,
+        0o600,
+        "other users can read the page"
+    );
+    master.take_writer()?.write_all(b"\x03")?;
     while laura.try_wait()?.is_none() {
         assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
         thread::sleep(Duration::from_millis(50));
@@ -3080,22 +3126,51 @@ fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Resul
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
-fn the_open_code_works_once() -> Result<()> {
-    let rig = Rig::new()?;
-    let open = rig.web.open_url()?;
-    let path = open
-        .strip_prefix(&format!("http://127.0.0.1:{}", rig.port))
-        .ok_or_else(|| anyhow!("not this server: {open}"))?;
-    let first = get(rig.port, path)?;
-    assert!(first.starts_with("HTTP/1.1 303"), "{first}");
+fn a_browser_that_fails_shows_why() -> Result<()> {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    let (mut laura, master, rx) = laura_in_a_terminal(dir.path(), "exit 3\n")?;
+    let mut out = String::new();
+    let start = Instant::now();
+    while !out.contains("exited with") {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(100)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no message: {out:?}");
+    }
     assert!(
-        first.contains(&format!("Location: /?t={}\r\n", rig.token)),
-        "{first}"
+        out.contains("Laura could not open a web browser:"),
+        "{out:?}"
     );
-    let again = get(rig.port, path)?;
-    assert!(again.starts_with("HTTP/1.1 200"), "{again}");
-    assert!(!again.contains(&rig.token), "{again}");
+    master.take_writer()?.write_all(b"\x03")?;
+    while laura.try_wait()?.is_none() {
+        assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
+        thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
+#[test]
+fn the_open_page_redirects_to_the_workspace_until_a_view_connects() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let page = rig.web.open_page()?;
+    assert!(
+        std::fs::read_to_string(&page)?.contains(rig.web.url()),
+        "the page doesn't redirect to the workspace"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&page)?.permissions().mode() & 0o777,
+            0o600,
+            "other users can read the page"
+        );
+    }
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    assert!(!page.exists(), "the page outlived the view's connection");
     Ok(())
 }
 

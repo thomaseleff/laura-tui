@@ -123,10 +123,11 @@ pub fn resolve() -> Result<PathBuf, String> {
         .ok_or_else(|| NO_BROWSER.into())
 }
 
-/// Open the user's browser at `url`: an app window of Chrome or Edge, in `resolve`'s order, else
-/// the OS's default browser. On WSL, Laura's Linux candidates are often missing, so Windows's
-/// Chrome and Edge come first; they stay out of `candidates`, which Laura's browser runs over CDP.
-pub fn open_app(url: &str) -> std::io::Result<()> {
+/// Open the user's browser at `page`, a file: an app window of Chrome or Edge, in `resolve`'s
+/// order, else the OS's default browser. On WSL, Laura's Linux candidates are often missing, so
+/// Windows's Chrome and Edge come first; they stay out of `candidates`, which Laura's browser runs
+/// over CDP.
+pub fn open_app(page: &Path) -> std::io::Result<()> {
     let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some();
     let app = match std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
         Some(p) => vec![PathBuf::from(p)],
@@ -151,28 +152,29 @@ pub fn open_app(url: &str) -> std::io::Result<()> {
         .collect(),
         None => candidates(),
     };
-    let (mut cmd, opener) = match app.into_iter().find(|p| p.is_file()) {
+    let mut cmd = match app.into_iter().find(|p| p.is_file()) {
         Some(p) => {
+            let url = file_url(&p, page)?;
             let mut c = Command::new(p);
             c.arg(format!("--app={url}"));
-            (c, None)
+            c
         }
         None if cfg!(windows) => {
             let mut c = Command::new("cmd");
-            c.args(["/C", "start", "", url]);
-            (c, Some("cmd"))
+            c.args(["/C", "start", ""]).arg(page);
+            c
         }
         None => {
-            let name = if cfg!(target_os = "macos") {
+            let mut c = Command::new(if cfg!(target_os = "macos") {
                 "open"
             } else {
                 "xdg-open"
-            };
-            let mut c = Command::new(name);
-            c.arg(url);
-            (c, Some(name))
+            });
+            c.arg(page);
+            c
         }
     };
+    let name = cmd.get_program().to_string_lossy().into_owned();
     // The browser outlives Laura: the terminal's Ctrl+C and hangup go to Laura's group only.
     #[cfg(unix)]
     cmd.process_group(0);
@@ -181,16 +183,54 @@ pub fn open_app(url: &str) -> std::io::Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    // Chrome forks and exits when a window is already open; reap it so it leaves no zombie. Only
-    // an opener's exit status tells whether the browser opened.
+    // Chrome hands the page to a running Chrome and exits with 0; reap it so it leaves no zombie.
+    // A failed exit is the only sign that no browser opened (no display over SSH).
     std::thread::spawn(move || {
-        if let (Ok(status), Some(name)) = (child.wait(), opener)
+        if let Ok(status) = child.wait()
             && !status.success()
         {
             eprintln!("Laura could not open a web browser: {name} exited with {status}");
         }
     });
     Ok(())
+}
+
+/// `page` as a `file:` URL for `program`. A Windows browser that WSL starts reads the page
+/// through `\\wsl.localhost\<distro>`.
+fn file_url(program: &Path, page: &Path) -> std::io::Result<String> {
+    let exe = program
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+    let path = if cfg!(unix) && exe {
+        let out = Command::new("wslpath").arg("-w").arg(page).output()?;
+        let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() || win.is_empty() {
+            return Err(std::io::Error::other(format!(
+                "wslpath could not convert {}",
+                page.display()
+            )));
+        }
+        win
+    } else {
+        page.to_string_lossy().into_owned()
+    };
+    // A drive (`C:`) stays as is; `\\host\share` and `/abs` keep their leading slashes.
+    let path = path
+        .replace('\\', "/")
+        .split('/')
+        .map(|s| match s.as_bytes() {
+            [d, b':'] if d.is_ascii_alphabetic() => s.to_string(),
+            _ => crate::web::pct_encode(s),
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(if path.starts_with("//") {
+        format!("file:{path}")
+    } else if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    })
 }
 
 /// `LAURA_BROWSER_URL`: where the agent's browser tools reach Laura's browser on `port`.
