@@ -27,10 +27,7 @@ pub fn chrome() -> Option<(PathBuf, MutexGuard<'static, ()>)> {
         return None;
     }
     static ONE: Mutex<()> = Mutex::new(());
-    // SAFETY: set before any test reads it, under the lock; std's env lock serializes it with std's
-    // own readers.
     let guard = ONE.lock().unwrap_or_else(PoisonError::into_inner);
-    unsafe { std::env::set_var("LAURA_EXPERIMENTAL_BROWSER", "1") };
     match browser::resolve() {
         Ok(path) => Some((path, guard)),
         Err(e) => {
@@ -391,7 +388,7 @@ pub fn serve() -> String {
 /// `Rig::new` without its isolated home: Chrome on Windows doesn't start with `USERPROFILE` moved.
 /// No test here runs `ready`, so nothing writes the journal.
 pub fn bare() -> Result<Rig> {
-    hosted(Err(browser::FLAG_OFF.into()))
+    hosted(Err(browser::NO_BROWSER.into()))
 }
 
 /// `bare`, with browser panes resolved to `path` as `laura --web` resolves them.

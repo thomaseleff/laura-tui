@@ -229,8 +229,6 @@ fn a_killed_laura_closes_its_browser() -> Result<()> {
     let mut laura = Kill(
         Command::new(env!("CARGO_BIN_EXE_laura"))
             .args(["--web", "--", "/bin/sh", "-c", &shell])
-            .env("LAURA_EXPERIMENTAL_WEB", "1")
-            .env("LAURA_EXPERIMENTAL_BROWSER", "1")
             .env("LAURA_BROWSER", &hang)
             .env_remove("LAURA_TAB")
             .stdin(Stdio::null())

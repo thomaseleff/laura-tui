@@ -8,6 +8,7 @@ extra_css = ["stylesheets/extra.css"]
 nav = [
   { "Home" = "index.md" },
   { "Tutorial" = "tutorial.md" },
+  { "How Laura got here" = "history.md" },
   { "How-to guides" = [
     { "Web app" = "web-app.md" },
   ] },

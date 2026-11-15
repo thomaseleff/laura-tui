@@ -5,10 +5,11 @@ The CLI reference lists every `laura` command and its flags. Run `laura` on its 
 ## Host
 
 ```bash
-laura                   Run the TUI, hosting your default shell.
-laura -- <cmd> [args]   Run the TUI, hosting <cmd> instead of your shell.
-laura --web [-- <cmd>]  Show the workspace in a browser tab instead of the terminal, and print
-                        the URL to open (experimental: needs LAURA_EXPERIMENTAL_WEB=1).
+laura                   Show the workspace in the web app, hosting your default shell. Prints
+                        the URL, and opens it in a web browser when Laura runs in a terminal.
+laura -- <cmd> [args]   Show the web app, hosting <cmd> instead of your shell.
+laura --tui [-- <cmd>]  Show the workspace in the terminal (the TUI) instead.
+laura --web [-- <cmd>]  The same as `laura`.
 ```
 
 ## Commands
@@ -45,10 +46,10 @@ laura open <path>       Split a pane and render <path> in the new pane. Prints t
                         Errors (exit 1) with the reason when editor panes are off, and with
                         --highlight or --diff: editor panes show neither, so annotate the
                         lines with `laura comment` instead.
-laura open <url>        Show an http(s) URL in a browser pane (experimental: needs
-                        LAURA_EXPERIMENTAL_BROWSER=1, --web, and Chrome or Edge). Takes the
-                        split flags, --no-focus and --panel. Errors (exit 1) with --highlight,
-                        --diff or --edit. --follow changes nothing. See Browser panes below.
+laura open <url>        Show an http(s) URL in a browser pane (needs the web app, and Chrome
+                        or Edge). Takes the split flags, --no-focus and --panel. Errors
+                        (exit 1) with --highlight, --diff or --edit. --follow changes nothing.
+                        See Browser panes below.
 laura close [<id>]      Close a pane (default: the focused one). Errors (exit 1) while the
                         pane has an unsubmitted inline review or unsaved Neovim edits.
       --all             Close every pane, back to shell-only. Errors (exit 1), closing nothing,
@@ -143,8 +144,6 @@ Experimental features are off by default and enabled by setting an environment v
 | Variable | Feature |
 |---|---|
 | `LAURA_EXPERIMENTAL_EDITOR=1` | [Editor panes](#editor-panes) |
-| `LAURA_EXPERIMENTAL_WEB=1` | [Web app](web-app.md) |
-| `LAURA_EXPERIMENTAL_BROWSER=1` | [Browser panes](#browser-panes) |
 
 ## Editor panes
 
@@ -167,19 +166,14 @@ Editor panes support comments. `laura comment --pane <id>` annotates a line, and
 
 ## Browser panes
 
-> [!NOTE]
-> Browser panes are [experimental](#experimental-features).
-
-`laura open <url>` shows a page from an `http://` or `https://` URL in a **browser pane** in the web app. For what the user sees, see [Show a web app in a browser pane](web-app.md#show-a-web-app-in-a-browser-pane). To enable browser panes:
+`laura open <url>` shows a page from an `http://` or `https://` URL in a **browser pane** in the web app. For what the user sees, see [Show a web app in a browser pane](web-app.md#show-a-web-app-in-a-browser-pane). To use browser panes:
 
 1. Install Chrome or Edge. To use another browser of the same kind, set `LAURA_BROWSER` to its path.
-2. Set `LAURA_EXPERIMENTAL_BROWSER=1` and `LAURA_EXPERIMENTAL_WEB=1`.
-3. Start Laura with `laura --web`.
+2. Start Laura with `laura`.
 
 `laura open <url>` returns these errors, in this order:
 
-- When disabled: `browser panes are experimental: set LAURA_EXPERIMENTAL_BROWSER=1 before starting Laura`.
-- In the TUI: `browser panes need the web app: start Laura with --web`.
+- In the TUI: `browser panes need the web app: start Laura without --tui`.
 - With no Chrome or Edge, or a `LAURA_BROWSER` path with no file: `browser panes need Chrome or Edge: install one or set LAURA_BROWSER to its path`.
 - With `--highlight`: `a browser pane has no lines: open the page, then run laura highlight '<selector>' --pane <id>`.
 - With `--diff`: `a browser pane has no diff: run laura open <file> --diff on the page's source file`.
@@ -207,8 +201,6 @@ Laura looks for the element on the page that the pane shows now. An argument of 
 - When no element on the page matches: `no element matches <selector> in pane #<id>`.
 
 `laura diff --pane <id>` on a browser pane returns `a browser pane has no diff: run laura open <file> --diff on the page's source file`.
-
-`laura ready` lists `browser` under `experimental` when the web app runs and Laura found a browser to run.
 
 ## Journal
 

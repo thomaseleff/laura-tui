@@ -33,7 +33,7 @@ Split a pane and render a file in the new pane, or show a page from a URL in a b
 
 <dl>
 <dt><code>path</code> · string · <strong>required</strong></dt>
-<dd>File to render, or an <code>http://</code> or <code>https://</code> URL for a <a href="web-app.md#show-a-web-app-in-a-browser-pane">browser pane</a> (experimental). With a URL, Laura returns <code>error</code> with <code>highlight</code>, <code>diff</code> or <code>edit</code>, and ignores <code>follow</code>. With <code>panel</code> on a browser pane, Laura loads the URL in the same pane.</dd>
+<dd>File to render, or an <code>http://</code> or <code>https://</code> URL for a <a href="web-app.md#show-a-web-app-in-a-browser-pane">browser pane</a>. With a URL, Laura returns <code>error</code> with <code>highlight</code>, <code>diff</code> or <code>edit</code>, and ignores <code>follow</code>. With <code>panel</code> on a browser pane, Laura loads the URL in the same pane.</dd>
 <dt><code>split</code> · integer · <em>default: focused pane</em></dt>
 <dd>Pane to split.</dd>
 <dt><code>dir</code> · string · <em>optional — absent → inferred</em></dt>
@@ -443,7 +443,7 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 {
   "type": "ready",
   "journal": "~/.laura/sessions/&lt;session&gt;.ndjson",
-  "experimental": ["web", "browser"],
+  "experimental": ["editor"],
   "browser_url": "http://127.0.0.1:&lt;port&gt;",
   "layout": { "area": {}, "panes": [ … ] }
 }
@@ -453,7 +453,7 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 </tr>
 </table>
 
-`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; `web`: the [web app](web-app.md); `browser`: [browser panes](cli.md#browser-panes), listed only when the web app runs and Laura found Chrome or Edge; see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `browser_url` is the shell's `LAURA_BROWSER_URL`, where the agent's browser tools connect to Laura's browser (see [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent)). `browser_url` is set only when `experimental` lists `browser`, and is `null` otherwise. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
+`journal` is the path to the session's journal. `experimental` lists the experimental features enabled in the workspace (`editor`: editor panes; see the [CLI reference](cli.md#experimental-features)), and is empty when none are enabled. `browser_url` is the shell's `LAURA_BROWSER_URL`, where the agent's browser tools connect to Laura's browser (see [Work on a page with the agent](web-app.md#work-on-a-page-with-the-agent)). `browser_url` is set only when the web app runs and Laura found Chrome or Edge, and is `null` otherwise. `layout` is the same report that [`layout`](#layout) returns. `layout` is `null` when the running Laura is older than the `laura` CLI and doesn't send the field.
 
 A `ready` without `title` keeps the workspace's session label. A `ready` without `agent` for the same `session` keeps the session's agent name. A `ready` with a new `session` starts a new journal, and Laura writes the later events to the new journal.
 

@@ -126,8 +126,8 @@ impl Rig {
 
     pub fn with(cmd: portable_pty::CommandBuilder) -> Result<Rig> {
         isolate_home();
-        // As `laura --web` starts it, with browser panes off.
-        let tab = Tab::spawn_web(cmd, 24, 80, Err(laura::browser::FLAG_OFF.into()))?;
+        // As `laura` starts it, with browser panes off.
+        let tab = Tab::spawn_web(cmd, 24, 80, Err(laura::browser::NO_BROWSER.into()))?;
         let web = WebServer::bind()?;
         let (port, token) = port_token(web.url());
         Ok(Rig {

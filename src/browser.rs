@@ -1,4 +1,4 @@
-//! Browser panes (experimental, #107): Laura's own headless Chrome or Edge (Laura's browser)
+//! Browser panes (#107): Laura's own headless Chrome or Edge (Laura's browser)
 //! renders a URL, and its screencast streams to the web app. No other module talks CDP.
 //!
 //! Laura's loop runs the whole workspace on one thread, so nothing here waits on the page except
@@ -24,11 +24,8 @@ use serde_json::{Map, Value, json};
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
-/// The error when `LAURA_EXPERIMENTAL_BROWSER` isn't set.
-pub const FLAG_OFF: &str =
-    "browser panes are experimental: set LAURA_EXPERIMENTAL_BROWSER=1 before starting Laura";
-/// The error for a URL outside `laura --web`.
-pub const NEED_WEB: &str = "browser panes need the web app: start Laura with --web";
+/// The error for a URL in the TUI.
+pub const NEED_WEB: &str = "browser panes need the web app: start Laura without --tui";
 /// The error when Laura finds no browser, or `LAURA_BROWSER` names a missing file.
 pub const NO_BROWSER: &str =
     "browser panes need Chrome or Edge: install one or set LAURA_BROWSER to its path";
@@ -112,10 +109,6 @@ pub fn address(s: &str) -> Result<String, String> {
 /// The startup gate: the browser to run, or why browser panes are off. `LAURA_BROWSER` wins, with
 /// no fallback, so a wrong path reads as an error instead of another browser.
 pub fn resolve() -> Result<PathBuf, String> {
-    let on = std::env::var("LAURA_EXPERIMENTAL_BROWSER").is_ok_and(|v| !v.is_empty() && v != "0");
-    if !on {
-        return Err(FLAG_OFF.into());
-    }
     if let Some(p) = std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
         let p = PathBuf::from(p);
         return if p.is_file() {
@@ -128,6 +121,54 @@ pub fn resolve() -> Result<PathBuf, String> {
         .into_iter()
         .find(|p| p.is_file())
         .ok_or_else(|| NO_BROWSER.into())
+}
+
+/// Open the user's browser at `url`: an app window of Chrome or Edge, in `resolve`'s order, else
+/// the OS's default browser. On WSL, Laura's Linux candidates are often missing, so Windows's
+/// Chrome and Edge come first; they stay out of `candidates`, which Laura's browser runs over CDP.
+pub fn open_app(url: &str) -> std::io::Result<()> {
+    let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some();
+    let app = match std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
+        Some(p) => vec![PathBuf::from(p)],
+        None if wsl => [
+            "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+            "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .chain(candidates())
+        .collect(),
+        None => candidates(),
+    };
+    let mut cmd = match app.into_iter().find(|p| p.is_file()) {
+        Some(p) => {
+            let mut c = Command::new(p);
+            c.arg(format!("--app={url}"));
+            c
+        }
+        None if cfg!(windows) => {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "start", "", url]);
+            c
+        }
+        None => {
+            let mut c = Command::new(if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            });
+            c.arg(url);
+            c
+        }
+    };
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    // Chrome forks and exits when a window is already open; reap it so it leaves no zombie.
+    std::thread::spawn(move || child.wait());
+    Ok(())
 }
 
 /// `LAURA_BROWSER_URL`: where the agent's browser tools reach Laura's browser on `port`.

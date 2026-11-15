@@ -2,9 +2,6 @@
 
 This reference describes the keystrokes and clicks for navigating the web app and interacting with Laura. Press `Ctrl+H` in the web app to show the keystrokes. To start the web app, see [Web app](web-app.md).
 
-> [!WARNING]
-> The web app is [experimental](cli.md#experimental-features).
-
 ## Keystrokes and clicks
 
 Laura uses the TUI's keystrokes in the web app. See [Navigating the TUI](navigation.md) for the full list.
@@ -192,7 +189,7 @@ The browser pane has no comment or diff button. To comment on a browser pane, se
 
 ## One workspace per run
 
-Each `laura --web` run is its own workspace, shown in one browser tab at a time.
+Each `laura` run is its own workspace, shown in one browser tab at a time.
 
 - When you open the URL in a second tab, the workspace moves to the second tab. In the first tab, Laura shows `The workspace is open in another tab.` and a **Use this tab** button that moves the workspace back.
 - When you close the browser tab, the workspace keeps running. Open the URL again to return to the workspace.

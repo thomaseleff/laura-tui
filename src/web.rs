@@ -1,4 +1,4 @@
-//! The web app (#88): `laura --web` serves one workspace to a browser tab over a websocket.
+//! The web app (#88): `laura` serves one workspace to a browser tab over a websocket.
 //!
 //! Threads own the sockets; the loop that owns the `Tab` talks to the active view only through a
 //! channel pair in `sync`.
@@ -29,17 +29,8 @@ use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::{Block, escape};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
-/// The error when `LAURA_EXPERIMENTAL_WEB` isn't set.
-pub const FLAG_OFF: &str =
-    "the web app is experimental: set LAURA_EXPERIMENTAL_WEB=1 before you start Laura";
-
 /// The workspace's size until a view reports one.
 pub const DEFAULT_AREA: Rect = Rect::new(0, 0, 120, 40);
-
-/// The startup gate, as `editor::resolve` reads `LAURA_EXPERIMENTAL_EDITOR`.
-pub fn enabled() -> bool {
-    std::env::var("LAURA_EXPERIMENTAL_WEB").is_ok_and(|v| !v.is_empty() && v != "0")
-}
 
 const REFERRER_POLICY: &str = "no-referrer";
 /// `'unsafe-inline'` styles: pane rows carry inline `style`. Script only from Laura's own files,

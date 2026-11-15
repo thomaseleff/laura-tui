@@ -192,13 +192,13 @@ fn theme_path() -> PathBuf {
 }
 
 /// Start a workspace running `program` (else the shell), with editor and browser panes resolved
-/// and the saved theme applied. The TUI and `laura --web` (`web`) share it.
+/// and the saved theme applied. The TUI and the web app (`web`) share it.
 pub fn spawn_tab(program: &[String], rows: u16, cols: u16, web: bool) -> Result<Tab> {
     let browser = laura::browser::resolve();
     let mut tab = if web {
         Tab::spawn_web(build_cmd(program), rows, cols, browser)?
     } else {
-        // The TUI keeps the browser, so `open <url>` says it needs `--web`.
+        // The TUI keeps the browser, so `open <url>` says it needs the web app.
         let mut tab = Tab::spawn(build_cmd(program), rows, cols)?;
         tab.browser_path = browser;
         tab

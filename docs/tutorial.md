@@ -6,11 +6,13 @@ Before you start, install Laura and the skills. See the [Quickstart](index.md#qu
 
 ## 1. Start your agent inside Laura
 
-Start your coding agent in Laura:
+Start your coding agent in Laura's TUI:
 
 ```bash
-laura -- claude
+laura --tui -- claude
 ```
+
+This tutorial uses the TUI, in the terminal. Plain `laura` shows the workspace in the [web app](web-app.md) instead, with the same keystrokes.
 
 Laura opens with your agent running in the shell:
 

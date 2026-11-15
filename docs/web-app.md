@@ -1,11 +1,8 @@
 # Web app
 
-Laura shows a workspace in a browser tab instead of the terminal: the shell, file panes and editor panes. The user drives them with the same keystrokes as the TUI. The agent runs in the shell and uses the `laura` CLI exactly as it does in the TUI.
+Laura shows a workspace in a browser tab: the shell, file panes and editor panes. The user drives them with the same keystrokes as the TUI. The agent runs in the shell and uses the `laura` CLI exactly as it does in the TUI.
 
 Laura shows the workspace in light colors, and shows the shell and the editor view in dark colors.
-
-> [!WARNING]
-> The web app is [experimental](cli.md#experimental-features).
 
 For each button, chip and keystroke, see [Navigating the web app](web-app-navigation.md).
 
@@ -16,18 +13,16 @@ Before you start, install Laura and the skills. See the [Quickstart](index.md#qu
 1. Run this command to start the web app and the interactive demo:
 
     ```bash
-    LAURA_EXPERIMENTAL_WEB=1 laura --web -- claude "/laura:demo"
+    laura -- claude "/laura:demo"
     ```
 
-    In PowerShell, run `$env:LAURA_EXPERIMENTAL_WEB=1; laura --web -- claude "/laura:demo"`.
+2. Laura opens the workspace in a window of Chrome or Edge, or in your default web browser. If no browser opens, open the URL that Laura prints in a web browser.
 
-2. Open the URL that Laura prints in a web browser.
+To host your shell instead of an agent CLI, run `laura`. To show the workspace in the terminal instead, run `laura --tui`.
 
-To host your shell instead of an agent CLI, run `laura --web`.
+Laura opens a web browser only when Laura runs in a terminal. To choose the browser, set `LAURA_BROWSER` to its path. When Laura can't open a web browser, Laura shows `Laura could not open a web browser: <reason>`, and the workspace keeps running.
 
-Without the variable, Laura returns the error `the web app is experimental: set LAURA_EXPERIMENTAL_WEB=1 before you start Laura`.
-
-Laura serves the web app to this computer only. While the workspace runs, Laura shows only the line `Open this URL in a web browser:` and the URL in the terminal that started it. When the shell exits while Neovim has unsaved edits, Laura also shows the notice in that terminal. See [Global keystrokes](navigation.md#global-keystrokes).
+Laura serves the web app to this computer only. While the workspace runs, Laura shows the line `Open this URL in a web browser:` and the URL in the terminal that started it. When the shell exits while Neovim has unsaved edits, Laura also shows the notice in that terminal. See [Global keystrokes](navigation.md#global-keystrokes).
 
 The top bar shows the folder that Laura started in, such as `~/projects/laura`.
 
@@ -61,27 +56,19 @@ For how Laura shows an HTML page, see [HTML files](web-app-navigation.md#html-fi
 A **browser pane** shows a page from a URL, such as the agent's dev server, a library's documentation or an issue. Laura's browser loads the page, and the pane shows the page live. When the page changes, the pane shows the change.
 
 > [!NOTE]
-> Browser panes are [experimental](cli.md#experimental-features). A browser pane is a minimal implementation of a pattern that is still evolving.
+> A browser pane is a minimal implementation of a pattern that is still evolving.
 
 To show a page in a browser pane:
 
 1. Install Chrome or Edge.
-2. Start Laura with both variables:
-
-    ```bash
-    LAURA_EXPERIMENTAL_WEB=1 LAURA_EXPERIMENTAL_BROWSER=1 laura --web
-    ```
-
-    In PowerShell, run `$env:LAURA_EXPERIMENTAL_WEB=1; $env:LAURA_EXPERIMENTAL_BROWSER=1; laura --web`.
-
+2. Start Laura with `laura`.
 3. In the shell, run `laura open http://localhost:5173`. Use the URL of your page.
 
 Laura finds Chrome, Edge or Chromium where their installers put them. To use a different browser, set `LAURA_BROWSER` to its path before you start Laura.
 
 `laura open <url>` returns one of these errors when Laura can't show the page:
 
-- Without `LAURA_EXPERIMENTAL_BROWSER=1`: `browser panes are experimental: set LAURA_EXPERIMENTAL_BROWSER=1 before starting Laura`.
-- In the TUI: `browser panes need the web app: start Laura with --web`.
+- In the TUI: `browser panes need the web app: start Laura without --tui`.
 - With no Chrome or Edge: `browser panes need Chrome or Edge: install one or set LAURA_BROWSER to its path`.
 
 Laura's browser is separate from the user's own browser. Laura's browser starts with the first browser pane, and stops when the workspace ends.

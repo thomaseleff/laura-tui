@@ -82,7 +82,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
-| **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`, experimental). | web pane, browser tab, preview |
+| **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`). | web pane, browser tab, preview |
 | **Laura's browser** | The headless Chrome or Edge that Laura starts for browser panes. | the pane browser, Chromium (unless naming Chromium itself) |
 | **live badge** | The ● live mark in a browser pane's pane header, which shows the lag in ms when the stream falls behind. | latency badge, fps counter, cast badge |
 | **editor pane** | A pane where the user edits a file in an editor, over its file pane (`open --edit`, experimental). | editor (alone), nvim pane, vim pane |
@@ -107,7 +107,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
 | **workspace** | The TUI or the web app, including all panes. | — |
 | **session label** | A short name for the task in a workspace, set by the agent with `laura ready --title`. | tab name, title (in prose) |
-| **web app** | The browser view of a workspace (`laura --web`). | web UI, frontend |
+| **web app** | The browser view of a workspace (`laura`). | web UI, frontend |
 | **notice** | A message in the bottom-right corner of a pane, or of the workspace above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
 | **status bar** | The list on the right of the web app's bottom line of what needs the user's attention. | footer |

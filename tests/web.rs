@@ -19,7 +19,6 @@ use anyhow::{Result, anyhow};
 use assert_cmd::Command;
 use laura::UserAction;
 use laura::tab::NO_DIFF_IN_EDITOR;
-use laura::web::FLAG_OFF;
 use serde_json::{Value, json};
 use tungstenite::Message;
 
@@ -2822,10 +2821,10 @@ fn a_takeover_or_a_closed_view_releases_the_hold() -> Result<()> {
 }
 
 #[test]
-fn ready_lists_web() -> Result<()> {
+fn ready_lists_no_web_or_browser() -> Result<()> {
     let mut rig = Rig::new()?;
     let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
-    assert_eq!(v["experimental"], json!(["web"]), "{v}");
+    assert_eq!(v["experimental"], json!([]), "{v}");
     assert!(v["browser_url"].is_null(), "{v}");
     Ok(())
 }
@@ -2843,7 +2842,7 @@ fn the_shell_has_the_browser_url() -> Result<()> {
         token,
     };
     let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
-    assert_eq!(v["experimental"], json!(["web", "browser"]), "{v}");
+    assert_eq!(v["experimental"], json!([]), "{v}");
     let url = v["browser_url"]
         .as_str()
         .expect("a browser URL")
@@ -2860,17 +2859,6 @@ fn the_shell_has_the_browser_url() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn web_needs_the_flag() {
-    Command::cargo_bin("laura")
-        .unwrap()
-        .arg("--web")
-        .env_remove("LAURA_EXPERIMENTAL_WEB")
-        .assert()
-        .code(1)
-        .stderr(predicates::str::contains(FLAG_OFF));
-}
-
 /// Kills the child on drop, so a failed assertion doesn't leave a workspace running.
 struct Kill(Child);
 
@@ -2881,15 +2869,17 @@ impl Drop for Kill {
     }
 }
 
-/// `laura --web` started in `dir`, and a view connected to it.
-fn laura_web(dir: &Path) -> Result<(Kill, Ws)> {
+/// `laura <args>` started in `dir`, and a view connected to it. `LAURA_BROWSER` names
+/// `dir/browser.sh`, so a test can stub the browser that Laura opens.
+fn laura_web(dir: &Path, args: &[&str]) -> Result<(Kill, Ws)> {
     isolate_home();
     let program = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
     let mut child = Kill(
         StdCommand::new(env!("CARGO_BIN_EXE_laura"))
-            .args(["--web", "--", program])
+            .args(args)
+            .args(["--", program])
             .current_dir(dir)
-            .env("LAURA_EXPERIMENTAL_WEB", "1")
+            .env("LAURA_BROWSER", dir.join("browser.sh"))
             .env_remove("LAURA_TAB")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -2917,7 +2907,7 @@ fn laura_web(dir: &Path) -> Result<(Kill, Ws)> {
 fn the_strings_carry_the_root_path() -> Result<()> {
     isolate_home();
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
-    let (_child, mut ws) = laura_web(dir.path())?;
+    let (_child, mut ws) = laura_web(dir.path(), &["--web"])?;
     let start = Instant::now();
     let strings = loop {
         if let Some(f) = read(&mut ws).filter(|f| f.is("strings")) {
@@ -2949,7 +2939,7 @@ fn the_strings_carry_the_web_failed_text() -> Result<()> {
 
 #[test]
 fn laura_web_serves_a_workspace_until_the_user_quits() -> Result<()> {
-    let (mut child, mut ws) = laura_web(Path::new(env!("CARGO_MANIFEST_DIR")))?;
+    let (mut child, mut ws) = laura_web(Path::new(env!("CARGO_MANIFEST_DIR")), &["--web"])?;
     let start = Instant::now();
     while !read(&mut ws).is_some_and(|f| f.is("layout")) {
         assert!(start.elapsed() < common::DEADLINE, "no layout");
@@ -2967,6 +2957,29 @@ fn laura_web_serves_a_workspace_until_the_user_quits() -> Result<()> {
         let _ = read(&mut ws);
     };
     assert!(status.success(), "{status}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_laura_serves_the_web_app_and_opens_no_browser_from_a_pipe() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    let stub = dir.path().join("browser.sh");
+    std::fs::write(&stub, "#!/bin/sh\ntouch \"$(dirname \"$0\")/opened\"\n")?;
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))?;
+    let (_child, mut ws) = laura_web(dir.path(), &[])?;
+    let start = Instant::now();
+    while !read(&mut ws).is_some_and(|f| f.is("layout")) {
+        assert!(start.elapsed() < common::DEADLINE, "no layout");
+    }
+    // Nothing to wait for: the stub would run right after Laura prints the URL.
+    thread::sleep(Duration::from_millis(500));
+    assert!(
+        !dir.path().join("opened").exists(),
+        "Laura opened a browser"
+    );
     Ok(())
 }
 
