@@ -6,9 +6,6 @@ Laura is a workspace that gives your agent an **API over the UI**, so your agent
 
 Your agent can open the file you're discussing, the plan you're following, the diff you just made, or tail the logs of your running service. Laura works with every coding agent CLI, and your agent learns the `laura` CLI from Laura's agent skills.
 
-> [!NOTE]
-> Laura makes collaborating with your coding agent more enjoyable: riffing, reviewing live, solving problems and improvising together, without leaving the workspace.
-
 > [!TIP]
 > **New:** Laura started as a TUI workspace. Laura now opens in your browser, with rendered markdown, HTML pages and live web pages in browser panes. To keep working in the terminal, run `laura --tui`. See [Navigating the TUI](docs/tui-navigation.md).
 
