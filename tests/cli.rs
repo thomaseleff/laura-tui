@@ -133,6 +133,7 @@ fn ready_marks_the_tab_and_returns_the_layout() -> Result<()> {
 
     let v: serde_json::Value = serde_json::from_slice(&out.stdout)?;
     assert!(v["journal"].as_str().unwrap().ends_with(".ndjson"), "{v}");
+    assert_eq!(v["web_app"], false, "{v}");
     let panes = v["layout"]["panes"].as_array().unwrap();
     assert!(
         panes

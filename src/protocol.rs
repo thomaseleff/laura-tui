@@ -195,6 +195,9 @@ pub enum Response {
         /// `LAURA_BROWSER_URL`, for the agent's browser tools; `None` unless `browser` is listed.
         #[serde(default)]
         browser_url: Option<String>,
+        /// True in the web app; false in the TUI, and from a host older than this field.
+        #[serde(default)]
+        web_app: bool,
     },
     /// The request succeeded, with a nudge for the agent.
     Warning { message: String },

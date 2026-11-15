@@ -439,11 +439,13 @@ fn client_request(msg: Message) -> Result<()> {
             experimental,
             layout,
             browser_url,
+            web_app,
         } => println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "journal": journal,
                 "experimental": experimental,
+                "web_app": web_app,
                 "browser_url": browser_url,
                 "layout": layout,
             }))?

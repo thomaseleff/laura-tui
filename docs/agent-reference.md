@@ -11,7 +11,7 @@ laura ready
 
 Run `laura ready` once per workspace before opening a pane. Until you run `laura ready`, the user can't comment (`c`) or submit an inline review (`Shift+S`).
 
-`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features enabled in the workspace; use only those), and `layout` (what's already open, the same report as `laura layout`). Run `laura ready` at the start of every new chat, because panes from earlier chats may still be open. `layout` is `null` when the running Laura is older than the `laura` CLI; run `laura layout` instead.
+`laura ready` prints one JSON object: `journal` (the journal path), `experimental` (the experimental features enabled in the workspace; use only those), `web_app` (`true` in the web app, `false` in the TUI), `browser_url` (where the agent's browser tools connect to Laura's browser, or `null`), and `layout` (what's already open, the same report as `laura layout`). Run `laura ready` at the start of every new chat, because panes from earlier chats may still be open. `layout` is `null` when the running Laura is older than the `laura` CLI; run `laura layout` instead.
 
 Outside a Laura workspace, `laura ready` exits 1 with `not inside a Laura workspace`.
 

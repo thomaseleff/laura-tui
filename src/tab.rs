@@ -1855,6 +1855,7 @@ impl Tab {
                     experimental,
                     layout: Some(self.report(area)),
                     browser_url: self.browser_port.map(browser::endpoint),
+                    web_app: self.web,
                 }
             }
             Message::Feedback { sentiment, body } => {

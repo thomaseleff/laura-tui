@@ -34,7 +34,7 @@ laura ready --session demo --agent claude              # enables inline review s
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
-_Keep `$D` and the `journal` path `laura ready` printed (`$JOURNAL` below) for later beats. Note what it lists under `experimental`, and whether it printed a `browser_url`: they decide which bonus beats run._
+_Keep `$D` and the `journal` path `laura ready` printed (`$JOURNAL` below) for later beats. Note what it lists under `experimental`, whether `web_app` is `true`, and whether it printed a `browser_url`: they decide which bonus beats run._
 
 ```bash
 # Close all open panes before beginning the demo
@@ -309,7 +309,7 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 >
 > Send `Next` to learn how to record feedback.
 
-_If `laura ready` listed `editor` under `experimental`, end with "Send `Next` to try the experimental features." instead. If `laura ready` printed a `browser_url` and did not list `editor`, end with "Send `Next` to see a page." instead. Then **wait for `Next`**, and `laura close --all`._
+_If `laura ready` listed `editor` under `experimental`, end with "Send `Next` to try the experimental features." instead. If `laura ready` printed `web_app` as `true` and did not list `editor`, end with "Send `Next` to see a page." instead. Then **wait for `Next`**, and `laura close --all`._
 
 ---
 
@@ -363,7 +363,7 @@ _Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
 ### See a page
 
-_Run this beat only if `laura ready` printed a `browser_url`: Laura sets `browser_url` when browser panes work. Otherwise, skip straight to **Recording feedback** without mentioning it._
+_Run this beat only if `laura ready` printed `web_app` as `true`: the TUI shows the page as plain text. Otherwise, skip straight to **Recording feedback** without mentioning it._
 
 **Do:**
 
@@ -409,6 +409,8 @@ laura open "$D/page.html" --ratio 55
 > Click the page and submit your inline review with `Shift+S` to continue.
 
 _Then **wait** for the `[laura review · …]` block, and `laura close --all`._
+
+_Run the rest of this beat only if `laura ready` printed a `browser_url`: Laura sets `browser_url` when browser panes work. Otherwise, skip straight to **Recording feedback** without mentioning it._
 
 _Next, show a page from a URL. Serve `$D` with any static file server; the example uses Python's. If `laura open <url>` returns an error, tell your partner and skip the rest of this beat._
 

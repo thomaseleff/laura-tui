@@ -2825,6 +2825,7 @@ fn ready_lists_no_web_or_browser() -> Result<()> {
     let mut rig = Rig::new()?;
     let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
     assert_eq!(v["experimental"], json!([]), "{v}");
+    assert_eq!(v["web_app"], true, "{v}");
     assert!(v["browser_url"].is_null(), "{v}");
     Ok(())
 }
