@@ -291,6 +291,9 @@ function fitNarrow(el) {
   el.toggleAttribute("data-clip", r.getBoundingClientRect().height > nw.clientHeight);
 }
 
+// The "too small" line shows only while the pane is too small (style.css).
+const tooSmall = el => el.querySelector(".narrow").offsetHeight > 0;
+
 function paintHead(el, p) {
   const q = s => el.querySelector(".head " + s);
   const show = (s, on) => (q(s).hidden = !on);
@@ -432,8 +435,12 @@ function makePane(p) {
   new ResizeObserver(() => sizeView(p.id)).observe(el.querySelector(".view"));
   // The line's box changes with the pane and when the line shows; `data-clip` changes only the
   // font, so this doesn't loop. A terminal that shows again takes the focus that it could not take
-  // while it was hidden.
-  new ResizeObserver(() => (fitNarrow(el), layout?.focus === p.id && followFocus(true))).observe(el.querySelector(".narrow"));
+  // while it was hidden, and rows that show again scroll to the highlight they missed.
+  new ResizeObserver(() => {
+    fitNarrow(el);
+    if (layout?.focus === p.id) followFocus(true);
+    if (el.hlLater && !tooSmall(el)) toHighlight(p.id);
+  }).observe(el.querySelector(".narrow"));
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
@@ -1388,9 +1395,12 @@ const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? 
 function toHighlight(id) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
+  const el = $("p" + id);
+  // A too-small pane hides its rows and page, which can't scroll; the `.narrow` observer scrolls again.
+  if (!el || (el.hlLater = tooSmall(el))) return;
   const f = frameOf(id);
   if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
-  const rows = $("p" + id)?.querySelector(".rows");
+  const rows = el.querySelector(".rows");
   // ponytail: row-proportional, exact for code, approximate for wrapped prose
   const h = rows?.querySelector(".hl");
   if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
