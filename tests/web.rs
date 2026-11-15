@@ -3004,8 +3004,9 @@ type Terminal = (
     mpsc::Receiver<Vec<u8>>,
 );
 
-/// `laura -- /bin/sh` in a terminal in `dir`, with `LAURA_BROWSER` = `stub` and the runtime folder
-/// at `<dir>/laura`, where Laura writes the page that it opens the browser at.
+/// `laura -- /bin/sh` in a terminal in `dir`, with `LAURA_BROWSER` = `stub`, as a first launch:
+/// `HOME` and `TMPDIR` are `dir` and no runtime env is set, so the per-OS runtime folder, where
+/// Laura writes the page that it opens the browser at, doesn't exist yet.
 #[cfg(unix)]
 fn laura_in_a_terminal(dir: &Path, stub: &str) -> Result<Terminal> {
     use std::os::unix::fs::PermissionsExt;
@@ -3023,9 +3024,11 @@ fn laura_in_a_terminal(dir: &Path, stub: &str) -> Result<Terminal> {
     let mut cmd = portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_laura"));
     cmd.args(["--", "/bin/sh"]);
     cmd.cwd(dir);
-    cmd.env("HOME", env!("CARGO_TARGET_TMPDIR"));
+    cmd.env("HOME", dir);
+    cmd.env("TMPDIR", dir);
     cmd.env("LAURA_BROWSER", &browser);
-    cmd.env("LAURA_RUNTIME", dir.join("laura"));
+    cmd.env_remove("LAURA_RUNTIME");
+    cmd.env_remove("XDG_RUNTIME_DIR");
     cmd.env_remove("LAURA_TAB");
     let laura = pty.slave.spawn_command(cmd)?;
     drop(pty.slave);
@@ -3038,22 +3041,6 @@ fn laura_in_a_terminal(dir: &Path, stub: &str) -> Result<Terminal> {
         }
     });
     Ok((laura, pty.master, rx))
-}
-
-/// The pages that Laura wrote in `runtime` to open the browser at.
-#[cfg(unix)]
-fn open_pages(runtime: &Path) -> Vec<std::path::PathBuf> {
-    std::fs::read_dir(runtime)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("open-") && n.ends_with(".html"))
-        })
-        .collect()
 }
 
 #[cfg(unix)]
@@ -3094,21 +3081,25 @@ fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Resul
         thread::sleep(Duration::from_millis(50));
     }
     let args = std::fs::read_to_string(&args)?;
-    let runtime = dir.path().join("laura");
-    let pages = open_pages(&runtime);
-    assert_eq!(pages.len(), 1, "{pages:?}");
-    assert_eq!(
-        args.trim(),
-        format!("--app=file://{}", pages[0].display()),
-        "the browser opened another page"
+    let page = std::path::PathBuf::from(
+        args.trim()
+            .strip_prefix("--app=file://")
+            .unwrap_or_else(|| panic!("the browser opened another page: {args}")),
+    );
+    assert!(page.starts_with(dir.path()), "{page:?}");
+    assert!(
+        page.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("open-")),
+        "{page:?}"
     );
     assert!(
         !args.contains(&token),
         "the token is on the command line: {args}"
     );
-    assert!(std::fs::read_to_string(&pages[0])?.contains(&url));
+    assert!(std::fs::read_to_string(&page)?.contains(&url));
     assert_eq!(
-        std::fs::metadata(&pages[0])?.permissions().mode() & 0o777,
+        std::fs::metadata(&page)?.permissions().mode() & 0o777,
         0o600,
         "other users can read the page"
     );
