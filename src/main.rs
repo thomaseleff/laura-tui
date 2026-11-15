@@ -398,7 +398,7 @@ fn web(program: Vec<String>) -> Result<()> {
             .open_page()
             .and_then(|p| laura::browser::open_app(&p).map_err(Into::into))
     {
-        eprintln!("Laura could not open a web browser: {e}");
+        laura::browser::no_browser(e);
     }
     let mut told = false;
     loop {

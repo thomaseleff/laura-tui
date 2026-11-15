@@ -180,17 +180,24 @@ pub fn open_app(page: &Path) -> std::io::Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?;
     // Chrome hands the page to a running Chrome and exits with 0; reap it so it leaves no zombie.
     // A failed exit is the only sign that no browser opened (no display over SSH).
     std::thread::spawn(move || {
         if let Ok(status) = child.wait()
             && !status.success()
         {
-            eprintln!("Laura could not open a web browser: {name} exited with {status}");
+            no_browser(format!("{name} exited with {status}"));
         }
     });
     Ok(())
+}
+
+/// The URL that Laura printed still works on this computer; over SSH, the TUI does.
+pub fn no_browser(reason: impl std::fmt::Display) {
+    eprintln!("Laura could not open a web browser: {reason}");
+    eprintln!("To use Laura in this terminal instead, press Ctrl+C and run laura --tui.");
 }
 
 /// The user's own %LOCALAPPDATA%, where a per-user Chrome lives, as a WSL path. Not every folder

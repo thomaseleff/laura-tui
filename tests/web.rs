@@ -3004,23 +3004,23 @@ type Terminal = (
     mpsc::Receiver<Vec<u8>>,
 );
 
-/// `laura -- /bin/sh` in a terminal in `dir`, with `LAURA_BROWSER` = `stub`, as a first launch:
-/// `HOME` and `TMPDIR` are `dir` and no runtime env is set, so the per-OS runtime folder, where
-/// Laura writes the page that it opens the browser at, doesn't exist yet.
+/// `laura -- /bin/sh` in a terminal in `dir`, with `LAURA_BROWSER` = `stub`. See `laura_cmd`.
 #[cfg(unix)]
 fn laura_in_a_terminal(dir: &Path, stub: &str) -> Result<Terminal> {
+    in_a_terminal(laura_cmd(dir, stub)?)
+}
+
+/// `laura -- /bin/sh` in `dir`, with `LAURA_BROWSER` = `stub`, as a first launch: `HOME` and
+/// `TMPDIR` are `dir` and no runtime env is set, so the per-OS runtime folder, where Laura writes
+/// the page that it opens the browser at, doesn't exist yet.
+#[cfg(unix)]
+fn laura_cmd(dir: &Path, stub: &str) -> Result<portable_pty::CommandBuilder> {
     use std::os::unix::fs::PermissionsExt;
 
     isolate_home();
     let browser = dir.join("browser.sh");
     std::fs::write(&browser, format!("#!/bin/sh\n{stub}"))?;
     std::fs::set_permissions(&browser, std::fs::Permissions::from_mode(0o755))?;
-    let pty = portable_pty::native_pty_system().openpty(portable_pty::PtySize {
-        rows: 24,
-        cols: 200,
-        pixel_width: 0,
-        pixel_height: 0,
-    })?;
     let mut cmd = portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_laura"));
     cmd.args(["--", "/bin/sh"]);
     cmd.cwd(dir);
@@ -3030,6 +3030,17 @@ fn laura_in_a_terminal(dir: &Path, stub: &str) -> Result<Terminal> {
     cmd.env_remove("LAURA_RUNTIME");
     cmd.env_remove("XDG_RUNTIME_DIR");
     cmd.env_remove("LAURA_TAB");
+    Ok(cmd)
+}
+
+#[cfg(unix)]
+fn in_a_terminal(cmd: portable_pty::CommandBuilder) -> Result<Terminal> {
+    let pty = portable_pty::native_pty_system().openpty(portable_pty::PtySize {
+        rows: 24,
+        cols: 200,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
     let laura = pty.slave.spawn_command(cmd)?;
     drop(pty.slave);
     let mut reader = pty.master.try_clone_reader()?;
@@ -3134,6 +3145,44 @@ fn a_browser_that_fails_shows_why() -> Result<()> {
         out.contains("Laura could not open a web browser:"),
         "{out:?}"
     );
+    while !out.contains("laura --tui") {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(100)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no TUI hint: {out:?}");
+    }
+    master.take_writer()?.write_all(b"\x03")?;
+    while laura.try_wait()?.is_none() {
+        assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
+        thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_browser_names_the_program_and_the_tui() -> Result<()> {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    let bin = dir.path().join("bin");
+    std::fs::create_dir(&bin)?;
+    // No Chrome and an empty PATH: Laura falls back to the OS opener, which is missing too.
+    let mut cmd = laura_cmd(dir.path(), "")?;
+    cmd.env("LAURA_BROWSER", dir.path().join("missing"));
+    cmd.env("PATH", &bin);
+    let (mut laura, master, rx) = in_a_terminal(cmd)?;
+    let opener = if cfg!(target_os = "macos") {
+        "open: "
+    } else {
+        "xdg-open: "
+    };
+    let mut out = String::new();
+    let start = Instant::now();
+    while !(out.contains(opener) && out.contains("laura --tui")) {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(100)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no message: {out:?}");
+    }
     master.take_writer()?.write_all(b"\x03")?;
     while laura.try_wait()?.is_none() {
         assert!(start.elapsed() < common::DEADLINE, "Laura kept running");

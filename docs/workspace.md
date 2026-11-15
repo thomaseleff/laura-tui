@@ -14,7 +14,14 @@ Before you start, install Laura and the skills. See the [Quickstart](index.md#qu
 
 2. Laura opens the workspace in a Chrome or Edge window, or in your default browser. If no browser opens, open the URL that Laura prints.
 
-To choose the browser, set `LAURA_BROWSER` to its path. When Laura can't open a web browser, Laura shows `Laura could not open a web browser: <reason>`, and the workspace keeps running. Laura serves the workspace to this computer only.
+To choose the browser, set `LAURA_BROWSER` to its path. When Laura can't open a web browser, Laura shows these two lines, and the workspace keeps running:
+
+```
+Laura could not open a web browser: <reason>
+To use Laura in this terminal instead, press Ctrl+C and run laura --tui.
+```
+
+Laura serves the workspace to this computer only. Over SSH, run `laura --tui`, or forward the port in the URL to your computer and open the URL there.
 
 > [!TIP]
 > To show the workspace in the terminal, run `laura --tui -- claude`. See [Navigating the TUI](tui-navigation.md).
