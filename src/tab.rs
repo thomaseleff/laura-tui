@@ -17,7 +17,7 @@ use serde_json::json;
 use crate::browser::{self, Browser, Cdp, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, is_runtime_temp, runtime_dir};
+use crate::journal::{Journal, is_runtime_temp, runtime_dir, session_path};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
 use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{
@@ -348,6 +348,8 @@ pub struct Tab {
     pub agent: bool,
     /// Per-session journal, created on `ready` (names + audits composition events).
     pub journal: Option<Journal>,
+    /// The session label from the latest `laura ready --title`.
+    pub title: Option<String>,
     /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
     pub hold: bool,
     /// Editor panes' Neovim, by pane id. Each also has its file panel in `panels`.
@@ -420,6 +422,7 @@ impl Tab {
             pending_focus: None,
             agent: false,
             journal: None,
+            title: None,
             hold: false,
             editors: HashMap::new(),
             editor: Err(editor::FLAG_OFF.into()),
@@ -1820,14 +1823,28 @@ impl Tab {
                 }
             }
             Message::Layout => Response::Report(self.report(area)),
-            Message::Ready { session, agent } => {
+            Message::Ready {
+                session,
+                agent,
+                title,
+            } => {
                 self.agent = true;
                 let session =
                     session.unwrap_or_else(|| format!("laura-{}-{}", std::process::id(), self.seq));
+                // A re-`ready` of the same session (to set a title) keeps its agent name.
+                let agent = agent.or_else(|| {
+                    self.journal
+                        .as_ref()
+                        .filter(|j| j.path() == session_path(&session))
+                        .and_then(Journal::agent)
+                });
                 let journal = Journal::open(&session, agent);
                 let path = journal.path().to_string_lossy().into_owned();
-                journal.log(json!({"type": "ready"}));
+                journal.log(json!({"type": "ready", "pid": std::process::id(), "title": title}));
                 self.journal = Some(journal);
+                if title.is_some() {
+                    self.title = title;
+                }
                 let experimental = [
                     self.editor.is_ok().then_some("editor"),
                     self.web.then_some("web"),

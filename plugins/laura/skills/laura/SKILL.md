@@ -29,6 +29,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
       - When you open an HTML file you built, your partner sees the page with its scripts running. Keep the page's stylesheets, scripts, images and fonts in the page's folder or below it, outside hidden folders. Reference them by relative path, such as `css/site.css`, not `/css/site.css`. Put the page's data, such as JSON, in the page itself, since Laura serves only those file types. Don't use `alert()`, `localStorage` or cookies: Laura runs the page in a sandbox, where they throw or do nothing. Handle a form's submit in the page's script: Laura keeps the page in the pane when a form submits. A `method="dialog"` form still closes its `<dialog>`. For a page that reads keystrokes, such as a game, put `tabindex="0"` on the element that the user clicks, such as the canvas. Put it on that element itself, not on an element around it: a click inside an element with a `tabindex` keeps the keystrokes with Laura. Your partner clicks the element to play and presses `Esc` to go back to Laura. Your partner clicks an element to move the cursor to the line of its start tag, and comments on that line. To annotate an element, run `laura comment <line>` on the line of its start tag; your partner sees a pin with your initial and the thread's count on the element, while the element shows on the page. `laura highlight` outlines the elements that start on the highlighted lines, so point it at a start tag.
     - `browser` means you can show your partner a page from a URL, such as your dev server, in a browser pane. See **Show your web app**. With `browser`, `laura ready` also prints `browser_url`, where a browser tool connects to the panes' pages. See **Work on a page together**.
   - `layout`: what's already open. `laura close` anything no longer relevant. If `layout` is `null`, run `laura layout`.
+- **When your partner names the task, run `laura ready` again** with the same `--session` and `--title "<2–4 words>"`, such as `--title "flat elevation profile"`. The title is the session label: Laura records the session label in the journal and keeps the latest one for the workspace.
 - **Run `laura layout`** before later opens or closes to see what's open, and `laura close` anything no longer relevant.
 - **Prefer *fewer* panes.** Tile panes to maximize content and minimize clutter.
 - **Proactively show a file, diff, or logs** in a pane instead of pasting the content into the chat or referring to it.
@@ -101,6 +102,7 @@ laura ready             Mark the workspace as hosting an agent (enables commenti
                         the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
       --agent <name>    Attribute journal events to this agent name.
+      --title <text>    Label the session in a few words: the session label.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
       --positive        Positive signal.        (one of --positive/--negative is required)
       --negative        Negative signal.

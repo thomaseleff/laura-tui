@@ -106,6 +106,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **highlight** (n., v.) | Lines marked by `laura highlight`. | spotlight |
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
 | **workspace** | The TUI or the web app, including all panes. | — |
+| **session label** | A short name for the task in a workspace, set by the agent with `laura ready --title`. | tab name, title (in prose) |
 | **web app** | The browser view of a workspace (`laura --web`). | web UI, frontend |
 | **notice** | A message in the bottom-right corner of a pane, or of the workspace above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
