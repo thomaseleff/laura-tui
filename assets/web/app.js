@@ -1331,7 +1331,8 @@ function followFocus(force) {
   const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
-  root.focus();
+  // Below the workspace's minimum size the window scrolls; a focus change leaves it where the user put it.
+  root.focus({ preventScroll: true });
 }
 
 function onPane(m) {
@@ -1495,13 +1496,13 @@ addEventListener("message", e => {
     if (layout.focus !== id) act({ act: "focus", pane: id });
     if (Number.isInteger(m.line)) act({ act: "set_cursor", pane: id, line: m.line });
     // A text field or a selection keeps the keystrokes; anything else gives them back to Laura.
-    if (!m.editable) root.focus();
+    if (!m.editable) root.focus({ preventScroll: true });
     paintHint();
     // Only in comment mode, so a page's script can't open a comment box.
     if (m.pick === true && commentMode === id && Number.isInteger(m.line)) begin(id, "comment");
   } else if (m.laura === "esc") {
     // The field takes `Esc` first: comment mode stays on until the next `Esc`.
-    root.focus();
+    root.focus({ preventScroll: true });
     paintHint();
   }
   else if (m.laura === "link" && typeof m.href === "string") {
@@ -1517,7 +1518,7 @@ function pinClick(id, line) {
   const el = $("p" + id);
   if (!el || !Number.isInteger(line)) return;
   if (layout.focus !== id) act({ act: "focus", pane: id });
-  root.focus();
+  root.focus({ preventScroll: true });
   if (el.threads?.find(t => t.line === line)?.collapsed) return act({ act: "toggle_thread", pane: id, line });
   if (line === el.line) {
     el.shut = el.shut === line ? null : line;
@@ -1713,9 +1714,9 @@ addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.isComposing) {
       take();
       if (url.value.trim()) act({ act: "browser_navigate", pane: +url.closest(".pane").id.slice(1), url: url.value });
-      return root.focus();
+      return root.focus({ preventScroll: true });
     }
-    if (e.key === "Escape") return take(), root.focus();
+    if (e.key === "Escape") return take(), root.focus({ preventScroll: true });
     if (ctrl && "rl".includes(k)) return take(); // the viewing browser's reload and address bar
     if (!(ctrl && "pq".includes(k))) return; // Ctrl+P and Ctrl+Q go on to Laura
   }
