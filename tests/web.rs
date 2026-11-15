@@ -1234,15 +1234,16 @@ fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
     rig.drive(&["open", &txt]);
     rig.drive(&["open", &md]);
     rig.drive(&["comment", "--pane", "2", "3", "agent note"]);
-    let mut ws = rig.connect();
-    let html = |rig: &mut Rig, ws: &mut Ws, id| {
-        pane_frame(rig, ws, id)["html"]
+    // A fresh view per pane: each view replays every pane, and `pane_frame` drops the other pane's.
+    let html = |rig: &mut Rig, id| {
+        let mut ws = rig.connect();
+        pane_frame(rig, &mut ws, id)["html"]
             .as_str()
             .unwrap_or("")
             .to_string()
     };
 
-    let txt_html = html(&mut rig, &mut ws, 1);
+    let txt_html = html(&mut rig, 1);
     let rows = rows(&txt_html);
     let at = |s: &str| {
         rows.iter()
@@ -1261,7 +1262,7 @@ fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
     assert_eq!(class("1 line removed"), " gap");
     assert!(!class("two").contains("gap"), "{txt_html}");
 
-    let html = html(&mut rig, &mut ws, 2);
+    let html = html(&mut rig, 2);
     let at = |s: &str| html.find(s).unwrap_or_else(|| panic!("no {s}: {html}"));
     assert!(at("<p>two") < at("2 lines removed"), "{html}");
     // The browser draws the card from `threads`; the rows hold no copy of it.
