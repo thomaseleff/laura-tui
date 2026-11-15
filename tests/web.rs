@@ -2983,6 +2983,122 @@ fn plain_laura_serves_the_web_app_and_opens_no_browser_from_a_pipe() -> Result<(
     Ok(())
 }
 
+/// Kills the stub browser whose pid is in `0`, also when an assert fails.
+#[cfg(unix)]
+struct KillPid(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Drop for KillPid {
+    fn drop(&mut self) {
+        if let Ok(pid) = std::fs::read_to_string(&self.0) {
+            let _ = StdCommand::new("kill").args(["-9", pid.trim()]).status();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    isolate_home();
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    let stub = dir.path().join("browser.sh");
+    // The traps go in before `args`, so the test sends Ctrl+C only once they catch it.
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nd=\"$(dirname \"$0\")\"\necho $$ > \"$d/pid\"\n\
+         trap 'echo INT >> \"$d/signals\"' INT\ntrap 'echo HUP >> \"$d/signals\"' HUP\n\
+         echo \"$@\" > \"$d/args.tmp\" && mv \"$d/args.tmp\" \"$d/args\"\n\
+         while :; do sleep 1; done\n",
+    )?;
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))?;
+    let _stub = KillPid(dir.path().join("pid"));
+    let pty = portable_pty::native_pty_system().openpty(portable_pty::PtySize {
+        rows: 24,
+        cols: 200,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
+    let mut cmd = portable_pty::CommandBuilder::new(env!("CARGO_BIN_EXE_laura"));
+    cmd.args(["--", "/bin/sh"]);
+    cmd.cwd(dir.path());
+    cmd.env("HOME", env!("CARGO_TARGET_TMPDIR"));
+    cmd.env("LAURA_BROWSER", &stub);
+    cmd.env_remove("LAURA_TAB");
+    let mut laura = pty.slave.spawn_command(cmd)?;
+    drop(pty.slave);
+    let mut reader = pty.master.try_clone_reader()?;
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n @ 1..) = reader.read(&mut buf) {
+            let _ = tx.send(buf[..n].to_vec());
+        }
+    });
+    let mut out = String::new();
+    let start = Instant::now();
+    let token = loop {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(100)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+        if let Some(line) = out.split('\n').find(|l| l.contains("/?t="))
+            && line.ends_with('\r')
+        {
+            break port_token(line.trim()).1;
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no URL: {out:?}");
+    };
+    let args = dir.path().join("args");
+    while !args.exists() {
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "Laura opened no browser"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    let args = std::fs::read_to_string(&args)?;
+    assert!(
+        args.starts_with("--app=http://127.0.0.1:") && args.contains("/?o="),
+        "{args}"
+    );
+    assert!(
+        !args.contains(&token),
+        "the token is on the command line: {args}"
+    );
+    pty.master.take_writer()?.write_all(b"\x03")?;
+    while laura.try_wait()?.is_none() {
+        assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
+        thread::sleep(Duration::from_millis(50));
+    }
+    // Nothing to wait for: a signal would reach the stub right away.
+    thread::sleep(Duration::from_millis(500));
+    assert!(
+        !dir.path().join("signals").exists(),
+        "the browser got a signal from the terminal"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_open_code_works_once() -> Result<()> {
+    let rig = Rig::new()?;
+    let open = rig.web.open_url()?;
+    let path = open
+        .strip_prefix(&format!("http://127.0.0.1:{}", rig.port))
+        .ok_or_else(|| anyhow!("not this server: {open}"))?;
+    let first = get(rig.port, path)?;
+    assert!(first.starts_with("HTTP/1.1 303"), "{first}");
+    assert!(
+        first.contains(&format!("Location: /?t={}\r\n", rig.token)),
+        "{first}"
+    );
+    let again = get(rig.port, path)?;
+    assert!(again.starts_with("HTTP/1.1 200"), "{again}");
+    assert!(!again.contains(&rig.token), "{again}");
+    Ok(())
+}
+
 #[test]
 fn a_relative_link_opens_its_file() -> Result<()> {
     let mut rig = Rig::new()?;

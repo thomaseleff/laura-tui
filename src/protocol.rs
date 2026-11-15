@@ -184,7 +184,7 @@ pub enum Response {
     /// Answers `Layout` and dry-run `Open`.
     Report(LayoutReport),
     /// `ready` succeeded; carries the session's journal path, the experimental features on in this
-    /// tab (`"editor"`, `"web"`, `"browser"`), and the layout — everything a fresh agent needs to orient.
+    /// tab (`"editor"`), and the layout — everything a fresh agent needs to orient.
     Ready {
         journal: String,
         #[serde(default)]

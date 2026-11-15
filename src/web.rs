@@ -124,6 +124,7 @@ struct Served {
 
 /// The file route's nonces, shared by `sync` and the connection threads.
 type Files = Arc<Mutex<HashMap<String, Served>>>;
+type Code = Arc<Mutex<Option<String>>>;
 
 /// Each routed pane's path, its file route's nonce and its URL: the file's folder for markdown,
 /// the page for HTML.
@@ -196,6 +197,9 @@ pub fn nothing_yet(e: &tungstenite::Error) -> bool {
 /// The web app's server for one workspace. The loop that owns the `Tab` calls `sync` every frame.
 pub struct WebServer {
     url: String,
+    port: u16,
+    /// The one-time code that `open_url` hands the user's browser, shared with `serve`.
+    open: Code,
     conns: Receiver<Conn>,
     view: Option<View>,
     area: Option<Rect>,
@@ -216,17 +220,22 @@ impl WebServer {
         let files = Files::default();
         let (join, conns) = channel();
         let shared = files.clone();
+        let open = Code::default();
+        let code = open.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let (join, token, files) = (join.clone(), token.clone(), shared.clone());
+                let (join, token, files, code) =
+                    (join.clone(), token.clone(), shared.clone(), code.clone());
                 // A thread per connection: a socket that sends nothing can't block the rest.
                 std::thread::spawn(move || {
-                    let _ = serve(stream, &token, port, &join, &files);
+                    let _ = serve(stream, &token, &code, port, &join, &files);
                 });
             }
         });
         Ok(WebServer {
             url,
+            port,
+            open,
             conns,
             view: None,
             area: None,
@@ -239,6 +248,15 @@ impl WebServer {
     /// The URL to print: the bound address plus the token.
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// A URL for the user's browser that works once and redirects to `url`, so the token never
+    /// sits on a command line that `ps` shows to other users. A new call voids the last code.
+    pub fn open_url(&self) -> Result<String> {
+        let code = nonce(32)?;
+        let url = format!("http://127.0.0.1:{}/?o={code}", self.port);
+        *self.open.lock().unwrap_or_else(PoisonError::into_inner) = Some(code);
+        Ok(url)
     }
 
     /// The last view's workspace size in cells, kept after the view disconnects so the shell
@@ -1538,6 +1556,27 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// Query parameter `key`'s raw value in a request target.
+fn query<'a>(target: &'a str, key: &str) -> Option<&'a str> {
+    target
+        .split_once('?')?
+        .1
+        .split('&')
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
+}
+
+/// Whether `given` is the open code, which it then voids: a code works once.
+fn take_code(code: &Code, given: &str) -> bool {
+    let mut code = code.lock().unwrap_or_else(PoisonError::into_inner);
+    let ok = code
+        .as_ref()
+        .is_some_and(|c| same(c.as_bytes(), given.as_bytes()));
+    if ok {
+        *code = None;
+    }
+    ok
+}
+
 /// Peek a request's head, so tungstenite can still read it for a websocket: the head, or `None`
 /// when the client closes or stalls, or sends a head over `MAX_HEAD` (answered 431).
 pub(crate) fn peek_head(stream: &mut TcpStream) -> Result<Option<Vec<u8>>> {
@@ -1576,6 +1615,7 @@ pub(crate) fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 fn serve(
     mut stream: TcpStream,
     token: &str,
+    code: &Code,
     port: u16,
     join: &Sender<Conn>,
     files: &Files,
@@ -1590,6 +1630,19 @@ fn serve(
         return view_conn(stream, token, port, join);
     }
     stream.read_exact(&mut buf)?;
+    // Any other code gets the page, which then can't connect.
+    if path == "/"
+        && let Some(given) = query(target, "o")
+        && take_code(code, given)
+    {
+        return write!(
+            stream,
+            "HTTP/1.1 303 See Other\r\nLocation: /?t={token}\r\nContent-Length: 0\r\n\
+             Cache-Control: no-store\r\nReferrer-Policy: {REFERRER_POLICY}\r\n\
+             Connection: close\r\n\r\n"
+        )
+        .map_err(Into::into);
+    }
     // No token, so a page or image URL can't leak it.
     if let Some(rest) = path.strip_prefix("/f/") {
         return match file(rest, files) {

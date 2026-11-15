@@ -136,38 +136,60 @@ pub fn open_app(url: &str) -> std::io::Result<()> {
         ]
         .into_iter()
         .map(PathBuf::from)
+        // A per-user Chrome install lives under %LOCALAPPDATA%.
+        .chain(
+            std::fs::read_dir("/mnt/c/Users")
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|u| {
+                    u.path()
+                        .join("AppData/Local/Google/Chrome/Application/chrome.exe")
+                }),
+        )
         .chain(candidates())
         .collect(),
         None => candidates(),
     };
-    let mut cmd = match app.into_iter().find(|p| p.is_file()) {
+    let (mut cmd, opener) = match app.into_iter().find(|p| p.is_file()) {
         Some(p) => {
             let mut c = Command::new(p);
             c.arg(format!("--app={url}"));
-            c
+            (c, None)
         }
         None if cfg!(windows) => {
             let mut c = Command::new("cmd");
             c.args(["/C", "start", "", url]);
-            c
+            (c, Some("cmd"))
         }
         None => {
-            let mut c = Command::new(if cfg!(target_os = "macos") {
+            let name = if cfg!(target_os = "macos") {
                 "open"
             } else {
                 "xdg-open"
-            });
+            };
+            let mut c = Command::new(name);
             c.arg(url);
-            c
+            (c, Some(name))
         }
     };
+    // The browser outlives Laura: the terminal's Ctrl+C and hangup go to Laura's group only.
+    #[cfg(unix)]
+    cmd.process_group(0);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    // Chrome forks and exits when a window is already open; reap it so it leaves no zombie.
-    std::thread::spawn(move || child.wait());
+    // Chrome forks and exits when a window is already open; reap it so it leaves no zombie. Only
+    // an opener's exit status tells whether the browser opened.
+    std::thread::spawn(move || {
+        if let (Ok(status), Some(name)) = (child.wait(), opener)
+            && !status.success()
+        {
+            eprintln!("Laura could not open a web browser: {name} exited with {status}");
+        }
+    });
     Ok(())
 }
 
