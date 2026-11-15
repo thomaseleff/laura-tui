@@ -26,12 +26,21 @@ You do the work from the branch to the merge. Stop for the user at each plan, at
 - A **finding** is review feedback from an agent. A **comment** is feedback between people. Post your feedback as findings.
 - Read the exact flags with `entire agent-help trail <subcommand>`. Do not guess a flag.
 
+## Plans
+
+Plan mode can clear the context. Then you implement the plan with only the plan in the context, and you do not know that the work is part of a trail. Each plan that you write in plan mode (steps 2, 18 and 23) must start with a `## Trail` section, under the reference note. Put these items in the section:
+
+- The trail URL and the change URL (`<repo>/<n>`). Before step 5, write "Not created yet".
+- The issue URL, the branch, the worktree path and the PR URL, when they exist.
+- The step that the plan is for, and the next step.
+- This instruction, with the values filled in: "This work is part of a trail. Before you edit code, invoke the trail skill: `/trail <change URL>`. Continue the trail from step <next step>. Do all of the work in the worktree `<path>`." Before step 5, use `/trail <N>`.
+
 ## Workflow
 
 ### Start
 
 1. Read the issue with `gh issue view <N>`.
-2. Switch into plan mode. Write the plan with the "Plans" conventions in `CLAUDE.md`.
+2. Switch into plan mode. Write the plan with the "Plans" conventions in `CLAUDE.md`. Start the plan with the `## Trail` section (see "Plans").
 3. Record each decision that changes the *Done when* of the issue. The trail body must show each such decision.
 4. Create a worktree for the branch. Then other agents can run other trails in the main checkout at the same time.
 
@@ -93,7 +102,7 @@ A subagent does the first review of the draft PR, before the Entire reviewer. Th
 
 16. The Agent result gives the worktree path and the branch of the subagent. After the subagent gives its answer, remove that worktree and that branch, if they exist: `git worktree remove --force <path>` and `git branch -D <branch>`. Do not remove the worktree or the branch of a different subagent. The probe edits of the subagent are not committed, so `--force` is necessary.
 17. Brief the user (see "Brief"). If the review has open findings, stop. If the review has no open findings, go to step 20 and do not stop.
-18. After the user approves the fixes, switch into plan mode. Use the user's answers and the current code to write the fix plan.
+18. After the user approves the fixes, switch into plan mode. Use the user's answers and the current code to write the fix plan. Start the plan with the `## Trail` section (see "Plans").
 19. Fix the findings. Commit the fixes, run the check suite and push the branch. Then resolve each fixed finding. In the message, give the commit of the fix and how you checked the fix:
 
     ```
@@ -123,7 +132,7 @@ A subagent does the first review of the draft PR, before the Entire reviewer. Th
     ```
 
 22. Each open finding blocks the merge, also a low finding. If the round has open findings, brief the user and stop. If the round has no open findings, go to step 26.
-23. After the user approves the fixes, switch into plan mode. Use the user's answers to write a plan for the open findings.
+23. After the user approves the fixes, switch into plan mode. Use the user's answers to write a plan for the open findings. Start the plan with the `## Trail` section (see "Plans").
 24. Fix and resolve the findings with the procedure in step 19.
 25. Do not dismiss a finding without approval from the user. Use the procedure in step 19.
 26. Wait for CI: `gh pr checks <n> --watch`.
@@ -142,9 +151,9 @@ A subagent does the first review of the draft PR, before the Entire reviewer. Th
 33. Stop. Brief the user, and ask the user to approve the trail.
 34. When the user says "Approve", approve the trail: `entire trail approve <repo>/<n> -m "<what the user approved>"`. Do not approve the trail before the user says "Approve".
 35. Run `entire trail merge <repo>/<n> --dry-run` again. If a gate fails, tell the user the name of the gate and the cause of the failure.
-36. When the user tells you to merge the PR, run `entire trail merge <repo>/<n>`. Entire squash-merges the PR.
+36. When the user tells you to merge the PR, squash-merge the PR on GitHub: `gh pr merge <n> --squash`. Entire then shows the change as merged.
 37. Make sure that GitHub closed the issue: `gh issue view <N> --json state`.
-38. If the `status` field in `entire trail show <P> --json` is still `open`, close the trail: `entire trail update <P> --status closed`.
+38. Do not close the trail. The trail stays `open`, and Entire shows the trail as merged. `entire trail update <P> --status closed` makes Entire show the trail as closed, not merged.
 39. Go back to the main checkout. Remove the worktree, and update `main`:
 
     ```
