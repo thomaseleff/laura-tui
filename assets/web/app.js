@@ -1192,7 +1192,14 @@ function goThread(id) {
   const card = go && el.querySelector(`.card[data-th="${go.th}"]`);
   if (!card) return;
   el.goTh = null;
-  card.scrollIntoView({ block: go.block });
+  reveal(card, go.block);
+}
+// Below the workspace's minimum size the window scrolls (style.css); a pane's scroll leaves it
+// where the user put it.
+function reveal(el, block) {
+  const { scrollX, scrollY } = window;
+  el?.scrollIntoView({ block });
+  scrollTo(scrollX, scrollY);
 }
 // A click outside the thread list or **More** closes it.
 addEventListener("mousedown", e => {
@@ -1346,10 +1353,10 @@ function onPane(m) {
   const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line ?? "L" + cur?.dataset.th}`;
   if (m.recenter) toHighlight(m.id);
   else if (key !== rows.dataset.key) {
-    cur?.scrollIntoView({ block: "nearest" });
+    reveal(cur, "nearest");
     // The cursor's row stays in view above its tall thread.
     const u = units(rows)[rows.dataset.cursor];
-    if (u?.classList.contains("row")) u.scrollIntoView({ block: "nearest" });
+    if (u?.classList.contains("row")) reveal(u, "nearest");
   }
   rows.dataset.key = key;
   goThread(m.id);
