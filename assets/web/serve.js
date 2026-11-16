@@ -80,6 +80,7 @@ $("folder").oninput = dupCheck;
 // The folder browser: `cwd` is the folder it lists, and `sel` is the selected row's folder.
 // `loading` is the last `nav`: Use this folder waits for it and uses the folder that shows.
 let cwd = null, sel = null, loading = null;
+const FOLDER = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
 const nav = path => (loading = listDirs(path));
 async function listDirs(path) {
   let res = await api(`/dirs?path=${encodeURIComponent(path)}`);
@@ -94,7 +95,10 @@ async function listDirs(path) {
     return i ? [" / ", a] : [a];
   }));
   $("dirs").replaceChildren(...(cwd.dirs.length ? cwd.dirs.map(d => {
-    const li = el("li", "", `📁 ${d.name}`);
+    // An SVG, not 📁: Laura's browser and some systems have no emoji font.
+    const li = el("li");
+    li.innerHTML = FOLDER;
+    li.append(d.name);
     li.setAttribute("role", "option");
     li.dataset.path = d.path;
     if (d.git) li.append(el("span", "sv-git", "git"));

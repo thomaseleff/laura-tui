@@ -674,6 +674,7 @@ body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-di
 .sv-fb li { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; font: 13px var(--mono); user-select: none; }
 .sv-fb li:is(:hover, .sel) { background: var(--acc-soft); }
 .sv-fb li.sv-none { cursor: default; background: none; }
+.sv-fb li .ic { color: var(--mute); }
 .sv-git { margin-left: auto; font: 11px var(--sans); color: var(--mute); }
 .sv-foot { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
 .sv-foot .sm { margin-right: auto; }
