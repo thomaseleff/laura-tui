@@ -79,7 +79,9 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
             2,
             "{stdout}"
         );
-        assert!(std::fs::read(file("laura.ico"))?.starts_with(&[0, 0, 1, 0]));
+        // Named by version: Explorer caches an icon by its path.
+        let ico = format!("laura-{}.ico", env!("CARGO_PKG_VERSION"));
+        assert!(std::fs::read(file(&ico))?.starts_with(&[0, 0, 1, 0]));
     } else if cfg!(target_os = "macos") {
         let plist = std::fs::read_to_string(file("Info.plist"))?;
         assert!(plist.contains("<key>LSUIElement</key><true/>"), "{plist}");

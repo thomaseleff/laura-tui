@@ -185,8 +185,8 @@ To remove the Laura icon, delete these files.
 |---|---|
 | Linux | `~/.local/share/applications/laura.desktop` and `~/.local/share/icons/laura.png` (in `$XDG_DATA_HOME` when you set it) |
 | macOS | `~/Applications/Laura.app` |
-| Windows | `Laura.lnk` on the Desktop and in the Start Menu, and `%USERPROFILE%\.laura\laura.ico` |
-| WSL | `Laura.lnk` on the Windows Desktop and in the Windows Start Menu, and `%USERPROFILE%\.laura\laura.ico` in Windows |
+| Windows | `Laura.lnk` on the Desktop and in the Start Menu, and `%USERPROFILE%\.laura\laura-<version>.ico` |
+| WSL | `Laura.lnk` on the Windows Desktop and in the Windows Start Menu, and `%USERPROFILE%\.laura\laura-<version>.ico` in Windows |
 
 On Windows, the Laura icon runs `lauraw.exe`, which starts the Laura server with no console window. On WSL, the Laura icon starts the Laura server in your Linux distribution, in a minimized terminal window.
 

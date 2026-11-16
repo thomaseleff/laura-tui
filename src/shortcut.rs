@@ -31,20 +31,20 @@ pub fn write() -> Result<()> {
     if let Ok(distro) = std::env::var("WSL_DISTRO_NAME") {
         let (win, dir) = crate::browser::win_env("USERPROFILE")
             .context("Laura could not find the Windows home folder")?;
-        save(&dir.join(".laura/laura.ico"), ICO)?;
+        let ico = save_ico(&dir.join(".laura"))?;
         // Minimized: the terminal that runs the Laura server stays out of the way. No quotes
         // around the distribution: `wsl.exe -d` keeps them in the name, and a name has no space.
         return lnk(
             "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
             r"C:\Windows\System32\wsl.exe",
             &format!("-d {distro} --cd ~ -e {shell} -ilc \"{inner}\""),
-            &format!(r"{win}\.laura\laura.ico"),
+            &format!(r"{win}\.laura\{ico}"),
             7,
         );
     }
     if cfg!(windows) {
-        let icon = home.join(".laura").join("laura.ico");
-        save(&icon, ICO)?;
+        let dir = home.join(".laura");
+        let icon = dir.join(save_ico(&dir)?);
         let lauraw = exe.with_file_name("lauraw.exe");
         if !lauraw.is_file() {
             bail!("{} is missing: reinstall Laura", lauraw.display());
@@ -103,6 +103,20 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>
 "#;
+
+/// Write the `.ico` in `dir`, named by version, and delete the `.ico` of other versions. Explorer
+/// caches an icon by its path, so a new path makes Explorer read the new file after an upgrade.
+fn save_ico(dir: &Path) -> Result<String> {
+    let name = format!("laura-{}.ico", env!("CARGO_PKG_VERSION"));
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let old = e.file_name().to_string_lossy().into_owned();
+        if old.starts_with("laura") && old.ends_with(".ico") && old != name {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    save(&dir.join(&name), ICO)?;
+    Ok(name)
+}
 
 fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
