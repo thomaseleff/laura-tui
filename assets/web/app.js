@@ -1925,10 +1925,27 @@ function paintSwitcher() {
   $("caret").hidden = $("wsw").disabled = !menu;
   if (menu) $("wsw").dataset.tip = "Switch workspace";
   else delete $("wsw").dataset.tip;
+  // With a Laura server, the brand opens its page; with no `href`, the brand is plain text.
+  const brand = $("brand");
+  if (server) {
+    brand.href = server;
+    brand.ariaLabel = brand.dataset.tip = "Show the workspaces";
+  } else {
+    brand.removeAttribute("href");
+    brand.removeAttribute("aria-label");
+    delete brand.dataset.tip;
+  }
   if (!menu) closeMenu();
   else if (!$("menu").hidden) paintMenu();
   if (popup !== null) paintSelector();
 }
+
+// A middle click opens a new tab through the `href`.
+$("brand").onclick = e => {
+  if (!server) return;
+  e.preventDefault();
+  go(server, e.ctrlKey || e.metaKey);
+};
 
 // Static markup; the frame's strings go in as text.
 function paintMenu() {
@@ -2112,8 +2129,10 @@ function connect() {
     acts.length = 0;
     if (moved) return showOverlay(strings.moved, true);
     if (ended) {
+      // `replace`: Back does not return to the workspace that ended.
+      if (server) return location.replace(server);
       document.body.classList.add("ended");
-      return showOverlay(server ? strings.ended_server : strings.ended, false);
+      return showOverlay(strings.ended, false);
     }
     // Laura drops a view that falls behind; a fresh connection gets a fresh replay.
     if (laid) return setTimeout(connect, 500);

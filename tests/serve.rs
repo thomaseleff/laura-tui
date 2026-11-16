@@ -166,7 +166,7 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
     assert_eq!(status(&none), "HTTP/1.1 401 Unauthorized", "{none}");
     let page = http(s.port, "GET", "/", "", "")?;
     assert_eq!(status(&page), "HTTP/1.1 200 OK", "{page}");
-    assert!(page.contains("Open Laura from the address Laura prints"));
+    assert!(page.contains("Open the Laura server from the terminal"));
     assert!(!page.contains(&workspace_token), "the page holds a token");
 
     // The printed address serves the page, which keeps the key and sends it in a header.
@@ -339,7 +339,7 @@ fn start_workspace_tells_why_a_workspace_did_not_start() -> Result<()> {
     assert_eq!(status(&resp), "HTTP/1.1 400 Bad Request", "{resp}");
     let text = body(&resp);
     assert!(
-        text.starts_with("The workspace stopped at once: "),
+        text.starts_with("The workspace failed to start.\n"),
         "{text}"
     );
     assert!(text.contains("no-such-program"), "{text}");
@@ -354,7 +354,7 @@ fn start_workspace_tells_why_a_workspace_did_not_start() -> Result<()> {
     assert_eq!(status(&resp), "HTTP/1.1 400 Bad Request", "{resp}");
     assert_eq!(
         body(&resp),
-        "The workspace stopped at once: the program exited."
+        "The workspace failed to start.\nThe program exited at once."
     );
     assert!(s.workspaces()?.is_empty(), "a workspace started");
     Ok(())

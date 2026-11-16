@@ -53,6 +53,8 @@ What Laura shows depends on [the Laura server](workspace.md#the-laura-server):
 | Runs | The list ends with **New workspace…**, which opens the Laura server's page. | **Workspaces** ends with **New workspace…**. |
 | Does not run | The list ends with the line `Run laura --serve to start more workspaces.` With only one workspace, the workspace switcher shows no ▾ and no list. | **Workspaces** lists only the other workspaces. |
 
+While the Laura server runs, select **Laura** at the left of the top bar to open the Laura server's page. `Ctrl`+click, `Cmd`+click and a middle click open the page in a new browser tab.
+
 ## In a focused pane
 
 | Keystroke | Button | What Laura does |
@@ -199,5 +201,5 @@ Each `laura` run is one workspace, shown in one browser tab at a time.
 - When you open the URL in a second tab, Laura moves the workspace there. The first tab shows `The workspace is open in another tab.` and a **Use this tab** button.
 - When you close the browser tab, the workspace keeps running. Open the URL again to return.
 - When the workspace ends, the tab shows `The workspace stopped. To use Laura again, start Laura in the terminal.`
-- While [the Laura server](workspace.md#the-laura-server) runs, both messages have a **Show the workspaces** button, which opens the Laura server's page. The message for a workspace that ended is then `The workspace stopped.`
+- While [the Laura server](workspace.md#the-laura-server) runs, the message for a moved workspace has a **Show the workspaces** button, which opens the Laura server's page. When the workspace ends, Laura opens the Laura server's page in the tab.
 - When the tab can't connect, Laura shows `This tab cannot connect to the workspace. Make sure that Laura did not stop and that you used the full URL from the terminal.` Check that Laura still runs, then open the full URL that Laura printed.

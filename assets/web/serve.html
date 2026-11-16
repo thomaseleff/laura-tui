@@ -36,19 +36,18 @@
       </div>
     </div>
     <div class="sv-actions"><button class="btn pri" id="go">Start workspace</button></div>
-    <div class="sv-msg sv-info" id="dup" hidden></div>
     <div class="sv-msg sv-err" id="err" role="alert" hidden></div>
   </div>
   <h2>Running <span class="mute" id="count"></span></h2>
   <div class="sv-card"><ul class="sv-ws" id="rows"></ul></div>
 </main>
 <div class="sv-card sv-gate" id="gate" hidden>
-  <h1>Open Laura from the address Laura prints</h1>
-  <p class="mute">This page lists and starts workspaces, so Laura shows it only in a browser that has the key from your computer.</p>
+  <h1>Open the Laura server from the terminal</h1>
   <ol>
-    <li>Run <code>laura --serve</code> in a terminal and open the address that Laura prints.</li>
+    <li>Run <code>laura --serve</code> in a terminal.</li>
+    <li>Open the address that Laura shows in the terminal.</li>
   </ol>
-  <p class="sm mute">After the first visit, this address works on its own in this browser.</p>
+  <p class="sm mute">This browser keeps the key until the Laura server stops.</p>
 </div>
 <div class="sv-card sv-gate" id="stopped" hidden>
   <h1>The Laura server stopped</h1>

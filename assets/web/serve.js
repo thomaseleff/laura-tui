@@ -44,7 +44,6 @@ async function load() {
   sent = text;
   list = JSON.parse(text);
   paintList();
-  dupCheck();
 }
 
 function paintList() {
@@ -53,7 +52,8 @@ function paintList() {
     const names = el("div", "sv-names");
     names.append(el("div", r.title ? "sv-t" : "sv-t sv-fallback", label(r)), el("div", "sv-p", `${r.root} · ${r.program}`));
     const open = el("span", "sv-open");
-    const here = el("button", "btn", "Open"), tab = el("button", "btn", "Open in a new tab ↗");
+    const here = el("button", "btn", "Open"), tab = el("button", "btn", "↗");
+    tab.ariaLabel = tab.dataset.tip = "Open in a new tab";
     here.onclick = () => location.assign(r.url);
     tab.onclick = () => window.open(r.url, "_blank", "noopener");
     open.append(here, tab);
@@ -64,18 +64,6 @@ function paintList() {
   $("rows").replaceChildren(...(rows.length ? rows : [el("li", "sv-empty", "No workspaces are running. Start one above.")]));
   $("count").textContent = list.length ? `(${list.length})` : "";
 }
-
-// A workspace already in this folder: say so, and link to it.
-function dupCheck() {
-  const v = $("folder").value.trim().replace(/(.)[/\\]$/, "$1");
-  const r = list.find(r => r.root === v || r.path === v);
-  $("dup").hidden = !r;
-  if (!r) return;
-  const a = el("a", "", label(r));
-  a.href = r.url;
-  $("dup").replaceChildren("A workspace already runs in this folder: ", a, ". Start another, or open that one.");
-}
-$("folder").oninput = dupCheck;
 
 // The folder browser: `cwd` is the folder it lists, and `sel` is the selected row's folder.
 // `loading` is the last `nav`: Use this folder waits for it and uses the folder that shows.
@@ -128,7 +116,6 @@ $("fbUse").onclick = async () => {
   if (sel) await nav(sel);
   if (cwd) $("folder").value = cwd.shown;
   browse(false);
-  dupCheck();
 };
 $("dirs").onclick = e => select(e.target.closest("li[data-path]"));
 $("dirs").ondblclick = e => {
@@ -168,7 +155,14 @@ $("go").onclick = async () => {
   $("go").disabled = false;
   $("go").textContent = "Start workspace";
   if (!res || res.status === 401) return load();
-  $("err").textContent = await res.text();
+  // The headline, then Laura's error (paths, program output) behind Show the error.
+  const [head, ...rest] = (await res.text()).split("\n");
+  $("err").replaceChildren(head);
+  if (rest.length) {
+    const more = el("details");
+    more.append(el("summary", "", "Show the error"), el("pre", "", rest.join("\n")));
+    $("err").append(more);
+  }
   $("err").hidden = false;
 };
 

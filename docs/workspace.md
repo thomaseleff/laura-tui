@@ -112,7 +112,7 @@ The Laura server is one address in the browser that lists the running workspaces
 
 After the first visit, the browser keeps the key. The plain address `http://127.0.0.1:1989/` and a bookmark of it then work in that browser, also after the browser restarts, until the Laura server stops.
 
-Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open Laura from the address Laura prints` and no workspace.
+Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open the Laura server from the terminal` and no workspace.
 
 ### Start a workspace
 
@@ -128,16 +128,13 @@ In the folder browser:
 - **Use this folder** takes the selected folder, or the open folder when you selected none.
 - The folder browser marks each git repository with `git`, and lists no folder whose name starts with a dot.
 
-When a workspace already runs in the folder, the page shows a line with a link to that workspace. You can still start a second workspace in the folder.
-
 When the workspace does not start, the page shows one of these errors below the button:
 
 | Error | Cause |
 |---|---|
 | `<folder> is not a folder.` | The folder does not exist. |
-| `The workspace stopped at once: <Laura's error>` | Laura could not start the program, for example a command that is not installed. |
-| `The workspace stopped at once: the program exited.` | The command ended at once, for example a command that prints and stops, such as `ls`. |
-| `The workspace did not start in 10 s.` | The workspace took too long to start. Laura stops that workspace. |
+| `The workspace failed to start.` | Laura could not start the program, for example a command that is not installed, or the command ended at once, for example a command that prints and stops, such as `ls`. Select **Show the error** to read Laura's error, or `The program exited at once.` |
+| `The workspace timed out after 10 s.` | The workspace took too long to start. Laura stops that workspace. |
 
 The Laura server splits the command at each space, so an argument can't contain a space.
 
@@ -148,7 +145,7 @@ A workspace that the Laura server started has no terminal. The workspace runs un
 **Running** lists each workspace that runs on this computer, the newest first, also the workspaces that you started in a terminal with `laura`. Each row shows the session label, or the folder name in grey before the agent sets a session label, then the folder and the program.
 
 - **Open** opens the workspace in this tab.
-- **Open in a new tab ↗** opens the workspace in a new tab.
+- **↗** opens the workspace in a new tab.
 
 The page reloads the list every 5 seconds. A workspace that ended leaves the list.
 

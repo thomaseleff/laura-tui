@@ -312,10 +312,10 @@ fn dirs(typed: &str) -> Option<Value> {
 /// the error that the page shows.
 fn start(exe: &Path, typed: &str, program: &str) -> Result<String, String> {
     let dir = folder(typed).ok_or_else(|| not_a_folder(typed))?;
-    let failed = |e: &dyn std::fmt::Display| format!("The workspace stopped at once: {e}");
+    let failed = |e: &dyn std::fmt::Display| format!("The workspace failed to start.\n{e}");
     let runtime = runtime_dir();
     std::fs::create_dir_all(&runtime).map_err(|e| failed(&e))?;
-    // The workspace's stderr, which tells why a workspace stopped at once.
+    // The workspace's stderr, which tells why a workspace failed to start.
     let log = runtime.join(format!(
         "start-{}.log",
         web::nonce(8).map_err(|e| failed(&e))?
@@ -357,7 +357,7 @@ fn start(exe: &Path, typed: &str, program: &str) -> Result<String, String> {
                 .collect();
             break Err(failed(
                 &match lines.join(" ").trim_start_matches("Error: ") {
-                    "" => "the program exited.",
+                    "" => "The program exited at once.",
                     why => why,
                 },
             ));
@@ -373,7 +373,7 @@ fn start(exe: &Path, typed: &str, program: &str) -> Result<String, String> {
         }
         if spawned.elapsed() >= START_TIMEOUT {
             let _ = child.kill();
-            break Err("The workspace did not start in 10 s.".to_string());
+            break Err("The workspace timed out after 10 s.".to_string());
         }
         std::thread::sleep(Duration::from_millis(50));
     };

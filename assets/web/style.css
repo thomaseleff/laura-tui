@@ -64,6 +64,9 @@ body { line-height: 1.5; }
 #top .l, #top .r { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #top .r { grid-column: 3; justify-content: flex-end; }
 .brand { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+/* With a Laura server, the brand links to the Laura server's page; without one it is plain text. */
+a.brand { color: inherit; text-decoration: none; }
+a.brand[href]:hover { color: var(--acc); }
 /* A long folder ends in … at its column's edge, short of **Find a pane**. */
 .crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }
@@ -660,8 +663,10 @@ body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-di
 .sv-actions { margin-top: 14px; padding-left: 90px; }
 .sv-msg { border-radius: 8px; padding: 6px 10px; margin: 10px 0 0 90px; overflow-wrap: anywhere; }
 .sv-err { color: var(--bad); background: var(--bad-soft); }
-.sv-info { background: var(--acc-soft); }
-.sv-info a, .sv-crumbs a { color: var(--acc); }
+.sv-crumbs a { color: var(--acc); }
+/* Laura's error under the headline, closed until the user opens it. */
+.sv-err summary { margin-top: 4px; cursor: pointer; }
+.sv-err pre { margin: 6px 0 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; }
 .sv-spin {
   width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%;
   border: 2px solid rgb(255 255 255 / .4); border-top-color: #fff; animation: spin .8s linear infinite;

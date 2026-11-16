@@ -615,9 +615,6 @@ pub const TOO_SMALL: &str = "Make the window larger to show the workspace.";
 /// The web app's overlay once the workspace ended (the shell exited or the user quit).
 pub const ENDED: &str = "The workspace stopped. To use Laura again, start Laura in the terminal.";
 
-/// [`ENDED`] when a Laura server runs: the overlay's **Show the workspaces** tells the way on.
-pub const ENDED_SERVER: &str = "The workspace stopped.";
-
 /// A path's file name (last `/`- or `\`-separated segment).
 pub fn base_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
