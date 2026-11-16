@@ -14,9 +14,14 @@ laura --port <n>        Serve the web app on port <n> instead of a free port.
 laura --serve           Run the Laura server at http://127.0.0.1:1989/, which lists the running
                         workspaces and starts new ones. Prints the URL with the key. Takes no <cmd>.
 laura --serve --port <n>  Run the Laura server on port <n>. `--port 0` picks a free port.
+laura --serve --open    Open the Laura server in a web browser, and start the Laura server when it
+                        does not run. The Laura icon runs this command.
+laura --shortcut        Write the Laura icon for this computer. Prints the path of each file.
 ```
 
 When a Laura server already runs, `laura --serve` prints the URL of that Laura server again, also with a different `--port`. When another program uses the port, Laura returns the error `port <n> is in use: pass --port`. `laura --serve -- <cmd>` returns the error `--serve takes no program: start a workspace with a program on the Laura server's page`. See [The Laura server](workspace.md#the-laura-server).
+
+With `--open`, Laura opens the browser at the Laura server that runs, or starts a Laura server and opens the browser at it. When a Laura server of another version runs, Laura stops that Laura server and starts a new one. When the Laura server can't start, Laura also opens a page with the error, and exits with status 1. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
 
 ## Commands
 

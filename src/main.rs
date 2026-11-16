@@ -55,9 +55,15 @@ struct Cli {
     /// Run the Laura server: one address that lists the workspaces and starts new ones.
     #[arg(long, conflicts_with_all = ["web", "tui"])]
     serve: bool,
+    /// Open the Laura server in a web browser, and start it when it does not run.
+    #[arg(long, requires = "serve")]
+    open: bool,
     /// The port to listen on; `0` picks a free port (default: a free port, or 1989 with `--serve`).
     #[arg(long, conflicts_with = "tui")]
     port: Option<u16>,
+    /// Write the Laura icon for this computer.
+    #[arg(long, conflicts_with_all = ["web", "tui", "serve", "port"])]
+    shortcut: bool,
 }
 
 #[derive(Subcommand)]
@@ -377,8 +383,9 @@ fn main() -> Result<()> {
                     "--serve takes no program: start a workspace with a program on the Laura server's page"
                 );
             }
-            laura::serve::run(cli.port.unwrap_or(laura::serve::DEFAULT_PORT))
+            laura::serve::run(cli.port.unwrap_or(laura::serve::DEFAULT_PORT), cli.open)
         }
+        None if cli.shortcut => laura::shortcut::write(),
         None => web(cli.program, cli.port.unwrap_or(0)),
     }
 }

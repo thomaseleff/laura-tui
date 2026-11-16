@@ -147,7 +147,8 @@ pub fn opener() -> Opener {
             // Only then ask Windows, since a WSL call into Windows takes noticeable time.
             if !app.iter().any(|p| p.is_file()) {
                 app.extend(
-                    local_app_data().map(|d| d.join("Google/Chrome/Application/chrome.exe")),
+                    win_env("LOCALAPPDATA")
+                        .map(|(_, d)| d.join("Google/Chrome/Application/chrome.exe")),
                 );
             }
             app.extend(candidates());
@@ -255,13 +256,14 @@ pub fn no_browser(reason: impl std::fmt::Display) {
     eprintln!("To use Laura in this terminal instead, press Ctrl+C and run laura --tui.");
 }
 
-/// The user's own %LOCALAPPDATA%, where a per-user Chrome lives, as a WSL path. Not every folder
-/// under `/mnt/c/Users`: any Windows user can write to `Public` and `All Users`. `cmd.exe` by its
-/// full path, since `appendWindowsPath=false` keeps it off PATH; run in a Windows folder, so it
-/// doesn't warn about a UNC one.
-fn local_app_data() -> Option<PathBuf> {
+/// A folder in the user's own Windows environment, such as %LOCALAPPDATA% (where a per-user Chrome
+/// lives), from WSL: the Windows path and the WSL path. Not every folder under `/mnt/c/Users`: any
+/// Windows user can write to `Public` and `All Users`. `cmd.exe` by its full path, since
+/// `appendWindowsPath=false` keeps it off PATH; run in a Windows folder, so it doesn't warn about a
+/// UNC one.
+pub(crate) fn win_env(name: &str) -> Option<(String, PathBuf)> {
     let out = Command::new("/mnt/c/Windows/System32/cmd.exe")
-        .args(["/d", "/c", "echo %LOCALAPPDATA%"])
+        .args(["/d", "/c", &format!("echo %{name}%")])
         .current_dir("/mnt/c/Windows/System32")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -274,7 +276,7 @@ fn local_app_data() -> Option<PathBuf> {
     }
     let out = Command::new("wslpath").args(["-u", &win]).output().ok()?;
     let unix = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (out.status.success() && !unix.is_empty()).then(|| PathBuf::from(unix))
+    (out.status.success() && !unix.is_empty()).then(|| (win, PathBuf::from(unix)))
 }
 
 /// `page` as a `file:` URL for `program`. A Windows browser that WSL starts reads the page

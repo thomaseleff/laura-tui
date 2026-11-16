@@ -101,6 +101,8 @@ You see each change that the agent makes. Laura shows a ring where the agent cli
 
 The Laura server is one address in the browser that lists the running workspaces and starts new ones. Each workspace still has its own address. Bookmark the Laura server's address to start workspaces without a terminal.
 
+To start the Laura server, select [the Laura icon](#start-laura-from-a-desktop-icon). To start the Laura server from a terminal instead:
+
 1. Run the Laura server:
 
     ```bash
@@ -112,7 +114,7 @@ The Laura server is one address in the browser that lists the running workspaces
 
 After the first visit, the browser keeps the key. The plain address `http://127.0.0.1:1989/` and a bookmark of it then work in that browser, also after the browser restarts, until the Laura server stops.
 
-Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open the Laura server from the terminal` and no workspace.
+Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open the Laura server` and no workspace.
 
 ### Start a workspace
 
@@ -151,7 +153,44 @@ The page reloads the list every 5 seconds. A workspace that ended leaves the lis
 
 ### Stop the Laura server
 
-Select **Stop the Laura server** at the bottom of the page, then **Stop**. The workspaces keep running. Run `laura --serve` to start the Laura server again. `Ctrl+C` in the Laura server's terminal also stops only the Laura server.
+Select **Stop the Laura server** at the bottom of the page, then **Stop**. The workspaces keep running. Select the Laura icon, or run `laura --serve`, to start the Laura server again. `Ctrl+C` in the Laura server's terminal also stops only the Laura server.
+
+## Start Laura from a desktop icon
+
+The Laura icon is an icon on the desktop or in the Start Menu that opens the Laura server in its own browser window. Use the Laura icon to start workspaces without a terminal.
+
+1. Install Laura. See the [Quickstart](index.md).
+2. Write the Laura icon one time:
+
+    ```bash
+    laura --shortcut
+    ```
+
+    Laura prints the path of each file that Laura writes.
+3. Select the Laura icon. Laura starts the Laura server and opens the Laura server's page in a Chrome or Edge app window. Without Chrome or Edge, Laura opens the page in the default browser.
+
+When the Laura server already runs, the Laura icon opens a new window of the Laura server's page. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
+
+The Laura icon holds the full path of the `laura` program. When that path changes, for example when you install Laura with a different tool, run `laura --shortcut` again.
+
+When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error.
+
+The Laura icon runs your shell as a login shell, so the workspaces that the Laura server starts find the programs on your `PATH`, such as `claude`.
+
+### The files that Laura writes
+
+To remove the Laura icon, delete these files.
+
+| Computer | Files |
+|---|---|
+| Linux | `~/.local/share/applications/laura.desktop` and `~/.local/share/icons/laura.png` (in `$XDG_DATA_HOME` when you set it) |
+| macOS | `~/Applications/Laura.app` |
+| Windows | `Laura.lnk` on the Desktop and in the Start Menu, and `%USERPROFILE%\.laura\laura.ico` |
+| WSL | `Laura.lnk` on the Windows Desktop and in the Windows Start Menu, and `%USERPROFILE%\.laura\laura.ico` in Windows |
+
+On Windows, the Laura icon runs `lauraw.exe`, which starts the Laura server with no console window. On WSL, the Laura icon starts the Laura server in your Linux distribution, in a minimized terminal window.
+
+On Windows, `uv tool upgrade laura-tui` and `pip install -U laura-tui` can't replace `laura.exe` while the Laura server runs. Before you upgrade, select **Stop the Laura server** at the bottom of the Laura server's page.
 
 ## Quit
 

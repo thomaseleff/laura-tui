@@ -22,6 +22,8 @@ nav = [
 
 [project.theme]
 features = ["navigation.expand"]
+logo = "assets/tidepool.svg"
+favicon = "assets/tidepool.svg"
 
 [project.markdown_extensions.pymdownx.quotes]
 callouts = true

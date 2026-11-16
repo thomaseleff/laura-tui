@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use serde_json::{Value, json};
 
+use crate::browser;
 use crate::gitdiff::strip_verbatim;
 use crate::journal::{data_dir, runtime_dir};
 use crate::web::{self, header, shown_root};
@@ -40,41 +41,87 @@ fn state_path() -> PathBuf {
     data_dir().join("serve.json")
 }
 
-/// The Laura server's URL with its token, when a Laura server runs.
-pub(crate) fn running() -> Option<String> {
+/// The port and the token in `serve.json`, which a Laura server that runs or ran wrote.
+fn state() -> Option<(u16, String)> {
     let v: Value = serde_json::from_slice(&std::fs::read(state_path()).ok()?).ok()?;
     let port = u16::try_from(v["port"].as_u64()?).ok()?;
-    let token = v["token"].as_str()?;
-    is_laura_server(port).then(|| format!("http://127.0.0.1:{port}/?t={token}"))
+    Some((port, v["token"].as_str()?.to_string()))
 }
 
-/// Whether the program on `port` is a Laura server: each response of one has the version.
+fn url(port: u16, token: &str) -> String {
+    format!("http://127.0.0.1:{port}/?t={token}")
+}
+
+/// The Laura server's URL with its token, when a Laura server runs.
+pub(crate) fn running() -> Option<String> {
+    let (port, token) = state()?;
+    server_version(port).map(|_| url(port, &token))
+}
+
+/// The version of the Laura server on `port`, or `None` when no Laura server answers there: each
+/// response of one has the version.
 /// shortcut: a program that copies the header passes, sign the answer if this matters.
-fn is_laura_server(port: u16) -> bool {
+fn server_version(port: u16) -> Option<String> {
     let wait = Duration::from_millis(200);
-    let Ok(mut s) = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), wait) else {
-        return false;
-    };
+    let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), wait).ok()?;
     let _ = s.set_read_timeout(Some(wait));
     let _ = s.set_write_timeout(Some(wait));
-    if s.write_all(b"GET /serve.js HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
-        .is_err()
-    {
-        return false;
-    }
+    s.write_all(b"GET /serve.js HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        .ok()?;
     // A timeout keeps the bytes read so far.
     let mut head = vec![];
     let _ = s.take(512).read_to_end(&mut head);
-    String::from_utf8_lossy(&head).contains("\r\nX-Laura-Version: ")
+    let head = String::from_utf8_lossy(&head);
+    let (_, rest) = head.split_once("\r\nX-Laura-Version: ")?;
+    Some(rest.split("\r\n").next()?.to_string())
 }
 
-/// `laura --serve`: listen on `port` until the user stops the Laura server.
-pub fn run(port: u16) -> Result<()> {
+/// `laura --serve`: listen on `port` until the user stops the Laura server. With `open` (the
+/// Laura icon), also open the browser at it, and show an error in the browser too: the icon has
+/// no terminal.
+pub fn run(port: u16, open: bool) -> Result<()> {
+    let result = serve(port, open);
+    if let (true, Err(e)) = (open, &result) {
+        let mut text = String::new();
+        crate::render::escape(&mut text, &format!("{e:#}"));
+        let html = format!(
+            "<!doctype html><meta charset=\"utf-8\"><title>Laura</title>\
+             <h1>Laura could not start</h1><pre>{text}</pre>"
+        );
+        show(|dir| web::page(dir, &html));
+    }
+    result
+}
+
+/// Open the user's browser at the page that `write` puts in the opener's folder.
+fn show(write: impl FnOnce(&Path) -> Result<PathBuf>) {
+    let opener = browser::opener();
+    if let Err(e) = write(&opener.dir).and_then(|p| opener.open(&p).map_err(Into::into)) {
+        browser::no_browser(e);
+    }
+}
+
+/// Open the user's browser at the Laura server's `url`.
+fn open_at(url: &str) {
+    show(|dir| web::redirect_page(dir, url));
+}
+
+fn serve(port: u16, open: bool) -> Result<()> {
     // One Laura server for each user: a different `--port` prints the address of the first.
-    if let Some(url) = running() {
-        eprintln!("The Laura server already runs. Open this URL in a web browser:");
-        println!("{url}");
-        return Ok(());
+    if let Some((old, token)) = state()
+        && let Some(version) = server_version(old)
+    {
+        // After an upgrade, the Laura icon replaces the Laura server of the old version.
+        if version == VERSION || !open {
+            let url = url(old, &token);
+            eprintln!("The Laura server already runs. Open this URL in a web browser:");
+            println!("{url}");
+            if open {
+                open_at(&url);
+            }
+            return Ok(());
+        }
+        quit(old, &token)?;
     }
     let listener = web::listen(port)?;
     let port = listener.local_addr()?.port();
@@ -93,13 +140,38 @@ pub fn run(port: u16) -> Result<()> {
     });
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
-    println!("http://127.0.0.1:{port}/?t={}", server.token);
+    let url = url(port, &server.token);
+    println!("{url}");
+    if open {
+        open_at(&url);
+    }
     for stream in listener.incoming().flatten() {
         let server = server.clone();
         // A thread per connection: a socket that sends nothing can't block the rest.
         std::thread::spawn(move || {
             let _ = route(stream, &server);
         });
+    }
+    Ok(())
+}
+
+/// Stop the Laura server on `port`, as its page's **Stop** does, and wait until it ends.
+fn quit(port: u16, token: &str) -> Result<()> {
+    let wait = Duration::from_secs(1);
+    let mut s = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), wait)?;
+    s.set_read_timeout(Some(wait))?;
+    write!(
+        s,
+        "POST /quit HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\n\
+         X-Laura-Key: {token}\r\nContent-Length: 0\r\n\r\n"
+    )?;
+    let _ = s.read_to_end(&mut vec![]);
+    let start = Instant::now();
+    while server_version(port).is_some() {
+        if start.elapsed() >= Duration::from_secs(5) {
+            anyhow::bail!("the Laura server on port {port} of another version did not stop");
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
     Ok(())
 }
@@ -175,12 +247,13 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
         // The page holds no workspace: it asks `/workspaces`, and shows how to start Laura on 401.
         ("GET", "/") => reply(&mut stream, "200 OK", page, PAGE, ""),
         ("GET", "/serve.js") => reply(&mut stream, "200 OK", "text/javascript", SCRIPT, ""),
-        ("GET", "/style.css" | "/fonts/Inter.woff2" | "/fonts/JetBrainsMono.woff2") => {
-            match web::ASSETS.iter().find(|(p, ..)| *p == path) {
-                Some((_, mime, body)) => reply(&mut stream, "200 OK", mime, body, ""),
-                None => text(&mut stream, "404 Not Found", ""),
-            }
-        }
+        (
+            "GET",
+            "/style.css" | "/favicon.svg" | "/fonts/Inter.woff2" | "/fonts/JetBrainsMono.woff2",
+        ) => match web::ASSETS.iter().find(|(p, ..)| *p == path) {
+            Some((_, mime, body)) => reply(&mut stream, "200 OK", mime, body, ""),
+            None => text(&mut stream, "404 Not Found", ""),
+        },
         ("GET" | "POST", "/workspaces" | "/dirs" | "/new" | "/quit") if !authed => {
             text(&mut stream, "401 Unauthorized", "")
         }

@@ -10,12 +10,18 @@ keywords = ["tui", "terminal", "pty", "coding-agent", "ratatui"]
 categories = ["command-line-utilities", "development-tools"]
 authors = ["Tom Eleff <eleffthomas@gmail.com>"]
 # Package is laura-tui (laura is taken on PyPI; match across registries); binary stays `laura`.
-# assets/nord.tmTheme is include_str!'d by src/render.rs, assets/web/** by src/web.rs — needed at compile time.
-include = ["src/**", "build.rs", "assets/nord.tmTheme", "assets/web/**", "Cargo.toml", "Cargo.lock", "README.md", "/LICENSE", "pyproject.toml"]
+# assets/nord.tmTheme is include_str!'d by src/render.rs, assets/web/** and assets/tidepool.svg by src/web.rs,
+# assets/tidepool.png by src/shortcut.rs — needed at compile time.
+include = ["src/**", "build.rs", "assets/nord.tmTheme", "assets/web/**", "assets/tidepool.svg", "assets/tidepool.png", "Cargo.toml", "Cargo.lock", "README.md", "/LICENSE", "pyproject.toml"]
 
 [[bin]]
 name = "laura"
 path = "src/main.rs"
+
+# The Laura icon's program on Windows: `laura --serve --open` with no console window (#165).
+[[bin]]
+name = "lauraw"
+path = "src/bin/lauraw.rs"
 
 [profile.release]
 strip = true

@@ -63,10 +63,10 @@ body { line-height: 1.5; }
 }
 #top .l, #top .r { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #top .r { grid-column: 3; justify-content: flex-end; }
-.brand { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+.brand { display: flex; }
+.logo { width: 24px; height: 24px; flex: none; }
 /* With a Laura server, the brand links to the Laura server's page; without one it is plain text. */
 a.brand { color: inherit; text-decoration: none; }
-a.brand[href]:hover { color: var(--acc); }
 /* A long folder ends in … at its column's edge, short of **Find a pane**. */
 .crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }

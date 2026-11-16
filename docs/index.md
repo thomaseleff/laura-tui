@@ -33,6 +33,8 @@ uv tool install laura-tui          # prebuilt for Linux, macOS and Windows
 cargo install laura-tui --locked   # or build from source, with Rust (stable)
 ```
 
+To start Laura from an icon on the desktop or in the Start Menu, run `laura --shortcut`. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
+
 **2. Install the skills** so your agent knows how to use the `laura` CLI. In Claude Code:
 
 ```
@@ -48,7 +50,7 @@ laura -- claude "/laura:demo"
 
 Laura opens the workspace in your web browser. See [Start Laura](workspace.md#start-laura).
 
-To start workspaces from one address in the browser, run `laura --serve`. See [The Laura server](workspace.md#the-laura-server).
+To start workspaces from one address in the browser, select the Laura icon, or run `laura --serve`. See [The Laura server](workspace.md#the-laura-server).
 
 **4. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 

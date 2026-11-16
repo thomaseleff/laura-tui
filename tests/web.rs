@@ -2289,6 +2289,19 @@ fn the_fonts_are_served() -> Result<()> {
 }
 
 #[test]
+fn the_web_app_shows_the_laura_logo() -> Result<()> {
+    let rig = Rig::new()?;
+    let resp = get(rig.port, "/favicon.svg")?;
+    assert!(resp.starts_with("HTTP/1.1 200"), "{resp}");
+    assert!(resp.contains("Content-Type: image/svg+xml\r\n"), "{resp}");
+    assert!(body(&resp).starts_with("<svg"), "{resp}");
+    let page = get(rig.port, "/")?;
+    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\">"));
+    assert!(page.contains("src=\"favicon.svg\" alt=\"Laura\""));
+    Ok(())
+}
+
+#[test]
 fn a_frozen_page_serves_its_snapshot() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

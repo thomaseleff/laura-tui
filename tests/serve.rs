@@ -166,7 +166,8 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
     assert_eq!(status(&none), "HTTP/1.1 401 Unauthorized", "{none}");
     let page = http(s.port, "GET", "/", "", "")?;
     assert_eq!(status(&page), "HTTP/1.1 200 OK", "{page}");
-    assert!(page.contains("Open the Laura server from the terminal"));
+    assert!(page.contains("Open the Laura server"));
+    assert!(page.contains("Select the Laura icon, or run <code>laura --serve</code>"));
     assert!(!page.contains(&workspace_token), "the page holds a token");
 
     // The printed address serves the page, which keeps the key and sends it in a header.
@@ -206,6 +207,18 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
         let lower = resp.to_lowercase();
         assert!(!lower.contains("access-control-allow-origin"), "{resp}");
     }
+    Ok(())
+}
+
+#[test]
+fn the_laura_server_shows_the_laura_logo() -> Result<()> {
+    let s = Server::start()?;
+    let icon = http(s.port, "GET", "/favicon.svg", "", "")?;
+    assert_eq!(status(&icon), "HTTP/1.1 200 OK", "{icon}");
+    assert!(icon.contains("Content-Type: image/svg+xml\r\n"), "{icon}");
+    assert!(body(&icon).starts_with("<svg"), "{icon}");
+    let page = http(s.port, "GET", "/", "", "")?;
+    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\">"));
     Ok(())
 }
 
