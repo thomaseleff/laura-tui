@@ -8,11 +8,11 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 
-/// Tidepool, the Laura logo, 256 × 256.
-const PNG: &[u8] = include_bytes!("../assets/tidepool.png");
+/// Pebble, the Laura logo, 256 × 256.
+const PNG: &[u8] = include_bytes!("../assets/pebble.png");
 /// The same tile at each size that Windows shows, from 16 to 256 px: Windows scales one large
-/// image down poorly.
-const ICO: &[u8] = include_bytes!("../assets/tidepool.ico");
+/// image down poorly. 16 to 32 px use a drawing made for small sizes.
+const ICO: &[u8] = include_bytes!("../assets/pebble.ico");
 
 /// Write the Laura icon for this computer, and print each path that Laura wrote.
 pub fn write() -> Result<()> {

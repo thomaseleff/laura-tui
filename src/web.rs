@@ -92,16 +92,16 @@ pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
         "font/woff2",
         include_bytes!("../assets/web/fonts/JetBrainsMono.woff2"),
     ),
-    // The top bar's logo. The page's icon is the Laura icon's tile.
+    // The top bar's logo: Pebble, the Laura logo. The page's icon is the Laura icon's tile.
     (
         "/logo.svg",
         "image/svg+xml",
-        include_bytes!("../assets/tidepool.svg"),
+        include_bytes!("../assets/pebble.svg"),
     ),
     (
         "/laura.ico",
         "image/x-icon",
-        include_bytes!("../assets/tidepool.ico"),
+        include_bytes!("../assets/pebble.ico"),
     ),
 ];
 
