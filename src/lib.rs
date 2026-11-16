@@ -27,6 +27,7 @@ pub mod protocol;
 pub mod pty;
 pub mod render;
 pub mod serve;
+pub mod shortcut;
 pub mod tab;
 pub mod view;
 pub mod web;

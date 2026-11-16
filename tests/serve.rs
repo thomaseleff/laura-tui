@@ -166,7 +166,13 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
     assert_eq!(status(&none), "HTTP/1.1 401 Unauthorized", "{none}");
     let page = http(s.port, "GET", "/", "", "")?;
     assert_eq!(status(&page), "HTTP/1.1 200 OK", "{page}");
-    assert!(page.contains("Open the Laura server from the terminal"));
+    assert!(page.contains("Open the Laura server"));
+    assert!(
+        page.contains(
+            "Open Laura from your desktop or app menu, or run <code>laura --serve</code>"
+        )
+    );
+    assert!(page.contains("or run <code>laura --serve</code>, to start the Laura server again"));
     assert!(!page.contains(&workspace_token), "the page holds a token");
 
     // The printed address serves the page, which keeps the key and sends it in a header.
@@ -206,6 +212,30 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
         let lower = resp.to_lowercase();
         assert!(!lower.contains("access-control-allow-origin"), "{resp}");
     }
+    Ok(())
+}
+
+#[test]
+fn the_laura_server_shows_the_laura_logo() -> Result<()> {
+    let s = Server::start()?;
+    let logo = http(s.port, "GET", "/logo.svg", "", "")?;
+    assert_eq!(status(&logo), "HTTP/1.1 200 OK", "{logo}");
+    assert!(logo.contains("Content-Type: image/svg+xml\r\n"), "{logo}");
+    assert!(body(&logo).starts_with("<svg"), "{logo}");
+    // The tab icon is the same mark, white in dark mode.
+    let icon = http(s.port, "GET", "/favicon.svg", "", "")?;
+    assert_eq!(status(&icon), "HTTP/1.1 200 OK", "{icon}");
+    assert!(icon.contains("Content-Type: image/svg+xml\r\n"), "{icon}");
+    assert!(body(&icon).contains("prefers-color-scheme: dark"), "{icon}");
+    let old = http(s.port, "GET", "/laura.ico", "", "")?;
+    assert_eq!(status(&old), "HTTP/1.1 404 Not Found", "{old}");
+    let page = http(s.port, "GET", "/", "", "")?;
+    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">"));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"20\" height=\"20\""));
+    // The top bar shows the logo, then "Workspaces", with no "/" between them.
+    let css = http(s.port, "GET", "/style.css", "", "")?;
+    assert!(body(&css).contains(".crumb"), "{css}");
+    assert!(!body(&css).contains("content: \"/\""), "{css}");
     Ok(())
 }
 

@@ -12,7 +12,7 @@ Before you start, install Laura and the skills. See the [Quickstart](index.md#qu
     laura -- claude "/laura:demo"
     ```
 
-2. Laura opens the workspace in a Chrome or Edge window, or in your default browser. If no browser opens, open the URL that Laura prints.
+2. Laura opens the workspace in a new tab of your default browser. If no browser opens, open the URL that Laura prints.
 
 To choose the browser, set `LAURA_BROWSER` to its path. When Laura can't open a web browser, Laura shows these two lines, and the workspace keeps running:
 
@@ -101,6 +101,8 @@ You see each change that the agent makes. Laura shows a ring where the agent cli
 
 The Laura server is one address in the browser that lists the running workspaces and starts new ones. Each workspace still has its own address. Bookmark the Laura server's address to start workspaces without a terminal.
 
+To start the Laura server, select [the Laura icon](#start-laura-from-a-desktop-icon). To start the Laura server from a terminal instead:
+
 1. Run the Laura server:
 
     ```bash
@@ -112,7 +114,7 @@ The Laura server is one address in the browser that lists the running workspaces
 
 After the first visit, the browser keeps the key. The plain address `http://127.0.0.1:1989/` and a bookmark of it then work in that browser, also after the browser restarts, until the Laura server stops.
 
-Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open the Laura server from the terminal` and no workspace.
+Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open the Laura server` and no workspace.
 
 ### Start a workspace
 
@@ -151,7 +153,54 @@ The page reloads the list every 5 seconds. A workspace that ended leaves the lis
 
 ### Stop the Laura server
 
-Select **Stop the Laura server** at the bottom of the page, then **Stop**. The workspaces keep running. Run `laura --serve` to start the Laura server again. `Ctrl+C` in the Laura server's terminal also stops only the Laura server.
+Select **Stop the Laura server** at the bottom of the page, then **Stop**. The workspaces keep running. Select the Laura icon, or run `laura --serve`, to start the Laura server again. `Ctrl+C` in the Laura server's terminal also stops only the Laura server.
+
+## Start Laura from a desktop icon
+
+The Laura icon is an icon on your desktop or in your app menu that opens the Laura server in your default browser. Use the Laura icon to start workspaces without a terminal.
+
+1. Install Laura. See the [Quickstart](index.md).
+2. Write the Laura icon one time:
+
+    ```bash
+    laura --shortcut
+    ```
+
+    Laura prints the path of each file that Laura writes. The Laura icon shows in these places:
+
+    - Windows and WSL: on the Desktop and in the Start Menu.
+    - Linux: in the app menu, as **Laura**.
+    - macOS: in Launchpad, in Spotlight, and in **Applications** in your home folder.
+3. Select the Laura icon. Laura starts the Laura server and opens the Laura server's page in a new tab of your default browser.
+
+When the Laura server already runs, the Laura icon opens the Laura server's page in a new tab. When you select the Laura icon again while the Laura server starts, Laura opens a second tab of the same Laura server. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
+
+The Laura icon holds the full path of the `laura` program. When that path changes, for example when you install Laura with a different tool, run `laura --shortcut` again.
+
+When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error. When another program uses the Laura server's port, the error is `Another program uses port <n>. Stop that program, then open Laura from your desktop or app menu, or run laura --serve again.`
+
+The Laura icon runs your shell as a login shell, so the workspaces that the Laura server starts find the programs on your `PATH`, such as `claude`. With csh or tcsh, Laura uses `/bin/sh`.
+
+When your shell startup file starts tmux or zellij with `exec`, the Laura icon starts tmux or zellij instead of Laura. Start tmux or zellij only in a shell that runs no command:
+
+```bash
+[ -z "$BASH_EXECUTION_STRING$ZSH_EXECUTION_STRING" ] && exec tmux
+```
+
+### The files that Laura writes
+
+To remove the Laura icon, delete these files.
+
+| Computer | Files |
+|---|---|
+| Linux | `~/.local/share/applications/laura.desktop` and `~/.local/share/icons/laura.png` (in `$XDG_DATA_HOME` when you set it) |
+| macOS | `~/Applications/Laura.app` |
+| Windows | `Laura.lnk` on the Desktop and in the Start Menu, and `%USERPROFILE%\.laura\laura-<version>.ico` |
+| WSL | `Laura.lnk` on the Windows Desktop and in the Windows Start Menu, and `%USERPROFILE%\.laura\laura-<version>.ico` in Windows |
+
+On Windows, the Laura icon runs `lauraw.exe`, which starts the Laura server with no console window. On WSL, the Laura icon starts the Laura server in your Linux distribution, in a minimized terminal window.
+
+On Windows, `uv tool upgrade laura-tui` and `pip install -U laura-tui` can't replace `laura.exe` while the Laura server runs. Before you upgrade, select **Stop the Laura server** at the bottom of the Laura server's page.
 
 ## Quit
 

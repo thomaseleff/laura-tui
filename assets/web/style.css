@@ -63,13 +63,14 @@ body { line-height: 1.5; }
 }
 #top .l, #top .r { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #top .r { grid-column: 3; justify-content: flex-end; }
-.brand { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
-/* With a Laura server, the brand links to the Laura server's page; without one it is plain text. */
+.brand { display: flex; }
+.logo { width: 20px; height: 20px; flex: none; }
+/* The brand is the logo. With a Laura server, the logo links to the Laura server's page and dims
+   on hover; without one it is a plain image. */
 a.brand { color: inherit; text-decoration: none; }
-a.brand[href]:hover { color: var(--acc); }
+a.brand[href]:hover .logo { opacity: .75; }
 /* A long folder ends in … at its column's edge, short of **Find a pane**. */
 .crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }
 .crumb:empty { display: none; }
 /* The workspace switcher: the session label and the folder, then ▾ when it has a menu. In a narrow
    window the folder ends in … first, then the session label. */
@@ -82,7 +83,6 @@ a.brand[href]:hover { color: var(--acc); }
 .wsw[aria-expanded=true]::after { display: none; }
 .wsw .wl { flex: 0 1 auto; min-width: 2ch; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wsw .crumb { flex: 0 1000 auto; min-width: 0; }
-.wsw .crumb::before { content: none; }
 .fallback { color: var(--mute); font-weight: 400 !important; }
 .caret { flex: none; color: var(--faint); font-size: 11px; }
 .menu {
@@ -637,7 +637,7 @@ body.ended #ws { opacity: .4; }
 
 /* The Laura server's page (`serve.html`). The page scrolls, and the top bar is in the flow. */
 body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-direction: column; }
-.sv #top { position: static; flex: none; padding: 0 16px; }
+.sv #top { position: static; flex: none; }
 .sv main { max-width: 760px; width: 100%; box-sizing: border-box; margin: 14px auto 30px; padding: 0 20px; flex: 1; }
 .sv h1 { font-size: 20px; margin: 0 0 14px; }
 .sv h2 { font-size: 14px; margin: 26px 0 10px; }

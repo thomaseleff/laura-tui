@@ -92,6 +92,18 @@ pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
         "font/woff2",
         include_bytes!("../assets/web/fonts/JetBrainsMono.woff2"),
     ),
+    // The top bar's logo: Pebble, the Laura logo. The page's icon is the same mark with thicker
+    // rings, white in dark mode.
+    (
+        "/logo.svg",
+        "image/svg+xml",
+        include_bytes!("../assets/pebble.svg"),
+    ),
+    (
+        "/favicon.svg",
+        "image/svg+xml",
+        include_bytes!("../assets/favicon.svg"),
+    ),
 ];
 
 /// The image types the file route serves, by lowercased extension.
@@ -312,25 +324,9 @@ impl WebServer {
         &self.url
     }
 
-    /// A page that redirects to `url`, for the user's browser: the browser's command line, which
-    /// `ps` shows to other users, then holds only a path that they can't read (Jupyter's redirect
-    /// file). The page holds only the port and a hex token, so `url` needs no escaping.
+    /// The page that opens this workspace in the user's browser ([`redirect_page`]).
     pub fn open_page(&mut self, dir: &Path) -> Result<PathBuf> {
-        // `runtime_dir` creates only the env-chosen dirs; its per-OS fallback can be missing on a
-        // first launch, as can a snap's folder.
-        std::fs::create_dir_all(dir)?;
-        let path = dir.join(format!("open-{}.html", nonce(8)?));
-        let mut f = std::fs::OpenOptions::new();
-        f.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
-        let url = &self.url;
-        write!(
-            f.open(&path)?,
-            "<!doctype html><meta charset=\"utf-8\"><title>Laura</title>\
-             <meta http-equiv=\"refresh\" content=\"0;url={url}\">\
-             <script>location.replace(\"{url}\")</script>"
-        )?;
+        let path = redirect_page(dir, &self.url)?;
         self.page = Some(path.clone());
         Ok(path)
     }
@@ -654,6 +650,47 @@ impl WebServer {
             }
         }
     }
+}
+
+/// A page that redirects to `url`, for the user's browser: the browser's command line, which
+/// `ps` shows to other users, then holds only a path that they can't read (Jupyter's redirect
+/// file). The page holds only the port and a hex token, so `url` needs no escaping.
+pub(crate) fn redirect_page(dir: &Path, url: &str) -> Result<PathBuf> {
+    page(
+        dir,
+        &format!(
+            "<!doctype html><meta charset=\"utf-8\"><title>Laura</title>\
+             <meta http-equiv=\"refresh\" content=\"0;url={url}\">\
+             <script>location.replace(\"{url}\")</script>"
+        ),
+    )
+}
+
+/// Write `html` to a new `open-<nonce>.html` in `dir`, which only the user can read. First delete
+/// the pages older than a minute: a process that exits at once (a second `laura --serve --open`)
+/// leaves its page behind.
+pub(crate) fn page(dir: &Path, html: &str) -> Result<PathBuf> {
+    // `runtime_dir` creates only the env-chosen dirs; its per-OS fallback can be missing on a
+    // first launch, as can a snap's folder.
+    std::fs::create_dir_all(dir)?;
+    for e in std::fs::read_dir(dir)?.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|d| d > Duration::from_secs(60)));
+        if old && name.starts_with("open-") && name.ends_with(".html") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    let path = dir.join(format!("open-{}.html", nonce(8)?));
+    let mut f = std::fs::OpenOptions::new();
+    f.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
+    f.open(&path)?.write_all(html.as_bytes())?;
+    Ok(path)
 }
 
 /// Listen on `127.0.0.1:port`; `0` picks a free port.

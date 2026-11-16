@@ -125,54 +125,45 @@ pub fn resolve() -> Result<PathBuf, String> {
 
 /// The program that opens the user's browser, and the folder where that browser can read the page.
 pub struct Opener {
-    app: Option<PathBuf>,
+    browser: Option<PathBuf>,
     pub dir: PathBuf,
 }
 
-/// The user's browser: an app window of Chrome or Edge, in `resolve`'s order, else the OS's
-/// default browser. On WSL, Laura's Linux candidates are often missing, so Windows's Chrome and
-/// Edge come first; they stay out of `candidates`, which Laura's browser runs over CDP.
+/// `LAURA_BROWSER`, else the OS's default browser, which opens the page in a new tab. Not a Chrome
+/// app window: its taskbar shows the page's 16 px favicon scaled up, and each workspace gets a
+/// new window (a desktop app is #164).
 pub fn opener() -> Opener {
-    let wsl = std::env::var_os("WSL_DISTRO_NAME").is_some();
-    let app = match std::env::var_os("LAURA_BROWSER").filter(|p| !p.is_empty()) {
-        Some(p) => vec![PathBuf::from(p)],
-        None if wsl => {
-            let mut app: Vec<PathBuf> = [
-                "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
-                "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-            ]
-            .into_iter()
-            .map(PathBuf::from)
-            .collect();
-            // Only then ask Windows, since a WSL call into Windows takes noticeable time.
-            if !app.iter().any(|p| p.is_file()) {
-                app.extend(
-                    local_app_data().map(|d| d.join("Google/Chrome/Application/chrome.exe")),
-                );
-            }
-            app.extend(candidates());
-            app
-        }
-        None => candidates(),
-    };
-    let app = app.into_iter().find(|p| p.is_file());
-    let dir = snap_dir(app.as_deref()).unwrap_or_else(crate::journal::runtime_dir);
-    Opener { app, dir }
+    let browser = std::env::var_os("LAURA_BROWSER")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from);
+    let dir = snap_dir(browser.as_deref()).unwrap_or_else(crate::journal::runtime_dir);
+    Opener { browser, dir }
 }
 
 impl Opener {
     /// Open the browser at `page`, a file in `self.dir`.
     pub fn open(self, page: &Path) -> std::io::Result<()> {
-        let mut cmd = match self.app {
+        let mut cmd = match self.browser {
             Some(p) => {
                 let url = file_url(&p, page)?;
                 let mut c = Command::new(p);
-                c.arg(format!("--app={url}"));
+                c.arg(url);
+                c
+            }
+            // See `win_env` for why `cmd.exe` by its full path, run in a Windows folder.
+            None if cfg!(unix) && std::env::var_os("WSL_DISTRO_NAME").is_some() => {
+                let mut c = Command::new("/mnt/c/Windows/System32/cmd.exe");
+                c.args(["/d", "/c", "start", ""])
+                    .arg(win_path(page)?)
+                    .current_dir("/mnt/c/Windows/System32");
                 c
             }
             None if cfg!(windows) => {
                 let mut c = Command::new("cmd");
                 c.args(["/C", "start", ""]).arg(page);
+                // `lauraw` has no console, so `cmd` would open one.
+                #[cfg(windows)]
+                std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000); // CREATE_NO_WINDOW
                 c
             }
             None => {
@@ -255,26 +246,47 @@ pub fn no_browser(reason: impl std::fmt::Display) {
     eprintln!("To use Laura in this terminal instead, press Ctrl+C and run laura --tui.");
 }
 
-/// The user's own %LOCALAPPDATA%, where a per-user Chrome lives, as a WSL path. Not every folder
-/// under `/mnt/c/Users`: any Windows user can write to `Public` and `All Users`. `cmd.exe` by its
-/// full path, since `appendWindowsPath=false` keeps it off PATH; run in a Windows folder, so it
-/// doesn't warn about a UNC one.
-fn local_app_data() -> Option<PathBuf> {
+/// A folder in the user's own Windows environment, such as %USERPROFILE%, from WSL: the Windows
+/// path and the WSL path. Not every folder under `/mnt/c/Users`: any Windows user can write to
+/// `Public` and `All Users`. `cmd.exe` by its full path, since `appendWindowsPath=false` keeps it
+/// off PATH; run in a Windows folder, so it doesn't warn about a UNC one.
+pub(crate) fn win_env(name: &str) -> Option<(String, PathBuf)> {
+    // `/u` makes `cmd` write UTF-16: its OEM code page is not UTF-8 (`C:\Users\André`).
     let out = Command::new("/mnt/c/Windows/System32/cmd.exe")
-        .args(["/d", "/c", "echo %LOCALAPPDATA%"])
+        .args(["/d", "/u", "/c", &format!("echo %{name}%")])
         .current_dir("/mnt/c/Windows/System32")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    let win = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    let units: Vec<u16> = out
+        .stdout
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_le_bytes(c))
+        .collect();
+    let win = String::from_utf16(&units).ok()?.trim().to_string();
     // An unset variable echoes as itself.
     if win.is_empty() || win.contains('%') {
         return None;
     }
     let out = Command::new("wslpath").args(["-u", &win]).output().ok()?;
     let unix = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (out.status.success() && !unix.is_empty()).then(|| PathBuf::from(unix))
+    (out.status.success() && !unix.is_empty()).then(|| (win, PathBuf::from(unix)))
+}
+
+/// `page` as Windows reads it from WSL, through `\\wsl.localhost\<distro>`.
+fn win_path(page: &Path) -> std::io::Result<String> {
+    let out = Command::new("wslpath").arg("-w").arg(page).output()?;
+    let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || win.is_empty() {
+        return Err(std::io::Error::other(format!(
+            "wslpath could not convert {}",
+            page.display()
+        )));
+    }
+    Ok(win)
 }
 
 /// `page` as a `file:` URL for `program`. A Windows browser that WSL starts reads the page
@@ -284,15 +296,7 @@ fn file_url(program: &Path, page: &Path) -> std::io::Result<String> {
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
     let path = if cfg!(unix) && exe {
-        let out = Command::new("wslpath").arg("-w").arg(page).output()?;
-        let win = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !out.status.success() || win.is_empty() {
-            return Err(std::io::Error::other(format!(
-                "wslpath could not convert {}",
-                page.display()
-            )));
-        }
-        win
+        win_path(page)?
     } else {
         page.to_string_lossy().into_owned()
     };

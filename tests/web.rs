@@ -2289,6 +2289,26 @@ fn the_fonts_are_served() -> Result<()> {
 }
 
 #[test]
+fn the_web_app_shows_the_laura_logo() -> Result<()> {
+    let rig = Rig::new()?;
+    let logo = get(rig.port, "/logo.svg")?;
+    assert!(logo.starts_with("HTTP/1.1 200"), "{logo}");
+    assert!(logo.contains("Content-Type: image/svg+xml\r\n"), "{logo}");
+    assert!(body(&logo).starts_with("<svg"), "{logo}");
+    // The tab icon is the same mark, white in dark mode.
+    let icon = get(rig.port, "/favicon.svg")?;
+    assert!(icon.starts_with("HTTP/1.1 200"), "{icon}");
+    assert!(icon.contains("Content-Type: image/svg+xml\r\n"), "{icon}");
+    assert!(body(&icon).contains("prefers-color-scheme: dark"), "{icon}");
+    let old = get(rig.port, "/laura.ico")?;
+    assert!(old.starts_with("HTTP/1.1 404"), "{old}");
+    let page = get(rig.port, "/")?;
+    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">"));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"20\" height=\"20\""));
+    Ok(())
+}
+
+#[test]
 fn a_frozen_page_serves_its_snapshot() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
@@ -3051,8 +3071,8 @@ fn plain_laura_in_a_terminal_opens_the_browser_and_keeps_it_on_ctrl_c() -> Resul
     let args = std::fs::read_to_string(&args)?;
     let page = std::path::PathBuf::from(
         args.trim()
-            .strip_prefix("--app=file://")
-            .unwrap_or_else(|| panic!("the browser opened another page: {args}")),
+            .strip_prefix("file://")
+            .unwrap_or_else(|| panic!("not a file page: {args}")),
     );
     assert!(page.starts_with(dir.path()), "{page:?}");
     assert!(
@@ -3152,8 +3172,8 @@ fn a_snap_browser_reads_the_page_from_its_own_folder() -> Result<()> {
     let args = std::fs::read_to_string(&args)?;
     let page = std::path::PathBuf::from(
         args.trim()
-            .strip_prefix("--app=file://")
-            .unwrap_or_else(|| panic!("the browser opened another page: {args}")),
+            .strip_prefix("file://")
+            .unwrap_or_else(|| panic!("not a file page: {args}")),
     );
     assert_eq!(
         page.parent(),
@@ -3167,6 +3187,71 @@ fn a_snap_browser_reads_the_page_from_its_own_folder() -> Result<()> {
         "{page:?}"
     );
     assert!(std::fs::read_to_string(&page)?.contains("/?t="));
+    assert_eq!(
+        std::fs::metadata(&page)?.permissions().mode() & 0o777,
+        0o600,
+        "other users can read the page"
+    );
+    master.take_writer()?.write_all(b"\x03")?;
+    while laura.try_wait()?.is_none() {
+        assert!(start.elapsed() < common::DEADLINE, "Laura kept running");
+        thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn laura_opens_the_default_browser_without_laura_browser() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin)?;
+    let opener = bin.join(if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    });
+    std::fs::write(
+        &opener,
+        "#!/bin/sh\nd=\"$(dirname \"$0\")\"\n\
+         echo \"$@\" > \"$d/args.tmp\" && mv \"$d/args.tmp\" \"$d/args\"\n",
+    )?;
+    std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755))?;
+    let mut cmd = laura_cmd(dir.path(), "")?;
+    cmd.env_remove("LAURA_BROWSER");
+    cmd.env_remove("WSL_DISTRO_NAME");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut dirs = vec![bin.clone()];
+    dirs.extend(std::env::split_paths(&path));
+    cmd.env("PATH", std::env::join_paths(dirs)?);
+    let (mut laura, master, rx) = in_a_terminal(cmd)?;
+    let args = bin.join("args");
+    let start = Instant::now();
+    let mut out = String::new();
+    while !args.exists() {
+        if let Ok(b) = rx.recv_timeout(Duration::from_millis(50)) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "Laura opened no browser: {out:?}"
+        );
+    }
+    let page = std::path::PathBuf::from(std::fs::read_to_string(&args)?.trim());
+    assert!(
+        page.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("open-") && n.ends_with(".html")),
+        "{page:?}"
+    );
+    let html = std::fs::read_to_string(&page)?;
+    assert!(html.contains("/?t="), "{html}");
+    assert!(
+        !page.to_string_lossy().contains("t="),
+        "the token is on the command line: {page:?}"
+    );
     assert_eq!(
         std::fs::metadata(&page)?.permissions().mode() & 0o777,
         0o600,
@@ -3208,9 +3293,10 @@ fn a_missing_browser_names_the_program_and_the_tui() -> Result<()> {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?;
     let bin = dir.path().join("bin");
     std::fs::create_dir(&bin)?;
-    // No Chrome and an empty PATH: Laura falls back to the OS opener, which is missing too.
+    // No LAURA_BROWSER and an empty PATH: the OS opener is missing.
     let mut cmd = laura_cmd(dir.path(), "")?;
-    cmd.env("LAURA_BROWSER", dir.path().join("missing"));
+    cmd.env_remove("LAURA_BROWSER");
+    cmd.env_remove("WSL_DISTRO_NAME");
     cmd.env("PATH", &bin);
     let (mut laura, master, rx) = in_a_terminal(cmd)?;
     let opener = if cfg!(target_os = "macos") {

@@ -23,6 +23,8 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 
 The browser keeps some keystrokes, so Laura never receives them. On Windows and Linux, the browser keeps `Ctrl+W`, `Ctrl+T`, `Ctrl+N` and `Ctrl+Tab`. On macOS, the browser keeps only `Ctrl+Tab`.
 
+`Ctrl+W` closes the browser tab. The workspace keeps running. To go back to the workspace, open the URL again.
+
 When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 1. Laura focuses the first editor pane with unsaved edits and shows the notice `⚠ To close Laura after the shell stopped, save or quit Neovim.`
@@ -51,9 +53,9 @@ What Laura shows depends on [the Laura server](workspace.md#the-laura-server):
 | The Laura server | The workspace switcher | The pane selector |
 |---|---|---|
 | Runs | The list ends with **New workspace…**, which opens the Laura server's page. | **Workspaces** ends with **New workspace…**. |
-| Does not run | The list ends with the line `Run laura --serve to start more workspaces.` With only one workspace, the workspace switcher shows no ▾ and no list. | **Workspaces** lists only the other workspaces. |
+| Does not run | The list ends with the line `Open Laura from your desktop or app menu, or run laura --serve, to start more workspaces.` With only one workspace, the workspace switcher shows no ▾ and no list. | **Workspaces** lists only the other workspaces. |
 
-While the Laura server runs, select **Laura** at the left of the top bar to open the Laura server's page. `Ctrl`+click, `Cmd`+click and a middle click open the page in a new browser tab.
+While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page. `Ctrl`+click, `Cmd`+click and a middle click open the page in a new browser tab.
 
 ## In a focused pane
 
