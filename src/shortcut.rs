@@ -106,6 +106,7 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 
 /// Write the `.ico` in `dir`, named by its content, and delete any other `.ico`. Explorer caches
 /// an icon by its path and never reads the file again, so new art needs a new path.
+/// `DefaultHasher` can change between Rust releases; then the name changes once, which does no harm.
 fn save_ico(dir: &Path) -> Result<String> {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
