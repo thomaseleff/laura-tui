@@ -151,8 +151,8 @@ fn opened(dir: &Path, n: usize) -> Result<String> {
         let runs = std::fs::read_to_string(dir.join("opened")).unwrap_or_default();
         if let Some(line) = runs.lines().nth(n - 1) {
             let page = line
-                .strip_prefix("--app=file://")
-                .unwrap_or_else(|| panic!("not an app window at a file: {line}"));
+                .strip_prefix("file://")
+                .unwrap_or_else(|| panic!("not a file page: {line}"));
             return Ok(std::fs::read_to_string(page)?);
         }
         assert!(start.elapsed() < common::DEADLINE, "no browser opened");

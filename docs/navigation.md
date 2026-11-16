@@ -23,6 +23,8 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 
 The browser keeps some keystrokes, so Laura never receives them. On Windows and Linux, the browser keeps `Ctrl+W`, `Ctrl+T`, `Ctrl+N` and `Ctrl+Tab`. On macOS, the browser keeps only `Ctrl+Tab`.
 
+`Ctrl+W` closes the browser tab. The workspace keeps running. To go back to the workspace, open the URL again.
+
 When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 1. Laura focuses the first editor pane with unsaved edits and shows the notice `⚠ To close Laura after the shell stopped, save or quit Neovim.`

@@ -12,7 +12,7 @@ Before you start, install Laura and the skills. See the [Quickstart](index.md#qu
     laura -- claude "/laura:demo"
     ```
 
-2. Laura opens the workspace in a Chrome or Edge window, or in your default browser. If no browser opens, open the URL that Laura prints.
+2. Laura opens the workspace in a new tab of your default browser. If no browser opens, open the URL that Laura prints.
 
 To choose the browser, set `LAURA_BROWSER` to its path. When Laura can't open a web browser, Laura shows these two lines, and the workspace keeps running:
 
@@ -157,7 +157,7 @@ Select **Stop the Laura server** at the bottom of the page, then **Stop**. The w
 
 ## Start Laura from a desktop icon
 
-The Laura icon is an icon on the desktop or in the Start Menu that opens the Laura server in its own browser window. Use the Laura icon to start workspaces without a terminal.
+The Laura icon is an icon on the desktop or in the Start Menu that opens the Laura server in your default browser. Use the Laura icon to start workspaces without a terminal.
 
 1. Install Laura. See the [Quickstart](index.md).
 2. Write the Laura icon one time:
@@ -167,9 +167,9 @@ The Laura icon is an icon on the desktop or in the Start Menu that opens the Lau
     ```
 
     Laura prints the path of each file that Laura writes.
-3. Select the Laura icon. Laura starts the Laura server and opens the Laura server's page in a Chrome or Edge app window. Without Chrome or Edge, Laura opens the page in the default browser.
+3. Select the Laura icon. Laura starts the Laura server and opens the Laura server's page in a new tab of your default browser.
 
-When the Laura server already runs, the Laura icon opens a new window of the Laura server's page. When you select the Laura icon again while the Laura server starts, Laura opens a second window of the same Laura server. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
+When the Laura server already runs, the Laura icon opens the Laura server's page in a new tab. When you select the Laura icon again while the Laura server starts, Laura opens a second tab of the same Laura server. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
 
 The Laura icon holds the full path of the `laura` program. When that path changes, for example when you install Laura with a different tool, run `laura --shortcut` again.
 
