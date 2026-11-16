@@ -2291,13 +2291,16 @@ fn the_fonts_are_served() -> Result<()> {
 #[test]
 fn the_web_app_shows_the_laura_logo() -> Result<()> {
     let rig = Rig::new()?;
-    let resp = get(rig.port, "/favicon.svg")?;
-    assert!(resp.starts_with("HTTP/1.1 200"), "{resp}");
-    assert!(resp.contains("Content-Type: image/svg+xml\r\n"), "{resp}");
-    assert!(body(&resp).starts_with("<svg"), "{resp}");
+    let logo = get(rig.port, "/logo.svg")?;
+    assert!(logo.starts_with("HTTP/1.1 200"), "{logo}");
+    assert!(logo.contains("Content-Type: image/svg+xml\r\n"), "{logo}");
+    assert!(body(&logo).starts_with("<svg"), "{logo}");
+    let icon = get(rig.port, "/laura.ico")?;
+    assert!(icon.starts_with("HTTP/1.1 200"), "{icon}");
+    assert!(icon.contains("Content-Type: image/x-icon\r\n"), "{icon}");
     let page = get(rig.port, "/")?;
-    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\">"));
-    assert!(page.contains("src=\"favicon.svg\" alt=\"Laura\""));
+    assert!(page.contains("<link rel=\"icon\" href=\"laura.ico\">"));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\""));
     Ok(())
 }
 

@@ -10,6 +10,9 @@ use base64::Engine;
 
 /// Tidepool, the Laura logo, 256 × 256.
 const PNG: &[u8] = include_bytes!("../assets/tidepool.png");
+/// The same tile at each size that Windows shows, from 16 to 256 px: Windows scales one large
+/// image down poorly.
+const ICO: &[u8] = include_bytes!("../assets/tidepool.ico");
 
 /// Write the Laura icon for this computer, and print each path that Laura wrote.
 pub fn write() -> Result<()> {
@@ -24,7 +27,7 @@ pub fn write() -> Result<()> {
     if let Ok(distro) = std::env::var("WSL_DISTRO_NAME") {
         let (win, dir) = crate::browser::win_env("USERPROFILE")
             .context("Laura could not find the Windows home folder")?;
-        save(&dir.join(".laura/laura.ico"), &ico())?;
+        save(&dir.join(".laura/laura.ico"), ICO)?;
         // Minimized: the terminal that runs the Laura server stays out of the way. No quotes
         // around the distribution: `wsl.exe -d` keeps them in the name, and a name has no space.
         return lnk(
@@ -37,7 +40,7 @@ pub fn write() -> Result<()> {
     }
     if cfg!(windows) {
         let icon = home.join(".laura").join("laura.ico");
-        save(&icon, &ico())?;
+        save(&icon, ICO)?;
         let lauraw = exe.with_file_name("lauraw.exe");
         if !lauraw.is_file() {
             bail!("{} is missing: reinstall Laura", lauraw.display());
@@ -160,18 +163,6 @@ fn desktop_escape(s: &str) -> String {
             c => c.into(),
         })
         .collect()
-}
-
-/// An `.ico` that holds the PNG as its one 256 × 256 image.
-fn ico() -> Vec<u8> {
-    let mut v = vec![0, 0, 1, 0, 1, 0]; // reserved, type 1 (icon), 1 image
-    v.extend([0, 0, 0, 0]); // 256 × 256, no palette, reserved
-    v.extend(1u16.to_le_bytes()); // planes
-    v.extend(32u16.to_le_bytes()); // bits per pixel
-    v.extend((PNG.len() as u32).to_le_bytes());
-    v.extend(22u32.to_le_bytes()); // offset: after this header and entry
-    v.extend(PNG);
-    v
 }
 
 /// An `.icns` that holds the PNG as its one entry, `ic08` (256 × 256).

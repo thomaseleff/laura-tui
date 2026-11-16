@@ -213,12 +213,16 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
 #[test]
 fn the_laura_server_shows_the_laura_logo() -> Result<()> {
     let s = Server::start()?;
-    let icon = http(s.port, "GET", "/favicon.svg", "", "")?;
+    let logo = http(s.port, "GET", "/logo.svg", "", "")?;
+    assert_eq!(status(&logo), "HTTP/1.1 200 OK", "{logo}");
+    assert!(logo.contains("Content-Type: image/svg+xml\r\n"), "{logo}");
+    assert!(body(&logo).starts_with("<svg"), "{logo}");
+    let icon = http(s.port, "GET", "/laura.ico", "", "")?;
     assert_eq!(status(&icon), "HTTP/1.1 200 OK", "{icon}");
-    assert!(icon.contains("Content-Type: image/svg+xml\r\n"), "{icon}");
-    assert!(body(&icon).starts_with("<svg"), "{icon}");
+    assert!(icon.contains("Content-Type: image/x-icon\r\n"), "{icon}");
     let page = http(s.port, "GET", "/", "", "")?;
-    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\">"));
+    assert!(page.contains("<link rel=\"icon\" href=\"laura.ico\">"));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\""));
     Ok(())
 }
 

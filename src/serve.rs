@@ -249,7 +249,11 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
         ("GET", "/serve.js") => reply(&mut stream, "200 OK", "text/javascript", SCRIPT, ""),
         (
             "GET",
-            "/style.css" | "/favicon.svg" | "/fonts/Inter.woff2" | "/fonts/JetBrainsMono.woff2",
+            "/style.css"
+            | "/logo.svg"
+            | "/laura.ico"
+            | "/fonts/Inter.woff2"
+            | "/fonts/JetBrainsMono.woff2",
         ) => match web::ASSETS.iter().find(|(p, ..)| *p == path) {
             Some((_, mime, body)) => reply(&mut stream, "200 OK", mime, body, ""),
             None => text(&mut stream, "404 Not Found", ""),
