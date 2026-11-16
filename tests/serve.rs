@@ -389,13 +389,30 @@ fn a_second_laura_serve_prints_the_same_address() -> Result<()> {
     let s = Server::start()?;
     let port = s.port.to_string();
     let home = s.home.path();
-    Command::cargo_bin("laura")?
-        .args(["--serve", "--port", &port])
-        .env("HOME", home)
-        .env("USERPROFILE", home)
-        .assert()
-        .success()
-        .stdout(format!("http://127.0.0.1:{port}/?t={}\n", s.token));
+    // One Laura server for each user: a different port prints the same address too.
+    for other in [port.as_str(), "0"] {
+        Command::cargo_bin("laura")?
+            .args(["--serve", "--port", other])
+            .env("HOME", home)
+            .env("USERPROFILE", home)
+            .assert()
+            .success()
+            .stdout(format!("http://127.0.0.1:{port}/?t={}\n", s.token));
+    }
+    Ok(())
+}
+
+#[test]
+fn the_laura_server_makes_a_new_key_on_each_start() -> Result<()> {
+    let Server {
+        child, token, home, ..
+    } = Server::start()?;
+    drop(child);
+    let s = Server::start_in(home)?;
+    assert_ne!(s.token, token, "the key stayed");
+    let old = format!("X-Laura-Key: {token}\r\n");
+    let resp = http(s.port, "GET", "/workspaces", &old, "")?;
+    assert_eq!(status(&resp), "HTTP/1.1 401 Unauthorized", "{resp}");
     Ok(())
 }
 
@@ -403,10 +420,14 @@ fn a_second_laura_serve_prints_the_same_address() -> Result<()> {
 fn a_port_in_use_returns_an_error_that_names_the_port() -> Result<()> {
     let taken = TcpListener::bind("127.0.0.1:0")?;
     let port = taken.local_addr()?.port().to_string();
+    // An own home folder: a Laura server of the developer does not change the result.
+    let home = temp()?;
     for mode in ["--serve", "--web"] {
         Command::cargo_bin("laura")
             .unwrap()
             .args([mode, "--port", &port])
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
             .assert()
             .failure()
             .stderr(predicates::str::contains(format!(

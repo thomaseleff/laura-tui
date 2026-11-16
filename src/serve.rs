@@ -70,24 +70,17 @@ fn is_laura_server(port: u16) -> bool {
 
 /// `laura --serve`: listen on `port` until the user stops the Laura server.
 pub fn run(port: u16) -> Result<()> {
-    let here = format!("http://127.0.0.1:{port}/");
-    if let Some(url) = running().filter(|u| u.starts_with(&here)) {
+    // One Laura server for each user: a different `--port` prints the address of the first.
+    if let Some(url) = running() {
         eprintln!("The Laura server already runs. Open this URL in a web browser:");
         println!("{url}");
         return Ok(());
     }
     let listener = web::listen(port)?;
     let port = listener.local_addr()?.port();
-    // The token stays across restarts, so the key that the page keeps still works.
-    let kept = std::fs::read(state_path())
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v["token"].as_str().map(str::to_string))
-        .filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()));
-    let token = match kept {
-        Some(t) => t,
-        None => web::nonce(32)?,
-    };
+    // A new token on each start: a program that took the port while the Laura server was stopped
+    // holds a key of no use.
+    let token = web::nonce(32)?;
     std::fs::create_dir_all(data_dir())?;
     web::write_private(
         &state_path(),
