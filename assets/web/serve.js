@@ -4,11 +4,12 @@ const $ = id => document.getElementById(id);
 // A browser can block storage; the page then starts at `~` and Shell.
 const store = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  set: (k, v) => { try { localStorage.setItem(k, v); return true; } catch { return false; } },
 };
 // The key comes in the printed address once; the page keeps it for this address only.
 const given = new URLSearchParams(location.search).get("t");
-if (given) { store.set("laura-key", given); history.replaceState(null, "", "/"); }
+// Blocked storage: the key stays in the address, so a reload still has the key.
+if (given && store.set("laura-key", given)) history.replaceState(null, "", "/");
 const key = given ?? store.get("laura-key") ?? "";
 const api = (url, opts = {}) => fetch(url, { ...opts, headers: { "X-Laura-Key": key } });
 const el = (tag, cls, text) => {
@@ -77,8 +78,10 @@ function dupCheck() {
 $("folder").oninput = dupCheck;
 
 // The folder browser: `cwd` is the folder it lists, and `sel` is the selected row's folder.
-let cwd = null, sel = null;
-async function nav(path) {
+// `loading` is the last `nav`: Use this folder waits for it and uses the folder that shows.
+let cwd = null, sel = null, loading = null;
+const nav = path => (loading = listDirs(path));
+async function listDirs(path) {
   let res = await api(`/dirs?path=${encodeURIComponent(path)}`);
   if (!res.ok) res = await api("/dirs?path=");
   if (!res.ok) return;
@@ -100,7 +103,9 @@ async function nav(path) {
 }
 function select(li) {
   if (!li) return;
-  $("dirs").querySelector(".sel")?.classList.remove("sel");
+  const old = $("dirs").querySelector(".sel");
+  old?.classList.remove("sel");
+  old?.removeAttribute("aria-selected");
   li.classList.add("sel");
   li.setAttribute("aria-selected", "true");
   li.scrollIntoView({ block: "nearest" });
@@ -115,6 +120,7 @@ $("browse").onclick = () => browse($("fb").hidden);
 $("fbCancel").onclick = () => browse(false);
 $("fbUse").onclick = async () => {
   // The path as Laura shows it (`~/…`).
+  await loading;
   if (sel) await nav(sel);
   if (cwd) $("folder").value = cwd.shown;
   browse(false);
