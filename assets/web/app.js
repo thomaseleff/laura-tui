@@ -1911,7 +1911,7 @@ function go(url, tab) {
   leaving = draft === null;
   location.assign(url);
 }
-const folderName = root => root.split("/").filter(Boolean).at(-1) ?? root;
+const folderName = root => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
 const spaceLabel = w => w.title ?? folderName(w.root);
 
 // The workspace switcher: the session label and the folder, or the folder name in grey before the
@@ -1961,6 +1961,9 @@ function paintMenu() {
 }
 function openMenu() {
   paintMenu();
+  // `Enter` then loads the first other workspace, or the Laura server's page.
+  $("menu").querySelector(".mi.on")?.classList.remove("on");
+  $("menu").querySelector(".mi[data-url]")?.classList.add("on");
   $("menu").style.left = $("wsw").offsetLeft + "px";
   $("menu").hidden = false;
   $("wsw").setAttribute("aria-expanded", "true");
@@ -2032,7 +2035,7 @@ function connect() {
         strings = m;
         paintHelp(m.help, m.help_note);
         paintSwitcher();
-        document.title = `Laura · ${m.root.split("/").filter(Boolean).at(-1) ?? m.root}`;
+        document.title = `Laura · ${folderName(m.root)}`;
         break;
       case "workspaces":
         spaces = m.list;

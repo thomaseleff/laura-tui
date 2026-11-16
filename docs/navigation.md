@@ -35,8 +35,8 @@ The workspace switcher is at the left of the top bar. The workspace switcher sho
 
 To switch to another workspace:
 
-1. Click the workspace switcher. Laura lists the running workspaces, oldest first, and marks the workspace that you are in with ✓.
-2. Press `↑` or `↓` to select a workspace, then press `Enter`. You can also click the workspace.
+1. Click the workspace switcher. Laura lists the running workspaces, oldest first, and marks the workspace that you are in with ✓. Laura selects the first other workspace.
+2. Press `Enter` to switch to the selected workspace, or press `↑` or `↓` to select a different workspace first. You can also click the workspace.
 
 Laura loads the other workspace in the same browser tab. The workspace that you leave keeps running.
 

@@ -17,7 +17,7 @@ const el = (tag, cls, text) => {
   if (text !== undefined) e.textContent = text;
   return e;
 };
-const label = r => r.title ?? r.root.split("/").pop();
+const label = r => r.title ?? r.root.split(/[\\/]/).filter(Boolean).at(-1) ?? r.root;
 
 let list = [], sent = "", known = null;
 
