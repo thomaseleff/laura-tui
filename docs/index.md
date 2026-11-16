@@ -33,7 +33,7 @@ uv tool install laura-tui          # prebuilt for Linux, macOS and Windows
 cargo install laura-tui --locked   # or build from source, with Rust (stable)
 ```
 
-To start Laura from an icon on the desktop or in the Start Menu, run `laura --shortcut`. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
+To start Laura from an icon on your desktop or in your app menu, run `laura --shortcut`. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
 
 **2. Install the skills** so your agent knows how to use the `laura` CLI. In Claude Code:
 

@@ -157,7 +157,7 @@ Select **Stop the Laura server** at the bottom of the page, then **Stop**. The w
 
 ## Start Laura from a desktop icon
 
-The Laura icon is an icon on the desktop or in the Start Menu that opens the Laura server in your default browser. Use the Laura icon to start workspaces without a terminal.
+The Laura icon is an icon on your desktop or in your app menu that opens the Laura server in your default browser. Use the Laura icon to start workspaces without a terminal.
 
 1. Install Laura. See the [Quickstart](index.md).
 2. Write the Laura icon one time:
@@ -166,7 +166,11 @@ The Laura icon is an icon on the desktop or in the Start Menu that opens the Lau
     laura --shortcut
     ```
 
-    Laura prints the path of each file that Laura writes.
+    Laura prints the path of each file that Laura writes. The Laura icon shows in these places:
+
+    - Windows and WSL: on the Desktop and in the Start Menu.
+    - Linux: in the app menu, as **Laura**.
+    - macOS: in Launchpad, in Spotlight, and in **Applications** in your home folder.
 3. Select the Laura icon. Laura starts the Laura server and opens the Laura server's page in a new tab of your default browser.
 
 When the Laura server already runs, the Laura icon opens the Laura server's page in a new tab. When you select the Laura icon again while the Laura server starts, Laura opens a second tab of the same Laura server. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
@@ -176,6 +180,12 @@ The Laura icon holds the full path of the `laura` program. When that path change
 When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error. When another program uses the Laura server's port, the error is `Another program uses port <n>. Stop that program, then select the Laura icon again.`
 
 The Laura icon runs your shell as a login shell, so the workspaces that the Laura server starts find the programs on your `PATH`, such as `claude`. With csh or tcsh, Laura uses `/bin/sh`.
+
+When your shell startup file starts tmux or zellij with `exec`, the Laura icon starts tmux or zellij instead of Laura. Start tmux or zellij only in a shell that runs no command:
+
+```bash
+[ -z "$BASH_EXECUTION_STRING$ZSH_EXECUTION_STRING" ] && exec tmux
+```
 
 ### The files that Laura writes
 

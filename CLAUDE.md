@@ -108,7 +108,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **workspace** | The panes Laura shows, in the web app or the TUI. | — |
 | **session label** | A short name for the task in a workspace, set by the agent with `laura ready --title`. | tab name, title (in prose) |
 | **workspace switcher** | The session label and folder left of the find bar in the web app, which lists the workspaces. | dropdown, chips |
-| **the Laura icon** | The desktop or Start Menu icon that `laura --shortcut` writes, which opens the Laura server. | launcher, shortcut (in prose) |
+| **the Laura icon** | The icon that `laura --shortcut` writes on the desktop, in the Start Menu or in the app menu, which opens the Laura server. | launcher, shortcut (in prose) |
 | **the Laura server** | The page at one fixed address that lists the running workspaces and starts new ones (`laura --serve`). | hub, daemon |
 | **web app** | The workspace in a browser tab (`laura`). Name the web app only to tell it from the TUI. | web UI, frontend |
 | **TUI** | The workspace in a terminal (`laura --tui`). | terminal UI, terminal mode |
