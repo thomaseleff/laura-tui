@@ -385,7 +385,12 @@ fn main() -> Result<()> {
             }
             laura::serve::run(cli.port.unwrap_or(laura::serve::DEFAULT_PORT), cli.open)
         }
-        None if cli.shortcut => laura::shortcut::write(),
+        None if cli.shortcut => {
+            if !cli.program.is_empty() {
+                bail!("--shortcut takes no program");
+            }
+            laura::shortcut::write()
+        }
         None => web(cli.program, cli.port.unwrap_or(0)),
     }
 }

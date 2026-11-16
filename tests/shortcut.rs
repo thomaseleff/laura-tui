@@ -39,13 +39,16 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
         return Ok(());
     }
     let home = temp()?;
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_laura"))
-        .arg("--shortcut")
-        .env("HOME", home.path())
-        .env("USERPROFILE", home.path())
-        .env("SHELL", "/bin/sh")
-        .env_remove("XDG_DATA_HOME")
-        .output()?;
+    let shortcut = |shell: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_laura"))
+            .arg("--shortcut")
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .env("SHELL", shell)
+            .env_remove("XDG_DATA_HOME")
+            .output()
+    };
+    let out = shortcut("/bin/sh")?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let paths: Vec<PathBuf> = stdout.lines().map(PathBuf::from).collect();
     let _lnk = Remove(
@@ -81,7 +84,10 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
         let plist = std::fs::read_to_string(file("Info.plist"))?;
         assert!(plist.contains("<key>LSUIElement</key><true/>"), "{plist}");
         let script = file("MacOS/Laura");
-        assert!(std::fs::read_to_string(script)?.contains(" -ilc "));
+        let body = std::fs::read_to_string(script)?;
+        assert!(body.contains(" -ilc "), "{body}");
+        // In the background, so the script ends and a second click runs it again.
+        assert!(body.ends_with(" &\n"), "{body}");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -96,7 +102,27 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
         assert!(desktop.contains("Terminal=false\n"), "{desktop}");
         assert!(std::fs::read(file("laura.png"))?.starts_with(b"\x89PNG"));
         assert!(paths.iter().all(|p| p.starts_with(home.path())));
+
+        // csh and tcsh take no `-ilc`: Laura uses `/bin/sh`.
+        let out = shortcut("/bin/tcsh")?;
+        assert!(out.status.success(), "{out:?}");
+        let desktop = std::fs::read_to_string(file("laura.desktop"))?;
+        assert!(desktop.contains(&exec), "{desktop}");
     }
+    Ok(())
+}
+
+#[test]
+fn laura_shortcut_takes_no_program() -> Result<()> {
+    let home = temp()?;
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_laura"))
+        .args(["--shortcut", "--", "x"])
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .output()?;
+    assert!(!out.status.success(), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--shortcut takes no program"), "{stderr}");
     Ok(())
 }
 
@@ -219,9 +245,71 @@ fn laura_serve_open_shows_its_error_in_the_browser() -> Result<()> {
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     let page = opened(dir.path(), 1)?;
     assert!(page.contains("Laura could not start"), "{page}");
-    assert!(
-        page.contains(&format!("port {port} is in use: pass --port")),
-        "{page}"
+    let text = format!(
+        "Another program uses port {port}. Stop that program, then select the Laura icon again."
     );
+    assert!(page.contains(&text), "{page}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn two_fast_clicks_open_one_laura_server() -> Result<()> {
+    use std::io::BufRead;
+
+    let dir = temp()?;
+    stub_browser(dir.path())?;
+    let port = std::net::TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port()
+        .to_string();
+    // Both start before either writes `serve.json`: whichever binds first, the other opens it.
+    let mut clicks = vec![];
+    for _ in 0..2 {
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_laura"))
+            .args(["--serve", "--open", "--port", &port])
+            .current_dir(dir.path())
+            .env("HOME", dir.path())
+            .env("USERPROFILE", dir.path())
+            .env("LAURA_BROWSER", dir.path().join("browser.sh"))
+            .env_remove("LAURA_TAB")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        clicks.push(Kill(child));
+    }
+    let mut urls = vec![];
+    for click in &mut clicks {
+        let stdout = click.0.stdout.take().expect("piped above");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+            let _ = tx.send(line);
+        });
+        urls.push(rx.recv_timeout(common::DEADLINE)?.trim().to_string());
+    }
+    assert!(urls[0].contains("/?t="), "{urls:?}");
+    assert_eq!(urls[0], urls[1]);
+
+    // One click runs the Laura server, the other exits.
+    let start = std::time::Instant::now();
+    let exited = loop {
+        let done: Vec<_> = clicks
+            .iter_mut()
+            .map(|c| c.0.try_wait())
+            .collect::<Result<_, _>>()?;
+        if done.iter().any(Option::is_some) {
+            break done;
+        }
+        assert!(start.elapsed() < common::DEADLINE, "neither click exited");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let exited: Vec<_> = exited.into_iter().flatten().collect();
+    assert_eq!(exited.len(), 1, "{exited:?}");
+    assert!(exited[0].success(), "{exited:?}");
+    assert!(opened(dir.path(), 1)?.contains(&urls[0]));
+    assert!(opened(dir.path(), 2)?.contains(&urls[0]));
     Ok(())
 }

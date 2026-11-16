@@ -65,8 +65,10 @@ body { line-height: 1.5; }
 #top .r { grid-column: 3; justify-content: flex-end; }
 .brand { display: flex; }
 .logo { width: 24px; height: 24px; flex: none; }
-/* With a Laura server, the brand links to the Laura server's page; without one it is plain text. */
+/* The brand is the logo. With a Laura server, the logo links to the Laura server's page and dims
+   on hover; without one it is a plain image. */
 a.brand { color: inherit; text-decoration: none; }
+a.brand[href]:hover .logo { opacity: .75; }
 /* A long folder ends in … at its column's edge, short of **Find a pane**. */
 .crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }

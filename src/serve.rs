@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
 use crate::browser;
@@ -106,6 +106,16 @@ fn open_at(url: &str) {
     show(|dir| web::redirect_page(dir, url));
 }
 
+/// Print the URL of the Laura server that runs on `port`, and with `open`, open the browser at it.
+fn already(port: u16, token: &str, open: bool) {
+    let url = url(port, token);
+    eprintln!("The Laura server already runs. Open this URL in a web browser:");
+    println!("{url}");
+    if open {
+        open_at(&url);
+    }
+}
+
 fn serve(port: u16, open: bool) -> Result<()> {
     // One Laura server for each user: a different `--port` prints the address of the first.
     if let Some((old, token)) = state()
@@ -113,17 +123,32 @@ fn serve(port: u16, open: bool) -> Result<()> {
     {
         // After an upgrade, the Laura icon replaces the Laura server of the old version.
         if version == VERSION || !open {
-            let url = url(old, &token);
-            eprintln!("The Laura server already runs. Open this URL in a web browser:");
-            println!("{url}");
-            if open {
-                open_at(&url);
-            }
+            already(old, &token, open);
             return Ok(());
         }
         quit(old, &token)?;
     }
-    let listener = web::listen(port)?;
+    let listener = match web::listen(port) {
+        Ok(l) => l,
+        // The Laura icon has no `--port` to pass. A second click can find the port taken by the
+        // first one, which binds before it writes `serve.json`.
+        Err(_) if open && web::answers(port) => {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                if let Some((old, token)) = state()
+                    && server_version(old).is_some()
+                {
+                    already(old, &token, true);
+                    return Ok(());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            bail!(
+                "Another program uses port {port}. Stop that program, then select the Laura icon again."
+            );
+        }
+        Err(e) => return Err(e),
+    };
     let port = listener.local_addr()?.port();
     // A new token on each start: a program that took the port while the Laura server was stopped
     // holds a key of no use.

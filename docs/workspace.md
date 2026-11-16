@@ -169,13 +169,13 @@ The Laura icon is an icon on the desktop or in the Start Menu that opens the Lau
     Laura prints the path of each file that Laura writes.
 3. Select the Laura icon. Laura starts the Laura server and opens the Laura server's page in a Chrome or Edge app window. Without Chrome or Edge, Laura opens the page in the default browser.
 
-When the Laura server already runs, the Laura icon opens a new window of the Laura server's page. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
+When the Laura server already runs, the Laura icon opens a new window of the Laura server's page. When you select the Laura icon again while the Laura server starts, Laura opens a second window of the same Laura server. After you upgrade Laura, the Laura icon stops the Laura server of the old version and starts the new version. The workspaces keep running.
 
 The Laura icon holds the full path of the `laura` program. When that path changes, for example when you install Laura with a different tool, run `laura --shortcut` again.
 
-When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error.
+When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error. When another program uses the Laura server's port, the error is `Another program uses port <n>. Stop that program, then select the Laura icon again.`
 
-The Laura icon runs your shell as a login shell, so the workspaces that the Laura server starts find the programs on your `PATH`, such as `claude`.
+The Laura icon runs your shell as a login shell, so the workspaces that the Laura server starts find the programs on your `PATH`, such as `claude`. With csh or tcsh, Laura uses `/bin/sh`.
 
 ### The files that Laura writes
 

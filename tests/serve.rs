@@ -168,6 +168,7 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
     assert_eq!(status(&page), "HTTP/1.1 200 OK", "{page}");
     assert!(page.contains("Open the Laura server"));
     assert!(page.contains("Select the Laura icon, or run <code>laura --serve</code>"));
+    assert!(page.contains("or run <code>laura --serve</code>, to start the Laura server again"));
     assert!(!page.contains(&workspace_token), "the page holds a token");
 
     // The printed address serves the page, which keeps the key and sends it in a header.

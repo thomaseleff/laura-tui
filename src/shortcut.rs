@@ -19,9 +19,13 @@ pub fn write() -> Result<()> {
     let exe = std::env::current_exe()?;
     let home = std::env::home_dir().context("Laura could not find the home folder")?;
     // A login shell, so the Laura server and its workspaces get the user's PATH (the agent CLI).
+    // Not csh or tcsh: they take `-l` only as their one flag, so `-ilc` fails.
     let shell = std::env::var("SHELL")
         .ok()
-        .filter(|s| !s.is_empty())
+        .filter(|s| {
+            let name = Path::new(s).file_name().and_then(|n| n.to_str());
+            !s.is_empty() && !matches!(name, Some("csh" | "tcsh"))
+        })
         .unwrap_or_else(|| "/bin/sh".into());
     let inner = format!("exec {} --serve --open", sh_quote(&exe.to_string_lossy()));
     if let Ok(distro) = std::env::var("WSL_DISTRO_NAME") {
@@ -57,8 +61,10 @@ pub fn write() -> Result<()> {
         let app = home.join("Applications/Laura.app/Contents");
         save(&app.join("Info.plist"), INFO_PLIST.as_bytes())?;
         let script = app.join("MacOS/Laura");
+        // In the background, so the script ends: LaunchServices runs it again on the next click
+        // only once `Laura.app` ended.
         let body = format!(
-            "#!/bin/sh\nexec {} -ilc {}\n",
+            "#!/bin/sh\n{} -ilc {} </dev/null >/dev/null 2>&1 &\n",
             sh_quote(&shell),
             sh_quote(&inner)
         );
