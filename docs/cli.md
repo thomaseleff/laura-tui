@@ -16,7 +16,7 @@ laura --serve           Run the Laura server at http://127.0.0.1:1989/, which li
 laura --serve --port <n>  Run the Laura server on port <n>. `--port 0` picks a free port.
 ```
 
-When another program uses the port, Laura returns the error `port <n> is in use: pass --port`. `laura --serve -- <cmd>` returns the error `--serve takes no program: start a workspace with a program on the Laura server's page`. See [The Laura server](workspace.md#the-laura-server).
+When the Laura server already runs on the port, `laura --serve` prints the URL again. When another program uses the port, Laura returns the error `port <n> is in use: pass --port`. `laura --serve -- <cmd>` returns the error `--serve takes no program: start a workspace with a program on the Laura server's page`. See [The Laura server](workspace.md#the-laura-server).
 
 ## Commands
 

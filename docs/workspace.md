@@ -107,7 +107,7 @@ The Laura server is one address in the browser that lists the running workspaces
     laura --serve
     ```
 
-2. Open the URL that Laura prints. The address is `http://127.0.0.1:1989/`, and the URL adds a key. To use a different port, run `laura --serve --port <n>`.
+2. Open the URL that Laura prints. The address is `http://127.0.0.1:1989/`, and the URL adds a key. To use a different port, run `laura --serve --port <n>`. When the Laura server already runs, `laura --serve` prints the URL again.
 3. The page shows **Start a workspace** and the list of the running workspaces.
 
 After the first visit, the browser keeps the key, and Laura keeps the same key when the Laura server starts again. The plain address `http://127.0.0.1:1989/` and a bookmark of it then work in that browser, also after the browser restarts. A browser without the key shows `Open Laura from the address Laura prints` and no workspace.
@@ -134,7 +134,8 @@ When the workspace does not start, the page shows one of these errors below the 
 |---|---|
 | `<folder> is not a folder.` | The folder does not exist. |
 | `The workspace stopped at once: <Laura's error>` | Laura could not start the program, for example a command that is not installed. |
-| `The workspace did not start in 10 s.` | The workspace took too long to start. If the workspace starts later, the list shows it. |
+| `The workspace stopped at once: the program exited.` | The command ended at once, for example a command that prints and stops, such as `ls`. |
+| `The workspace did not start in 10 s.` | The workspace took too long to start. Laura stops that workspace. |
 
 The Laura server splits the command at each space, so an argument can't contain a space.
 

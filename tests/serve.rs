@@ -318,6 +318,19 @@ fn start_workspace_tells_why_a_workspace_did_not_start() -> Result<()> {
         "{text}"
     );
     assert!(text.contains("no-such-program"), "{text}");
+
+    // A program that ends at once.
+    let program = if cfg!(windows) {
+        "cmd.exe /c exit"
+    } else {
+        "true"
+    };
+    let resp = s.post("/new", json!({"folder": dir.path(), "program": program}))?;
+    assert_eq!(status(&resp), "HTTP/1.1 400 Bad Request", "{resp}");
+    assert_eq!(
+        body(&resp),
+        "The workspace stopped at once: the program exited."
+    );
     assert!(s.workspaces()?.is_empty(), "a workspace started");
     Ok(())
 }
@@ -369,6 +382,21 @@ fn serve_takes_no_program() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("--serve takes no program"));
+}
+
+#[test]
+fn a_second_laura_serve_prints_the_same_address() -> Result<()> {
+    let s = Server::start()?;
+    let port = s.port.to_string();
+    let home = s.home.path();
+    Command::cargo_bin("laura")?
+        .args(["--serve", "--port", &port])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .assert()
+        .success()
+        .stdout(format!("http://127.0.0.1:{port}/?t={}\n", s.token));
+    Ok(())
 }
 
 #[test]
@@ -447,6 +475,11 @@ fn a_view_lists_the_running_workspaces_oldest_first() -> Result<()> {
 fn a_view_learns_the_laura_servers_address_when_it_starts() -> Result<()> {
     let home = temp()?;
     let dir = temp()?;
+    // A different program on the port of an old Laura server is no Laura server.
+    let other = TcpListener::bind("127.0.0.1:0")?;
+    let state = json!({"token": "0".repeat(64), "port": other.local_addr()?.port()});
+    std::fs::create_dir_all(home.path().join(".laura"))?;
+    std::fs::write(home.path().join(".laura/serve.json"), state.to_string())?;
     let args = ["--web", "--", PROGRAM];
     let (_ws, url) = laura_start(dir.path(), &args, Some(home.path()))?;
     let mut view = view(&url)?;

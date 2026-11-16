@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -21,6 +21,8 @@ pub const DEFAULT_PORT: u16 = 1989;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_BODY: usize = 64 * 1024;
 const START_TIMEOUT: Duration = Duration::from_secs(10);
+/// shortcut: a program that ends after this time still opens a workspace that then ends, tell the page if this is reported.
+const SETTLE: Duration = Duration::from_millis(300);
 
 const PAGE: &[u8] = include_bytes!("../assets/web/serve.html");
 const SCRIPT: &[u8] = include_bytes!("../assets/web/serve.js");
@@ -43,11 +45,37 @@ pub(crate) fn running() -> Option<String> {
     let v: Value = serde_json::from_slice(&std::fs::read(state_path()).ok()?).ok()?;
     let port = u16::try_from(v["port"].as_u64()?).ok()?;
     let token = v["token"].as_str()?;
-    web::answers(port).then(|| format!("http://127.0.0.1:{port}/?t={token}"))
+    is_laura_server(port).then(|| format!("http://127.0.0.1:{port}/?t={token}"))
+}
+
+/// Whether the program on `port` is a Laura server: each response of one has the version.
+/// shortcut: a program that copies the header passes, sign the answer if this matters.
+fn is_laura_server(port: u16) -> bool {
+    let wait = Duration::from_millis(200);
+    let Ok(mut s) = TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), wait) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(wait));
+    let _ = s.set_write_timeout(Some(wait));
+    if s.write_all(b"GET /serve.js HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    // A timeout keeps the bytes read so far.
+    let mut head = vec![];
+    let _ = s.take(512).read_to_end(&mut head);
+    String::from_utf8_lossy(&head).contains("\r\nX-Laura-Version: ")
 }
 
 /// `laura --serve`: listen on `port` until the user stops the Laura server.
 pub fn run(port: u16) -> Result<()> {
+    let here = format!("http://127.0.0.1:{port}/");
+    if let Some(url) = running().filter(|u| u.starts_with(&here)) {
+        eprintln!("The Laura server already runs. Open this URL in a web browser:");
+        println!("{url}");
+        return Ok(());
+    }
     let listener = web::listen(port)?;
     let port = listener.local_addr()?.port();
     // The token stays across restarts, so the key that the page keeps still works.
@@ -317,28 +345,41 @@ fn start(exe: &Path, typed: &str, program: &str) -> Result<String, String> {
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // CREATE_NO_WINDOW
+    // An older record with the same process id is a different workspace.
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
     let mut child = cmd.spawn().map_err(|e| failed(&e))?;
     let record = web::record_path(child.id());
-    let deadline = Instant::now() + START_TIMEOUT;
+    let spawned = Instant::now();
     let result = loop {
-        let url = std::fs::read(&record)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v["url"].as_str().map(str::to_string));
-        if let Some(url) = url {
-            break Ok(url);
-        }
         if let Ok(Some(_)) = child.try_wait() {
-            // Laura's error can take more than one line: the page shows them as one.
+            // Laura's error can take more than one line: the page shows them as one. A program
+            // that ends at once leaves only the label of the URL.
             let out = std::fs::read_to_string(&log).unwrap_or_default();
             let lines: Vec<&str> = out
                 .lines()
                 .map(str::trim)
-                .filter(|l| !l.is_empty())
+                .filter(|l| !l.is_empty() && *l != "Open this URL in a web browser:")
                 .collect();
-            break Err(failed(&lines.join(" ").trim_start_matches("Error: ")));
+            break Err(failed(
+                &match lines.join(" ").trim_start_matches("Error: ") {
+                    "" => "the program exited.",
+                    why => why,
+                },
+            ));
         }
-        if Instant::now() >= deadline {
+        let url = std::fs::read(&record)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .filter(|v| v["started"].as_u64().is_some_and(|ms| ms >= before))
+            .and_then(|v| v["url"].as_str().map(str::to_string));
+        // The record comes before the program ends: wait that long for a program that ends at once.
+        if let Some(url) = url.filter(|_| spawned.elapsed() >= SETTLE) {
+            break Ok(url);
+        }
+        if spawned.elapsed() >= START_TIMEOUT {
+            let _ = child.kill();
             break Err("The workspace did not start in 10 s.".to_string());
         }
         std::thread::sleep(Duration::from_millis(50));
