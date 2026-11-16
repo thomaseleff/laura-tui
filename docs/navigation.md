@@ -53,7 +53,7 @@ What Laura shows depends on [the Laura server](workspace.md#the-laura-server):
 | The Laura server | The workspace switcher | The pane selector |
 |---|---|---|
 | Runs | The list ends with **New workspace…**, which opens the Laura server's page. | **Workspaces** ends with **New workspace…**. |
-| Does not run | The list ends with the line `Select the Laura icon, or run laura --serve, to start more workspaces.` With only one workspace, the workspace switcher shows no ▾ and no list. | **Workspaces** lists only the other workspaces. |
+| Does not run | The list ends with the line `Open Laura from your desktop or app menu, or run laura --serve, to start more workspaces.` With only one workspace, the workspace switcher shows no ▾ and no list. | **Workspaces** lists only the other workspaces. |
 
 While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page. `Ctrl`+click, `Cmd`+click and a middle click open the page in a new browser tab.
 

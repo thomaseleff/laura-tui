@@ -157,7 +157,7 @@ fn serve(port: u16, open: bool) -> Result<()> {
                 std::thread::sleep(Duration::from_millis(100));
             }
             bail!(
-                "Another program uses port {port}. Stop that program, then select the Laura icon or run laura --serve again."
+                "Another program uses port {port}. Stop that program, then open Laura from your desktop or app menu, or run laura --serve again."
             );
         }
         Err(e) => return Err(e),

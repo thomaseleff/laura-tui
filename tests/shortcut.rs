@@ -340,7 +340,7 @@ fn laura_serve_open_shows_its_error_in_the_browser() -> Result<()> {
     let page = opened(dir.path(), 1)?;
     assert!(page.contains("Laura could not start"), "{page}");
     let text = format!(
-        "Another program uses port {port}. Stop that program, then select the Laura icon or run laura --serve again."
+        "Another program uses port {port}. Stop that program, then open Laura from your desktop or app menu, or run laura --serve again."
     );
     assert!(page.contains(&text), "{page}");
     Ok(())

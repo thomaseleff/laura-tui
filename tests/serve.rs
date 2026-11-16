@@ -167,7 +167,11 @@ fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
     let page = http(s.port, "GET", "/", "", "")?;
     assert_eq!(status(&page), "HTTP/1.1 200 OK", "{page}");
     assert!(page.contains("Open the Laura server"));
-    assert!(page.contains("Select the Laura icon, or run <code>laura --serve</code>"));
+    assert!(
+        page.contains(
+            "Open Laura from your desktop or app menu, or run <code>laura --serve</code>"
+        )
+    );
     assert!(page.contains("or run <code>laura --serve</code>, to start the Laura server again"));
     assert!(!page.contains(&workspace_token), "the page holds a token");
 

@@ -177,7 +177,7 @@ When the Laura server already runs, the Laura icon opens the Laura server's page
 
 The Laura icon holds the full path of the `laura` program. When that path changes, for example when you install Laura with a different tool, run `laura --shortcut` again.
 
-When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error. When another program uses the Laura server's port, the error is `Another program uses port <n>. Stop that program, then select the Laura icon or run laura --serve again.`
+When the Laura server can't start, Laura opens a page that shows `Laura could not start` and the error. When another program uses the Laura server's port, the error is `Another program uses port <n>. Stop that program, then open Laura from your desktop or app menu, or run laura --serve again.`
 
 The Laura icon runs your shell as a login shell, so the workspaces that the Laura server starts find the programs on your `PATH`, such as `claude`. With csh or tcsh, Laura uses `/bin/sh`.
 

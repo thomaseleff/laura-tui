@@ -21,7 +21,7 @@ laura --shortcut        Write the Laura icon for this computer. Prints the path 
 
 When a Laura server already runs, `laura --serve` prints the URL of that Laura server again, also with a different `--port`. When another program uses the port, Laura returns the error `port <n> is in use: pass --port`. `laura --serve -- <cmd>` returns the error `--serve takes no program: start a workspace with a program on the Laura server's page`. See [The Laura server](workspace.md#the-laura-server).
 
-With `--open`, Laura opens the browser at the Laura server that runs, or starts a Laura server and opens the browser at it. When a Laura server of another version runs, Laura stops that Laura server and starts a new one. When another program uses the port, Laura returns the error `Another program uses port <n>. Stop that program, then select the Laura icon or run laura --serve again.` When the Laura server can't start, Laura also opens a page with the error, and exits with status 1. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
+With `--open`, Laura opens the browser at the Laura server that runs, or starts a Laura server and opens the browser at it. When a Laura server of another version runs, Laura stops that Laura server and starts a new one. When another program uses the port, Laura returns the error `Another program uses port <n>. Stop that program, then open Laura from your desktop or app menu, or run laura --serve again.` When the Laura server can't start, Laura also opens a page with the error, and exits with status 1. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
 
 `laura --shortcut -- <cmd>` returns the error `--shortcut takes no program`.
 

@@ -1968,7 +1968,7 @@ function paintMenu() {
     mi.querySelector(".p").textContent = `${w.root} · ${w.program}`;
     return mi;
   });
-  let last = div("mfoot", "Select the Laura icon, or run laura --serve, to start more workspaces.");
+  let last = div("mfoot", "Open Laura from your desktop or app menu, or run laura --serve, to start more workspaces.");
   if (server) {
     last = div(`mi mnew${server === on ? " on" : ""}`, "+ New workspace…");
     last.setAttribute("role", "menuitem");
