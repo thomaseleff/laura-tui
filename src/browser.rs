@@ -246,19 +246,27 @@ pub fn no_browser(reason: impl std::fmt::Display) {
     eprintln!("To use Laura in this terminal instead, press Ctrl+C and run laura --tui.");
 }
 
-/// A folder in the user's own Windows environment, such as %USERPROFILE%, from WSL: the Windows path and the WSL path. Not every folder under `/mnt/c/Users`: any
-/// Windows user can write to `Public` and `All Users`. `cmd.exe` by its full path, since
-/// `appendWindowsPath=false` keeps it off PATH; run in a Windows folder, so it doesn't warn about a
-/// UNC one.
+/// A folder in the user's own Windows environment, such as %USERPROFILE%, from WSL: the Windows
+/// path and the WSL path. Not every folder under `/mnt/c/Users`: any Windows user can write to
+/// `Public` and `All Users`. `cmd.exe` by its full path, since `appendWindowsPath=false` keeps it
+/// off PATH; run in a Windows folder, so it doesn't warn about a UNC one.
 pub(crate) fn win_env(name: &str) -> Option<(String, PathBuf)> {
+    // `/u` makes `cmd` write UTF-16: its OEM code page is not UTF-8 (`C:\Users\André`).
     let out = Command::new("/mnt/c/Windows/System32/cmd.exe")
-        .args(["/d", "/c", &format!("echo %{name}%")])
+        .args(["/d", "/u", "/c", &format!("echo %{name}%")])
         .current_dir("/mnt/c/Windows/System32")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    let win = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    let units: Vec<u16> = out
+        .stdout
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_le_bytes(c))
+        .collect();
+    let win = String::from_utf16(&units).ok()?.trim().to_string();
     // An unset variable echoes as itself.
     if win.is_empty() || win.contains('%') {
         return None;

@@ -21,7 +21,7 @@ fn temp() -> Result<tempfile::TempDir> {
     Ok(tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR"))?)
 }
 
-/// Deletes the files on drop: on Windows, `Laura.lnk` goes to the real Desktop and Start Menu.
+/// Deletes the files on drop: a `Laura.lnk` outside the temporary home would stay on the computer.
 struct Remove(Vec<PathBuf>);
 
 impl Drop for Remove {
@@ -39,6 +39,13 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
         return Ok(());
     }
     let home = temp()?;
+    // Windows builds both folders from `USERPROFILE`, and returns "" for a missing one.
+    if cfg!(windows) {
+        let start = r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs";
+        for dir in ["Desktop", start] {
+            std::fs::create_dir_all(home.path().join(dir))?;
+        }
+    }
     let shortcut = |shell: &str| {
         std::process::Command::new(env!("CARGO_BIN_EXE_laura"))
             .arg("--shortcut")
@@ -66,6 +73,7 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
     for p in &paths {
         assert!(p.exists(), "{} is missing", p.display());
     }
+    assert!(paths.iter().all(|p| p.starts_with(home.path())), "{stdout}");
     let file = |name: &str| {
         paths
             .iter()
@@ -104,7 +112,6 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
         assert!(desktop.contains(&exec), "{desktop}");
         assert!(desktop.contains("Terminal=false\n"), "{desktop}");
         assert!(std::fs::read(file("laura.png"))?.starts_with(b"\x89PNG"));
-        assert!(paths.iter().all(|p| p.starts_with(home.path())));
 
         // csh and tcsh take no `-ilc`: Laura uses `/bin/sh`.
         let out = shortcut("/bin/tcsh")?;
@@ -234,6 +241,42 @@ fn laura_serve_open_replaces_a_laura_server_of_another_version() -> Result<()> {
     let prefix = format!("http://127.0.0.1:{port}/?t=");
     assert!(url.starts_with(&prefix), "{url}");
     assert!(opened(dir.path(), 1)?.contains(&url));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_click_after_an_upgrade_opens_the_new_laura_server() -> Result<()> {
+    use std::io::{Read, Write};
+
+    let dir = temp()?;
+    stub_browser(dir.path())?;
+    // A Laura server of version 0.0.0 that the first click stops: it answers one request, so
+    // the second click's **Stop** finds no Laura server.
+    let old = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = old.local_addr()?.port();
+    std::fs::create_dir_all(dir.path().join(".laura"))?;
+    let state = serde_json::json!({"token": "old-key", "port": port});
+    std::fs::write(dir.path().join(".laura/serve.json"), state.to_string())?;
+    std::thread::spawn(move || {
+        let Ok((mut s, _)) = old.accept() else { return };
+        drop(old);
+        let mut head = vec![];
+        let mut b = [0; 1];
+        while !head.ends_with(b"\r\n\r\n") && s.read(&mut b).is_ok_and(|n| n == 1) {
+            head.push(b[0]);
+        }
+        let _ = s.write_all(
+            b"HTTP/1.1 200 OK\r\nX-Laura-Version: 0.0.0\r\nContent-Length: 0\r\n\
+              Connection: close\r\n\r\n",
+        );
+    });
+    let args = ["--serve", "--open", "--port", &port.to_string()];
+    let (_server, url) = laura_start(dir.path(), &args, Some(dir.path()))?;
+    let prefix = format!("http://127.0.0.1:{port}/?t=");
+    assert!(url.starts_with(&prefix), "{url}");
+    let page = opened(dir.path(), 1)?;
+    assert!(page.contains(&url), "{page}");
     Ok(())
 }
 

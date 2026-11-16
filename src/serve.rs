@@ -126,7 +126,13 @@ fn serve(port: u16, open: bool) -> Result<()> {
             already(old, &token, open);
             return Ok(());
         }
-        quit(old, &token)?;
+        // A second click can find the old Laura server already stopped by the first. Then
+        // `web::listen` binds, or the branch below opens the Laura server of the first click.
+        if let Err(e) = quit(old, &token)
+            && server_version(old).is_some()
+        {
+            return Err(e);
+        }
     }
     let listener = match web::listen(port) {
         Ok(l) => l,
