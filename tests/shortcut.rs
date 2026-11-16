@@ -282,6 +282,54 @@ fn a_second_click_after_an_upgrade_opens_the_new_laura_server() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
+fn a_second_click_opens_the_laura_server_that_the_first_click_started() -> Result<()> {
+    use std::io::{Read, Write};
+
+    let dir = temp()?;
+    stub_browser(dir.path())?;
+    // A Laura server of version 0.0.0 for the first request. Then the first click has replaced
+    // it: the port answers with this version and a new key, and refuses the old key.
+    let server = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = server.local_addr()?.port();
+    let serve_json = dir.path().join(".laura/serve.json");
+    std::fs::create_dir_all(dir.path().join(".laura"))?;
+    let state = serde_json::json!({"token": "old-key", "port": port});
+    std::fs::write(&serve_json, state.to_string())?;
+    std::thread::spawn(move || {
+        let mut version = "0.0.0";
+        for mut s in server.incoming().flatten() {
+            let mut head = vec![];
+            let mut b = [0; 1];
+            while !head.ends_with(b"\r\n\r\n") && s.read(&mut b).is_ok_and(|n| n == 1) {
+                head.push(b[0]);
+            }
+            let status = if head.starts_with(b"POST /quit ") {
+                "401 Unauthorized"
+            } else {
+                "200 OK"
+            };
+            let _ = write!(
+                s,
+                "HTTP/1.1 {status}\r\nX-Laura-Version: {version}\r\nContent-Length: 0\r\n\
+                 Connection: close\r\n\r\n"
+            );
+            if version == "0.0.0" {
+                version = env!("CARGO_PKG_VERSION");
+                let state = serde_json::json!({"token": "new-key", "port": port});
+                let _ = std::fs::write(&serve_json, state.to_string());
+            }
+        }
+    });
+    let out = laura(dir.path(), &["--serve", "--open"])?;
+    assert!(out.status.success(), "{out:?}");
+    let url = format!("http://127.0.0.1:{port}/?t=new-key");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), url);
+    assert!(opened(dir.path(), 1)?.contains(&url));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
 fn laura_serve_open_shows_its_error_in_the_browser() -> Result<()> {
     let dir = temp()?;
     stub_browser(dir.path())?;

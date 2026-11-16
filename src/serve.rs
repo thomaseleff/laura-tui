@@ -128,10 +128,17 @@ fn serve(port: u16, open: bool) -> Result<()> {
         }
         // A second click can find the old Laura server already stopped by the first. Then
         // `web::listen` binds, or the branch below opens the Laura server of the first click.
-        if let Err(e) = quit(old, &token)
-            && server_version(old).is_some()
-        {
-            return Err(e);
+        if let Err(e) = quit(old, &token) {
+            // Or already replaced: the new Laura server refuses the old key.
+            if let Some((new, token)) = state()
+                && server_version(new).as_deref() == Some(VERSION)
+            {
+                already(new, &token, true);
+                return Ok(());
+            }
+            if server_version(old).is_some() {
+                return Err(e);
+            }
         }
     }
     let listener = match web::listen(port) {
