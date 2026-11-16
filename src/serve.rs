@@ -276,7 +276,7 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
             "GET",
             "/style.css"
             | "/logo.svg"
-            | "/laura.ico"
+            | "/favicon.svg"
             | "/fonts/Inter.woff2"
             | "/fonts/JetBrainsMono.woff2",
         ) => match web::ASSETS.iter().find(|(p, ..)| *p == path) {

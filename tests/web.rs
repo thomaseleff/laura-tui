@@ -2295,12 +2295,16 @@ fn the_web_app_shows_the_laura_logo() -> Result<()> {
     assert!(logo.starts_with("HTTP/1.1 200"), "{logo}");
     assert!(logo.contains("Content-Type: image/svg+xml\r\n"), "{logo}");
     assert!(body(&logo).starts_with("<svg"), "{logo}");
-    let icon = get(rig.port, "/laura.ico")?;
+    // The tab icon is the same mark, white in dark mode.
+    let icon = get(rig.port, "/favicon.svg")?;
     assert!(icon.starts_with("HTTP/1.1 200"), "{icon}");
-    assert!(icon.contains("Content-Type: image/x-icon\r\n"), "{icon}");
+    assert!(icon.contains("Content-Type: image/svg+xml\r\n"), "{icon}");
+    assert!(body(&icon).contains("prefers-color-scheme: dark"), "{icon}");
+    let old = get(rig.port, "/laura.ico")?;
+    assert!(old.starts_with("HTTP/1.1 404"), "{old}");
     let page = get(rig.port, "/")?;
-    assert!(page.contains("<link rel=\"icon\" href=\"laura.ico\">"));
-    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\""));
+    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">"));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"20\" height=\"20\""));
     Ok(())
 }
 

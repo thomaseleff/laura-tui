@@ -218,18 +218,16 @@ fn the_laura_server_shows_the_laura_logo() -> Result<()> {
     assert_eq!(status(&logo), "HTTP/1.1 200 OK", "{logo}");
     assert!(logo.contains("Content-Type: image/svg+xml\r\n"), "{logo}");
     assert!(body(&logo).starts_with("<svg"), "{logo}");
-    let icon = http(s.port, "GET", "/laura.ico", "", "")?;
+    // The tab icon is the same mark, white in dark mode.
+    let icon = http(s.port, "GET", "/favicon.svg", "", "")?;
     assert_eq!(status(&icon), "HTTP/1.1 200 OK", "{icon}");
-    assert!(icon.contains("Content-Type: image/x-icon\r\n"), "{icon}");
-    // An ICO header, then 8 frames: 16, 24, 32, 48, 64, 96, 128 and 256 px.
-    assert!(
-        body(&icon).as_bytes().starts_with(&[0, 0, 1, 0, 8, 0]),
-        "{:?}",
-        &body(&icon).as_bytes()[..6.min(body(&icon).len())]
-    );
+    assert!(icon.contains("Content-Type: image/svg+xml\r\n"), "{icon}");
+    assert!(body(&icon).contains("prefers-color-scheme: dark"), "{icon}");
+    let old = http(s.port, "GET", "/laura.ico", "", "")?;
+    assert_eq!(status(&old), "HTTP/1.1 404 Not Found", "{old}");
     let page = http(s.port, "GET", "/", "", "")?;
-    assert!(page.contains("<link rel=\"icon\" href=\"laura.ico\">"));
-    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\""));
+    assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">"));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"20\" height=\"20\""));
     // The top bar shows the logo, then "Workspaces", with no "/" between them.
     let css = http(s.port, "GET", "/style.css", "", "")?;
     assert!(body(&css).contains(".crumb"), "{css}");
