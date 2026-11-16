@@ -12,6 +12,7 @@
 //! - [`tab`] — one workspace tab tying the above together over its socket.
 //! - [`view`] — pane titles, file pane rows, and the hint, help, and notice text a front-end draws.
 //! - [`web`] — the web app: serves a workspace to the browser.
+//! - [`serve`] — the Laura server: one address that lists the workspaces and starts new ones.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
 
@@ -25,6 +26,7 @@ pub mod panel;
 pub mod protocol;
 pub mod pty;
 pub mod render;
+pub mod serve;
 pub mod tab;
 pub mod view;
 pub mod web;

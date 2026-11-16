@@ -77,7 +77,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 |---|---|---|
 | **pane** | A tile in the tab's split tree. | tile (noun), window |
 | **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
-| **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id. | popup, palette |
+| **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id, or a workspace by session label or folder. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
 | **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
@@ -107,6 +107,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **theme** | Laura's colors and gutter in editor panes, chosen in the startup wizard. | look |
 | **workspace** | The panes Laura shows, in the web app or the TUI. | — |
 | **session label** | A short name for the task in a workspace, set by the agent with `laura ready --title`. | tab name, title (in prose) |
+| **workspace switcher** | The session label and folder left of the find bar in the web app, which lists the workspaces. | dropdown, chips |
+| **the Laura server** | The page at one fixed address that lists the running workspaces and starts new ones (`laura --serve`). | hub, daemon |
 | **web app** | The workspace in a browser tab (`laura`). Name the web app only to tell it from the TUI. | web UI, frontend |
 | **TUI** | The workspace in a terminal (`laura --tui`). | terminal UI, terminal mode |
 | **notice** | A message in the bottom-right corner of a pane, or of the workspace above the hint line. | toast, standing warning |

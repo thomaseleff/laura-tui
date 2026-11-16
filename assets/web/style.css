@@ -64,10 +64,47 @@ body { line-height: 1.5; }
 #top .l, #top .r { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #top .r { grid-column: 3; justify-content: flex-end; }
 .brand { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+/* With a Laura server, the brand links to the Laura server's page; without one it is plain text. */
+a.brand { color: inherit; text-decoration: none; }
+a.brand[href]:hover { color: var(--acc); }
 /* A long folder ends in … at its column's edge, short of **Find a pane**. */
 .crumb { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }
 .crumb:empty { display: none; }
+/* The workspace switcher: the session label and the folder, then ▾ when it has a menu. In a narrow
+   window the folder ends in … first, then the session label. */
+.wsw {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 8px; cursor: pointer;
+  color: var(--fg); background: none; border: 1px solid transparent; border-radius: 8px;
+}
+.wsw:not(:disabled):hover, .wsw[aria-expanded=true] { background: #fff; border-color: var(--line); }
+.wsw:disabled { cursor: default; padding-left: 0; }
+.wsw[aria-expanded=true]::after { display: none; }
+.wsw .wl { flex: 0 1 auto; min-width: 2ch; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsw .crumb { flex: 0 1000 auto; min-width: 0; }
+.wsw .crumb::before { content: none; }
+.fallback { color: var(--mute); font-weight: 400 !important; }
+.caret { flex: none; color: var(--faint); font-size: 11px; }
+.menu {
+  position: absolute; top: 40px; z-index: 45; width: 360px; max-width: calc(100vw - 16px); box-sizing: border-box;
+  padding: 6px 0; background: #fff; border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); outline: none;
+}
+.mh, .ph { padding: 4px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); }
+.mi { display: flex; align-items: center; gap: 10px; padding: 7px 14px; cursor: pointer; }
+.mi:is(:hover, .on) { background: var(--acc-soft); }
+.mi.cur { cursor: default; background: none; }
+.wdot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.mi.cur .wdot { background: var(--acc); }
+.mt { min-width: 0; }
+.mt > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt .wl { font-weight: 500; }
+.mt .p { font: 12px var(--mono); color: var(--mute); }
+.chk { margin-left: auto; color: var(--acc); }
+.nt { margin-left: auto; flex: none; padding: 0 7px; color: var(--mute); background: #fff; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.nt:hover { color: var(--fg); }
+.msep { margin: 6px 0; border-top: 1px solid var(--line2); }
+.mnew { color: var(--acc); font-weight: 500; }
+.mfoot { padding: 4px 14px; font-size: 12px; color: var(--mute); }
 .iconbtn {
   width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px;
   color: var(--mute); background: none; cursor: pointer;
@@ -592,4 +629,88 @@ body.ended #ws { opacity: .4; }
 }
 #overlay p { margin: 0; }
 #overlay[hidden] { display: none; }
-#overlay button { padding: 5px 10px; color: #fff; background: var(--acc); border: 0; border-radius: 7px; cursor: pointer; }
+#overlay button { padding: 5px 10px; color: #fff; background: var(--acc); border: 1px solid var(--acc); border-radius: 7px; cursor: pointer; }
+.obtns { display: flex; gap: 8px; }
+.obtns:not(:has(button:not([hidden]))) { display: none; }
+/* Beside **Use this tab**, **Show the workspaces** is the second choice. */
+#continue:not([hidden]) ~ #showws { color: var(--fg); background: #fff; border-color: var(--line); }
+
+/* The Laura server's page (`serve.html`). The page scrolls, and the top bar is in the flow. */
+body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-direction: column; }
+.sv #top { position: static; flex: none; padding: 0 16px; }
+.sv main { max-width: 760px; width: 100%; box-sizing: border-box; margin: 14px auto 30px; padding: 0 20px; flex: 1; }
+.sv h1 { font-size: 20px; margin: 0 0 14px; }
+.sv h2 { font-size: 14px; margin: 26px 0 10px; }
+.sv code { font: 12.5px var(--mono); }
+.sv-card { background: var(--pane); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+.sv-start { padding: 16px 18px; }
+.sv-field { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 10px; margin: 10px 0; }
+.sv-field > label { color: var(--mute); }
+.sv-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.sv input[type=text] {
+  flex: 1; min-width: 0; font: 13px var(--mono); padding: 7px 10px; color: var(--fg);
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+}
+.sv input[type=text]:focus { outline: 2px solid var(--acc-line); border-color: var(--acc); }
+.sv input:disabled { background: var(--bg); color: var(--faint); }
+.sv .btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.sv .btn.pri { font-weight: 500; }
+.sv .btn.pri:disabled { opacity: .7; cursor: default; }
+.sv-link { border: 0; background: none; color: var(--mute); padding: 0; font-size: inherit; cursor: pointer; }
+.sv-link:hover { color: var(--fg); text-decoration: underline; }
+.sv-link.sv-bad { color: var(--bad); }
+.sv-radio { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; white-space: nowrap; }
+.sv-actions { margin-top: 14px; padding-left: 90px; }
+.sv-msg { border-radius: 8px; padding: 6px 10px; margin: 10px 0 0 90px; overflow-wrap: anywhere; }
+.sv-err { color: var(--bad); background: var(--bad-soft); }
+.sv-crumbs a { color: var(--acc); }
+/* Laura's error under the headline, closed until the user opens it. */
+.sv-err summary { margin-top: 4px; cursor: pointer; }
+.sv-err pre { margin: 6px 0 0; font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+.sv-spin {
+  width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid rgb(255 255 255 / .4); border-top-color: #fff; animation: spin .8s linear infinite;
+}
+.sv-fb { margin: 4px 0 6px 90px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.sv-crumbs { padding: 6px 10px; background: var(--bg); border-bottom: 1px solid var(--line); font: 12.5px var(--mono); overflow-wrap: anywhere; }
+.sv-crumbs a { text-decoration: none; }
+.sv-fb ul { list-style: none; margin: 0; padding: 4px 0; max-height: 190px; overflow: auto; }
+.sv-fb ul:focus-visible { outline: 2px solid var(--acc-line); outline-offset: -2px; }
+.sv-fb li { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; font: 13px var(--mono); user-select: none; }
+.sv-fb li:is(:hover, .sel) { background: var(--acc-soft); }
+.sv-fb li.sv-none { cursor: default; background: none; }
+.sv-fb li .ic { color: var(--mute); }
+.sv-git { margin-left: auto; font: 11px var(--sans); color: var(--mute); }
+.sv-foot { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.sv-foot .sm { margin-right: auto; }
+.sv-ws { list-style: none; margin: 0; padding: 0; }
+.sv-ws li { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--line2); }
+.sv-ws li:first-child { border-top: 0; }
+.sv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.sv-names { min-width: 0; }
+.sv-names > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-t { font-weight: 500; }
+.sv-fallback { font-weight: 400; color: var(--mute); }
+.sv-p { font: 12px var(--mono); color: var(--mute); }
+.sv-open { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.sv-ws li.sv-new { animation: sv-flash 1.6s ease-out; }
+@keyframes sv-flash { from { background: var(--ok-soft); } }
+.sv-ws li.sv-empty { padding: 22px 18px; color: var(--mute); justify-content: center; }
+.sv-footline {
+  display: flex; justify-content: space-between; gap: 12px; color: var(--mute); font-size: 12px;
+  max-width: 760px; width: 100%; box-sizing: border-box; margin: 0 auto 18px; padding: 0 20px;
+}
+.sv-footline[hidden] { display: none; }
+.sv-gate { max-width: 500px; box-sizing: border-box; margin: 70px auto; padding: 26px 28px; }
+.sv-gate h1 { font-size: 18px; }
+.sv-gate ol { padding-left: 18px; }
+.sv-gate code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+/* In a narrow window, the row's buttons go below the names, and the form's fields take the width. */
+@media (width < 600px) {
+  .sv-ws li { flex-wrap: wrap; }
+  .sv-open { margin-left: 20px; }
+  .sv-field { grid-template-columns: 1fr; gap: 4px; }
+  .sv-row { flex-wrap: wrap; }
+  .sv-actions, .sv-msg, .sv-fb { margin-left: 0; padding-left: 0; }
+  .sv-msg { padding-left: 10px; }
+}

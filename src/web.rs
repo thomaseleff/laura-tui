@@ -14,7 +14,7 @@ use std::sync::mpsc::{
     Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, channel, sync_channel,
 };
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
 use ratatui::style::{Color, Modifier, Style};
@@ -32,10 +32,11 @@ use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 /// The workspace's size until a view reports one.
 pub const DEFAULT_AREA: Rect = Rect::new(0, 0, 120, 40);
 
-const REFERRER_POLICY: &str = "no-referrer";
+pub(crate) const REFERRER_POLICY: &str = "no-referrer";
 /// `'unsafe-inline'` styles: pane rows carry inline `style`. Script only from Laura's own files,
 /// so an escaping bug in pane HTML can't run code that holds the shell's websocket.
-const CSP: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
+pub(crate) const CSP: &str =
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
 
 /// Browsers send every `localhost` cookie to every port, so headers easily pass 8 KB.
 const MAX_HEAD: usize = 64 * 1024;
@@ -44,7 +45,7 @@ const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
 const OUTBOUND_BOUND: usize = 1024;
 
 /// Path, content type, body. The files hold no workspace data, so they need no token.
-const ASSETS: &[(&str, &str, &[u8])] = &[
+pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
     ("/", "text/html", include_bytes!("../assets/web/index.html")),
     (
         "/app.js",
@@ -205,12 +206,17 @@ pub struct WebServer {
     root: PathBuf,
     files: Files,
     bases: Bases,
+    /// When the workspace started, in Unix ms: the order of the workspaces' records.
+    started: u64,
+    /// The `workspaces` frames from `watch`'s thread, and the last one, which a new view gets.
+    watch: Option<Receiver<String>>,
+    workspaces: Option<String>,
 }
 
 impl WebServer {
-    /// Bind `127.0.0.1` on a port the OS picks, mint a token, start accepting.
-    pub fn bind() -> Result<WebServer> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
+    /// Bind `127.0.0.1` on `port` (`0`: a port the OS picks), mint a token, start accepting.
+    pub fn bind(port: u16) -> Result<WebServer> {
+        let listener = listen(port)?;
         let port = listener.local_addr()?.port();
         let token = nonce(32)?;
         let url = format!("http://127.0.0.1:{port}/?t={token}");
@@ -236,7 +242,69 @@ impl WebServer {
             root,
             files,
             bases: HashMap::new(),
+            started: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64),
+            watch: None,
+            workspaces: None,
         })
+    }
+
+    /// Write this workspace's record, which the Laura server and the other workspaces list. The
+    /// record holds the token, so only the user can read it.
+    pub fn register(&self, title: Option<&str>, program: &str) -> Result<()> {
+        let dir = workspaces_dir();
+        let mut b = std::fs::DirBuilder::new();
+        b.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        b.create(&dir)?;
+        let root = crate::gitdiff::strip_verbatim(self.root.clone());
+        let record = json!({"url": self.url, "root": root.to_string_lossy(), "pid": std::process::id(),
+                            "title": title, "program": program, "started": self.started});
+        write_private(
+            &record_path(std::process::id()),
+            record.to_string().as_bytes(),
+        )
+    }
+
+    /// Tell the view which workspaces run, and whether a Laura server runs: a thread reads the
+    /// records every 2 s, and `sync` sends the `workspaces` frame when the list changes. The view
+    /// then holds the other workspaces' tokens: the same user, the same files on disk.
+    pub fn watch(&mut self) {
+        let (tx, rx) = channel();
+        let url = self.url.clone();
+        std::thread::spawn(move || {
+            let mut last = String::new();
+            loop {
+                // Oldest first, so a row doesn't move when another workspace starts.
+                let list: Vec<Value> = live()
+                    .iter()
+                    .map(|w| {
+                        let root = shown_root(Path::new(w["root"].as_str().unwrap_or("")));
+                        json!({"url": w["url"], "title": w["title"], "root": root,
+                               "program": w["program"], "current": w["url"] == url.as_str()})
+                    })
+                    .collect();
+                let frame = json!({"t": "workspaces", "list": list,
+                                   "server": crate::serve::running()})
+                .to_string();
+                if frame != last {
+                    if tx.send(frame.clone()).is_err() {
+                        return; // the workspace ended
+                    }
+                    last = frame;
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        });
+        self.watch = Some(rx);
+    }
+
+    /// Delete this workspace's record. A workspace that ends without it (`Ctrl+C`, a crash) leaves
+    /// the record, which `live` deletes.
+    pub fn unregister(&self) {
+        let _ = std::fs::remove_file(record_path(std::process::id()));
     }
 
     /// The URL to print: the bound address plus the token.
@@ -277,6 +345,13 @@ impl WebServer {
     /// forward PTY bytes, and send the panes whose HTML changed. `changed` is `drain`'s return
     /// this frame. Returns false once the user quits.
     pub fn sync(&mut self, tab: &mut Tab, changed: bool) -> bool {
+        let fresh = self.watch.as_ref().and_then(|w| w.try_iter().last());
+        if let Some(frame) = fresh {
+            if let Some(v) = self.view.as_mut() {
+                v.send(Outbound::Text(frame.clone()));
+            }
+            self.workspaces = Some(frame);
+        }
         while let Ok((rx, tx)) = self.conns.try_recv() {
             // The token is in the browser now: the page has done its job.
             if let Some(page) = self.page.take() {
@@ -313,6 +388,9 @@ impl WebServer {
                            "ended": view::ENDED, "root": shown_root(&self.root),
                            "draft": {"failed": crate::tab::SUBMIT_FAILED_WEB},
                            "narrow": "This pane is too small to show {name}. Make the window larger or close a pane."}));
+            if let Some(frame) = &self.workspaces {
+                v.send(Outbound::Text(frame.clone()));
+            }
             if let Err(e) = &tab.editor
                 && e == crate::editor::NO_NVIM
             {
@@ -578,6 +656,82 @@ impl WebServer {
     }
 }
 
+/// Listen on `127.0.0.1:port`; `0` picks a free port.
+pub(crate) fn listen(port: u16) -> Result<TcpListener> {
+    TcpListener::bind(("127.0.0.1", port)).map_err(|e| match e.kind() {
+        ErrorKind::AddrInUse => anyhow!("port {port} is in use: pass --port"),
+        _ => e.into(),
+    })
+}
+
+fn workspaces_dir() -> PathBuf {
+    crate::journal::data_dir().join("workspaces")
+}
+
+/// The record of the workspace that process `pid` hosts.
+pub(crate) fn record_path(pid: u32) -> PathBuf {
+    workspaces_dir().join(format!("{pid}.json"))
+}
+
+/// Write `bytes` to `path`, a file that only the user can read on Unix.
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut f = std::fs::OpenOptions::new();
+    f.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
+    f.open(path)?.write_all(bytes)?;
+    Ok(())
+}
+
+/// The port of a `http://127.0.0.1:<port>/…` URL.
+fn url_port(url: &str) -> Option<u16> {
+    let rest = url.strip_prefix("http://127.0.0.1:")?;
+    rest.split('/').next()?.parse().ok()
+}
+
+/// Whether a process listens on `127.0.0.1:port`.
+pub(crate) fn answers(port: u16) -> bool {
+    TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200)).is_ok()
+}
+
+/// The records of the running workspaces, oldest first. A record whose port doesn't answer is a
+/// workspace that ended without `unregister`: `live` deletes the record.
+/// The newest record on a port wins: `live` deletes the older records on that port.
+/// shortcut: a port that a program other than Laura took over still answers, check the pid if a stale row is reported.
+pub fn live() -> Vec<Value> {
+    let Ok(dir) = std::fs::read_dir(workspaces_dir()) else {
+        return vec![];
+    };
+    let mut out = vec![];
+    for path in dir.flatten().map(|e| e.path()) {
+        // A record that a workspace is writing right now doesn't parse yet: skip it this time.
+        let Some(v) = std::fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        else {
+            continue;
+        };
+        if v["url"].as_str().and_then(url_port).is_some_and(answers) {
+            out.push(v);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    out.sort_by_key(|v| (v["started"].as_u64(), v["pid"].as_u64()));
+    // Newest first: an older record on the same port is a workspace that ended without `unregister`.
+    let mut ports = std::collections::HashSet::new();
+    out.reverse();
+    out.retain(|v| {
+        let fresh = ports.insert(v["url"].as_str().and_then(url_port));
+        if let (false, Some(pid)) = (fresh, v["pid"].as_u64()) {
+            let _ = std::fs::remove_file(record_path(pid as u32));
+        }
+        fresh
+    });
+    out.reverse();
+    out
+}
+
 /// `n` random bytes as hex.
 pub(crate) fn nonce(n: usize) -> Result<String> {
     let mut bytes = vec![0u8; n];
@@ -677,7 +831,7 @@ fn content_hash(p: &Panel) -> u64 {
 
 /// The folder Laura started in, for the top bar: under the home folder as `~/…`, with `/` between
 /// names on every OS.
-fn shown_root(root: &Path) -> String {
+pub(crate) fn shown_root(root: &Path) -> String {
     let strip = crate::gitdiff::strip_verbatim;
     let root = strip(root.to_path_buf());
     let home = std::env::home_dir().and_then(|h| h.canonicalize().ok().map(strip));
@@ -927,6 +1081,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
         "locked": view::hint(tab, view::Hint::Locked),
         "quit": view::hint(tab, view::Hint::Quit),
         "panes": view::hint(tab, view::Hint::Panes),
+        "workspace": view::hint(tab, view::Hint::Workspace),
         "comment_mode": view::hint(tab, view::Hint::CommentMode),
         "browser_typing": view::hint(tab, view::Hint::BrowserTyping),
         "browser_url": view::hint(tab, view::Hint::BrowserUrl),
@@ -1567,7 +1722,7 @@ fn color(c: Color) -> Option<String> {
 }
 
 /// Constant-time, so the token can't be guessed a byte at a time.
-fn same(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn same(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
@@ -1605,6 +1760,21 @@ pub(crate) fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
     })
 }
 
+/// A request from another site's page that isn't a navigation: a subresource or a `fetch`.
+pub(crate) fn foreign_subresource(head: &str) -> bool {
+    let site = header(head, "Sec-Fetch-Site").unwrap_or("");
+    (site.eq_ignore_ascii_case("cross-site") || site.eq_ignore_ascii_case("same-site"))
+        && !header(head, "Sec-Fetch-Mode").is_some_and(|m| m.eq_ignore_ascii_case("navigate"))
+}
+
+/// Whether `origin` is the page that the server on `port` serves. Checked against our own address:
+/// under DNS rebinding, Host carries the attacker's domain.
+pub(crate) fn our_origin(origin: Option<&str>, port: u16) -> bool {
+    origin.is_some_and(|o| {
+        o == format!("http://127.0.0.1:{port}") || o == format!("http://localhost:{port}")
+    })
+}
+
 /// One connection: a static file, a file beside a pane, or the websocket view.
 fn serve(
     mut stream: TcpStream,
@@ -1632,10 +1802,7 @@ fn serve(
     }
     // A page's `/style.css` is the page's, not the workspace's: a subresource from another site (a
     // page's opaque origin) gets none of these.
-    let site = header(&text, "Sec-Fetch-Site").unwrap_or("");
-    if (site.eq_ignore_ascii_case("cross-site") || site.eq_ignore_ascii_case("same-site"))
-        && !header(&text, "Sec-Fetch-Mode").is_some_and(|m| m.eq_ignore_ascii_case("navigate"))
-    {
+    if foreign_subresource(&text) {
         return respond(&mut stream, "404 Not Found", None);
     }
     match ASSETS.iter().find(|(p, ..)| *p == path) {
@@ -1737,14 +1904,10 @@ fn view_conn(stream: TcpStream, token: &str, port: u16, join: &Sender<Conn>) -> 
             .split('&')
             .find_map(|kv| kv.strip_prefix("t="))
             .unwrap_or("");
-        // Check Origin against our own address: under DNS rebinding, Host carries the attacker's domain.
         let origin = req.headers().get("origin").and_then(|o| o.to_str().ok());
-        let ours = |o: &str| {
-            o == format!("http://127.0.0.1:{port}") || o == format!("http://localhost:{port}")
-        };
         let status = if !same(given.as_bytes(), token.as_bytes()) {
             Some(StatusCode::UNAUTHORIZED)
-        } else if !origin.is_some_and(ours) {
+        } else if !our_origin(origin, port) {
             Some(StatusCode::FORBIDDEN)
         } else {
             None

@@ -97,6 +97,62 @@ You see each change that the agent makes. Laura shows a ring where the agent cli
 > [!IMPORTANT]
 > Every program on this computer can connect to the port that the browser tools use, and control the pages in Laura's browser.
 
+## The Laura server
+
+The Laura server is one address in the browser that lists the running workspaces and starts new ones. Each workspace still has its own address. Bookmark the Laura server's address to start workspaces without a terminal.
+
+1. Run the Laura server:
+
+    ```bash
+    laura --serve
+    ```
+
+2. Open the URL that Laura prints. The address is `http://127.0.0.1:1989/`, and the URL adds a key. To use a different port, run `laura --serve --port <n>`. One Laura server runs for each user. When the Laura server already runs, `laura --serve` prints the URL of that Laura server again, also with a different `--port`.
+3. The page shows **Start a workspace** and the list of the running workspaces.
+
+After the first visit, the browser keeps the key. The plain address `http://127.0.0.1:1989/` and a bookmark of it then work in that browser, also after the browser restarts, until the Laura server stops.
+
+Laura makes a new key each time the Laura server starts. After the Laura server starts again, open the URL that Laura prints again. A browser without the key shows `Open the Laura server from the terminal` and no workspace.
+
+### Start a workspace
+
+1. Type the folder in **Folder**, or select **Browse…** and pick the folder. `~` is the home folder. The field starts at the last folder that you started a workspace in.
+2. Select the program: **Shell**, or **Command** with a command such as `claude`.
+3. Select **Start workspace**. The browser opens the new workspace in the same tab.
+
+In the folder browser:
+
+- A click selects a folder.
+- A double-click, or `Enter`, opens the selected folder.
+- A name in the path at the top opens that folder.
+- **Use this folder** takes the selected folder, or the open folder when you selected none.
+- The folder browser marks each git repository with `git`, and lists no folder whose name starts with a dot.
+
+When the workspace does not start, the page shows one of these errors below the button:
+
+| Error | Cause |
+|---|---|
+| `<folder> is not a folder.` | The folder does not exist. |
+| `The workspace failed to start.` | Laura could not start the program, for example a command that is not installed, or the command ended at once, for example a command that prints and stops, such as `ls`. Select **Show the error** to read Laura's error, or `The program exited at once.` |
+| `The workspace timed out after 10 s.` | The workspace took too long to start. Laura stops that workspace. |
+
+The Laura server splits the command at each space, so an argument can't contain a space.
+
+A workspace that the Laura server started has no terminal. The workspace runs until its shell exits or you [quit](#quit) in the workspace, also after the Laura server stops.
+
+### Open a running workspace
+
+**Running** lists each workspace that runs on this computer, the newest first, also the workspaces that you started in a terminal with `laura`. Each row shows the session label, or the folder name in grey before the agent sets a session label, then the folder and the program.
+
+- **Open** opens the workspace in this tab.
+- **↗** opens the workspace in a new tab.
+
+The page reloads the list every 5 seconds. A workspace that ended leaves the list.
+
+### Stop the Laura server
+
+Select **Stop the Laura server** at the bottom of the page, then **Stop**. The workspaces keep running. Run `laura --serve` to start the Laura server again. `Ctrl+C` in the Laura server's terminal also stops only the Laura server.
+
 ## Quit
 
 Press `Ctrl+Q`, then `y`. Don't press `Ctrl+C` in the terminal that started Laura: Laura ends at once, and you lose Neovim's unsaved edits. On Linux, Firefox quits on `Ctrl+Q` before Laura receives it, so use a different browser.
