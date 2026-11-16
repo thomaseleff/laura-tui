@@ -637,7 +637,7 @@ body.ended #ws { opacity: .4; }
 
 /* The Laura server's page (`serve.html`). The page scrolls, and the top bar is in the flow. */
 body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-direction: column; }
-.sv #top { position: static; flex: none; padding: 0 16px; }
+.sv #top { position: static; flex: none; }
 .sv main { max-width: 760px; width: 100%; box-sizing: border-box; margin: 14px auto 30px; padding: 0 20px; flex: 1; }
 .sv h1 { font-size: 20px; margin: 0 0 14px; }
 .sv h2 { font-size: 14px; margin: 26px 0 10px; }

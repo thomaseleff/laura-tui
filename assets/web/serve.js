@@ -175,6 +175,22 @@ $("stopYes").onclick = async () => {
   show("stopped");
 };
 
+// The logo stays put between this page and a workspace: the same `--side` as `report` in app.js,
+// from the shell's 14px cell, which xterm snaps to whole device pixels.
+function side() {
+  const s = el("span", "probe", "W".repeat(200));
+  s.style.fontSize = "14px";
+  document.body.append(s);
+  const dpr = devicePixelRatio;
+  const cw = Math.floor((s.getBoundingClientRect().width / 200) * dpr) / dpr;
+  s.remove();
+  const w = innerWidth;
+  document.documentElement.style.setProperty("--side", (w - Math.floor(w / cw - 1) * cw) / 2 + "px");
+}
+side();
+document.fonts.load(`14px ${getComputedStyle(document.body).getPropertyValue("--mono")}`).then(side);
+addEventListener("resize", side);
+
 $("folder").value = store.get("laura-folder") || "~";
 const last = store.get("laura-program");
 if (last && last !== "shell") {
