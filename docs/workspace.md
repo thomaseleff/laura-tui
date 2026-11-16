@@ -110,7 +110,7 @@ The Laura server is one address in the browser that lists the running workspaces
 2. Open the URL that Laura prints. The address is `http://127.0.0.1:1989/`, and the URL adds a key. To use a different port, run `laura --serve --port <n>`.
 3. The page shows **Start a workspace** and the list of the running workspaces.
 
-After the first visit, the browser keeps the key in a cookie, and Laura keeps the same key when the Laura server starts again. The plain address `http://127.0.0.1:1989/` then works in that browser. A browser without the key shows `Open Laura from the address Laura prints` and no workspace.
+After the first visit, the browser keeps the key, and Laura keeps the same key when the Laura server starts again. The plain address `http://127.0.0.1:1989/` and a bookmark of it then work in that browser, also after the browser restarts. A browser without the key shows `Open Laura from the address Laura prints` and no workspace.
 
 ### Start a workspace
 

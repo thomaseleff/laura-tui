@@ -6,6 +6,11 @@ const store = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
 };
+// The key comes in the printed address once; the page keeps it for this address only.
+const given = new URLSearchParams(location.search).get("t");
+if (given) { store.set("laura-key", given); history.replaceState(null, "", "/"); }
+const key = given ?? store.get("laura-key") ?? "";
+const api = (url, opts = {}) => fetch(url, { ...opts, headers: { "X-Laura-Key": key } });
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -16,7 +21,7 @@ const label = r => r.title ?? r.root.split("/").pop();
 
 let list = [], sent = "", known = null;
 
-// One of the three screens: the list, how to start Laura (no cookie), or the stopped card.
+// One of the three screens: the list, how to start Laura (no key), or the stopped card.
 function show(screen) {
   $("signed").hidden = $("footline").hidden = screen !== "signed";
   $("gate").hidden = screen !== "gate";
@@ -26,7 +31,7 @@ function show(screen) {
 async function load() {
   let res;
   try {
-    res = await fetch("/workspaces");
+    res = await api("/workspaces");
   } catch {
     return show("stopped");
   }
@@ -74,8 +79,8 @@ $("folder").oninput = dupCheck;
 // The folder browser: `cwd` is the folder it lists, and `sel` is the selected row's folder.
 let cwd = null, sel = null;
 async function nav(path) {
-  let res = await fetch(`/dirs?path=${encodeURIComponent(path)}`);
-  if (!res.ok) res = await fetch("/dirs?path=");
+  let res = await api(`/dirs?path=${encodeURIComponent(path)}`);
+  if (!res.ok) res = await api("/dirs?path=");
   if (!res.ok) return;
   cwd = await res.json();
   sel = null;
@@ -141,7 +146,7 @@ $("go").onclick = async () => {
   $("go").replaceChildren(el("span", "sv-spin"), "Starting…");
   let res;
   try {
-    res = await fetch("/new", { method: "POST", body: JSON.stringify({ folder, program: program() }) });
+    res = await api("/new", { method: "POST", body: JSON.stringify({ folder, program: program() }) });
   } catch {
     res = null;
   }
@@ -162,7 +167,7 @@ $("stopSrv").onclick = () => ask(true);
 $("stopNo").onclick = () => ask(false);
 $("stopYes").onclick = async () => {
   ask(false);
-  try { await fetch("/quit", { method: "POST" }); } catch {}
+  try { await api("/quit", { method: "POST" }); } catch {}
   show("stopped");
 };
 

@@ -72,11 +72,11 @@ impl Server {
         })
     }
 
-    /// The headers of the Laura server's own page: the cookie and the page's origin.
+    /// The headers of the Laura server's own page: the key and the page's origin.
     fn headers(&self) -> String {
         format!(
-            "Cookie: other=1; laura_serve_{}={}\r\nOrigin: http://127.0.0.1:{}\r\n",
-            self.port, self.token, self.port
+            "X-Laura-Key: {}\r\nOrigin: http://127.0.0.1:{}\r\n",
+            self.token, self.port
         )
     }
 
@@ -154,14 +154,14 @@ fn view(url: &str) -> Result<Ws> {
 }
 
 #[test]
-fn the_laura_server_shows_workspaces_only_with_the_token_or_the_cookie() -> Result<()> {
+fn the_laura_server_shows_workspaces_only_with_the_key() -> Result<()> {
     let s = Server::start()?;
     let dir = temp()?;
     let (_ws, url) = s.workspace(dir.path())?;
     until("the workspace's row", || Ok(s.record(&url)?.is_some()))?;
     let workspace_token = port_token(&url).1;
 
-    // No token and no cookie: no workspace.
+    // No key: no workspace.
     let none = http(s.port, "GET", "/workspaces", "", "")?;
     assert_eq!(status(&none), "HTTP/1.1 401 Unauthorized", "{none}");
     let page = http(s.port, "GET", "/", "", "")?;
@@ -169,39 +169,40 @@ fn the_laura_server_shows_workspaces_only_with_the_token_or_the_cookie() -> Resu
     assert!(page.contains("Open Laura from the address Laura prints"));
     assert!(!page.contains(&workspace_token), "the page holds a token");
 
-    // The first visit sets the cookie and goes to the plain address.
+    // The printed address serves the page, which keeps the key and sends it in a header.
     let first = http(s.port, "GET", &format!("/?t={}", s.token), "", "")?;
-    assert_eq!(status(&first), "HTTP/1.1 303 See Other", "{first}");
-    assert!(first.contains("\r\nLocation: /\r\n"), "{first}");
-    let cookie = format!(
-        "Set-Cookie: laura_serve_{}={}; HttpOnly; SameSite=Strict; Path=/",
-        s.port, s.token
-    );
-    assert!(first.contains(&cookie), "{first}");
-    let wrong = http(s.port, "GET", "/?t=nope", "", "")?;
-    assert!(!wrong.contains("Set-Cookie"), "{wrong}");
+    assert_eq!(body(&first), body(&page), "{first}");
+    let wrong = http(s.port, "GET", "/workspaces", "X-Laura-Key: nope\r\n", "")?;
+    assert_eq!(status(&wrong), "HTTP/1.1 401 Unauthorized", "{wrong}");
+    // A browser sends a cookie to every 127.0.0.1 port, so a cookie is no key.
+    let cookie = format!("Cookie: laura_serve_{}={}\r\n", s.port, s.token);
+    let cookie = http(s.port, "GET", "/workspaces", &cookie, "")?;
+    assert_eq!(status(&cookie), "HTTP/1.1 401 Unauthorized", "{cookie}");
     let list = s.get("/workspaces")?;
     assert!(list.contains(&workspace_token), "{list}");
 
     // Another site's page: no list, and no workspace starts.
-    let cookie = format!("Cookie: laura_serve_{}={}\r\n", s.port, s.token);
-    let other = format!("{cookie}Origin: http://127.0.0.1:1\r\n");
+    let key = format!("X-Laura-Key: {}\r\n", s.token);
+    let other = format!("{key}Origin: http://127.0.0.1:1\r\n");
     let body = json!({"folder": dir.path(), "program": PROGRAM}).to_string();
     let new = http(s.port, "POST", "/new", &other, &body)?;
     assert_eq!(status(&new), "HTTP/1.1 403 Forbidden", "{new}");
-    let quit = http(s.port, "POST", "/quit", &cookie, "")?;
+    let quit = http(s.port, "POST", "/quit", &key, "")?;
     assert_eq!(status(&quit), "HTTP/1.1 403 Forbidden", "{quit}");
-    let no_cookie = format!("Origin: http://127.0.0.1:{}\r\n", s.port);
-    let new = http(s.port, "POST", "/new", &no_cookie, &body)?;
+    let no_key = format!("Origin: http://127.0.0.1:{}\r\n", s.port);
+    let new = http(s.port, "POST", "/new", &no_key, &body)?;
     assert_eq!(status(&new), "HTTP/1.1 401 Unauthorized", "{new}");
-    let fetch = format!("{cookie}Sec-Fetch-Site: same-site\r\nSec-Fetch-Mode: no-cors\r\n");
+    let fetch = format!("{key}Sec-Fetch-Site: same-site\r\nSec-Fetch-Mode: no-cors\r\n");
     let script = http(s.port, "GET", "/workspaces", &fetch, "")?;
     assert_eq!(status(&script), "HTTP/1.1 404 Not Found", "{script}");
     assert_eq!(s.workspaces()?.len(), 1, "a workspace started");
 
     let version = format!("X-Laura-Version: {}\r\n", env!("CARGO_PKG_VERSION"));
-    for resp in [&none, &page, &first, &wrong, &list, &new, &quit, &script] {
+    for resp in [
+        &none, &page, &first, &wrong, &cookie, &list, &new, &quit, &script,
+    ] {
         assert!(resp.contains(&version), "{resp}");
+        assert!(!resp.contains("Set-Cookie"), "{resp}");
         let lower = resp.to_lowercase();
         assert!(!lower.contains("access-control-allow-origin"), "{resp}");
     }

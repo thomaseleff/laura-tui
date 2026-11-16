@@ -50,7 +50,7 @@ pub(crate) fn running() -> Option<String> {
 pub fn run(port: u16) -> Result<()> {
     let listener = web::listen(port)?;
     let port = listener.local_addr()?.port();
-    // The token stays across restarts, so the browser's cookie keeps working.
+    // The token stays across restarts, so the key that the page keeps still works.
     let kept = std::fs::read(state_path())
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -120,7 +120,7 @@ fn json_reply(stream: &mut TcpStream, v: &Value) -> Result<()> {
     )
 }
 
-/// One connection: the page and its files, or a request that needs the cookie.
+/// One connection: the page and its files, or a request that needs the key.
 fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
     let Some(mut head) = web::peek_head(&mut stream)? else {
         return Ok(());
@@ -146,27 +146,11 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
     if web::foreign_subresource(&head) {
         return text(&mut stream, "404 Not Found", "");
     }
-    // Browsers send each localhost cookie to each port, so the cookie's name carries the port.
-    let name = format!("laura_serve_{}", s.port);
-    let cookie = header(&head, "Cookie").and_then(|c| {
-        c.split(';')
-            .find_map(|kv| kv.trim().strip_prefix(name.as_str())?.strip_prefix('='))
-    });
-    let authed = cookie.is_some_and(|c| web::same(c.as_bytes(), s.token.as_bytes()));
+    // The page sends the key in a header: a browser sends a cookie to every 127.0.0.1 port.
+    let authed =
+        header(&head, "X-Laura-Key").is_some_and(|k| web::same(k.as_bytes(), s.token.as_bytes()));
     let page = "text/html; charset=utf-8";
     match (method, path) {
-        // The first visit: keep the token in a cookie, and out of the address and a bookmark.
-        ("GET", "/") if param("t").is_some() => {
-            let cookie = match param("t") {
-                Some(t) if web::same(t.as_bytes(), s.token.as_bytes()) => format!(
-                    "Set-Cookie: {name}={}; HttpOnly; SameSite=Strict; Path=/\r\n",
-                    s.token
-                ),
-                _ => String::new(),
-            };
-            let extra = format!("Location: /\r\n{cookie}");
-            reply(&mut stream, "303 See Other", "text/plain", b"", &extra)
-        }
         // The page holds no workspace: it asks `/workspaces`, and shows how to start Laura on 401.
         ("GET", "/") => reply(&mut stream, "200 OK", page, PAGE, ""),
         ("GET", "/serve.js") => reply(&mut stream, "200 OK", "text/javascript", SCRIPT, ""),
@@ -195,7 +179,7 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
                 None => text(&mut stream, "404 Not Found", &not_a_folder(&path)),
             }
         }
-        // Every localhost site is "same-site", so the cookie alone doesn't show who asks.
+        // A second check: only the Laura server's own page starts or stops a process.
         ("POST", "/new" | "/quit") if !web::our_origin(header(&head, "Origin"), s.port) => {
             text(&mut stream, "403 Forbidden", "")
         }
