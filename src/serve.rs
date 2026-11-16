@@ -84,9 +84,21 @@ pub fn run(port: u16, open: bool) -> Result<()> {
     if let (true, Err(e)) = (open, &result) {
         let mut text = String::new();
         crate::render::escape(&mut text, &format!("{e:#}"));
+        // The look of the Laura server's cards (`.sv-gate`), inline: a `file://` page can't load
+        // `style.css`.
         let html = format!(
-            "<!doctype html><meta charset=\"utf-8\"><title>Laura</title>\
-             <h1>Laura could not start</h1><pre>{text}</pre>"
+            "<!doctype html><meta charset=\"utf-8\">\
+             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+             <title>Laura</title><style>\
+             body {{ margin: 0; background: #f5f5f7; color: #1d1f24; \
+             font: 14px/1.5 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }}\
+             main {{ max-width: 500px; box-sizing: border-box; margin: 70px auto; padding: 26px 28px; \
+             background: #fff; border: 1px solid #e3e4e9; border-radius: 10px; \
+             box-shadow: 0 1px 2px rgb(16 24 40 / .05), 0 6px 20px rgb(16 24 40 / .06); }}\
+             h1 {{ font-size: 18px; margin: 0 0 14px; }}\
+             pre {{ margin: 0; padding: 10px 12px; background: #f5f5f7; border-radius: 6px; \
+             white-space: pre-wrap; font: 12.5px/1.5 \"JetBrains Mono\", ui-monospace, Consolas, monospace; }}\
+             </style><main><h1>Laura could not start</h1><pre>{text}</pre></main>"
         );
         show(|dir| web::page(dir, &html));
     }
