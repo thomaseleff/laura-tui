@@ -696,7 +696,8 @@ pub(crate) fn answers(port: u16) -> bool {
 
 /// The records of the running workspaces, oldest first. A record whose port doesn't answer is a
 /// workspace that ended without `unregister`: `live` deletes the record.
-/// shortcut: a port that another program took over still answers, check the pid if a stale row is reported.
+/// The newest record on a port wins: `live` deletes the older records on that port.
+/// shortcut: a port that a program other than Laura took over still answers, check the pid if a stale row is reported.
 pub fn live() -> Vec<Value> {
     let Ok(dir) = std::fs::read_dir(workspaces_dir()) else {
         return vec![];
@@ -717,6 +718,17 @@ pub fn live() -> Vec<Value> {
         }
     }
     out.sort_by_key(|v| (v["started"].as_u64(), v["pid"].as_u64()));
+    // Newest first: an older record on the same port is a workspace that ended without `unregister`.
+    let mut ports = std::collections::HashSet::new();
+    out.reverse();
+    out.retain(|v| {
+        let fresh = ports.insert(v["url"].as_str().and_then(url_port));
+        if let (false, Some(pid)) = (fresh, v["pid"].as_u64()) {
+            let _ = std::fs::remove_file(record_path(pid as u32));
+        }
+        fresh
+    });
+    out.reverse();
     out
 }
 

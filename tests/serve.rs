@@ -236,6 +236,31 @@ fn a_workspace_shows_in_the_list_until_it_ends() -> Result<()> {
 }
 
 #[test]
+fn a_new_workspace_on_the_same_port_replaces_the_old_row() -> Result<()> {
+    let s = Server::start()?;
+    let port = TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port()
+        .to_string();
+    let args = ["--web", "--port", &port, "--", PROGRAM];
+    let (dir_a, dir_b) = (temp()?, temp()?);
+    let (old, url_a) = laura_start(dir_a.path(), &args, Some(s.home.path()))?;
+    until("the first workspace's row", || {
+        Ok(s.record(&url_a)?.is_some())
+    })?;
+    // The first workspace ends with no time to delete its record.
+    drop(old);
+    let (_new, url_b) = laura_start(dir_b.path(), &args, Some(s.home.path()))?;
+    until("the second workspace's row", || {
+        Ok(s.record(&url_b)?.is_some())
+    })?;
+    let list = s.workspaces()?;
+    assert_eq!(list.len(), 1, "{list:?}");
+    assert_eq!(list[0]["url"], url_b.as_str(), "{list:?}");
+    Ok(())
+}
+
+#[test]
 fn the_session_label_shows_in_the_list() -> Result<()> {
     let s = Server::start()?;
     let dir = temp()?;
