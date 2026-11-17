@@ -17,15 +17,18 @@ The scene has three actors:
 - **The agent** writes chat replies and runs `laura` commands. A chat stub (`scripts/demo/chat.py`) runs as the shell program in the workspace. The chat stub looks like Claude Code in auto mode.
 - **The camera** records the browser.
 
-The recorder works on Windows only.
+The recorder also starts a Laura server, so that the workspace switcher lists **New workspace…** and the Laura logo opens the Laura server's page.
+
+The recorder works on Linux (WSL). The recorder clears every `LAURA_*` variable that it gets from your partner's shell, so that the demo's Laura does not use the `LAURA_RUNTIME`, `LAURA_TAB` or `LAURA_BROWSER_URL` of your partner's own workspace. The recorder also sets a scratch `HOME`, which keeps your partner's own workspaces out of the demo's list.
 
 ## Setup
 
 Do these steps one time:
 
 1. Install `uv`.
-2. Install Chromium for Playwright: `uv run --with playwright==1.63.0 playwright install chromium --no-shell`.
+2. Install Chromium for Playwright: `uv run --with playwright==1.63.0 playwright install chromium --no-shell`. The recorder also gives this Chromium to Laura for the browser panes.
 3. Add Neovim to `PATH`, because the demo has an editor pane.
+4. Install a font with the chat stub's glyphs `⎿` and `⏵⏵`: `sudo apt install fonts-symbola`. Without the font, Chromium draws a blank for each glyph.
 
 Before you record, build the debug binary: `CARGO_TARGET_DIR=tmp/target cargo build`. To use a different binary, add `--laura <path>`.
 
@@ -51,7 +54,7 @@ When your partner asks for a new README demo:
 
 - `demo.mp4` and `demo.gif`.
 - One PNG for each `camera.shot`.
-- `laura.log`, the output of Laura.
+- `laura.log`, the output of Laura. `serve.log` is the output of the Laura server, and `<name>.log` is the output of each `agent.workspace`.
 - `home/acme-api/`, the scratch repo. The top bar shows `~/acme-api`. `record.py` copies the fixtures in `scripts/demo/scenes/demo/` into the scratch repo and commits them.
 
 ## Change the scene
@@ -65,6 +68,7 @@ When your partner asks for a new README demo:
 | `agent.wait_for_review()` | Waits until a submitted inline review comes into the chat. Gives the text of the review. |
 | `agent.write(path, text)` | Writes the file in the scratch repo. The chat shows `Update(<path>)` with the count of added and removed lines, or `Write(<path>)` for a new file. |
 | `agent.edit(path, old, new)` | Replaces `old` with `new` in the file, as `agent.write` does. If `old` is not in the file, raises an error. |
+| `agent.workspace(name, title)` | Starts another workspace in `home/<name>/`, with its own chat stub, and runs `laura ready --title <title>` in that workspace. Gives the `Agent` of the other workspace. Use `agent.workspace` before a beat that switches workspaces, so that the workspace switcher has a list. |
 | `agent.repo` | The `Path` of the scratch repo. Write files after the commit to show changes in the gutter and in `--diff`. |
 | `user.focus(pane)` | Moves the focus to the pane from the keyboard. The user presses `Ctrl+P`, waits one beat with the pane selector open, and types the pane id. From a file pane to the shell, the user presses `Esc`. If the pane has the focus, does nothing. |
 | `user.goto_line(pane, line)` | Focuses the file pane, then presses `↓` or `↑` until the cursor is on the line. If the cursor cannot reach the line, raises an error. |

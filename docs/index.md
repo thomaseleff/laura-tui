@@ -7,7 +7,10 @@ Laura is a workspace that gives your agent an **API over the UI**, so your agent
 Your agent can open the file you're discussing, the plan you're following, the diff you just made, or tail the logs of your running service. Laura works with every coding agent CLI, and your agent learns the `laura` CLI from Laura's agent skills.
 
 > [!TIP]
-> **New:** Laura started as a TUI workspace. Laura now opens in your browser, with rendered markdown, HTML pages and live web pages in browser panes. To keep working in the terminal, run `laura --tui`. See [Navigating the TUI](tui-navigation.md).
+> **New:**
+>
+> - Laura now opens in your browser, with rendered markdown, HTML pages and live web pages in browser panes. To keep working in the terminal, run `laura --tui`. See [Navigating the TUI](tui-navigation.md).
+> - Laura now runs a workspace for each task. Switch between the workspaces in the workspace switcher at the left of the top bar. See [Switch workspaces](navigation.md#switch-workspaces).
 
 **Laura lets you:**
 
@@ -33,8 +36,6 @@ uv tool install laura-tui          # prebuilt for Linux, macOS and Windows
 cargo install laura-tui --locked   # or build from source, with Rust (stable)
 ```
 
-To start Laura from an icon on your desktop or in your app menu, run `laura --shortcut`. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
-
 **2. Install the skills** so your agent knows how to use the `laura` CLI. In Claude Code:
 
 ```
@@ -42,17 +43,23 @@ To start Laura from an icon on your desktop or in your app menu, run `laura --sh
 /plugin install laura@laura-tui
 ```
 
-**3. Start Laura** and run the interactive demo:
+**3. Start Laura** in your project's folder, with your agent and the interactive demo:
 
 ```bash
+cd your-project
 laura -- claude "/laura:demo"
 ```
 
-Laura opens the workspace in your web browser. See [Start Laura](workspace.md#start-laura).
+Laura starts one workspace in this folder and opens the workspace in your web browser. The workspace runs until you [quit](workspace.md#quit) the workspace or your agent exits. See [Start Laura](workspace.md#start-laura).
 
-To start workspaces from one address in the browser, select the Laura icon, or run `laura --serve`. See [The Laura server](workspace.md#the-laura-server).
+**4. Run more workspaces** (optional). Start the Laura server, one address that lists your workspaces and starts new ones:
 
-**4. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
+- Run `laura --shortcut` one time, then select the Laura icon on your desktop or in your app menu. See [Start Laura from a desktop icon](workspace.md#start-laura-from-a-desktop-icon).
+- Or run `laura --serve`. See [The Laura server](workspace.md#the-laura-server).
+
+The workspace switcher at the left of the top bar switches between the workspaces.
+
+**5. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 
 Laura reloads a file pane when its file changes. Laura shows [markdown as rendered markdown](navigation.md#markdown-files) and other files with syntax colours. Laura marks the lines changed since git `HEAD` in the gutter.
 

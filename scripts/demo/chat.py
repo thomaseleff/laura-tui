@@ -4,11 +4,10 @@ the chat stub over HTTP.
 The chat stub looks like Claude Code in auto mode. Each change draws the full screen again from the
 model, so that the text wraps again when the width of the shell changes.
 
-This script works on Windows only. The script sets the console to raw VT input, so that a submitted
-inline review comes in as one bracketed paste.
+This script works on Linux. The script sets the terminal to raw input, so that a submitted inline
+review comes in as one bracketed paste.
 """
 
-import ctypes
 import http.server
 import json
 import os
@@ -19,6 +18,7 @@ import sys
 import textwrap
 import threading
 import time
+import tty
 
 PORT = int(os.environ["LAURA_DEMO_PORT"])
 BIN = os.environ["LAURA_DEMO_BIN"]
@@ -32,18 +32,8 @@ state = {"ready": False, "reviews": []}
 entries = []
 ui = {"inp": "", "paste": None, "pastes": 0}
 
-# Raw VT input turns off line input, echo input and processed input. Without raw VT input, Windows
-# removes the paste markers and the line breaks of the review. Windows also reads `·` in the OEM code page.
-k = ctypes.windll.kernel32
-mode = ctypes.c_uint()
-stdin = k.GetStdHandle(-10)
-k.GetConsoleMode(stdin, ctypes.byref(mode))
-k.SetConsoleMode(stdin, (mode.value & ~0x7) | 0x200)
-k.SetConsoleCP(65001)
-stdout = k.GetStdHandle(-11)
-k.GetConsoleMode(stdout, ctypes.byref(mode))
-k.SetConsoleMode(stdout, mode.value | 0x4)
-k.SetConsoleOutputCP(65001)
+# Raw input keeps the paste markers, the line breaks of a review, and `\r` for Enter. draw() writes `\r\n` itself.
+tty.setraw(0)
 sys.stdout.reconfigure(encoding="utf-8")
 
 
@@ -150,14 +140,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def clean(text):
     # The review header shows the absolute path of the file. Show the scratch home as `~`.
-    for h in (HOME, HOME.replace("\\", "/")):
-        text = text.replace(h, "~")
-    lines = text.rstrip("\n").split("\n")
-    return "\n".join(ln.replace("\\", "/") if ln.startswith("[laura review") else ln for ln in lines)
+    return text.replace(HOME, "~").rstrip("\n")
 
 
 def watch():
-    # Windows does not send SIGWINCH, so read the size of the terminal at an interval.
+    # Read the size at an interval instead of on SIGWINCH, so that a redraw never runs inside a draw of the main loop.
     size = None
     while True:
         if (now := shutil.get_terminal_size()) != size:
