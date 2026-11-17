@@ -30,10 +30,10 @@ You do the work from the branch to the merge. Stop for the user at each plan, at
 
 Put these items in the `## Trail` section of each plan, under the reference note:
 
-- The trail URL and the change URL. Before step 5, write "Not created yet" for both. Before step 13, write "Not created yet" for the change URL.
+- The trail URL and the change URL. Before step 13, write "Not created yet".
 - The issue URL, the branch, the worktree path and the PR URL. Before step 4, give the branch and the worktree path that step 4 creates.
 - The step that the plan is for, and the next step.
-- This instruction, with the values filled in: "This work is part of a trail. Before you edit code, invoke the trail skill: `/trail <change URL>`. Continue the trail from step <next step>. Do all of the work in the worktree `<path>`." Before step 5, use `/trail <N>`. Before step 13, use `/trail <trail URL>`. In each plan that you write after step 29, add: "Do not do the final review again. After step 28, go to step 33."
+- This instruction, with the values filled in: "This work is part of a trail. Before you edit code, invoke the trail skill: `/trail <change URL>`. Continue the trail from step <next step>. Do all of the work in the worktree `<path>`." Before step 13, use `/trail <N>`. In each plan that you write after step 29, add: "Do not do the final review again. After step 28, go to step 33."
 
 ## Workflow
 
@@ -53,13 +53,9 @@ Put these items in the `## Trail` section of each plan, under the reference note
 
 ### Trail
 
-5. Create the trail before the first commit, with no branch. You open the PR yourself in step 12, and you link the branch in step 13.
+5. Do not create the trail yourself. When you open the PR in step 12, Entire creates the trail for the branch. In step 13 you set the title, the type and the body of that trail.
 
-   ```
-   entire trail create --title "<Thing> (#N)" --type <bug|feature|task> --no-branch --body "…"
-   ```
-
-   Do not link the branch before the PR is open. For a linked branch with no PR, Entire opens a draft PR as `entire[bot]` some seconds after a push. GitHub then makes `entire[bot]` the author of the squash commit, and the release notes show the GitHub user `entire` as a contributor.
+   Do not run `entire trail create` or `entire trail link` before the PR is open. For a branch that is linked to a trail and has no PR, Entire opens a draft PR as `entire[bot]` some seconds after a push. GitHub then makes `entire[bot]` the author of the squash commit, and the release notes show the GitHub user `entire` as a contributor.
 
 6. Write the body as plain lines. Use this sequence:
    1. `Now:` what the user sees now. `After:` what the user sees after the change.
@@ -82,11 +78,11 @@ Put these items in the `## Trail` section of each plan, under the reference note
 11. Push the branch: `git push -u origin <branch>`.
 12. Open the PR as a draft: `gh pr create --draft --base main --title "…" --body-file <file>`.
     - Write the title with the "Commits & PRs" conventions in `CLAUDE.md`. Do not put `#N` in the title.
-    - Put `Closes #N` and the trail URL in the body.
+    - Put `Closes #N` in the body.
     - Add each dismissed finding to a `Dismissed findings` list in the body (step 19).
-13. Link the branch to the trail: `entire trail link <P> --branch <branch> --base main`. Entire uses the open PR. If Entire adds a `<!-- entire-shadow-pr -->` line to the PR body, keep that line at the end of the body in each later `gh pr edit`.
-    - Get the change URL (step 7). Replace the trail URL in the PR body with the change URL: `gh pr edit <n> --body-file <file>`.
-    - Add `GitHub PR: <URL>` to the trail body with `entire trail update <P> --body "…"`.
+13. Get the trail that Entire created for the PR: `entire trail show --branch <branch> --json` gives the trail number `<P>` in `number` and the change URL in `changes[].url`. If the command finds no trail, wait 10 seconds and run the command again.
+    - Set the trail with `entire trail update <P> --title "<Thing> (#N)" --type <bug|feature|task> --body "…"`. Write the body with step 6, and include `GitHub PR: <URL>`.
+    - Add the change URL to the PR body: `gh pr edit <n> --body-file <file>`. If Entire adds a `<!-- entire-shadow-pr -->` line to the PR body, keep that line at the end of the body in each later `gh pr edit`.
 
 ### Review
 
