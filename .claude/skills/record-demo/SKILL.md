@@ -26,7 +26,7 @@ The recorder works on Linux (WSL). The recorder clears every `LAURA_*` variable 
 Do these steps one time:
 
 1. Install `uv`.
-2. Install Chromium for Playwright: `uv run --with playwright==1.63.0 playwright install chromium --no-shell`.
+2. Install Chromium for Playwright: `uv run --with playwright==1.63.0 playwright install chromium --no-shell`. The recorder also gives this Chromium to Laura for the browser panes.
 3. Add Neovim to `PATH`, because the demo has an editor pane.
 4. Install a font with the chat stub's glyphs `⎿` and `⏵⏵`: `sudo apt install fonts-symbola`. Without the font, Chromium draws a blank for each glyph.
 

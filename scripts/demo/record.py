@@ -283,12 +283,14 @@ def make_home(scene, scene_path, home):
     return repo
 
 
-def start_laura(laura, cwd, home, log, port=0, args=None):
+def start_laura(laura, cwd, home, log, chrome, port=0, args=None):
     # Drop the inherited LAURA_* variables, so that the demo's Laura does not use the LAURA_RUNTIME,
     # LAURA_TAB or LAURA_BROWSER_URL of the user's own workspace.
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("LAURA_")},
         "LAURA_EXPERIMENTAL_EDITOR": "1",
+        # Laura on Linux looks for Chrome only on PATH, and Playwright's Chromium is not on PATH.
+        "LAURA_BROWSER": chrome,
         "LAURA_RUNTIME": str(home.parent / "run" / "laura"),
         "LAURA_DEMO_PORT": str(port),
         "LAURA_DEMO_BIN": str(laura),
@@ -380,17 +382,18 @@ async def main():
     repo = make_home(scene, scene_path, home)
     procs = []
 
-    def start(cwd, port, log, args=None):
-        proc, url = start_laura(laura, cwd, home, log, port, args)
-        procs.append(proc)
-        return url
-
     try:
-        # The Laura server, so that the workspace switcher ends with New workspace… and the logo opens the Laura server's page.
-        start(home, 0, out / "serve.log", ["--serve", "--port", "0"])
-        port = free_port()
-        url = start(repo, port, out / "laura.log")
         async with async_playwright() as p:
+
+            def start(cwd, port, log, args=None):
+                proc, url = start_laura(laura, cwd, home, log, p.chromium.executable_path, port, args)
+                procs.append(proc)
+                return url
+
+            # The Laura server, so that the workspace switcher ends with New workspace… and the logo opens the Laura server's page.
+            start(home, 0, out / "serve.log", ["--serve", "--port", "0"])
+            port = free_port()
+            url = start(repo, port, out / "laura.log")
             browser = await p.chromium.launch(channel="chromium")
             ctx = await browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             await ctx.add_init_script(OVERLAY)
