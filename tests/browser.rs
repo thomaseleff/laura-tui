@@ -343,6 +343,28 @@ fn a_frame_matches_the_pane() -> Result<()> {
     Ok(())
 }
 
+/// A canvas sized in device pixels draws at the page's scale (#175).
+#[test]
+fn a_canvas_draws_at_the_page_scale() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let id = open(&mut r, &format!("{}/scale", serve()));
+    // The user's scale in the issue.
+    send(
+        &mut ws,
+        json!({"size": {"id": id, "w": 400, "h": 300, "dpr": 0.8}}),
+    );
+    state_until(&mut r, &mut ws, "a canvas at the page's scale", id, |v| {
+        v["title"]
+            .as_str()
+            .and_then(|t| t.split_once(' '))
+            .is_some_and(|(canvas, page)| canvas == page)
+    });
+    Ok(())
+}
+
 #[test]
 fn a_new_view_gets_the_last_frame() -> Result<()> {
     let Some((path, _one)) = chrome() else {
