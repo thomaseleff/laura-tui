@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["playwright==1.63.0", "imageio-ffmpeg==0.6.0"]
 # ///
-"""Record the README demo from its scene file. This script works on Windows only.
+"""Record the README demo from its scene file. This script works on Linux (WSL).
 
     uv run scripts/demo/record.py scripts/demo/scenes/demo.py
 
@@ -231,16 +231,6 @@ class Camera:
         await self.page.wait_for_timeout(ms)
 
 
-def rmtree(path):
-    # Git object files are read-only on Windows.
-    def onexc(func, p, _):
-        os.chmod(p, 0o700)
-        func(p)
-
-    if path.exists():
-        shutil.rmtree(path, onexc=onexc)
-
-
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -270,12 +260,13 @@ def make_home(scene, scene_path, home):
 
 
 def start_laura(laura, repo, home, port, log):
+    # Drop the LAURA_* variables of the user's own workspace, so that the demo lists only its own workspaces.
     env = {
-        **os.environ,
+        **{k: v for k, v in os.environ.items() if not k.startswith("LAURA_")},
         "LAURA_EXPERIMENTAL_EDITOR": "1",
+        "LAURA_RUNTIME": str(home.parent / "run" / "laura"),
         "LAURA_DEMO_PORT": str(port),
         "LAURA_DEMO_BIN": str(laura),
-        "USERPROFILE": str(home),
         "HOME": str(home),
         **{k: str(home / ".xdg" / k) for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")},
     }
@@ -354,12 +345,13 @@ async def record(scene, page, cdp, url, port, repo, out):
 async def main():
     ap = argparse.ArgumentParser(description="Record the README demo from its scene file.")
     ap.add_argument("scene", type=Path)
-    ap.add_argument("--laura", type=Path, default=ROOT / "tmp/target/debug/laura.exe")
+    ap.add_argument("--laura", type=Path, default=ROOT / "tmp/target/debug/laura")
     args = ap.parse_args()
     scene_path, laura = args.scene.resolve(), args.laura.resolve()
     scene = load_scene(scene_path)
     out = ROOT / "tmp/demo" / scene_path.stem
-    rmtree(out)
+    if out.exists():
+        shutil.rmtree(out)
     home = out / "home"
     repo = make_home(scene, scene_path, home)
     port = free_port()
@@ -381,7 +373,9 @@ async def main():
             finally:
                 await browser.close()
     finally:
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        # Laura's headless Chrome watches Laura, and stops when Laura stops.
+        proc.kill()
+        proc.wait()
     encode(out / "frames", out)
     print(f"Wrote {out / 'demo.mp4'} and {out / 'demo.gif'}")
     return 0
