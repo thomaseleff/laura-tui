@@ -251,7 +251,7 @@ Each event's fields:
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |
 | `browser` | `error` (why Laura's browser didn't start), `output` (the last 10 lines of Chrome's output) |
 
-Every event also carries `ts`, `version`, `session`, and `agent` when `ready --agent` named one. `edit` and `replaced` appear only when true; `ready`'s `title` and `feedback`'s `body` are `null` when omitted, and `feedback`'s `pane` is `null` when the shell has focus.
+Every event also carries `ts`, `version`, `session`, and `agent` when `ready --agent` named one. `edit` and `replaced` appear only when true; `ready`'s `title` is `null` when omitted or blank, `feedback`'s `body` is `null` when omitted, and `feedback`'s `pane` is `null` when the shell has focus.
 
 ## Global
 

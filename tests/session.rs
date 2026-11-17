@@ -91,7 +91,7 @@ fn a_second_ready_switches_the_session_and_keeps_the_title() -> Result<()> {
     drive_tab(&mut tab, &["open", p2]);
     assert_eq!(tab.title.as_deref(), Some("one-more"));
 
-    drive_tab(&mut tab, &["ready", "--session", "b", "--title", "two"]);
+    drive_tab(&mut tab, &["ready", "--session", "b", "--title", " two "]);
     assert_eq!(tab.title.as_deref(), Some("two"));
 
     // A blank --title keeps the session label.
