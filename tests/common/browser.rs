@@ -78,6 +78,14 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
             "Frame",
             "<iframe src=/inner style='position:fixed; top:10px; left:20px; width:400px; height:200px; border:0'></iframe>",
         ),
+        // A canvas's device pixels per CSS pixel, as xterm's WebGL renderer reads them, and the
+        // page's `devicePixelRatio`, which xterm draws its glyphs at.
+        "/scale" => (
+            0,
+            "",
+            r#"<canvas id=c style="width:100px; height:50px"></canvas>
+               <script>new ResizeObserver(([e]) => document.title = `${e.devicePixelContentBoxSize[0].inlineSize / 100} ${devicePixelRatio}`).observe(c, {box: 'device-pixel-content-box'})</script>"#,
+        ),
         "/inner" => (
             0,
             "",

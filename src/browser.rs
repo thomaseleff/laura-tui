@@ -69,6 +69,10 @@ const CLICK_SLOW: Duration = Duration::from_millis(100);
 /// A request that runs this long stops showing the spinner.
 const REQUEST_MAX: Duration = Duration::from_secs(10);
 
+/// Laura's browser's real scale. The screencast caps frames at it, and each page emulates it, so a
+/// page's `devicePixelRatio` matches its canvases' device pixels (#175).
+const DENSITY: u32 = 3;
+
 /// A page's size: CSS px wide and high, and the view's device pixel ratio.
 pub type Size = (u32, u32, f64);
 
@@ -419,7 +423,7 @@ impl Browser {
             }
         };
         let mut cmd = Command::new(path);
-        // Density 3, so each page can emulate any lower one at full sharpness; no smooth
+        // Each page runs at DENSITY and the screencast downscales it to the pane's; no smooth
         // scrolling, which the viewing browser already does. The temporary profile's background
         // work (updates, sync, Translate) only costs CPU and network.
         cmd.args([
@@ -434,9 +438,9 @@ impl Browser {
             "--disable-breakpad",
             "--disable-client-side-phishing-detection",
             "--disable-features=Translate,OptimizationHints,MediaRouter",
-            "--force-device-scale-factor=3",
             "--disable-smooth-scrolling",
         ])
+        .arg(format!("--force-device-scale-factor={DENSITY}"))
         .arg("--remote-debugging-port=0")
         .arg(format!("--user-data-dir={}", profile.display()))
         .stdin(Stdio::null())
@@ -1341,7 +1345,7 @@ impl Page {
             }
             self.send(
                 "Emulation.setDeviceMetricsOverride",
-                json!({"width": w, "height": h, "deviceScaleFactor": dpr, "mobile": false}),
+                json!({"width": w, "height": h, "deviceScaleFactor": DENSITY, "mobile": false}),
             );
         }
         let px = |n: u32| (f64::from(n) * dpr).round() as u32;
