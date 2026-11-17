@@ -284,7 +284,8 @@ def make_home(scene, scene_path, home):
 
 
 def start_laura(laura, cwd, home, log, port=0, args=None):
-    # Drop the LAURA_* variables of the user's own workspace, so that the demo lists only its own workspaces.
+    # Drop the inherited LAURA_* variables, so that the demo's Laura does not use the LAURA_RUNTIME,
+    # LAURA_TAB or LAURA_BROWSER_URL of the user's own workspace.
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("LAURA_")},
         "LAURA_EXPERIMENTAL_EDITOR": "1",

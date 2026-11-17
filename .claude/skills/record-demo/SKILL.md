@@ -19,7 +19,7 @@ The scene has three actors:
 
 The recorder also starts a Laura server, so that the workspace switcher lists **New workspace…** and the Laura logo opens the Laura server's page.
 
-The recorder works on Linux (WSL). The recorder clears every `LAURA_*` variable that it gets from your partner's shell, so the demo never lists your partner's own workspaces.
+The recorder works on Linux (WSL). The recorder clears every `LAURA_*` variable that it gets from your partner's shell, so that the demo's Laura does not use the `LAURA_RUNTIME`, `LAURA_TAB` or `LAURA_BROWSER_URL` of your partner's own workspace. The recorder also sets a scratch `HOME`, which keeps your partner's own workspaces out of the demo's list.
 
 ## Setup
 
