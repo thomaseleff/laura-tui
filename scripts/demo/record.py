@@ -17,6 +17,7 @@ import difflib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -72,12 +73,12 @@ OVERLAY = """addEventListener("DOMContentLoaded", () => {
 BOXES = ".draft textarea, .pop.review textarea"
 TYPE_DELAY = 75
 BEAT = 600
-LABELS = {"Control+p": "Ctrl+P", "Control+l": "Ctrl+L", "Escape": "Esc", "ArrowDown": "↓", "ArrowUp": "↑"}
+LABELS = {"Control+p": "Ctrl+P", "Control+l": "Ctrl+L", "Control+r": "Ctrl+R", "Escape": "Esc", "ArrowDown": "↓", "ArrowUp": "↑"}
 
 
 class Agent:
-    def __init__(self, port, repo, page):
-        self.port, self.repo, self.page, self.seen = port, repo, page, 0
+    def __init__(self, port, repo, page, start):
+        self.port, self.repo, self.page, self.start, self.seen = port, repo, page, start, 0
 
     def _req(self, path, body=None):
         data = json.dumps(body).encode() if body is not None else None
@@ -87,6 +88,24 @@ class Agent:
 
     async def _call(self, path, body=None):
         return await asyncio.to_thread(self._req, path, body)
+
+    async def ready(self):
+        end = time.monotonic() + 10
+        while not (await self._call("/"))["ready"]:
+            if time.monotonic() > end:
+                raise TimeoutError("the chat stub never showed its prompt")
+            await asyncio.sleep(0.2)
+
+    async def workspace(self, name, title):
+        # Another workspace, with its own chat stub, so that the workspace switcher has a list.
+        repo = self.repo.parent / name
+        repo.mkdir()
+        port = free_port()
+        await asyncio.to_thread(self.start, repo, port, repo.parent.parent / f"{name}.log")
+        other = Agent(port, repo, self.page, self.start)
+        await other.ready()
+        await other.laura("ready", "--session", name, "--agent", "claude", "--title", title)
+        return other
 
     async def say(self, text):
         await self._call("/say", {"text": text})
@@ -253,13 +272,18 @@ def make_home(scene, scene_path, home):
         repo.mkdir(parents=True)
     (home / ".laura").mkdir()
     (home / ".laura" / "editor-theme").write_text("laura")
+    # The workspace switcher and the Laura server's page show the program, so the chat stub runs as `claude`.
+    (home / ".bin").mkdir()
+    stub = home / ".bin" / "claude"
+    stub.write_text(f"#!/bin/sh\nexec {shlex.quote(sys._base_executable)} {shlex.quote(str(HERE / 'chat.py'))}\n")
+    stub.chmod(0o755)
     for a in (["init", "-q"], ["add", "."], ["commit", "-qm", "init", "--allow-empty"]):
         git = ["git", "-c", "user.name=demo", "-c", "user.email=demo@example.com", *a]
         subprocess.run(git, cwd=repo, check=True, capture_output=True)
     return repo
 
 
-def start_laura(laura, repo, home, port, log):
+def start_laura(laura, cwd, home, log, port=0, args=None):
     # Drop the LAURA_* variables of the user's own workspace, so that the demo lists only its own workspaces.
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("LAURA_")},
@@ -268,11 +292,13 @@ def start_laura(laura, repo, home, port, log):
         "LAURA_DEMO_PORT": str(port),
         "LAURA_DEMO_BIN": str(laura),
         "HOME": str(home),
+        "PATH": f"{home / '.bin'}{os.pathsep}{os.environ['PATH']}",
         **{k: str(home / ".xdg" / k) for k in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")},
     }
+    args = args or ["--web", "--", "claude"]
     proc = subprocess.Popen(
-        [str(laura), "--web", "--", sys._base_executable, str(HERE / "chat.py")],
-        cwd=repo,
+        [str(laura), *args],
+        cwd=cwd,
         env=env,
         stdout=log.open("w"),
         stderr=subprocess.STDOUT,
@@ -285,6 +311,7 @@ def start_laura(laura, repo, home, port, log):
             return proc, url
         time.sleep(0.2)
     proc.kill()
+    proc.wait()
     raise RuntimeError(f"Laura printed no URL:\n{log.read_text(encoding='utf-8', errors='replace')}")
 
 
@@ -298,7 +325,7 @@ def encode(frames_dir, out):
     subprocess.run([*run, "-vf", gif, str(out / "demo.gif")], check=True)
 
 
-async def record(scene, page, cdp, url, port, repo, out):
+async def record(scene, page, cdp, url, port, repo, out, start):
     frames_dir = out / "frames"
     frames_dir.mkdir()
     frames = []
@@ -318,12 +345,8 @@ async def record(scene, page, cdp, url, port, repo, out):
     await cdp.send("Page.startScreencast", {"format": "png", "maxWidth": 1280, "maxHeight": 800})
     await page.goto(url)
     await page.wait_for_selector("#p0 .xterm", timeout=15000)
-    agent = Agent(port, repo, page)
-    end = time.monotonic() + 10
-    while not (await agent._call("/"))["ready"]:
-        if time.monotonic() > end:
-            raise TimeoutError("the chat stub never showed its prompt")
-        await asyncio.sleep(0.2)
+    agent = Agent(port, repo, page, start)
+    await agent.ready()
     page.set_default_timeout(10000)
     await scene.scene(User(page), agent, Camera(page, out))
     await page.wait_for_timeout(1500)
@@ -354,9 +377,18 @@ async def main():
         shutil.rmtree(out)
     home = out / "home"
     repo = make_home(scene, scene_path, home)
-    port = free_port()
-    proc, url = start_laura(laura, repo, home, port, out / "laura.log")
+    procs = []
+
+    def start(cwd, port, log, args=None):
+        proc, url = start_laura(laura, cwd, home, log, port, args)
+        procs.append(proc)
+        return url
+
     try:
+        # The Laura server, so that the workspace switcher ends with New workspace… and the logo opens the Laura server's page.
+        start(home, 0, out / "serve.log", ["--serve", "--port", "0"])
+        port = free_port()
+        url = start(repo, port, out / "laura.log")
         async with async_playwright() as p:
             browser = await p.chromium.launch(channel="chromium")
             ctx = await browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
@@ -364,7 +396,7 @@ async def main():
             page = await ctx.new_page()
             cdp = await ctx.new_cdp_session(page)
             try:
-                await record(scene, page, cdp, url, port, repo, out)
+                await record(scene, page, cdp, url, port, repo, out, start)
             except Exception:
                 traceback.print_exc()
                 await page.screenshot(path=str(out / "failure.png"))
@@ -374,8 +406,9 @@ async def main():
                 await browser.close()
     finally:
         # Laura's headless Chrome watches Laura, and stops when Laura stops.
-        proc.kill()
-        proc.wait()
+        for proc in reversed(procs):
+            proc.kill()
+            proc.wait()
     encode(out / "frames", out)
     print(f"Wrote {out / 'demo.mp4'} and {out / 'demo.gif'}")
     return 0

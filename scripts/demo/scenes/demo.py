@@ -4,6 +4,13 @@ actions of the user.
 Change this scene only when the user asks for a new README demo. Refer to the record-demo skill.
 """
 
+import asyncio
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+
 FIXTURES = "demo"
 
 PLAN_REVISED = """# Auth tokens — draft spec
@@ -27,6 +34,31 @@ TOKENS_CHANGED = """def issue(user):
 """
 
 
+def serve(root):
+    # The demo skill serves on 8765. Another free port keeps the scene running when 8765 is in use.
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", 8765))
+        except OSError:
+            s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    srv = subprocess.Popen(
+        [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1", "--directory", str(root)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)
+            return srv, port
+        except OSError:
+            if srv.poll() is not None:
+                break
+            time.sleep(0.1)
+    srv.kill()
+    raise RuntimeError(f"the web server on port {port} did not start")
+
+
 async def reply(user, text="Next"):
     await user.focus(0)
     await user.type(text)
@@ -36,7 +68,7 @@ async def reply(user, text="Next"):
 async def scene(user, agent, camera):
     await user.type("/laura:demo")
     await user.press("Enter")
-    await agent.laura("ready", "--session", "demo", "--agent", "claude")
+    await agent.laura("ready", "--session", "demo", "--agent", "claude", "--title", "Laura demo")
     await agent.laura("close", "--all")
 
     # What Laura is
@@ -117,8 +149,10 @@ async def scene(user, agent, camera):
 
     # [4 / 5] Debug
     code = await agent.laura("open", "worker.py", "--ratio", "50", "--no-focus")
-    logs = [f"[{i}] retry job=42 backoff={i * i}s" for i in range(1, 21)]
-    await agent.laura(
+    logs = [f"[{i}] retry job=42 backoff={i * i}s" for i in range(1, 61)]
+    # The logs arrive while the agent talks and the user pauses the tail pane.
+    tail = asyncio.create_task(
+        agent.laura(
         "tail",
         "--title",
         "worker.log",
@@ -131,14 +165,29 @@ async def scene(user, agent, camera):
         "33",
         stdin=logs,
         shown=f"python worker.py 2>&1 | laura tail --title worker.log --follow --split {code} --dir v --ratio 33",
+        )
     )
+    pane = user.page.locator(".pane").filter(has=user.page.locator(".head", has_text="worker-log"))
+    await pane.wait_for()
+    log = (await pane.get_attribute("id"))[1:]
+    await camera.pause(1500)
     await camera.shot("tail")
     await agent.say(
         "[4 / 5] Debug\n\n"
         "I opened a source file in the pane to the right, ran the code, and piped its logs into a tail pane "
         "below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.\n\n"
+        "Press p in the tail pane to pause the tail pane and read the output. Press p again to follow the "
+        "newest output.\n\n"
         "Send Next to try the experimental features."
     )
+    await user.focus(log)
+    await user.press("p")
+    await user.page.locator(f"#p{log} .head").get_by_text("Paused").wait_for()
+    await camera.pause(1500)
+    await camera.shot("paused")
+    await user.press("p")
+    await camera.pause(1000)
+    await tail
     await reply(user)
     await agent.laura("close", "--all")
 
@@ -206,6 +255,80 @@ async def scene(user, agent, camera):
     await agent.wait_for_review()
     await camera.pause(1500)
     await agent.laura("close", "--all")
+
+    # Bonus · See a page from a URL
+    srv, port = serve(agent.repo)
+    try:
+        url = f"http://localhost:{port}/page.html"
+        pb = await agent.laura(
+            "open", url, "--ratio", "55", shown=f"python -m http.server {port} & laura open {url} --ratio 55"
+        )
+        await user.page.locator(f"#p{pb} .head .live").wait_for(state="visible", timeout=20000)
+        for _ in range(20):
+            try:
+                await agent.laura("highlight", "button", "--pane", pb)
+                break
+            except RuntimeError as e:
+                if "is still loading" not in str(e):
+                    raise
+                await asyncio.sleep(1)
+        await agent.say(
+            "Bonus · See a page from a URL\n\n"
+            f"I started a small web server and opened {url} in a browser pane to the right. Laura's browser "
+            "shows the page live, as your dev server would. I highlighted the Save button by its CSS selector.\n\n"
+            "Click Save, press Ctrl+R to refresh the pane, then point at the button, press c and comment."
+        )
+        await user.click(f"#p{pb} .mk.hl")
+        await user.focused(pb)
+        await camera.pause(1200)
+        # The refresh clears the highlight. The pointer stays on the button, so `c` comments on the button.
+        await user.press("Control+r")
+        await camera.pause(1500)
+        await user.press("c")
+        await user.type("Show a spinner while it saves.")
+        await user.press("Enter")
+        await camera.shot("browser")
+        await user.press("Shift+S")
+        await user.press("Enter")
+        await agent.wait_for_review()
+        await camera.pause(1500)
+        await agent.laura("close", "--all")
+    finally:
+        srv.kill()
+
+    # Bonus · Switch workspaces
+    await agent.workspace("acme-web", "flaky login test")
+    await agent.say(
+        "Bonus · Switch workspaces\n\n"
+        "Each workspace is one task in one folder. The workspace switcher at the left of the top bar shows "
+        "this workspace's session label, Laura demo, and its folder.\n\n"
+        "Click the workspace switcher to switch, or press Ctrl+P and type a session label. While the Laura "
+        "server runs, select the Laura logo to open the Laura server's page.\n\n"
+        "Send Next to learn how to record feedback."
+    )
+    await user.click("#wsw")
+    await user.page.locator("#menu .mi[data-url]").first.wait_for()
+    await camera.pause(1200)
+    await camera.shot("switcher")
+    await user.click(user.page.locator("#menu .mi").filter(has_text="flaky login test"))
+    await user.page.locator("#wlabel", has_text="flaky login test").wait_for()
+    await user.page.wait_for_selector("#p0 .xterm")
+    await camera.pause(1500)
+    await camera.shot("other")
+    await user.press("Control+p")
+    await user.type("demo", keys=True)
+    await user.press("Enter")
+    await user.page.locator("#wlabel", has_text="Laura demo").wait_for()
+    await camera.pause(1500)
+    await user.click("#brand")
+    await user.page.locator("#rows li").nth(1).wait_for()
+    await camera.pause(1500)
+    await camera.shot("server")
+    await user.click(user.page.locator("#rows li").filter(has_text="Laura demo").get_by_role("button", name="Open", exact=True))
+    await user.page.locator("#wlabel", has_text="Laura demo").wait_for()
+    await user.page.wait_for_selector("#p0 .xterm")
+    await camera.pause(1000)
+    await reply(user)
 
     # [5 / 5] Recording feedback
     await agent.laura("feedback", "--positive", "the debug dashboard layout read clearly")
