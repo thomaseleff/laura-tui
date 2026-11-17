@@ -104,7 +104,7 @@ laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the workspace as hosting an agent (enables commenting and inline reviews). Prints the journal path,
                         the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
-      --agent <name>    Attribute journal events to this agent name.
+      --agent <name>    Attribute journal events to this agent name, and name the shell after it.
       --title <text>    Label the session in a few words: the session label.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
       --positive        Positive signal.        (one of --positive/--negative is required)

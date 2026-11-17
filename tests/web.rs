@@ -226,6 +226,49 @@ fn the_layout_describes_each_pane() -> Result<()> {
     Ok(())
 }
 
+/// The shell takes the `--agent` name of the latest `laura ready`, and is `shell` before it.
+#[test]
+fn the_shell_takes_the_agents_name() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
+    assert_eq!(layout["panes"][0]["name"], "shell", "{layout}");
+    rig.drive(&["ready", "--agent", "claude"]);
+    rig.until(
+        &mut ws,
+        "the agent's name",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][0]["name"] == "claude"),
+    );
+    Ok(())
+}
+
+/// The web app sizes the shell from its own type, and Laura clamps the size as it clamps `view`.
+#[test]
+fn a_shell_size_resizes_the_shell() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    for (sent, want) in [((50, 12), (12, 50)), ((0, 0), (5, 20))] {
+        send(&mut ws, json!({"shell": {"cols": sent.0, "rows": sent.1}}));
+        let start = Instant::now();
+        while rig.tab.pty.with_screen(|s| s.size()) != want {
+            assert!(
+                start.elapsed() < common::DEADLINE,
+                "never resized to {want:?}"
+            );
+            rig.pump();
+            thread::sleep(Duration::from_millis(5));
+        }
+        // The child sees the size too.
+        #[cfg(unix)]
+        {
+            rig.tab.pty.write(b"clear; stty size\r")?;
+            rig.shell_shows(&format!("{} {}", want.0, want.1));
+        }
+    }
+    Ok(())
+}
+
 /// A markdown pane's header names the highlight's source lines, not its rendered rows.
 #[test]
 fn a_markdown_highlight_names_its_source_lines() -> Result<()> {

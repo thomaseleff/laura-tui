@@ -1,6 +1,7 @@
-/* The workspace is light; the shell and an editor view keep Nord. The ANSI palette is the one place
-   colors live: app.js hands `:root`'s Nord set and `--term-*` to xterm.js, and `src/web.rs` styles
-   pane rows with `var(--ansi-N)`, which `.rows` overrides with a light set. */
+/* The workspace and the shell are light; an editor view keeps Nord. The ANSI palette is the one
+   place colors live: app.js hands `:root`'s Nord set and `--term-*` to an editor pane's xterm.js,
+   and `.rows`' light set to the shell's; `src/web.rs` styles pane rows with `var(--ansi-N)`, which
+   `.rows` overrides with the light set. */
 /* Bundled, so the cell grid measures one font on every machine. */
 @font-face { font-family: Inter; src: url(/fonts/Inter.woff2) format("woff2"); font-weight: 100 900; font-display: block; }
 @font-face { font-family: "JetBrains Mono"; src: url(/fonts/JetBrainsMono.woff2) format("woff2"); font-weight: 100 800; font-display: block; }
@@ -15,7 +16,7 @@
   --sans: Inter, system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
   --thumb: #c4c7cf;
   --r: 10px; --shadow: 0 1px 2px rgb(16 24 40 / .05), 0 6px 20px rgb(16 24 40 / .06);
-  --term-bg: #2e3440; --term-fg: #d8dee9; --term-sel: #434c5e;
+  --term-bg: #2e3440; --term-fg: #d8dee9; --term-sel: #434c5e; --shell-sel: #dfe2fb;
   --ansi-0: #3b4252; --ansi-1: #bf616a; --ansi-2: #a3be8c; --ansi-3: #ebcb8b;
   --ansi-4: #81a1c1; --ansi-5: #b48ead; --ansi-6: #88c0d0; --ansi-7: #e5e9f0;
   --ansi-8: #4c566a; --ansi-9: #bf616a; --ansi-10: #a3be8c; --ansi-11: #ebcb8b;
@@ -39,6 +40,8 @@ body { line-height: 1.5; }
 /* The cell grid stays monospace, so measurement and the rows don't move. */
 .probe, .row, .g, .term { font-family: var(--mono); }
 .probe { position: absolute; visibility: hidden; white-space: pre; line-height: normal; }
+/* On screen, so xterm.js draws it: it pauses a terminal out of view. */
+.tprobe { position: fixed; left: 0; top: 0; visibility: hidden; pointer-events: none; }
 .mute { color: var(--mute); }
 .sm { font-size: 12px; }
 
@@ -278,13 +281,16 @@ kbd {
 .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
   left: 2px !important; width: 6px !important; border-radius: 3px; background: var(--thumb) !important;
 }
-/* A terminal's dark body fills the card below the header; the padding keeps the cells where
+/* An editor pane's dark body fills the card below the header; the padding keeps the cells where
    they were. xterm's size comes from `resize`, not from this box. */
-.pane:is(.shell, .editor) .term {
+.pane.editor .term {
   left: 6px; right: 6px;
   padding: 0 calc(var(--cw) - 6px);
   background: var(--term-bg);
 }
+/* The shell's white body fills the card below the header, with room around the text. app.js fits
+   xterm.js to this box, less the padding (`fitShell`). */
+.pane.shell .term { left: 6px; right: 6px; padding: 16px 20px; background: var(--pane); }
 /* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
 .pane.file .term { visibility: hidden; }
 .pane:not(.file, .browser) .rows { display: none; }

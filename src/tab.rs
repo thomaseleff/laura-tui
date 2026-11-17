@@ -350,6 +350,9 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
+    /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
+    /// type; `None` sizes the shell to its pane, as the TUI always does.
+    pub shell_size: Option<(u16, u16)>,
     /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
     pub hold: bool,
     /// Editor panes' Neovim, by pane id. Each also has its file panel in `panels`.
@@ -423,6 +426,7 @@ impl Tab {
             agent: false,
             journal: None,
             title: None,
+            shell_size: None,
             hold: false,
             editors: HashMap::new(),
             editor: Err(editor::FLAG_OFF.into()),
@@ -824,7 +828,10 @@ impl Tab {
         }
         let rect_map = rects(&self.layout, content);
         let pty_inner = self.inner(rect_map.get(&PTY_PANE).copied().unwrap_or(content));
-        self.resize_to(pty_inner.height, pty_inner.width);
+        let (rows, cols) = self
+            .shell_size
+            .unwrap_or((pty_inner.height, pty_inner.width));
+        self.resize_to(rows, cols);
         for (id, r) in &rect_map {
             let inner = self.inner(*r);
             if let Some(e) = self.editors.get_mut(id) {
@@ -847,6 +854,14 @@ impl Tab {
         } else {
             r.inner(Margin::new(1, 1))
         }
+    }
+
+    /// The shell's name: the `--agent` name of the latest `laura ready`, else `shell`.
+    pub fn shell_name(&self) -> String {
+        self.journal
+            .as_ref()
+            .and_then(Journal::agent)
+            .unwrap_or_else(|| "shell".into())
     }
 
     /// The focused panel, if a panel (not the PTY) has focus.

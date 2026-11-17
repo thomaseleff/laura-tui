@@ -483,18 +483,10 @@ impl WebServer {
                                 json!({"t": "acted", "ok": false, "text": e})
                             }
                         });
-                    } else if let Some(size) = msg.get("view") {
-                        // A minimized window or a hostile frame can't size the shell to 0.
-                        let dim = |k: &str, lo: u64, hi: u64| {
-                            size.get(k)
-                                .and_then(Value::as_u64)
-                                .map(|n| n.clamp(lo, hi) as u16)
-                        };
-                        if let (Some(cols), Some(rows)) =
-                            (dim("cols", 20, 1000), dim("rows", 5, 500))
-                        {
-                            self.area = Some(Rect::new(0, 0, cols, rows));
-                        }
+                    } else if let Some((cols, rows)) = msg.get("view").and_then(cells) {
+                        self.area = Some(Rect::new(0, 0, cols, rows));
+                    } else if let Some((cols, rows)) = msg.get("shell").and_then(cells) {
+                        tab.shell_size = Some((rows, cols));
                     } else if let Some(size) = msg.get("size") {
                         // A browser pane's size in CSS pixels, and the screen's pixel ratio.
                         let num = |k: &str| size.get(k).and_then(Value::as_f64);
@@ -1027,6 +1019,17 @@ pub(crate) fn pct_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
+/// A `view` or `shell` message's `cols` and `rows`, clamped: a minimized window or a hostile frame
+/// can't size the shell to 0.
+fn cells(size: &Value) -> Option<(u16, u16)> {
+    let dim = |k: &str, lo: u64, hi: u64| {
+        size.get(k)
+            .and_then(Value::as_u64)
+            .map(|n| n.clamp(lo, hi) as u16)
+    };
+    Some((dim("cols", 20, 1000)?, dim("rows", 5, 500)?))
+}
+
 /// A PTY chunk or a browser pane's frame for the browser: the pane id as 8 big-endian bytes, then
 /// the bytes.
 fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
@@ -1053,7 +1056,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
             // `pty`: the pane streams a terminal, in either view, so the browser keeps its xterm.
             let pty = *id == PTY_PANE || editor.is_some();
             let name = p.map_or_else(
-                || "shell".to_string(),
+                || tab.shell_name(),
                 |p| {
                     if p.browser {
                         // A page without a title, or not loaded yet, goes by its URL.
