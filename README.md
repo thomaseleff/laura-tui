@@ -50,7 +50,7 @@ cd your-project
 laura -- claude "/laura:demo"
 ```
 
-Laura starts one workspace in this folder and opens the workspace in your web browser. The workspace runs until you [quit](docs/workspace.md#quit) the workspace. See [Start Laura](docs/workspace.md#start-laura).
+Laura starts one workspace in this folder and opens the workspace in your web browser. The workspace runs until you [quit](docs/workspace.md#quit) the workspace or your agent exits. See [Start Laura](docs/workspace.md#start-laura).
 
 **4. Run more workspaces** (optional). Start the Laura server, one address that lists your workspaces and starts new ones:
 
