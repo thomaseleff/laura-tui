@@ -291,7 +291,7 @@ def process(job):
 EOF
 CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code right
 # Split the code pane vertically: code on top (67%), a thin tail pane below (33%) where autoscroll is visible.
-( for i in {1..30}; do echo "[$i] retry job=42 backoff=$((i*i))s"; sleep 0.3; done ) \
+( for i in {1..120}; do echo "[$i] retry job=42 backoff=$((i*i))s"; sleep 0.5; done ) \
   | laura tail --title worker.log --follow --split "$CODE" --dir v --ratio 33 &
 ```
 
@@ -459,10 +459,17 @@ _Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no
 >
 > Each workspace is one task in one folder. The workspace switcher at the left of the top bar shows this workspace's session label, **Laura demo**, and its folder. I set the session label when the demo started.
 >
+> To start another workspace, do one of these:
+>
+> - Run `laura` in a terminal in another folder.
+> - Start the Laura server: select the Laura icon (run `laura --shortcut` one time to make it, see [Start Laura from a desktop icon](https://thomaseleff.github.io/laura-tui/workspace/#start-laura-from-a-desktop-icon)), or run `laura --serve`. Then select **New workspace…** in the workspace switcher.
+>
+> While only this workspace runs and the Laura server does not run, the workspace switcher shows no list. When another workspace runs:
+>
 > 1. Click the workspace switcher. Laura lists the running workspaces. Click a workspace to switch to it. The workspace that you leave keeps running.
 > 2. Or press `Ctrl+P` and type part of a session label or a folder. Laura lists the other workspaces under **Workspaces**. Press `Enter` to switch.
 >
-> To start another workspace, open Laura from your desktop or app menu, or run `laura --serve`. While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones.
+> While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones.
 >
 > Read more in [Switch workspaces](https://thomaseleff.github.io/laura-tui/navigation/#switch-workspaces).
 >
