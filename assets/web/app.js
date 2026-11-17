@@ -1914,11 +1914,17 @@ function go(url, tab) {
 const folderName = root => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
 const spaceLabel = w => w.title ?? folderName(w.root);
 
+// The browser tab: the session label, or the folder name before the agent sets one.
+function paintTitle(label) {
+  document.title = `Laura · ${label}`;
+}
+
 // The workspace switcher: the session label and the folder, or the folder name in grey before the
 // agent sets a session label. With one workspace and no Laura server, the button has no menu.
 function paintSwitcher() {
   const root = strings.root ?? "", title = spaces.find(w => w.current)?.title;
   $("wlabel").textContent = title ?? folderName(root);
+  paintTitle($("wlabel").textContent);
   $("wlabel").classList.toggle("fallback", !title);
   $("wroot").textContent = title ? root : "";
   const menu = spaces.length > 1 || !!server;
@@ -2052,7 +2058,6 @@ function connect() {
         strings = m;
         paintHelp(m.help, m.help_note);
         paintSwitcher();
-        document.title = `Laura · ${folderName(m.root)}`;
         break;
       case "workspaces":
         spaces = m.list;

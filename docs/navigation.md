@@ -35,6 +35,8 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 The workspace switcher is at the left of the top bar. The workspace switcher shows the session label and the folder of the workspace. Before the agent sets a session label, the workspace switcher shows the folder name in grey.
 
+The browser tab shows `Laura · <session label>`, or `Laura · <folder name>` before the agent sets a session label.
+
 To switch to another workspace:
 
 1. Click the workspace switcher. Laura lists the running workspaces, oldest first, and marks the workspace that you are in with ✓. Laura selects the first other workspace.

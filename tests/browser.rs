@@ -720,3 +720,80 @@ fn a_killed_laura_closes_real_chrome_and_its_helpers() -> Result<()> {
     assert!(!profile.exists(), "a helper wrote the profile again");
     Ok(())
 }
+
+/// `app.js` paints the browser tab: the folder name, then the session label after `ready --title`.
+// Unix only: workspace B's shell hands over its `LAURA_TAB` with `sh`. `app.js` is the same on each OS.
+#[cfg(unix)]
+#[test]
+fn the_browser_tab_shows_the_session_label() -> Result<()> {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    // Workspace B: its own HOME, so its workspace switcher lists only B and no record goes to the
+    // real home. Not `laura_start`: its `isolate_home` moves HOME for this whole test process.
+    let dir = tempfile::tempdir()?;
+    let home = tempfile::tempdir()?;
+    let tab = dir.path().join("tab");
+    let mut b = Kill(
+        Command::new(env!("CARGO_BIN_EXE_laura"))
+            .args(["--web", "--", "/bin/sh", "-c"])
+            .arg(r#"printf %s "$LAURA_TAB" > tab; exec sleep 60"#)
+            .current_dir(dir.path())
+            .env("HOME", home.path())
+            .env("LAURA_BROWSER", dir.path().join("no-browser"))
+            .env_remove("LAURA_TAB")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?,
+    );
+    let stdout = b.0.stdout.take().expect("stdout is piped");
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut line = String::new();
+        let _ = BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let url_b = rx.recv_timeout(common::DEADLINE)?.trim().to_string();
+
+    let id = open(&mut r, &url_b);
+    // macOS: the temp folder is a link into /private/var.
+    let folder = dir.path().canonicalize()?;
+    let folder = folder.file_name().expect("a name").to_string_lossy();
+    let want = format!("Laura · {folder}");
+    state_until(&mut r, &mut ws, "the folder name", id, |v| {
+        v["title"] == want.as_str()
+    });
+
+    let t0 = Instant::now();
+    let socket = loop {
+        if let Ok(s) = std::fs::read_to_string(&tab)
+            && !s.is_empty()
+        {
+            break s;
+        }
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "B's shell wrote no LAURA_TAB"
+        );
+        thread::sleep(Duration::from_millis(50));
+    };
+    let ok = Command::new(env!("CARGO_BIN_EXE_laura"))
+        .args(["ready", "--title", "flat elevation profile"])
+        .env("LAURA_TAB", socket)
+        .output()?;
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    state_until(&mut r, &mut ws, "the session label", id, |v| {
+        v["title"] == "Laura · flat elevation profile"
+    });
+    Ok(())
+}

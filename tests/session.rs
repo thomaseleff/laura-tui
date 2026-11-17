@@ -91,8 +91,14 @@ fn a_second_ready_switches_the_session_and_keeps_the_title() -> Result<()> {
     drive_tab(&mut tab, &["open", p2]);
     assert_eq!(tab.title.as_deref(), Some("one-more"));
 
-    drive_tab(&mut tab, &["ready", "--session", "b", "--title", "two"]);
+    drive_tab(&mut tab, &["ready", "--session", "b", "--title", " two "]);
     assert_eq!(tab.title.as_deref(), Some("two"));
+
+    // A blank --title keeps the session label.
+    for blank in ["", "  "] {
+        drive_tab(&mut tab, &["ready", "--session", "b", "--title", blank]);
+        assert_eq!(tab.title.as_deref(), Some("two"));
+    }
 
     let home = dir.path();
     let opens: Vec<_> = events(home, "a", "open")?
@@ -116,6 +122,7 @@ fn a_second_ready_switches_the_session_and_keeps_the_title() -> Result<()> {
     assert_eq!(readies[0]["title"], Value::Null);
     // A new session doesn't inherit the earlier agent name.
     assert!(readies[0].get("agent").is_none(), "{}", readies[0]);
-    assert_eq!(readies.last().unwrap()["title"], "two");
+    assert_eq!(readies[1]["title"], "two");
+    assert_eq!(readies.last().unwrap()["title"], Value::Null);
     Ok(())
 }

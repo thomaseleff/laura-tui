@@ -1828,6 +1828,10 @@ impl Tab {
                 title,
             } => {
                 self.agent = true;
+                // A blank `--title` would show an empty session label; treat it as no `--title`.
+                let title = title
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty());
                 let session =
                     session.unwrap_or_else(|| format!("laura-{}-{}", std::process::id(), self.seq));
                 // A re-`ready` of the same session (to set a title) keeps its agent name.
