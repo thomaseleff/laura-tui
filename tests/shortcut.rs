@@ -87,10 +87,15 @@ fn laura_shortcut_writes_the_laura_icon() -> Result<()> {
             2,
             "{stdout}"
         );
-        // Named by version: Explorer caches an icon by its path.
-        let ico = format!("laura-{}.ico", env!("CARGO_PKG_VERSION"));
+        // Named by its content: Explorer caches an icon by its path.
+        let ico = paths
+            .iter()
+            .find(|p| p.extension().is_some_and(|e| e == "ico"))
+            .unwrap_or_else(|| panic!("Laura wrote no .ico: {stdout}"));
+        let name = ico.file_name().unwrap_or_default().to_string_lossy();
+        assert!(name.starts_with("laura-") && name.len() == 26, "{name}");
         // An ICO header, then 8 frames: 16, 24, 32, 48, 64, 96, 128 and 256 px.
-        assert!(std::fs::read(file(&ico))?.starts_with(&[0, 0, 1, 0, 8, 0]));
+        assert!(std::fs::read(ico)?.starts_with(&[0, 0, 1, 0, 8, 0]));
     } else if cfg!(target_os = "macos") {
         let plist = std::fs::read_to_string(file("Info.plist"))?;
         assert!(plist.contains("<key>LSUIElement</key><true/>"), "{plist}");

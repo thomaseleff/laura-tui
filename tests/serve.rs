@@ -231,7 +231,7 @@ fn the_laura_server_shows_the_laura_logo() -> Result<()> {
     assert_eq!(status(&old), "HTTP/1.1 404 Not Found", "{old}");
     let page = http(s.port, "GET", "/", "", "")?;
     assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">"));
-    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"20\" height=\"20\""));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"17\" height=\"17\""));
     // The top bar shows the logo, then "Workspaces", with no "/" between them.
     let css = http(s.port, "GET", "/style.css", "", "")?;
     assert!(body(&css).contains(".crumb"), "{css}");

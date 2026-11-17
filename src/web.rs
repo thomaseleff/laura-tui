@@ -92,8 +92,8 @@ pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
         "font/woff2",
         include_bytes!("../assets/web/fonts/JetBrainsMono.woff2"),
     ),
-    // The top bar's logo: Pebble, the Laura logo. The page's icon is the same mark with thicker
-    // rings, white in dark mode.
+    // The top bar's logo: Pebble, the Laura logo. The page's icon is the same mark, white in
+    // dark mode.
     (
         "/logo.svg",
         "image/svg+xml",

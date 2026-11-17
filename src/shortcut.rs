@@ -11,7 +11,7 @@ use base64::Engine;
 /// Pebble, the Laura logo, 256 × 256.
 const PNG: &[u8] = include_bytes!("../assets/pebble.png");
 /// The same tile at each size that Windows shows, from 16 to 256 px: Windows scales one large
-/// image down poorly. 16 to 32 px use a drawing made for small sizes.
+/// image down poorly.
 const ICO: &[u8] = include_bytes!("../assets/pebble.ico");
 
 /// Write the Laura icon for this computer, and print each path that Laura wrote.
@@ -104,10 +104,14 @@ const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 "#;
 
-/// Write the `.ico` in `dir`, named by version, and delete the `.ico` of other versions. Explorer
-/// caches an icon by its path, so a new path makes Explorer read the new file after an upgrade.
+/// Write the `.ico` in `dir`, named by its content, and delete any other `.ico`. Explorer caches
+/// an icon by its path and never reads the file again, so new art needs a new path.
+/// `DefaultHasher` can change between Rust releases; then the name changes once, which does no harm.
 fn save_ico(dir: &Path) -> Result<String> {
-    let name = format!("laura-{}.ico", env!("CARGO_PKG_VERSION"));
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    ICO.hash(&mut h);
+    let name = format!("laura-{:016x}.ico", h.finish());
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let old = e.file_name().to_string_lossy().into_owned();
         if old.starts_with("laura") && old.ends_with(".ico") && old != name {

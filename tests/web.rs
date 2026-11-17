@@ -2304,7 +2304,7 @@ fn the_web_app_shows_the_laura_logo() -> Result<()> {
     assert!(old.starts_with("HTTP/1.1 404"), "{old}");
     let page = get(rig.port, "/")?;
     assert!(page.contains("<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">"));
-    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"20\" height=\"20\""));
+    assert!(page.contains("src=\"logo.svg\" alt=\"Laura\" width=\"17\" height=\"17\""));
     Ok(())
 }
 
