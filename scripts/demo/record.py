@@ -91,7 +91,12 @@ class Agent:
 
     async def ready(self):
         end = time.monotonic() + 10
-        while not (await self._call("/"))["ready"]:
+        while True:
+            try:
+                if (await self._call("/"))["ready"]:
+                    return
+            except OSError:  # The chat stub can start to listen after Laura prints its URL.
+                pass
             if time.monotonic() > end:
                 raise TimeoutError("the chat stub never showed its prompt")
             await asyncio.sleep(0.2)
