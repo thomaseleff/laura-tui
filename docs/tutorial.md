@@ -53,4 +53,4 @@ Laura submits your inline review into the chat, with the review body and each th
 
 ## Next
 
-Run `/laura:demo` to have your agent show you the rest: laying out panes, the diff view, tailing a running service, and recording feedback. For every keystroke and click, see [Navigating the workspace](navigation.md).
+Run `/laura:demo` to have your agent show you the rest: laying out panes, the diff view, tailing a running service, switching workspaces, and recording feedback. For every keystroke and click, see [Navigating the workspace](navigation.md).

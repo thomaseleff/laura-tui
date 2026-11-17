@@ -30,7 +30,8 @@ The following workflow guides you through the demo, follow it from start to fini
 
 ```bash
 # Use your own agent name for --agent (e.g. claude) — it auto-labels the comments you leave below.
-laura ready --session demo --agent claude              # enables inline review submission; prints JSON
+# --title sets the session label that the workspace switcher shows.
+laura ready --session demo --agent claude --title "Laura demo"   # enables inline review submission; prints JSON
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
@@ -300,6 +301,8 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 >
 > I opened a source file in the pane to the right, ran the code, and piped its logs into a tail pane below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.
 >
+> Press `p` in the tail pane to pause the tail pane and read the output. Press `p` again to follow the newest output.
+>
 > A tail pane still shows a file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
@@ -410,7 +413,7 @@ laura open "$D/page.html" --ratio 55
 
 _Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
-_Run the rest of this beat only if `laura ready` printed a `browser_url`: Laura sets `browser_url` when browser panes work. Otherwise, skip straight to **Recording feedback** without mentioning it._
+_Run the rest of this beat only if `laura ready` printed a `browser_url`: Laura sets `browser_url` when browser panes work. Otherwise, skip straight to **Switch workspaces** without mentioning it._
 
 _Next, show a page from a URL. Serve `$D` with any static file server; the example uses Python's. If `laura open <url>` returns an error, tell your partner and skip the rest of this beat._
 
@@ -443,6 +446,33 @@ _Then **wait** for the `[laura review · …]` block._
 _If you have chrome-devtools-mcp, add one beat. Select the page whose URL matches pane `$P` in `laura layout`, and click **Save** with the tool while your partner watches. Then run `laura highlight button --pane $P` and say: "I clicked **Save** with my browser tool. The ring showed where I clicked, and the button changed to **Saved**." Without the tool, skip this beat._
 
 _Then `laura close --all`, and `kill $SRV`._
+
+---
+
+### Switch workspaces
+
+_Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no workspace switcher. Otherwise, skip straight to **Recording feedback** without mentioning it._
+
+**Say:**
+
+> **Bonus · Switch workspaces**
+>
+> Each workspace is one task in one folder. The workspace switcher at the left of the top bar shows this workspace's session label, **Laura demo**, and its folder. I set the session label when the demo started.
+>
+> 1. Click the workspace switcher. Laura lists the running workspaces. Click a workspace to switch to it. The workspace that you leave keeps running.
+> 2. Or press `Ctrl+P` and type part of a session label or a folder. Laura lists the other workspaces under **Workspaces**. Press `Enter` to switch.
+>
+> To start another workspace, open Laura from your desktop or app menu, or run `laura --serve`. While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones.
+>
+> Read more in [Switch workspaces](https://thomaseleff.github.io/laura-tui/navigation/#switch-workspaces).
+>
+> **Suggested prompts**
+>
+> - `Label this session "flaky login test"`
+>
+> Send `Next` to learn how to record feedback.
+
+_Then **wait for `Next`.**_
 
 ---
 
