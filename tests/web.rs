@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use assert_cmd::Command;
 use laura::UserAction;
-use laura::tab::NO_DIFF_IN_EDITOR;
+use laura::tab::{NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK};
 use serde_json::{Value, json};
 use tungstenite::Message;
 
@@ -408,6 +408,31 @@ fn dock_shows_the_shell_as_a_pane_and_drawer_puts_it_back() -> Result<()> {
         v["panes"][0]["drawer"] == true
     });
     assert_eq!(cells(&back, 2), [0, 0, cols, rows], "{back}");
+    Ok(())
+}
+
+/// The shell docks only when every pane still fits beside the shell.
+#[test]
+fn dock_needs_room_for_every_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    send(&mut ws, json!({"view": {"cols": 40, "rows": 20}}));
+    rig.until(
+        &mut ws,
+        "resized layout",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["cols"] == 40),
+    );
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    // Pane 2 gets 4 of the 40 columns, and would get 2 beside the shell.
+    rig.drive(&["open", &b, "--split", "1", "--dir", "h", "--ratio", "8"]);
+    layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    let acted = rig.act(&mut ws, json!({"act": "dock"}));
+    assert_eq!(acted["ok"], false, "{acted}");
+    assert_eq!(acted["text"], NO_ROOM_TO_DOCK, "{acted}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    assert_eq!(report["panes"][0]["drawer"], true, "{report}");
     Ok(())
 }
 

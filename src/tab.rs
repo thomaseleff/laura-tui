@@ -128,6 +128,9 @@ pub const SUBMIT_FAILED: &str =
 /// `SUBMIT_FAILED` in the web app, whose review popover names the keystrokes on its buttons.
 pub const SUBMIT_FAILED_WEB: &str =
     "⚠ Laura did not submit the inline review, but kept its threads and review body.";
+/// **Show the shell as a pane** when a pane would get too small beside the shell.
+pub const NO_ROOM_TO_DOCK: &str =
+    "⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
@@ -592,7 +595,12 @@ impl Tab {
                 e.editor_view = !e.editor_view;
             }
             A::Dock if self.web => {
-                self.layout.dock_left(PTY_PANE, 40);
+                let mut probe = self.layout.clone();
+                probe.dock_left(PTY_PANE, 40);
+                if !all_panes_fit(&probe, self.area) {
+                    return Err(NO_ROOM_TO_DOCK.into());
+                }
+                self.layout = probe;
                 self.docked = true;
             }
             A::Dock => {}

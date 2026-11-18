@@ -1803,6 +1803,8 @@ addEventListener("keydown", e => {
   if (e.key === "F12") {
     take();
     locked = !locked;
+    // The keystrokes go to the shell, so a closed drawer opens.
+    if (locked && pane(0)?.drawer && layout.focus !== 0 && focused()?.kind !== "editor") act({ act: "focus", pane: 0 });
     followFocus(true);
     return paintHint();
   }
