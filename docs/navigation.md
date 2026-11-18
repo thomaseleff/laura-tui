@@ -46,7 +46,7 @@ To open the drawer, do one of these:
 
 To close the drawer, press ``Ctrl+` `` or click the shell button again. Laura focuses the pane that you used last. A click on a pane also closes the drawer and focuses that pane.
 
-To show the shell as a pane, click **⊟ Pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width, and keeps the shell there when you open and close panes. To put the shell back in the drawer, click **⇱ Drawer** in the shell's pane header.
+To show the shell as a pane, click **Show the shell as a pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width, and keeps the shell there when you open and close panes. To put the shell back in the drawer, click **Show the shell in a drawer** in the shell's pane header.
 
 When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.` and keeps the shell in the drawer.
 

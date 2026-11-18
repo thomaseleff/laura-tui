@@ -286,6 +286,8 @@ const I = {
   fwd: '<path d="M5 12h14M12 5l7 7-7 7"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
+  dock: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  drawer: '<rect x="3" y="4" width="18" height="16" rx="2"/><rect x="7" y="12" width="10" height="5" rx="1"/>',
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 // A tooltip that shows at once; `aria-label` reads the same text to a screen reader.
@@ -318,8 +320,8 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + '<i class="cdot" role="img"></i><span class="grow"></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>'
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
-  + `<button class="hbtn" data-act="dock" ${tip("Show the shell as a pane")}>⊟ Pane</button>`
-  + `<button class="hbtn" data-act="drawer" ${tip("Show the shell in a drawer")}>⇱ Drawer</button>`
+  + `<button class="tool" data-act="dock" ${tip("Show the shell as a pane")}>${ic("dock")}</button>`
+  + `<button class="tool" data-act="drawer" ${tip("Show the shell in a drawer")}>${ic("drawer")}</button>`
   + `<span class="tools">${TOOLS.map(([a, i, t]) => `<button class="tool" data-act="${a}" ${tip(t)}>${ic(i)}</button>`).join("")}</span>`
   + `<button class="tool more" data-act="more" ${tip("More")}>${ic("more")}</button></div>`;
 

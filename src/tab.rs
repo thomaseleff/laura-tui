@@ -224,9 +224,9 @@ pub enum UserAction {
     },
     /// `Ctrl+Q`: `Ok` means the caller may ask `y` and end the workspace.
     Quit,
-    /// **⊟ Pane**: the shell as the left-most pane, at the full height. The TUI ignores it.
+    /// **Show the shell as a pane**: the shell as the left-most pane, at the full height. The TUI ignores it.
     Dock,
-    /// **⇱ Drawer**: the shell back in the drawer.
+    /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
@@ -363,7 +363,7 @@ pub struct Tab {
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
-    /// The user showed the shell as a pane (**⊟ Pane**) in the web app, in place of the drawer.
+    /// The user showed the shell as a pane (**Show the shell as a pane**) in the web app, in place of the drawer.
     pub docked: bool,
     /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
     pub hold: bool,

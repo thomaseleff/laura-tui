@@ -305,9 +305,6 @@ kbd {
 }
 .pane.shell.drawer .term { border-radius: 0 0 13px 13px; }
 .pane.shell.drawer:not(.open) { visibility: hidden; pointer-events: none; }
-/* **⊟ Pane** and **⇱ Drawer** in the shell's pane header. */
-.hbtn { flex: none; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 1px 8px; font-size: 12px; color: var(--mute); }
-.hbtn:hover { color: var(--fg); }
 /* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
 .pane.file .term { visibility: hidden; }
 .pane:not(.file, .browser) .rows { display: none; }

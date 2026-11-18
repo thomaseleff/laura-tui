@@ -395,7 +395,8 @@ fn the_agent_cannot_act_as_the_user() -> Result<()> {
 }
 
 /// #187: the TUI always shows the shell as a pane. `laura layout` has no `drawer`, and the web
-/// app's **⊟ Pane** and **⇱ Drawer** change nothing.
+/// app's **Show the shell as a pane** and
+/// **Show the shell in a drawer** change nothing.
 #[test]
 fn the_tui_has_no_drawer() -> Result<()> {
     let (mut tab, _dir, _path) = tab_with("a.rs", &five_lines())?;

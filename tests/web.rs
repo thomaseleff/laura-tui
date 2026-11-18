@@ -374,8 +374,9 @@ fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()>
     Ok(())
 }
 
-/// **⊟ Pane** shows the shell as the left-most pane, at the full height, with 40% of the width;
-/// **⇱ Drawer** puts the shell back. Laura keeps the choice for the workspace.
+/// **Show the shell as a pane** shows the shell as the left-most pane, at the full height, with
+/// 40% of the width; **Show the shell in a drawer** puts the shell back. Laura keeps the choice
+/// for the workspace.
 #[test]
 fn dock_shows_the_shell_as_a_pane_and_drawer_puts_it_back() -> Result<()> {
     let mut rig = Rig::new()?;
