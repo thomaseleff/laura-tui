@@ -540,7 +540,7 @@ impl WebServer {
         }
 
         let area = self.area.unwrap_or(DEFAULT_AREA);
-        let rects = crate::rects(&tab.layout, area);
+        let rects = tab.rects(area);
         let dirty = changed || acted || v.focus != tab.focus || v.area != area;
         // Before `layout`, whose hint depends on a page's route.
         if dirty {
@@ -1082,6 +1082,8 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
             };
             json!({"id": id, "x": r.x, "y": r.y, "w": r.width, "h": r.height,
                    "kind": kind, "pty": pty, "name": name, "icon": icon,
+                   // The web app places the drawer by CSS, not by its cells.
+                   "drawer": *id == PTY_PANE && tab.drawer_in_use(),
                    "path": p.map(|p| view::display_path(&p.path)),
                    "added": added, "removed": removed,
                    "highlight": p.and_then(|p| match p.highlight {

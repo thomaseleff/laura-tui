@@ -232,6 +232,10 @@ pub struct PaneReport {
     /// The user paused the pane, so the user doesn't see its new output (#127).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub paused: bool,
+    /// The shell floats in the web app's drawer over the other panes, so its `rect` is the whole
+    /// area (#187).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub drawer: bool,
 }
 
 /// Serializable mirror of a ratatui `Rect` (which isn't `Serialize`).

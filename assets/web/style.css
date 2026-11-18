@@ -291,6 +291,23 @@ kbd {
 /* The shell's white body fills the card below the header, with room around the text. app.js fits
    xterm.js to this box, less the padding (`fitShell`). */
 .pane.shell .term { left: 6px; right: 6px; padding: 16px 20px; background: var(--pane); }
+/* The drawer: the shell above the bottom line, over the panes, while the shell has focus. The
+   same pane 0 card and xterm.js as the shell as a pane, placed here, not by its cells. Centred with
+   `left`, not `transform`, which blurs xterm's WebGL canvas. Closed, the drawer keeps its box, so
+   the shell keeps its size and the agent doesn't redraw. */
+.pane.shell.drawer {
+  z-index: 5; top: auto; bottom: 8px; height: 54%;
+  width: min(980px, calc(100% - 80px)); left: max(40px, calc((100% - 980px) / 2));
+}
+.pane.shell.drawer::before {
+  border-radius: 14px; border-color: var(--acc-line);
+  box-shadow: 0 2px 4px rgb(16 24 40 / .06), 0 18px 48px rgb(16 24 40 / .18);
+}
+.pane.shell.drawer .term { border-radius: 0 0 13px 13px; }
+.pane.shell.drawer:not(.open) { visibility: hidden; pointer-events: none; }
+/* **⊟ Pane** and **⇱ Drawer** in the shell's pane header. */
+.hbtn { flex: none; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 1px 8px; font-size: 12px; color: var(--mute); }
+.hbtn:hover { color: var(--fg); }
 /* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
 .pane.file .term { visibility: hidden; }
 .pane:not(.file, .browser) .rows { display: none; }
@@ -560,11 +577,26 @@ kbd {
 .pop.more .hd { display: none; }
 .err { margin-bottom: 10px; padding: 6px 10px; border-radius: 7px; background: var(--bad-soft); color: var(--bad); font-size: 12.5px; }
 
-/* The bottom line, right below the grid: the hint line on the left, the status bar on the right. */
+/* The bottom line, right below the grid: the hint line on the left, the status bar on the right,
+   and the shell button in the middle while the drawer is in use. */
 #status {
   position: absolute; top: calc(44px + var(--ch) * var(--rows)); left: 0; right: 0; height: 34px; box-sizing: border-box;
   display: flex; align-items: center; gap: 16px; padding: 0 calc(var(--side, 0px) + 5px); font-size: 12px; color: var(--mute);
 }
+#status:has(#sbtn:not([hidden])) { display: grid; grid-template-columns: 1fr auto 1fr; }
+#status:has(#sbtn:not([hidden])) #sbar { justify-self: end; max-width: 100%; }
+/* The shell button: the drawer's handle. The dot pulses while the shell prints. */
+.sbtn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 2px 6px 2px 10px; cursor: pointer;
+  font: 12.5px var(--sans); color: var(--fg); background: #fff; border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow);
+}
+.sbtn[hidden] { display: none; }
+.sbtn b { font-weight: 600; }
+.sbtn .dot { background: var(--faint); }
+.sbtn.busy .dot { background: var(--acc); animation: pulse 1.2s infinite; }
+.sbtn.open { border-color: var(--acc-line); background: var(--acc-soft); }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .sbtn.busy .dot { animation: none; } }
 #hint { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
 #hint > * { flex: none; }
 #hint .sep { width: 1px; height: 12px; background: var(--line); margin: 0 6px; }

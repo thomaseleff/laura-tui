@@ -79,6 +79,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
 | **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id, or a workspace by session label or folder. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
+| **drawer** | The shell floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
+| **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer. | chip, pill |
 | **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |

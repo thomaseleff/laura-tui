@@ -97,6 +97,8 @@ done
 >
 > By default, Laura splits the newest pane and alternates the orientation, a spiral called a dwindle. Laura reloads each pane when its file changes.
 >
+> The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here.
+>
 > **Suggested prompts**
 >
 > - `/laura:laura Stack the plan, the code, and the logs in one view`

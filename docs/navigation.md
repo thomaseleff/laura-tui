@@ -12,6 +12,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 | Keystroke | What Laura does |
 |---|---|
 | `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. The pane selector also finds a workspace: see [Switch workspaces](#switch-workspaces). |
+| ``Ctrl+` `` | Opens or closes the [drawer](#the-drawer). |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
 | `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. |
@@ -30,6 +31,24 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 1. Laura focuses the first editor pane with unsaved edits and shows the notice `⚠ To close Laura after the shell stopped, save or quit Neovim.`
 2. When you save or quit that Neovim, Laura does the same for the next editor pane with unsaved edits.
 3. Laura closes when no Neovim has unsaved edits.
+
+## The drawer
+
+When a file pane, a browser pane or an editor pane is open, the panes fill the workspace, and Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus.
+
+The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints.
+
+To open the drawer, do one of these:
+
+- Press ``Ctrl+` `` or click the shell button.
+- Press `Esc` in a pane.
+- Submit an inline review. Laura opens the drawer, so you see the agent read the inline review.
+
+To close the drawer, press ``Ctrl+` `` or click the shell button again. Laura focuses the pane that you used last. A click on a pane also closes the drawer and focuses that pane.
+
+To show the shell as a pane, click **⊟ Pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width, and keeps the shell there when you open and close panes. To put the shell back in the drawer, click **⇱ Drawer** in the shell's pane header.
+
+When you close the last pane, the shell fills the workspace again.
 
 ## Switch workspaces
 
@@ -74,7 +93,7 @@ While the Laura server runs, select the Laura logo at the left of the top bar to
 | `h` | **×** on the highlight chip | Clears the agent's highlight. |
 | `p` | Pause \| Resume | Pauses or resumes a tail pane, or a file pane that the agent opened with `--follow`. |
 | `x` | Close | Closes the pane. |
-| `Esc` | — | Leaves the pane. |
+| `Esc` | — | Focuses the shell. While the drawer is in use, Laura opens the drawer. |
 
 An inline review is a **call and response**. Your comments and the agent's comments stay in the pane until you submit the inline review.
 

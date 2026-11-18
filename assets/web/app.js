@@ -42,6 +42,8 @@ let spaces = [], server = null, leaving = false;
 let listOpen = null, moreOpen = null;
 // The page's pane in comment mode, where a click on the page picks an element to comment on.
 let commentMode = null;
+// The last pane other than the shell that had the focus, where `Ctrl+\`` goes from the shell.
+let lastFocus = null;
 const terms = new Map(); // pane id → xterm, one per PTY pane
 // A hidden terminal with an editor pane's type, which measures the grid's cell (`measure`).
 let probe = null;
@@ -89,7 +91,8 @@ function paintNotice() {
   noticeEl.classList.toggle("on", !!notice);
   if (notice) noticeEl.textContent = notice;
   const el = noticePane !== undefined && $("p" + noticePane);
-  const wide = el && el.offsetWidth >= 300;
+  // A closed drawer hides its notice, so the notice goes to the corner.
+  const wide = el && el.offsetWidth >= 300 && !el.matches(".drawer:not(.open)");
   if (wide && noticeEl.parentNode !== el) el.appendChild(noticeEl);
   // The card fits below the pane header, else it goes to the workspace's corner.
   const fits = wide && noticeEl.offsetHeight <= el.offsetHeight - 3 * ch - 20;
@@ -107,13 +110,16 @@ function paintHint() {
   // As the keydown listener: comment mode's hint only over a file or browser pane's own plain hint.
   const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
     : !$("menu").hidden ? h.workspace : popup !== null ? ($("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes) : commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
-  hintEl.replaceChildren(...(pairs ?? []).flatMap(([k, label], i) => {
+  const groups = (pairs ?? []).map(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
     const sep = document.createElement("i");
     sep.className = "sep";
     return [...(i ? [sep] : []), ...kbds(k), s];
-  }));
+  });
+  hintEl.replaceChildren(...groups.flat());
+  // Whole keystrokes only: drop the last ones that don't fit, such as beside the shell button.
+  while (groups.length > 1 && hintEl.scrollWidth > hintEl.clientWidth) groups.pop().forEach(n => n.remove());
 }
 // Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
 addEventListener("focus", paintHint);
@@ -190,6 +196,8 @@ function termKeys(id, term, e) {
   if (e.key === "F12") return false;
   if (locked) return true;
   if (draft) return false;
+  // `code`, so a layout that types another character on that key still shows or hides the shell.
+  if (e.ctrlKey && e.code === "Backquote") return false;
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
@@ -310,6 +318,8 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + '<i class="cdot" role="img"></i><span class="grow"></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>'
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
+  + `<button class="hbtn" data-act="dock" ${tip("Show the shell as a pane")}>⊟ Pane</button>`
+  + `<button class="hbtn" data-act="drawer" ${tip("Show the shell in a drawer")}>⇱ Drawer</button>`
   + `<span class="tools">${TOOLS.map(([a, i, t]) => `<button class="tool" data-act="${a}" ${tip(t)}>${ic(i)}</button>`).join("")}</span>`
   + `<button class="tool more" data-act="more" ${tip("More")}>${ic("more")}</button></div>`;
 
@@ -392,6 +402,8 @@ function paintHead(el, p) {
   show(".shot", browser && !!el.shot);
   show(".rec", browser && !!el.recording);
   show(".more", p.id !== 0);
+  show("[data-act=dock]", p.drawer);
+  show("[data-act=drawer]", p.id === 0 && !p.drawer && layout.panes.length > 1);
   // An editor pane has no diff view (NO_DIFF_IN_EDITOR), and nor does a file with no changes.
   show(".tools [data-act=toggle_diff]", !p.pty && (p.added || p.removed || p.diff));
   q(".tools [data-act=toggle_diff]").classList.toggle("on", p.diff);
@@ -545,6 +557,7 @@ function placePlus(id) {
 }
 
 function onLayout(m) {
+  if (m.focus !== 0) lastFocus = m.focus;
   for (const p of m.panes) {
     const old = layout && (pane(p.id) ?? {});
     if (old && p.id !== m.focus && p.highlight && String(p.highlight) !== String(old.highlight)) unseen.add(p.id);
@@ -562,7 +575,8 @@ function onLayout(m) {
     if (fresh) el.animate([{ opacity: 0, transform: "translateY(6px)" }, {}], { duration: 350, easing: "ease-out" });
     seen.add(el.id);
     if (p.pty && !terms.has(p.id)) makeTerm(p.id, el);
-    Object.assign(el.style, {
+    // CSS places the drawer.
+    Object.assign(el.style, p.drawer ? { left: "", top: "", width: "", height: "" } : {
       left: `calc(var(--cw) * ${p.x})`, top: `calc(var(--ch) * ${p.y})`,
       width: `calc(var(--cw) * ${p.w})`, height: `calc(var(--ch) * ${p.h})`,
     });
@@ -575,7 +589,9 @@ function onLayout(m) {
       el.querySelector(".dlgwrap")?.remove();
       el.querySelector(".marks")?.remove();
     }
+    // The drawer shows while the shell has focus, and only then.
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
+      + (p.drawer ? ` drawer${m.focus === 0 ? " open" : ""}` : "")
       + (unseen.has(p.id) ? " unseen" : "") + (commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
     const t = p.id !== 0 && terms.get(p.id);
@@ -984,6 +1000,38 @@ function paintStatus() {
     items.push(s);
   }
   $("sbar").replaceChildren(...items);
+  paintShellButton();
+}
+
+// The shell button, while the drawer is in use: the shell's name, and `open` while the drawer is.
+function paintShellButton() {
+  const b = $("sbtn"), s = pane(0), was = b.hidden;
+  b.hidden = !s?.drawer;
+  // The button narrows the hint line, or gives it back its width.
+  if (b.hidden !== was) paintHint();
+  if (b.hidden) return;
+  const open = layout.focus === 0, t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
+  b.classList.toggle("open", open);
+  b.querySelector("b").textContent = s.name;
+  b.dataset.tip = t;
+  b.setAttribute("aria-label", t);
+}
+$("sbtn").addEventListener("mousedown", e => e.preventDefault());
+$("sbtn").addEventListener("click", () => (draft ? followFocus(true) : toggleShell()));
+// The dot pulses for a second after each of the shell's frames.
+function shellBusy() {
+  const b = $("sbtn");
+  b.classList.add("busy");
+  clearTimeout(b.busyTimer);
+  b.busyTimer = setTimeout(() => b.classList.remove("busy"), 1000);
+}
+
+// `Ctrl+\`` and the shell button: from the shell, back to the last pane that had the focus, or the
+// first other pane when that one closed; from any other pane, to the shell, which opens the drawer.
+function toggleShell() {
+  if (layout.focus !== 0) return act({ act: "focus", pane: 0 });
+  const to = pane(lastFocus) ? lastFocus : layout.panes.find(p => p.id !== 0)?.id;
+  if (to !== undefined) act({ act: "focus", pane: to });
 }
 $("sbar").addEventListener("mousedown", e => e.preventDefault());
 $("sbar").addEventListener("click", e => {
@@ -1819,7 +1867,7 @@ addEventListener("keydown", e => {
     }
     if (e.key === "Escape") return take(), root.focus({ preventScroll: true });
     if (ctrl && "rl".includes(k)) return take(); // the viewing browser's reload and address bar
-    if (!(ctrl && "pq".includes(k))) return; // Ctrl+P and Ctrl+Q go on to Laura
+    if (!(ctrl && ("pq".includes(k) || e.code === "Backquote"))) return; // Ctrl+P, Ctrl+Q and Ctrl+` go on to Laura
   }
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) {
     take();
@@ -1831,6 +1879,7 @@ addEventListener("keydown", e => {
   const b = f?.kind === "browser" && $("p" + f.id);
   if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(), setCommentMode(null);
   if (ctrl && k === "p") return take(), openSelector();
+  if (ctrl && e.code === "Backquote") return take(), toggleShell();
   if (ctrl && k === "q") {
     take();
     return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));
@@ -1952,6 +2001,7 @@ addEventListener("mouseup", e => {
 addEventListener("resize", () => {
   report();
   fitShell();
+  paintHint();
   // A zoom changes the pixel ratio, not always the pane's size.
   layout?.panes.forEach(p => sizeView(p.id));
 });
@@ -2105,6 +2155,7 @@ function connect() {
     if (typeof e.data !== "string") {
       const id = Number(new DataView(e.data).getBigUint64(0));
       if (pane(id)?.kind === "browser") return onFrame(id, e.data);
+      if (id === 0) shellBusy();
       return terms.get(id)?.write(new Uint8Array(e.data, 8));
     }
     const m = JSON.parse(e.data);
