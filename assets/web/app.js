@@ -187,8 +187,9 @@ function fitShell(force) {
   const t = terms.get(0), box = $("p0")?.querySelector(".term");
   const r = t?.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
   if (!r?.width || !box.clientWidth) return;
-  const cols = Math.max(1, Math.floor((box.clientWidth - 40 - 10) / (r.width / t.cols)));
-  const rows = Math.max(1, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
+  // Laura's minimum (`cells` in src/web.rs), so xterm and the shell use one grid.
+  const cols = Math.max(20, Math.floor((box.clientWidth - 40 - 10) / (r.width / t.cols)));
+  const rows = Math.max(5, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
   if (cols === t.cols && rows === t.rows && !force) return;
   t.resize(cols, rows);
   send({ shell: { cols, rows } });
