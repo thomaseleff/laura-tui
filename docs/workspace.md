@@ -38,7 +38,7 @@ When the agent opens a pane, the panes fill the workspace, and Laura shows the s
 
 When the agent waits for you, for example at a permission prompt, Laura marks the workspace as waiting:
 
-- The shell button turns amber and shows `Waiting for you`.
+- While the shell is in the drawer, the shell button turns amber and shows `Waiting for you`.
 - The browser tab shows `● Laura · <session label>`.
 - The other workspaces show an amber dot in the workspace switcher and `Waiting for you` on this workspace's row. See [Switch workspaces](navigation.md#switch-workspaces).
 - The Laura server's page shows `Waiting for you` on this workspace's row. See [Open a running workspace](#open-a-running-workspace).
