@@ -234,8 +234,8 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
-    /// What the web app keeps from the shell and sends no bytes for (a click, a wheel step,
-    /// PageUp or PageDown, F12 into the shell): the user looked at the agent, so the wait ends.
+    /// What the web app keeps from the shell and sends no bytes for (a keystroke or a click
+    /// after which the shell has the keystrokes, a wheel step over the shell): the user looked at the agent, so the wait ends.
     /// Focus stays where it is.
     Seen,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting

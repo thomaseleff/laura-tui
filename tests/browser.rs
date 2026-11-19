@@ -826,8 +826,8 @@ fn the_browser_tab_shows_the_session_label() -> Result<()> {
     Ok(())
 }
 
-/// #190: in the web app, F12 into the shell and PageUp in the shell end the wait, and before
-/// `laura ready` the hint line dims `c` and `Shift+S`, with the reason on hover.
+/// #190: in the web app, a keystroke or a click that leaves the shell with the keystrokes ends the
+/// wait, and before `laura ready` the hint line dims `c` and `Shift+S`, with the reason on hover.
 #[cfg(unix)]
 #[test]
 fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
@@ -945,6 +945,56 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     waiting(&mut r, &mut ws, "the wait again", true);
     press(&mut ws, id, "PageUp", 33);
     waiting(&mut r, &mut ws, "PageUp ends the wait", false);
+    // With no lock too: the open of the pane selector keeps the wait, the close ends the wait.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait in the shell", true);
+    press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
+    let t0 = Instant::now();
+    while eval(&mut r, "popup !== null") != true {
+        assert!(t0.elapsed() < common::DEADLINE, "no pane selector");
+        thread::sleep(Duration::from_millis(50));
+    }
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(500) {
+        assert_eq!(
+            eval(&mut r, "layout.waiting"),
+            true,
+            "the open of the pane selector ended the wait"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc out of the pane selector into the shell ends the wait",
+        false,
+    );
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before the help", true);
+    press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
+    let t0 = Instant::now();
+    while eval(&mut r, "help") != true {
+        assert!(t0.elapsed() < common::DEADLINE, "no help");
+        thread::sleep(Duration::from_millis(50));
+    }
+    // The help leaves the focus in the shell, but keeps the keystrokes.
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(500) {
+        assert_eq!(
+            eval(&mut r, "layout.waiting"),
+            true,
+            "the open of the help ended the wait"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc out of the help into the shell ends the wait",
+        false,
+    );
 
     b.drive(&["ready"])?;
     let t0 = Instant::now();
