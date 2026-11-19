@@ -2207,10 +2207,10 @@ fn the_bell_makes_the_workspace_wait_until_the_user_types() -> Result<()> {
     Ok(())
 }
 
-/// #190: OSC 9 and OSC 777 `notify` make the workspace wait; OSC 9's progress report doesn't.
+/// #190: OSC 9 and OSC 777 `notify` make the workspace wait; OSC 9's numbered ConEmu commands (progress, folder) don't.
 #[cfg(unix)]
 #[test]
-fn a_notification_makes_the_workspace_wait_and_a_progress_report_does_not() -> Result<()> {
+fn a_notification_makes_the_workspace_wait_and_a_conemu_command_does_not() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     layout_when(&mut rig, &mut ws, "layout", |_| true);
@@ -2225,14 +2225,11 @@ fn a_notification_makes_the_workspace_wait_and_a_progress_report_does_not() -> R
     type_in(
         &mut ws,
         0,
-        b"printf '\\033]9;4;1;50\\007'; echo pro''gress\r",
+        b"printf '\\033]9;4;1;50\\007\\033]9;9;/tmp\\033\\\\'; echo pro''gress\r",
     )?;
     rig.shell_shows("progress");
     rig.idle(&mut ws, 5);
-    assert!(
-        !rig.tab.waiting,
-        "a progress report made the workspace wait"
-    );
+    assert!(!rig.tab.waiting, "a ConEmu command made the workspace wait");
     Ok(())
 }
 

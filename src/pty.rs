@@ -45,7 +45,8 @@ impl vt100::Callbacks for Bells {
 
     fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
         match params {
-            [b"9", b"4", ..] => {} // ConEmu's progress report, not a notification
+            // ConEmu's numbered commands (9;4 progress, 9;9 cwd …), not a notification
+            [b"9", n, ..] if !n.is_empty() && n.iter().all(u8::is_ascii_digit) => {}
             [b"9", ..] | [b"777", b"notify", ..] => self.0 += 1,
             _ => {}
         }
