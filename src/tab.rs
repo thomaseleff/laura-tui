@@ -557,8 +557,7 @@ impl Tab {
                     return Err(no_pane(pane));
                 }
                 self.focus = pane;
-                // Every time, not only on a move: the web app also sends it on the way back to
-                // the browser tab while the shell has focus.
+                // The user's move into the shell: the user sees the agent.
                 if pane == PTY_PANE {
                     self.answered(self.pty.bells());
                 }

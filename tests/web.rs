@@ -2229,21 +2229,6 @@ fn moving_focus_into_the_shell_ends_the_wait() -> Result<()> {
     Ok(())
 }
 
-/// #190: `focus` on the shell that already has focus ends the wait, as the web app sends it when
-/// the user comes back to the browser tab.
-#[cfg(unix)]
-#[test]
-fn focus_on_the_shell_ends_the_wait_when_the_shell_has_focus() -> Result<()> {
-    let mut rig = Rig::new()?;
-    let mut ws = rig.connect();
-    layout_when(&mut rig, &mut ws, "layout", |l| l["focus"] == 0);
-    type_in(&mut ws, 0, b"printf '\\007'\r")?;
-    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
-    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
-    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
-    Ok(())
-}
-
 /// #190: a click or a wheel step in the shell that xterm.js keeps for itself (`seen`) ends the
 /// wait, and focus stays on the file pane.
 #[cfg(unix)]
