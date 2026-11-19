@@ -265,6 +265,26 @@ fn a_workspace_shows_in_the_list_until_it_ends() -> Result<()> {
     until("the row goes", || Ok(s.record(&url)?.is_none()))
 }
 
+/// #190: a workspace that crashed between the write of its record and the rename leaves a
+/// `<pid>.tmp`; the list deletes it once it is old, and leaves one that is being written.
+#[test]
+fn a_record_that_a_crash_left_behind_is_deleted() -> Result<()> {
+    let s = Server::start()?;
+    let dir = s.home.path().join(".laura").join("workspaces");
+    std::fs::create_dir_all(&dir)?;
+    let (old, fresh) = (dir.join("999999.tmp"), dir.join("999998.tmp"));
+    std::fs::write(&old, "{")?;
+    std::fs::write(&fresh, "{")?;
+    std::fs::File::options()
+        .write(true)
+        .open(&old)?
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(120))?;
+    s.workspaces()?;
+    assert!(!old.exists(), "the old .tmp stayed");
+    assert!(fresh.exists(), "the fresh .tmp went");
+    Ok(())
+}
+
 #[test]
 fn a_new_workspace_on_the_same_port_replaces_the_old_row() -> Result<()> {
     let s = Server::start()?;

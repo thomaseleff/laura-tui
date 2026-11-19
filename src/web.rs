@@ -737,9 +737,25 @@ pub fn live() -> Vec<Value> {
         return vec![];
     };
     let mut out = vec![];
-    // Not a `.tmp` that `write_private` is writing.
-    let records = dir.flatten().map(|e| e.path());
-    for path in records.filter(|p| p.extension().is_some_and(|e| e == "json")) {
+    let mut records = vec![];
+    for path in dir.flatten().map(|e| e.path()) {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("json") => records.push(path),
+            // A `.tmp` this old is from a workspace that crashed between the write and the
+            // rename; a newer one is a `write_private` in progress.
+            Some("tmp") => {
+                let age = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok());
+                if age.is_some_and(|a| a > Duration::from_secs(60)) {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            _ => {}
+        }
+    }
+    for path in records {
         // A record that a workspace is writing right now doesn't parse yet: skip it this time.
         let Some(v) = std::fs::read(&path)
             .ok()
