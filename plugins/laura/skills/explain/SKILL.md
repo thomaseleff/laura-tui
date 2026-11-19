@@ -16,6 +16,7 @@ In a walkthrough, you **drive**. You open files, highlight lines and explain, wh
 - **Run `laura ready --session "$YOUR_SESSION_ID" --agent <name>`** at the start. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop.
 - **After each step, wait for `Next`.** If your partner asks a question mid-step, answer it, stay on the step, and continue on `Next`.
 - **End with `laura close --all`.**
+- **Keep the chat in view.** Pass `--no-focus` to `laura open`, so your partner keeps reading the chat. In the web app, Laura closes the drawer when a pane takes the focus.
 - **Let Laura tile.** With no split flags, Laura splits the newest pane and alternates the orientation (a dwindle), so you don't need to pass `--split`.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
