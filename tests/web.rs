@@ -2229,8 +2229,52 @@ fn moving_focus_into_the_shell_ends_the_wait() -> Result<()> {
     Ok(())
 }
 
-/// #190: a click or a wheel step in the shell that xterm.js keeps for itself (`seen`) ends the
-/// wait, and focus stays on the file pane.
+/// #190: the user's close that moves the focus to the shell ends the wait; the agent's
+/// `laura close` doesn't.
+#[cfg(unix)]
+#[test]
+fn closing_the_last_pane_ends_the_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "close", "pane": 1}));
+    layout_when(&mut rig, &mut ws, "no wait", |l| {
+        l["waiting"] == false && l["focus"] == 0
+    });
+    let id = rig.drive(&["open", &path]);
+    layout_when(&mut rig, &mut ws, "file pane again", |l| l["focus"] != 0);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting again", |l| l["waiting"] == true);
+    rig.drive(&["close", &id]);
+    rig.idle(&mut ws, 10);
+    assert!(rig.tab.waiting, "the agent's close ended the wait");
+    Ok(())
+}
+
+/// #190: before `laura ready`, the web app's hint line keeps `c` and `Shift+S`, which `app.js`
+/// dims, and has no `laura ready` note.
+#[cfg(unix)]
+#[test]
+fn before_laura_ready_the_hint_line_keeps_comment_and_submit() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    let l = layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    assert_eq!(l["agent"], false, "{l}");
+    let hint = pairs(&l["hints"]["pane"]);
+    assert!(hint.contains("c comment"), "{hint}");
+    assert!(hint.contains("Shift+S submit"), "{hint}");
+    assert!(!hint.contains("laura ready"), "{hint}");
+    Ok(())
+}
+
+/// #190: what the web app keeps from the shell and sends no bytes for (`seen`: a click, a wheel
+/// step, PageUp or PageDown, F12 into the shell) ends the wait, and focus stays on the file pane.
 #[cfg(unix)]
 #[test]
 fn a_click_or_a_wheel_step_at_a_prompt_ends_the_wait() -> Result<()> {

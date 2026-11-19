@@ -119,12 +119,30 @@ function paintHint() {
     s.textContent = label;
     const sep = document.createElement("i");
     sep.className = "sep";
+    // Before `laura ready`, `c` and `Shift+S` show dimmed; a hover gives the reason.
+    if (!layout.agent && (k === "c" || k === "Shift+S")) {
+      const o = document.createElement("span");
+      o.className = "off";
+      o.append(...kbds(k), s);
+      return [...(i ? [sep] : []), o];
+    }
     return [...(i ? [sep] : []), ...kbds(k), s];
   });
   hintEl.replaceChildren(...groups.flat());
   // Whole keystrokes only: drop the last ones that don't fit, such as beside the shell button.
   while (groups.length > 1 && hintEl.scrollWidth > hintEl.clientWidth) groups.pop().forEach(n => n.remove());
+  // A repaint after `laura ready` takes away the dimmed keystroke under a shown tooltip.
+  if (!hintEl.querySelector(".off")) $("htip").hidden = true;
 }
+// The shell button, the shell's name and the status bar change the hint line's width.
+new ResizeObserver(() => paintHint()).observe(hintEl);
+// A dimmed keystroke's reason. Not a `data-tip`: `#hint` clips its children, and `laura ready` shows as code.
+hintEl.addEventListener("mouseover", e => {
+  const o = e.target.closest?.(".off"), t = $("htip");
+  t.hidden = !o;
+  if (o) t.style.left = `${o.offsetLeft}px`;
+});
+hintEl.addEventListener("mouseleave", () => ($("htip").hidden = true));
 // Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
 addEventListener("focus", () => {
   paintHint();
@@ -201,6 +219,8 @@ function fitShell(force) {
 function termKeys(id, term, e) {
   if (overlayOpen()) return false;
   if (e.key === "F12") return false;
+  // xterm.js can scroll the shell on PageUp or PageDown and send no bytes: the user's scroll ends the wait.
+  if (id === 0 && e.type === "keydown" && (e.key === "PageUp" || e.key === "PageDown") && layout.waiting) act({ act: "seen" });
   if (locked) return true;
   if (draft) return false;
   // `code`, so a layout that types another character on that key still shows or hides the shell.
@@ -1006,22 +1026,14 @@ function paintStatus() {
     ...layout.panes.filter(p => p.threads).map(review),
     ...layout.panes.filter(p => p.unsaved).map(p => item(p, "unsaved Neovim edits", "warn", "Unsaved Neovim edits")),
   ];
-  if (!layout.agent) {
-    const s = document.createElement("span");
-    s.className = "si";
-    s.innerHTML = '<span class="d"></span>Waiting for <code>laura ready</code>';
-    items.push(s);
-  }
   $("sbar").replaceChildren(...items);
   paintShellButton();
 }
 
 // The shell button, while the drawer is in use: the shell's name, and `open` while the drawer is.
 function paintShellButton() {
-  const b = $("sbtn"), s = pane(0), was = b.hidden;
+  const b = $("sbtn"), s = pane(0);
   b.hidden = !s?.drawer;
-  // The button narrows the hint line, or gives it back its width.
-  if (b.hidden !== was) paintHint();
   if (b.hidden) return;
   const open = drawerOpen(), t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
   b.classList.toggle("open", open);
@@ -1822,6 +1834,8 @@ addEventListener("keydown", e => {
   if (e.key === "F12") {
     take();
     locked = !locked;
+    // F12 into the shell is the user's move to the shell: the wait ends.
+    if (toShell() && layout.waiting) act({ act: "seen" });
     // An unlock sends no layout, so the drawer and the shell button repaint here.
     if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
     followFocus(true);

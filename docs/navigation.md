@@ -105,6 +105,8 @@ While the Laura server runs, select the Laura logo at the left of the top bar to
 | `x` | Close | Closes the pane. |
 | `Esc` | — | Focuses the shell. While the drawer is in use, Laura opens the drawer. |
 
+Before the agent runs `laura ready`, the hint line shows `c` and `Shift+S` dimmed. Hover over a dimmed keystroke to see ``Available after the agent runs `laura ready` ``.
+
 An inline review is a **call and response**. Your comments and the agent's comments stay in the pane until you submit the inline review.
 
 ### Threads and inline reviews
@@ -157,7 +159,6 @@ The status bar on the right of the hint line lists what waits on you. Click an i
 
 - `<file> · unsubmitted inline review`: the pane has an unsubmitted inline review. After a failed submit, the item's dot turns red.
 - `<file> · unsaved Neovim edits`: the editor pane has unsaved edits.
-- `Waiting for laura ready`: the agent has not run `laura ready`, so you can't comment yet.
 
 ## Notices
 

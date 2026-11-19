@@ -43,7 +43,7 @@ When the agent waits for you, for example at a permission prompt, Laura marks th
 - The other workspaces show an amber dot in the workspace switcher and `Waiting for you` on this workspace's row. See [Switch workspaces](navigation.md#switch-workspaces).
 - The Laura server's page shows `Waiting for you` on this workspace's row. See [Open a running workspace](#open-a-running-workspace).
 
-The wait ends when you move to the shell, or when you type, paste, scroll or click in the shell, or submit an inline review. Moving the pointer over the shell does not end the wait.
+The wait ends when you move to the shell, or when you type, paste, scroll or click in the shell, or submit an inline review. The wait also ends when you close a pane and Laura moves the focus to the shell. Moving the pointer over the shell does not end the wait.
 
 Laura shows a wait when the program in the shell rings the terminal bell or sends a terminal notification.
 

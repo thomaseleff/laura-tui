@@ -604,6 +604,13 @@ kbd {
 #hint { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
 #hint > * { flex: none; }
 #hint .sep { width: 1px; height: 12px; background: var(--line); margin: 0 6px; }
+#hint .off { display: flex; align-items: center; gap: 6px; opacity: .45; }
+/* A dimmed keystroke's reason, above the bottom line, in the look of `[data-tip]`. */
+.htip {
+  position: absolute; bottom: calc(100% + 6px); z-index: 60; white-space: nowrap; pointer-events: none;
+  padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans); color: #fff; background: #23262d;
+}
+.htip[hidden] { display: none; }
 /* No `overflow: hidden`, which would clip the items' tooltips; the items shrink instead. */
 #sbar { display: flex; align-items: center; gap: 14px; white-space: nowrap; min-width: 0; max-width: 60%; }
 .si { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -615,7 +622,7 @@ button.si:hover { color: var(--fg); }
 .si .d.acc { background: var(--acc); }
 .si .d.warn { background: #e09a1c; }
 .si .d.bad { background: var(--bad); }
-#sbar code { font: 12px var(--mono); }
+.htip code { font: 12px var(--mono); }
 /* A long notice wraps inside the width of its pane, or of the workspace. The card has no controls,
    so a click or a wheel scroll goes to the pane under it. */
 #notice {

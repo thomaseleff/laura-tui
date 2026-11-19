@@ -234,8 +234,9 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
-    /// A click or a wheel step in the shell that xterm.js keeps (a selection, the scrollback):
-    /// the user looked at the agent, so the wait ends. Focus stays where it is.
+    /// What the web app keeps from the shell and sends no bytes for (a click, a wheel step,
+    /// PageUp or PageDown, F12 into the shell): the user looked at the agent, so the wait ends.
+    /// Focus stays where it is.
     Seen,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
@@ -636,8 +637,13 @@ impl Tab {
             }
             A::Refresh { pane } => self.panel_mut(pane)?.discard_and_reload(),
             A::Close { pane } => {
+                let from = self.focus;
                 if let Response::Error { message } = self.close_pane(Some(pane)) {
                     return Err(message);
+                }
+                // The user's close that moves the focus to the shell: the user sees the agent.
+                if from != PTY_PANE && self.focus == PTY_PANE {
+                    self.answered(self.pty.bells());
                 }
             }
             A::ToggleEditorView { pane } => {

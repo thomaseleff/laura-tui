@@ -4,7 +4,7 @@ Laura started as a TUI workspace, and the TUI is still supported. To show the wo
 
 In the TUI, `laura open <url>` returns `browser panes need the web app: start Laura without --tui`. See [Browser panes](cli.md#browser-panes).
 
-The TUI does not show when the agent [waits for you](workspace.md#know-when-the-agent-waits), and the other workspaces do not show the wait of a TUI workspace.
+The TUI does not show when the agent [waits for you](workspace.md#know-when-the-agent-waits). The workspace switcher, the pane selector and the Laura server's page do not list a TUI workspace.
 
 ## Pane borders
 
