@@ -138,7 +138,11 @@ impl PtyTab {
             // shortcut: with a scroll region set, `S` scrolls only the region; the full-screen apps that set one redraw on SIGWINCH.
             if !s.alternate_screen() && row >= rows {
                 let up = row + 1 - rows;
-                p.process(format!("\x1b[{up}S\x1b[{up}A").as_bytes());
+                // Scroll in a spare parser, so the child's unfinished escape code stays intact.
+                let mut spare = vt100::Parser::new(1, 1, 0);
+                std::mem::swap(p.screen_mut(), spare.screen_mut());
+                spare.process(format!("\x1b[{up}S\x1b[{up}A").as_bytes());
+                std::mem::swap(p.screen_mut(), spare.screen_mut());
             }
             p.screen_mut().set_size(rows, cols);
             p.screen_mut().set_scrollback(0); // a resize never leaves a stale mid-history view

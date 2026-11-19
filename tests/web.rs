@@ -269,11 +269,10 @@ fn a_shell_size_resizes_the_shell() -> Result<()> {
     Ok(())
 }
 
-/// A shorter shell scrolls its top rows into the scrollback, as xterm.js does, else a new view's
-/// replay loses the last lines (#187).
+/// Runs `script` in a 30-row shell, makes the shell 10 rows once the screen shows `ready`, and
+/// returns the screen's trimmed lines once the screen shows `done`.
 #[cfg(unix)]
-#[test]
-fn a_shorter_shell_keeps_its_last_lines() -> Result<()> {
+fn shrink_during(script: &[u8], ready: &str, done: &str) -> Result<Vec<String>> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     rig.until(&mut ws, "layout", |f| f.is("layout"));
@@ -290,21 +289,40 @@ fn a_shorter_shell_keeps_its_last_lines() -> Result<()> {
         }
     };
     resize(&mut rig, 30);
-    rig.tab.pty.write(b"clear; seq 40\r")?;
-    rig.shell_shows("40");
+    rig.tab.pty.write(script)?;
+    rig.shell_shows(ready);
     resize(&mut rig, 10);
-    let lines: Vec<String> = rig
+    rig.shell_shows(done);
+    Ok(rig
         .tab
         .pty
         .with_screen(|s| s.contents())
         .lines()
         .map(|l| l.trim().to_owned())
-        .collect();
+        .collect())
+}
+
+/// A shorter shell scrolls its top rows into the scrollback, as xterm.js does, else a new view's
+/// replay loses the last lines (#187). The shrink lands inside the child's unfinished escape code,
+/// which must still end as a color, not as text.
+#[cfg(unix)]
+#[test]
+fn a_shorter_shell_keeps_its_last_lines() -> Result<()> {
+    // `'A''Z'` keeps the echoed command from matching `AZ`.
+    let lines = shrink_during(
+        b"clear; seq 40; printf 'A''Z\\033['; sleep 2; printf '31mB\\n'\r",
+        "AZ",
+        "AZB",
+    )?;
     assert!(
         lines.iter().any(|l| l == "40") && lines.iter().any(|l| l == "33"),
         "lost the last lines: {lines:?}"
     );
     assert!(!lines.iter().any(|l| l == "12"), "kept the top: {lines:?}");
+    assert!(
+        lines.iter().any(|l| l == "AZB"),
+        "broke the color: {lines:?}"
+    );
     Ok(())
 }
 
