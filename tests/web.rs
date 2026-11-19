@@ -259,6 +259,9 @@ fn a_shell_size_resizes_the_shell() -> Result<()> {
             rig.pump();
             thread::sleep(Duration::from_millis(5));
         }
+        // `laura layout` reports the shell's own rows, not its rect's.
+        let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+        assert_eq!(report["panes"][0]["visible_rows"], want.0, "{report}");
         // The child sees the size too.
         #[cfg(unix)]
         {

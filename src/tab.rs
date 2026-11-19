@@ -29,7 +29,9 @@ use crate::web;
 
 /// For each pane's rect, measure content vs. visible rows to fill a `LayoutReport`.
 /// `web`: the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell takes a
-/// column (`web::GAP`). `drawer`: the shell floats in the drawer.
+/// column (`web::GAP`). `drawer`: the shell floats in the drawer. `shell_rows`: the shell's own
+/// rows from the web app, which differ from its rect while the shell is in the drawer.
+#[allow(clippy::too_many_arguments)] // one per input both reports share
 fn build_report(
     rects: HashMap<PaneId, Rect>,
     panels: &HashMap<PaneId, &Panel>,
@@ -38,12 +40,16 @@ fn build_report(
     area: Rect,
     web: bool,
     drawer: bool,
+    shell_rows: Option<u16>,
 ) -> LayoutReport {
     let mut panes: Vec<PaneReport> = rects
         .into_iter()
         .map(|(id, rect)| {
             let border = if web { 3 } else { 2 };
-            let visible_rows = rect.height.saturating_sub(border) as usize;
+            let visible_rows = match shell_rows {
+                Some(rows) if id == PTY_PANE => rows as usize,
+                _ => rect.height.saturating_sub(border) as usize,
+            };
             let inner_w = rect.width.saturating_sub(if web { 3 } else { 2 }).max(1) as usize;
             let too_small = rect.width < 3 || rect.height < border + 1;
             let mut title = None;
@@ -955,6 +961,7 @@ impl Tab {
             area,
             self.web,
             self.drawer_in_use(),
+            self.shell_size.map(|(rows, _)| rows),
         )
     }
 
@@ -1998,6 +2005,7 @@ impl Tab {
             area,
             self.web,
             self.web && !self.docked,
+            self.shell_size.map(|(rows, _)| rows),
         ))
     }
 
