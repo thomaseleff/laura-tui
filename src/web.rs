@@ -1130,7 +1130,10 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
         "browser_dialog": view::hint(tab, view::Hint::BrowserDialog),
         "browser_leave": view::hint(tab, view::Hint::BrowserLeave),
     });
+    let (rows, cols) = tab.pty_size();
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
+           // The saved screen's grid, so a new view's xterm parses the replay at its own size.
+           "shell": {"cols": cols, "rows": rows},
            "agent": tab.agent, "hints": hints, "panes": panes})
     .to_string()
 }

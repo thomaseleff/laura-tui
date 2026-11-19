@@ -2021,6 +2021,11 @@ impl Tab {
             .unwrap_or(50)
     }
 
+    /// The PTY's size (rows, cols) now, which is the size of the shell's saved screen.
+    pub fn pty_size(&self) -> (u16, u16) {
+        self.pty_size
+    }
+
     /// Resize the PTY only when its draw area changed, else the shell wraps wrong.
     pub fn resize_to(&mut self, rows: u16, cols: u16) {
         if (rows, cols) != self.pty_size {

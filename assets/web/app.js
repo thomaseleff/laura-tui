@@ -238,7 +238,8 @@ function webgl(term) {
 }
 
 function makeTerm(id, el) {
-  const term = new Terminal(id === 0 ? SHELL : TERM);
+  // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.
+  const term = new Terminal(id === 0 ? { ...SHELL, ...layout.shell } : TERM);
   // Emoji are two cells wide in Unicode 11+, as the child and vt100 count them.
   term.loadAddon(new Unicode11Addon.Unicode11Addon());
   term.unicode.activeVersion = "11";

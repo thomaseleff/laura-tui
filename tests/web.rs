@@ -269,6 +269,28 @@ fn a_shell_size_resizes_the_shell() -> Result<()> {
     Ok(())
 }
 
+/// A reload's xterm takes the saved screen's size from the layout before the screen comes, else
+/// rows past xterm's default 24 write over others.
+#[test]
+fn a_new_view_gets_the_shells_size_before_its_screen() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    send(&mut ws, json!({"shell": {"cols": 50, "rows": 12}}));
+    let start = Instant::now();
+    while rig.tab.pty.with_screen(|s| s.size()) != (12, 50) {
+        assert!(start.elapsed() < common::DEADLINE, "never resized");
+        rig.pump();
+        thread::sleep(Duration::from_millis(5));
+    }
+    let mut reload = rig.connect();
+    let first = rig.until(&mut reload, "layout or screen", |f| {
+        f.is("layout") || matches!(f, Frame::Bytes(0, _))
+    });
+    assert_eq!(first.json()["shell"], json!({"cols": 50, "rows": 12}));
+    Ok(())
+}
+
 /// A markdown pane's header names the highlight's source lines, not its rendered rows.
 #[test]
 fn a_markdown_highlight_names_its_source_lines() -> Result<()> {
