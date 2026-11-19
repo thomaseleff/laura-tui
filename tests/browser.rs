@@ -921,9 +921,14 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     waiting(&mut r, &mut ws, "F12 ends the wait", false);
     press(&mut ws, id, "F12", 123);
     press(&mut ws, id, "Escape", 27);
-    // The move to the shell ends a wait: ring the bell after the shell has the keystrokes.
+    // The move to the shell ends a wait: ring the bell after B's server moved the focus (the
+    // layout comes from B's server) and the shell has the keystrokes.
     let t0 = Instant::now();
-    while eval(&mut r, "!!document.activeElement?.closest('#p0')") != true {
+    while eval(
+        &mut r,
+        "layout.focus === 0 && !!document.activeElement?.closest('#p0')",
+    ) != true
+    {
         assert!(t0.elapsed() < common::DEADLINE, "the shell has no focus");
         thread::sleep(Duration::from_millis(50));
     }
