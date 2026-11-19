@@ -269,6 +269,45 @@ fn a_shell_size_resizes_the_shell() -> Result<()> {
     Ok(())
 }
 
+/// A shorter shell scrolls its top rows into the scrollback, as xterm.js does, else a new view's
+/// replay loses the last lines (#187).
+#[cfg(unix)]
+#[test]
+fn a_shorter_shell_keeps_its_last_lines() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    let mut resize = |rig: &mut Rig, rows: u16| {
+        send(&mut ws, json!({"shell": {"cols": 50, "rows": rows}}));
+        let start = Instant::now();
+        while rig.tab.pty.with_screen(|s| s.size()) != (rows, 50) {
+            assert!(
+                start.elapsed() < common::DEADLINE,
+                "never resized to {rows}"
+            );
+            rig.pump();
+            thread::sleep(Duration::from_millis(5));
+        }
+    };
+    resize(&mut rig, 30);
+    rig.tab.pty.write(b"clear; seq 40\r")?;
+    rig.shell_shows("40");
+    resize(&mut rig, 10);
+    let lines: Vec<String> = rig
+        .tab
+        .pty
+        .with_screen(|s| s.contents())
+        .lines()
+        .map(|l| l.trim().to_owned())
+        .collect();
+    assert!(
+        lines.iter().any(|l| l == "40") && lines.iter().any(|l| l == "33"),
+        "lost the last lines: {lines:?}"
+    );
+    assert!(!lines.iter().any(|l| l == "12"), "kept the top: {lines:?}");
+    Ok(())
+}
+
 /// A reload's xterm takes the saved screen's size from the layout before the screen comes, else
 /// rows past xterm's default 24 write over others.
 #[test]

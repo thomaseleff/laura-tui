@@ -131,6 +131,15 @@ impl PtyTab {
             pixel_height: 0,
         });
         if let Ok(mut p) = self.parser.lock() {
+            let s = p.screen();
+            let (row, _) = s.cursor_position();
+            // vt100 cuts the rows below a shorter screen; scroll the rows above the cursor into the
+            // scrollback first, as xterm.js does, so a new view's replay keeps the last lines.
+            // shortcut: with a scroll region set, `S` scrolls only the region; the full-screen apps that set one redraw on SIGWINCH.
+            if !s.alternate_screen() && row >= rows {
+                let up = row + 1 - rows;
+                p.process(format!("\x1b[{up}S\x1b[{up}A").as_bytes());
+            }
             p.screen_mut().set_size(rows, cols);
             p.screen_mut().set_scrollback(0); // a resize never leaves a stale mid-history view
         }
