@@ -1809,8 +1809,7 @@ addEventListener("keydown", e => {
   if (e.key === "F12") {
     take();
     locked = !locked;
-    // The keystrokes go to the shell, so a closed drawer opens; an unlock sends no layout, so repaint here.
-    if (toShell() && pane(0)?.drawer && layout.focus !== 0) act({ act: "focus", pane: 0 });
+    // An unlock sends no layout, so the drawer and the shell button repaint here.
     if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
     followFocus(true);
     return paintHint();
