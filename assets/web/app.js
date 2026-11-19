@@ -266,6 +266,9 @@ function makeTerm(id, el) {
   if (id === 0) {
     const once = term.onRender(() => (once.dispose(), fitShell()));
     new ResizeObserver(() => fitShell()).observe(el.querySelector(".term"));
+    // xterm.js keeps a click or a wheel step at a prompt for itself and sends no bytes.
+    for (const t of ["mousedown", "wheel"])
+      el.querySelector(".term").addEventListener(t, () => layout.waiting && act({ act: "seen" }), { capture: true, passive: true });
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
   // pane (a comment, the review body) takes its own paste.

@@ -234,6 +234,9 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
+    /// A click or a wheel step in the shell that xterm.js keeps (a selection, the scrollback):
+    /// the user looked at the agent, so the wait ends. Focus stays where it is.
+    Seen,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
     BrowserMouse {
@@ -653,6 +656,7 @@ impl Tab {
             }
             A::Dock => {}
             A::Drawer => self.docked = false,
+            A::Seen => self.answered(self.pty.bells()),
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;

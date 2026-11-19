@@ -2244,6 +2244,24 @@ fn focus_on_the_shell_ends_the_wait_when_the_shell_has_focus() -> Result<()> {
     Ok(())
 }
 
+/// #190: a click or a wheel step in the shell that xterm.js keeps for itself (`seen`) ends the
+/// wait, and focus stays on the file pane.
+#[cfg(unix)]
+#[test]
+fn a_click_or_a_wheel_step_at_a_prompt_ends_the_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "seen"}));
+    let l = layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    assert_eq!(l["focus"], 1, "seen moved the focus");
+    Ok(())
+}
+
 /// #190: a bell that rings between two frames, just before the user types, doesn't bring the wait
 /// back once the user typed.
 #[cfg(unix)]
