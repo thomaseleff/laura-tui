@@ -643,16 +643,18 @@ impl Tab {
             A::Dock => {}
             A::Drawer => self.docked = false,
             A::Input { pane, bytes } => {
+                let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;
                 // A wheel or a click in the shell isn't an answer to the agent.
                 if pane == PTY_PANE && !only_mouse(&bytes) {
-                    self.answered();
+                    self.answered(bells);
                 }
             }
             A::Paste { pane, text } => {
+                let bells = self.pty.bells();
                 self.write_keys(pane, &bracketed_paste(&text, false))?;
                 if pane == PTY_PANE {
-                    self.answered();
+                    self.answered(bells);
                 }
             }
             A::Quit => {
@@ -867,6 +869,7 @@ impl Tab {
     /// view; a failed one keeps the threads for a retry.
     fn submit(&mut self, pane: PaneId, body: &str) -> Result<(), String> {
         self.review_gate(pane)?;
+        let bells = self.pty.bells();
         let pty = &self.pty;
         let p = self
             .panels
@@ -886,7 +889,7 @@ impl Tab {
             e.editor_view = true;
         }
         self.focus = PTY_PANE;
-        self.answered();
+        self.answered(bells);
         Ok(())
     }
 
@@ -1008,10 +1011,11 @@ impl Tab {
         )
     }
 
-    /// The user answered the agent: the wait ends, and so do the bells already rung.
-    fn answered(&mut self) {
+    /// The user answered the agent: the wait ends. `bells` is the count read before the answer
+    /// went to the shell, so a bell after this count is a new wait.
+    fn answered(&mut self, bells: u64) {
         self.waiting = false;
-        self.bells = self.pty.bells();
+        self.bells = bells;
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
