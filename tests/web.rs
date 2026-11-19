@@ -326,6 +326,23 @@ fn a_shorter_shell_keeps_its_last_lines() -> Result<()> {
     Ok(())
 }
 
+/// A shrink under a full-screen app keeps the main screen's last lines for when the app quits (#187).
+#[cfg(unix)]
+#[test]
+fn a_shorter_shell_keeps_its_last_lines_under_a_full_screen_app() -> Result<()> {
+    let lines = shrink_during(
+        b"clear; seq 40; printf '\\033[?1049hAL''T'; sleep 2; printf '\\033[?1049lDO''NE\\n'\r",
+        "ALT",
+        "DONE",
+    )?;
+    assert!(
+        lines.iter().any(|l| l == "40") && lines.iter().any(|l| l == "33"),
+        "lost the last lines: {lines:?}"
+    );
+    assert!(!lines.iter().any(|l| l == "12"), "kept the top: {lines:?}");
+    Ok(())
+}
+
 /// A reload's xterm takes the saved screen's size from the layout before the screen comes, else
 /// rows past xterm's default 24 write over others.
 #[test]
