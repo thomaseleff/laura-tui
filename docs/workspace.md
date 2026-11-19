@@ -45,7 +45,9 @@ When the agent waits for you, for example at a permission prompt, Laura marks th
 
 The wait ends when you type or paste in the shell, or submit an inline review. A scroll or a click in the shell does not end the wait.
 
-Laura shows a wait when the program in the shell rings the terminal bell or sends a terminal notification. Claude Code sends neither by default. To set up Claude Code:
+Laura shows a wait when the program in the shell rings the terminal bell or sends a terminal notification.
+
+Claude Code's default signal depends on the terminal that started Laura. Under iTerm2 and Ghostty, Claude Code sends a terminal notification and Laura shows the wait. In other terminals, for example Windows Terminal, Claude Code sends no signal. The terminal bell works in every terminal. To set up Claude Code:
 
 1. Add this setting to `~/.claude/settings.json`:
 
