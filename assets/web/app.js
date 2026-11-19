@@ -126,7 +126,11 @@ function paintHint() {
   while (groups.length > 1 && hintEl.scrollWidth > hintEl.clientWidth) groups.pop().forEach(n => n.remove());
 }
 // Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
-addEventListener("focus", paintHint);
+addEventListener("focus", () => {
+  paintHint();
+  // Back to the browser tab on the shell: the user sees the agent.
+  if (layout?.focus === 0 && layout.waiting) act({ act: "focus", pane: 0 });
+});
 
 // A keystroke's keys, split on spaces, as `<kbd>` chips.
 const kbds = k => k.split(" ").filter(Boolean).map(x => {

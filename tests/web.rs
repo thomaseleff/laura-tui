@@ -2186,23 +2186,60 @@ fn type_in(ws: &mut Ws, id: u64, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// #190: the terminal bell makes the workspace wait; a wheel in the shell doesn't end the wait, and
-/// typing does.
+/// #190: the terminal bell makes the workspace wait; a hover over the shell doesn't end the wait,
+/// and a wheel step does.
 #[cfg(unix)]
 #[test]
-fn the_bell_makes_the_workspace_wait_until_the_user_types() -> Result<()> {
+fn the_bell_makes_the_workspace_wait_until_the_user_scrolls_the_shell() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     let layout = layout_when(&mut rig, &mut ws, "layout", |_| true);
     assert_eq!(layout["waiting"], false, "{layout}");
     type_in(&mut ws, 0, b"printf '\\007'\r")?;
     layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
-    type_in(&mut ws, 0, b"\x1b[<64;10;5M")?;
-    // Frames apply in order: once the act replies, the wheel has reached the shell.
-    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    type_in(&mut ws, 0, b"\x1b[<35;10;5M")?;
+    // Frames apply in order: once the act replies, the hover has reached the shell.
+    rig.act(&mut ws, json!({"act": "drawer"}));
     rig.idle(&mut ws, 10);
-    assert!(rig.tab.waiting, "a wheel ended the wait");
-    type_in(&mut ws, 0, b"x")?;
+    assert!(rig.tab.waiting, "a hover ended the wait");
+    type_in(&mut ws, 0, b"\x1b[<64;10;5M")?;
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    Ok(())
+}
+
+/// #190: the user's move into the shell ends the wait; the agent's `laura focus 0` doesn't.
+#[cfg(unix)]
+#[test]
+fn moving_focus_into_the_shell_ends_the_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.drive(&["focus", "0"]);
+    rig.idle(&mut ws, 10);
+    assert!(rig.tab.waiting, "the agent's focus ended the wait");
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting again", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    Ok(())
+}
+
+/// #190: `focus` on the shell that already has focus ends the wait, as the web app sends it when
+/// the user comes back to the browser tab.
+#[cfg(unix)]
+#[test]
+fn focus_on_the_shell_ends_the_wait_when_the_shell_has_focus() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |l| l["focus"] == 0);
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
     layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
     Ok(())
 }

@@ -288,8 +288,11 @@ pub enum UserAction {
     },
 }
 
-/// Whether `b` holds only mouse reports: SGR (`\e[<b;x;yM`) or X10 (`\e[M` and 3 bytes).
-fn only_mouse(mut b: &[u8]) -> bool {
+/// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
+/// (`\e[M` and 3 bytes): a hover isn't the user looking, but a wheel step or a click is.
+fn only_hover(mut b: &[u8]) -> bool {
+    // Motion (32) with no button (3), below the wheel (64).
+    let hover = |code: u32| code & 32 != 0 && code & 3 == 3 && code < 64;
     if b.is_empty() {
         return false;
     }
@@ -298,12 +301,15 @@ fn only_mouse(mut b: &[u8]) -> bool {
             let Some(end) = rest.iter().position(|c| !matches!(c, b'0'..=b'9' | b';')) else {
                 return false;
             };
-            if !matches!(rest[end], b'M' | b'm') {
+            let code = rest[..end].split(|&c| c == b';').next().unwrap_or_default();
+            let code = std::str::from_utf8(code).ok().and_then(|c| c.parse().ok());
+            if !matches!(rest[end], b'M' | b'm') || !code.is_some_and(hover) {
                 return false;
             }
             b = &rest[end + 1..];
         } else if let Some(rest) = b.strip_prefix(b"\x1b[M")
             && rest.len() >= 3
+            && hover(u32::from(rest[0].wrapping_sub(32)))
         {
             b = &rest[3..];
         } else {
@@ -548,6 +554,11 @@ impl Tab {
                     return Err(no_pane(pane));
                 }
                 self.focus = pane;
+                // Every time, not only on a move: the web app also sends it on the way back to
+                // the browser tab while the shell has focus.
+                if pane == PTY_PANE {
+                    self.answered(self.pty.bells());
+                }
             }
             A::MoveCursor { pane, delta } => self.panel_mut(pane)?.move_cursor(delta),
             A::ScrollH { pane, delta } => self.panel_mut(pane)?.scroll_h(delta),
@@ -645,8 +656,7 @@ impl Tab {
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;
-                // A wheel or a click in the shell isn't an answer to the agent.
-                if pane == PTY_PANE && !only_mouse(&bytes) {
+                if pane == PTY_PANE && !only_hover(&bytes) {
                     self.answered(bells);
                 }
             }
