@@ -81,6 +81,8 @@ const toShell = () => locked && focused()?.kind !== "editor";
 // The drawer shows while the shell has the focus or the lock's keystrokes.
 const drawerOpen = () => layout.focus === 0 || toShell();
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
+// The user's move to the shell under the F12 lock: the wait ends once the shell has the keystrokes.
+const shellSeen = () => toShell() && !overlayOpen() && $("p0")?.contains(document.activeElement) && layout.waiting && act({ act: "seen" });
 
 function showNotice(text, secs, pane) {
   notice = text;
@@ -1784,13 +1786,14 @@ function toggleHelp() {
   veil.hidden = $("help").hidden = !help;
 }
 $("helpbtn").addEventListener("mousedown", e => e.preventDefault());
-$("helpbtn").addEventListener("click", toggleHelp);
+$("helpbtn").addEventListener("click", () => (toggleHelp(), shellSeen()));
 // A click outside the help sheet or the pane selector closes it.
 veil.addEventListener("mousedown", e => {
   if (e.target !== veil) return;
   e.preventDefault();
   if (help) toggleHelp();
   if (popup !== null) closeSelector();
+  shellSeen();
 });
 
 // The help sheet: a table of keystrokes per group.
@@ -1837,9 +1840,8 @@ addEventListener("keydown", e => {
     // An unlock sends no layout, so the drawer and the shell button repaint here.
     if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
     followFocus(true);
-    // F12 into the shell is the user's move to the shell: the wait ends. Not while the pane
-    // selector, the help, the menu (`termKeys`), an address field or a page keeps the keystrokes.
-    if (toShell() && !overlayOpen() && $("p0")?.contains(document.activeElement) && layout.waiting) act({ act: "seen" });
+    // Not while the pane selector, the help, the menu, an address field or a page keeps the keystrokes.
+    shellSeen();
     return paintHint();
   }
   // The workspace switcher's menu takes every keystroke while it is open.
@@ -1850,14 +1852,14 @@ addEventListener("keydown", e => {
     if (e.key === "ArrowDown") mark(Math.min(i + 1, items.length - 1));
     else if (e.key === "ArrowUp") mark(Math.max(i - 1, 0));
     else if (e.key === "Enter" && items[i]) (closeMenu(), go(items[i].dataset.url, e.ctrlKey || e.metaKey));
-    else if (e.key === "Escape" || e.key === "Tab") closeMenu();
+    else if (e.key === "Escape" || e.key === "Tab") closeMenu(), shellSeen();
     return;
   }
-  if (help) return take(), toggleHelp();
+  if (help) return take(), toggleHelp(), shellSeen();
   // A click can open the pane selector under the lock; it still takes its keystrokes.
   if (popup !== null) {
     // Ctrl+R/L/Q/H and Tab would reach the browser; every other keystroke goes to the input.
-    if (e.key === "Escape" || (ctrl && k === "p")) return take(), closeSelector();
+    if (e.key === "Escape" || (ctrl && k === "p")) return take(), closeSelector(), shellSeen();
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       take();
       popup += e.key === "ArrowDown" ? 1 : -1;

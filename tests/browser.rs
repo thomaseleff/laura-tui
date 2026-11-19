@@ -915,8 +915,17 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         );
         thread::sleep(Duration::from_millis(50));
     }
+    // The close gives the lock's keystrokes to the shell.
     press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc out of the pane selector ends the wait",
+        false,
+    );
     press(&mut ws, id, "F12", 123);
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait after the unlock", true);
     press(&mut ws, id, "F12", 123);
     waiting(&mut r, &mut ws, "F12 ends the wait", false);
     press(&mut ws, id, "F12", 123);
