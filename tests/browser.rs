@@ -895,6 +895,28 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     };
     ring()?;
     waiting(&mut r, &mut ws, "the wait", true);
+    // F12 while the pane selector keeps the keystrokes: the user has not reached the shell.
+    press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
+    press(&mut ws, id, "F12", 123);
+    let t0 = Instant::now();
+    while eval(&mut r, "locked && popup !== null") != true {
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "no lock over the pane selector"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(500) {
+        assert_eq!(
+            eval(&mut r, "layout.waiting"),
+            true,
+            "F12 over the pane selector ended the wait"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    press(&mut ws, id, "Escape", 27);
+    press(&mut ws, id, "F12", 123);
     press(&mut ws, id, "F12", 123);
     waiting(&mut r, &mut ws, "F12 ends the wait", false);
     press(&mut ws, id, "F12", 123);

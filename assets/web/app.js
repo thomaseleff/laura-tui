@@ -1834,8 +1834,9 @@ addEventListener("keydown", e => {
   if (e.key === "F12") {
     take();
     locked = !locked;
-    // F12 into the shell is the user's move to the shell: the wait ends.
-    if (toShell() && layout.waiting) act({ act: "seen" });
+    // F12 into the shell is the user's move to the shell: the wait ends. Not while the pane
+    // selector, the help or the menu keeps the keystrokes (`termKeys`).
+    if (toShell() && !overlayOpen() && layout.waiting) act({ act: "seen" });
     // An unlock sends no layout, so the drawer and the shell button repaint here.
     if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
     followFocus(true);
