@@ -76,6 +76,10 @@ const browserKey = (pane, kind, e) => ({
 });
 const pane = id => layout?.panes.find(p => p.id === id);
 const focused = () => pane(layout?.focus);
+// The lock sends a file pane's or a browser pane's keystrokes to the shell; an editor pane keeps them.
+const toShell = () => locked && focused()?.kind !== "editor";
+// The drawer shows while the shell has the focus or the lock's keystrokes.
+const drawerOpen = () => layout.focus === 0 || toShell();
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
 
 function showNotice(text, secs, pane) {
@@ -591,9 +595,8 @@ function onLayout(m) {
       el.querySelector(".dlgwrap")?.remove();
       el.querySelector(".marks")?.remove();
     }
-    // The drawer shows while the shell has focus, and only then.
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
-      + (p.drawer ? ` drawer${m.focus === 0 ? " open" : ""}` : "")
+      + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "")
       + (unseen.has(p.id) ? " unseen" : "") + (commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
     const t = p.id !== 0 && terms.get(p.id);
@@ -1012,7 +1015,7 @@ function paintShellButton() {
   // The button narrows the hint line, or gives it back its width.
   if (b.hidden !== was) paintHint();
   if (b.hidden) return;
-  const open = layout.focus === 0, t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
+  const open = drawerOpen(), t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
   b.classList.toggle("open", open);
   b.querySelector("b").textContent = s.name;
   b.dataset.tip = t;
@@ -1435,7 +1438,7 @@ function followFocus(force) {
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
-  const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
+  const t = toShell() ? terms.get(0) : f.kind !== "file" ? terms.get(f.id) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
   // Below the workspace's minimum size the window scrolls; a focus change leaves it where the user put it.
@@ -1805,8 +1808,9 @@ addEventListener("keydown", e => {
   if (e.key === "F12") {
     take();
     locked = !locked;
-    // The keystrokes go to the shell, so a closed drawer opens.
-    if (locked && pane(0)?.drawer && layout.focus !== 0 && focused()?.kind !== "editor") act({ act: "focus", pane: 0 });
+    // The keystrokes go to the shell, so a closed drawer opens; an unlock sends no layout, so repaint here.
+    if (toShell() && pane(0)?.drawer && layout.focus !== 0) act({ act: "focus", pane: 0 });
+    if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
     followFocus(true);
     return paintHint();
   }
