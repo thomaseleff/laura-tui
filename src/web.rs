@@ -264,7 +264,7 @@ impl WebServer {
 
     /// Write this workspace's record, which the Laura server and the other workspaces list. The
     /// record holds the token, so only the user can read it.
-    pub fn register(&self, title: Option<&str>, program: &str) -> Result<()> {
+    pub fn register(&self, title: Option<&str>, waiting: bool, program: &str) -> Result<()> {
         let dir = workspaces_dir();
         let mut b = std::fs::DirBuilder::new();
         b.recursive(true);
@@ -273,7 +273,8 @@ impl WebServer {
         b.create(&dir)?;
         let root = crate::gitdiff::strip_verbatim(self.root.clone());
         let record = json!({"url": self.url, "root": root.to_string_lossy(), "pid": std::process::id(),
-                            "title": title, "program": program, "started": self.started});
+                            "title": title, "waiting": waiting, "program": program,
+                            "started": self.started});
         write_private(
             &record_path(std::process::id()),
             record.to_string().as_bytes(),
@@ -295,7 +296,8 @@ impl WebServer {
                     .map(|w| {
                         let root = shown_root(Path::new(w["root"].as_str().unwrap_or("")));
                         json!({"url": w["url"], "title": w["title"], "root": root,
-                               "program": w["program"], "current": w["url"] == url.as_str()})
+                               "program": w["program"], "waiting": w["waiting"],
+                               "current": w["url"] == url.as_str()})
                     })
                     .collect();
                 let frame = json!({"t": "workspaces", "list": list,
@@ -702,13 +704,16 @@ pub(crate) fn record_path(pid: u32) -> PathBuf {
     workspaces_dir().join(format!("{pid}.json"))
 }
 
-/// Write `bytes` to `path`, a file that only the user can read on Unix.
+/// Write `bytes` to `path`, a file that only the user can read on Unix. Writes a `.tmp` beside
+/// `path` and renames it over `path`, so a reader never sees a half-written file.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("tmp");
     let mut f = std::fs::OpenOptions::new();
     f.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
-    f.open(path)?.write_all(bytes)?;
+    f.open(&tmp)?.write_all(bytes)?;
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
@@ -732,7 +737,9 @@ pub fn live() -> Vec<Value> {
         return vec![];
     };
     let mut out = vec![];
-    for path in dir.flatten().map(|e| e.path()) {
+    // Not a `.tmp` that `write_private` is writing.
+    let records = dir.flatten().map(|e| e.path());
+    for path in records.filter(|p| p.extension().is_some_and(|e| e == "json")) {
         // A record that a workspace is writing right now doesn't parse yet: skip it this time.
         let Some(v) = std::fs::read(&path)
             .ok()
@@ -1134,7 +1141,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
-           "agent": tab.agent, "hints": hints, "panes": panes})
+           "agent": tab.agent, "waiting": tab.waiting, "hints": hints, "panes": panes})
     .to_string()
 }
 

@@ -36,7 +36,7 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 When a file pane, a browser pane or an editor pane is open, the panes fill the workspace, and Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus.
 
-The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints.
+The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits), the shell button is amber and shows `Waiting for you`, and the browser tab shows `●` before `Laura`.
 
 To open the drawer, do one of these:
 
@@ -64,6 +64,14 @@ To switch to another workspace:
 2. Press `Enter` to switch to the selected workspace, or press `↑` or `↓` to select a different workspace first. You can also click the workspace.
 
 Laura loads the other workspace in the same browser tab. The workspace that you leave keeps running.
+
+The dot before each workspace in the list and in the pane selector shows its state:
+
+- Amber: the agent in that workspace [waits for you](workspace.md#know-when-the-agent-waits). The row also shows `Waiting for you`.
+- Blue: the workspace that you are in.
+- Grey: any other workspace.
+
+While another workspace waits for you, the workspace switcher shows an amber dot before ▾.
 
 - To open a workspace in a new browser tab, click **↗** on its row or press `Ctrl+Enter`. `Ctrl`+click, `Cmd`+click and a middle click also open a new browser tab.
 - To close the list, press `Esc` or click outside the list.

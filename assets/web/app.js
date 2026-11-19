@@ -620,6 +620,7 @@ function onLayout(m) {
   followFocus();
   paintHint();
   paintStatus();
+  paintTitle();
   paintNotice();
   // A pane that closes or freezes changes the pane selector's rows.
   if (popup !== null) paintSelector();
@@ -1019,9 +1020,11 @@ function paintShellButton() {
   if (b.hidden) return;
   const open = drawerOpen(), t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
   b.classList.toggle("open", open);
+  b.classList.toggle("wait", layout.waiting);
+  b.querySelector(".say").hidden = !layout.waiting;
   b.querySelector("b").textContent = s.name;
   b.dataset.tip = t;
-  b.setAttribute("aria-label", t);
+  b.setAttribute("aria-label", layout.waiting ? `${t} · Waiting for you` : t);
 }
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());
 $("sbtn").addEventListener("click", () => (draft ? followFocus(true) : toggleShell()));
@@ -1654,6 +1657,10 @@ function spaceRow(w) {
   b.className = "prow";
   b.dataset.url = w ? w.url : server;
   b.innerHTML = w ? '<span class="wdot"></span><span class="name"></span><span class="mute"></span>' : '<span class="pid">+</span><span class="name">New workspace…</span>';
+  if (w?.waiting) {
+    b.querySelector(".wdot").classList.add("w");
+    b.insertAdjacentHTML("beforeend", '<span class="wait">Waiting for you</span>');
+  }
   if (w) {
     b.querySelector(".name").textContent = spaceLabel(w);
     b.querySelector(".name").classList.toggle("fallback", !w.title);
@@ -2028,9 +2035,10 @@ function go(url, tab) {
 const folderName = root => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
 const spaceLabel = w => w.title ?? folderName(w.root);
 
-// The browser tab: the session label, or the folder name before the agent sets one.
-function paintTitle(label) {
-  document.title = `Laura · ${label}`;
+// The browser tab: the session label, or the folder name before the agent sets one, with `● `
+// in front while the agent waits for the user.
+function paintTitle() {
+  document.title = `${layout?.waiting ? "● " : ""}Laura · ${$("wlabel").textContent}`;
 }
 
 // The workspace switcher: the session label and the folder, or the folder name in grey before the
@@ -2038,11 +2046,12 @@ function paintTitle(label) {
 function paintSwitcher() {
   const root = strings.root ?? "", title = spaces.find(w => w.current)?.title;
   $("wlabel").textContent = title ?? folderName(root);
-  paintTitle($("wlabel").textContent);
+  paintTitle();
   $("wlabel").classList.toggle("fallback", !title);
   $("wroot").textContent = title ? root : "";
   const menu = spaces.length > 1 || !!server;
   $("caret").hidden = $("wsw").disabled = !menu;
+  $("wwait").hidden = !spaces.some(w => !w.current && w.waiting);
   if (menu) $("wsw").dataset.tip = "Switch workspace";
   else delete $("wsw").dataset.tip;
   // With a Laura server, the brand opens its page; with no `href`, the brand is plain text.
@@ -2079,7 +2088,9 @@ function paintMenu() {
   const rows = spaces.map(w => {
     const mi = div(`mi${w.current ? " cur" : ""}${w.url === on ? " on" : ""}`);
     mi.setAttribute("role", "menuitem");
-    mi.innerHTML = '<span class="wdot"></span><div class="mt"><div class="wl"></div><div class="p"></div></div>'
+    const wait = w.waiting && !w.current;
+    mi.innerHTML = `<span class="wdot${wait ? " w" : ""}"></span><div class="mt"><div class="wl"></div><div class="p"></div></div>`
+      + (wait ? '<span class="wait">Waiting for you</span>' : "")
       + (w.current ? '<span class="chk" aria-label="This workspace">✓</span>' : '<button class="nt" aria-label="Open in a new tab" data-tip="Open in a new tab">↗</button>');
     if (w.current) mi.setAttribute("aria-current", "true");
     else mi.dataset.url = w.url;

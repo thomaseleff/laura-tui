@@ -288,6 +288,31 @@ pub enum UserAction {
     },
 }
 
+/// Whether `b` holds only mouse reports: SGR (`\e[<b;x;yM`) or X10 (`\e[M` and 3 bytes).
+fn only_mouse(mut b: &[u8]) -> bool {
+    if b.is_empty() {
+        return false;
+    }
+    while !b.is_empty() {
+        if let Some(rest) = b.strip_prefix(b"\x1b[<") {
+            let Some(end) = rest.iter().position(|c| !matches!(c, b'0'..=b'9' | b';')) else {
+                return false;
+            };
+            if !matches!(rest[end], b'M' | b'm') {
+                return false;
+            }
+            b = &rest[end + 1..];
+        } else if let Some(rest) = b.strip_prefix(b"\x1b[M")
+            && rest.len() >= 3
+        {
+            b = &rest[3..];
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
 fn no_pane(pane: PaneId) -> String {
     format!("no pane #{pane}")
 }
@@ -366,6 +391,10 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
+    /// The shell rang the bell or sent a notification since the user last typed in it: the agent waits for the user.
+    pub waiting: bool,
+    /// The shell's bell count that `drain` last saw.
+    bells: u64,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -444,6 +473,8 @@ impl Tab {
             agent: false,
             journal: None,
             title: None,
+            waiting: false,
+            bells: 0,
             shell_size: None,
             docked: false,
             hold: false,
@@ -611,8 +642,15 @@ impl Tab {
             }
             A::Dock => {}
             A::Drawer => self.docked = false,
-            A::Input { pane, bytes } => self.write_keys(pane, &bytes)?,
-            A::Paste { pane, text } => self.write_keys(pane, &bracketed_paste(&text, false))?,
+            A::Input { pane, bytes } => {
+                self.write_keys(pane, &bytes)?;
+                // A wheel or a click in the shell isn't an answer to the agent.
+                self.waiting &= pane != PTY_PANE || only_mouse(&bytes);
+            }
+            A::Paste { pane, text } => {
+                self.write_keys(pane, &bracketed_paste(&text, false))?;
+                self.waiting &= pane != PTY_PANE;
+            }
             A::Quit => {
                 if let Some(message) = self.unsaved_edits() {
                     return Err(message);
@@ -844,6 +882,7 @@ impl Tab {
             e.editor_view = true;
         }
         self.focus = PTY_PANE;
+        self.waiting = false;
         Ok(())
     }
 
@@ -969,6 +1008,10 @@ impl Tab {
     /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
     pub fn drain(&mut self, area: Rect) -> bool {
         self.area = area;
+        // Before the hold: a bell while the user types a comment still counts.
+        let bells = self.pty.bells();
+        self.waiting |= bells != self.bells;
+        self.bells = bells;
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
         let browsed = self.poll_browsers();
         if self.hold {

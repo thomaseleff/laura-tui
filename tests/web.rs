@@ -1839,7 +1839,7 @@ fn a_nested_item_is_its_own_unit() -> Result<()> {
     Ok(())
 }
 
-/// A stand-in editor that stays up and prints nothing; a `--headless` push exits at once.
+/// A stand-in editor that stays up and prints `fake` (after a bell on unix); a `--headless` push exits at once.
 fn fake_nvim() -> std::path::PathBuf {
     static ONCE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
@@ -1854,7 +1854,7 @@ fn fake_nvim() -> std::path::PathBuf {
         #[cfg(not(windows))]
         let (name, body) = (
             "nvim",
-            "#!/bin/sh\n[ \"$1\" = --headless ] && exit 0\necho fake\nsleep 30\n",
+            "#!/bin/sh\n[ \"$1\" = --headless ] && exit 0\nprintf '\\007'\necho fake\nsleep 30\n",
         );
         let f = dir.join(name);
         std::fs::write(&f, body).unwrap();
@@ -2175,6 +2175,87 @@ fn a_binary_frame_reaches_the_shell() -> Result<()> {
     frame.extend(b"echo binmark\r");
     ws.send(Message::binary(frame))?;
     rig.shell_shows("binmark");
+    Ok(())
+}
+
+/// `bytes` typed into pane `id`, as the web app's terminal sends them.
+fn type_in(ws: &mut Ws, id: u64, bytes: &[u8]) -> Result<()> {
+    let mut frame = id.to_be_bytes().to_vec();
+    frame.extend(bytes);
+    ws.send(Message::binary(frame))?;
+    Ok(())
+}
+
+/// #190: the terminal bell makes the workspace wait; a wheel in the shell doesn't end the wait, and
+/// typing does.
+#[cfg(unix)]
+#[test]
+fn the_bell_makes_the_workspace_wait_until_the_user_types() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let layout = layout_when(&mut rig, &mut ws, "layout", |_| true);
+    assert_eq!(layout["waiting"], false, "{layout}");
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    type_in(&mut ws, 0, b"\x1b[<64;10;5M")?;
+    // Frames apply in order: once the act replies, the wheel has reached the shell.
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    rig.idle(&mut ws, 10);
+    assert!(rig.tab.waiting, "a wheel ended the wait");
+    type_in(&mut ws, 0, b"x")?;
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    Ok(())
+}
+
+/// #190: OSC 9 and OSC 777 `notify` make the workspace wait; OSC 9's progress report doesn't.
+#[cfg(unix)]
+#[test]
+fn a_notification_makes_the_workspace_wait_and_a_progress_report_does_not() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    for seq in ["\\033]9;done\\007", "\\033]777;notify;Laura;done\\007"] {
+        type_in(&mut ws, 0, format!("printf '{seq}'\r").as_bytes())?;
+        layout_when(&mut rig, &mut ws, seq, |l| l["waiting"] == true);
+        // `Ctrl+U` empties the line for the next command.
+        type_in(&mut ws, 0, b"\x15")?;
+        layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    }
+    // `'pro''gress'` keeps the echoed command from matching.
+    type_in(
+        &mut ws,
+        0,
+        b"printf '\\033]9;4;1;50\\007'; echo pro''gress\r",
+    )?;
+    rig.shell_shows("progress");
+    rig.idle(&mut ws, 5);
+    assert!(
+        !rig.tab.waiting,
+        "a progress report made the workspace wait"
+    );
+    Ok(())
+}
+
+/// #190: Neovim's bell in an editor pane isn't the agent's: the workspace doesn't wait.
+#[cfg(unix)]
+#[test]
+fn a_bell_in_an_editor_pane_does_not_make_the_workspace_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    rig.tab.editor = Ok(fake_nvim());
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", "--edit", &path]), "1");
+    rig.until(&mut ws, "editor bytes", |f| matches!(f, Frame::Bytes(1, _)));
+    let start = Instant::now();
+    while rig.tab.editors[&1].pty.bells() == 0 {
+        assert!(start.elapsed() < Duration::from_secs(10), "no editor bell");
+        rig.idle(&mut ws, 1);
+    }
+    rig.idle(&mut ws, 5);
+    assert!(
+        !rig.tab.waiting,
+        "the editor's bell made the workspace wait"
+    );
     Ok(())
 }
 

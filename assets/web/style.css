@@ -100,6 +100,10 @@ a.brand[href]:hover .logo { opacity: .75; }
 .mi.cur { cursor: default; background: none; }
 .wdot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .mi.cur .wdot { background: var(--acc); }
+/* A workspace that waits for the user. */
+.wdot.w { background: var(--warn); }
+:is(.mi, .prow) .wait { margin-left: auto; flex: none; white-space: nowrap; color: var(--warn); font: 500 12px var(--sans); }
+.wait + .nt { margin-left: 0; }
 .mt { min-width: 0; }
 .mt > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mt .wl { font-weight: 500; }
@@ -592,6 +596,9 @@ kbd {
 .sbtn .dot { background: var(--faint); }
 .sbtn.busy .dot { background: var(--acc); animation: pulse 1.2s infinite; }
 .sbtn.open { border-color: var(--acc-line); background: var(--acc-soft); }
+.sbtn.wait { border-color: var(--warn-line); background: var(--warn-soft); }
+.sbtn.wait .dot { background: var(--warn); }
+.sbtn .say { color: var(--warn); }
 @keyframes pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .sbtn.busy .dot { animation: none; } }
 #hint { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
@@ -730,6 +737,9 @@ body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-di
 .sv-fallback { font-weight: 400; color: var(--mute); }
 .sv-p { font: 12px var(--mono); color: var(--mute); }
 .sv-open { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.sv-dot.w { background: var(--warn); }
+.sv-wait { flex: none; white-space: nowrap; margin-left: auto; color: var(--warn); font-size: 12.5px; font-weight: 500; }
+.sv-wait + .sv-open { margin-left: 0; }
 .sv-ws li.sv-new { animation: sv-flash 1.6s ease-out; }
 @keyframes sv-flash { from { background: var(--ok-soft); } }
 .sv-ws li.sv-empty { padding: 22px 18px; color: var(--mute); justify-content: center; }
@@ -745,7 +755,7 @@ body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-di
 /* In a narrow window, the row's buttons go below the names, and the form's fields take the width. */
 @media (width < 600px) {
   .sv-ws li { flex-wrap: wrap; }
-  .sv-open { margin-left: 20px; }
+  .sv-open, .sv-wait { margin-left: 20px; }
   .sv-field { grid-template-columns: 1fr; gap: 4px; }
   .sv-row { flex-wrap: wrap; }
   .sv-actions, .sv-msg, .sv-fb { margin-left: 0; padding-left: 0; }

@@ -117,6 +117,7 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **notice** | A message in the bottom-right corner of a pane, or of the workspace above the hint line. | toast, standing warning |
 | **hint line** | A bottom line in the workspace listing the keystrokes for the current context. | footer |
 | **status bar** | The list on the right of the web app's bottom line of what needs the user's attention. | footer |
+| **waiting** | A workspace whose shell rang the terminal bell or sent a notification since the user last typed in the shell. | blocked, idle, pending |
 | **unseen marker** | A dot before a pane's name in the web app when the pane changed while the user worked in another pane. | notice, badge, unread dot |
 | **keystroke** | A key or key combination the user presses (`c`, `Ctrl+L`, `]d`). | key |
 | **overflow** (n., v.) | Content taller than its pane, which the user scrolls to read in full. | clipped, below the fold, doesn't fit |

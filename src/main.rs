@@ -421,14 +421,14 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
     } else {
         program.join(" ")
     };
-    let record = |web: &laura::web::WebServer, title: Option<&str>| {
-        if let Err(e) = web.register(title, &shown) {
+    let record = |web: &laura::web::WebServer, title: Option<&str>, waiting: bool| {
+        if let Err(e) = web.register(title, waiting, &shown) {
             eprintln!("couldn't write the workspace's record: {e}");
         }
     };
-    record(&web, None);
+    record(&web, None, false);
     web.watch();
-    let mut title = None;
+    let (mut title, mut waiting) = (None, false);
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
@@ -451,9 +451,9 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
         if quit || tab.shell_done() {
             break;
         }
-        if tab.title != title {
-            title = tab.title.clone();
-            record(&web, title.as_deref());
+        if tab.title != title || tab.waiting != waiting {
+            (title, waiting) = (tab.title.clone(), tab.waiting);
+            record(&web, title.as_deref(), waiting);
         }
         // Past `shell_done`, an exited shell means unsaved edits: tell a user with no browser open.
         if tab.pty.has_exited() && !told {
