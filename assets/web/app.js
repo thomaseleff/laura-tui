@@ -202,7 +202,7 @@ function termKeys(id, term, e) {
   if (locked) return true;
   if (draft) return false;
   // `code`, so a layout that types another character on that key still shows or hides the shell.
-  if (e.ctrlKey && e.code === "Backquote") return false;
+  if (e.ctrlKey && !e.altKey && e.code === "Backquote") return false;
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
