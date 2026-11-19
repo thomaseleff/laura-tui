@@ -102,7 +102,7 @@ laura layout            Print the layout: per-pane rects + overflow (JSON).
 laura ready             Mark the workspace as hosting an agent (enables commenting and inline reviews). Prints the journal path,
                         the experimental features on, and the layout (JSON).
       --session <id>    Name the journal session (default: laura-<pid>-<n>).
-      --agent <name>    Attribute journal events to this agent name.
+      --agent <name>    Attribute journal events to this agent name, and name the shell after it.
       --title <text>    Label the session in a few words: the session label.
 laura feedback          Append a feedback signal (layout/render quality, a missing tool) to the journal.
       --positive        Positive signal.        (one of --positive/--negative is required)
@@ -144,7 +144,7 @@ Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each
 
 `overflow_rows` counts the rows that don't fit in the pane. When it's above 0, or `clipped` is `true`, the content **overflows** the pane and the user has to scroll to read the full content. `laura open` also warns on stderr when a file's content overflows (`pane #N overflows: …`), and when the pane is too small to show any of it (`pane #N too small to render …`).
 
-Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output.
+Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output. While the web app shows the shell in the [drawer](navigation.md#the-drawer), the shell reports `"drawer": true`, and the other panes fill the workspace. See [the `layout` report](protocol.md#layout) for how `--split 0` works then.
 
 ## Experimental features
 

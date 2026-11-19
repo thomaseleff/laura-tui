@@ -131,6 +131,26 @@ impl PtyTab {
             pixel_height: 0,
         });
         if let Ok(mut p) = self.parser.lock() {
+            // vt100 cuts the rows below a shorter screen; scroll the main screen's rows above the
+            // cursor into the scrollback first, as xterm.js does, so a new view's replay keeps the
+            // last lines. Scroll in a spare parser, so the child's unfinished escape code stays intact.
+            // shortcut: with a scroll region set, `S` scrolls only the region; the full-screen apps that set one redraw on SIGWINCH.
+            let mut spare = vt100::Parser::new(1, 1, 0);
+            std::mem::swap(p.screen_mut(), spare.screen_mut());
+            let alt = spare.screen().alternate_screen();
+            if alt {
+                spare.process(b"\x1b[?47l"); // the main screen, with no clear and no cursor restore
+            }
+            let (row, _) = spare.screen().cursor_position();
+            if row >= rows {
+                let up = row + 1 - rows;
+                spare.process(format!("\x1b[{up}S\x1b[{up}A").as_bytes());
+            }
+            if alt {
+                // `?1049l` restores the cursor saved at entry; `set_size` clamps it to the last row, where the scroll leaves it.
+                spare.process(b"\x1b[?47h");
+            }
+            std::mem::swap(p.screen_mut(), spare.screen_mut());
             p.screen_mut().set_size(rows, cols);
             p.screen_mut().set_scrollback(0); // a resize never leaves a stale mid-history view
         }

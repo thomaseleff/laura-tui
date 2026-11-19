@@ -31,10 +31,10 @@ Before composing a lesson:
 
 ## The four-phase loop
 
-- **Exposition** — teach in ordered steps. Open a markdown pane, and highlight the lines you're explaining with `laura highlight`. Close the previous pane with `laura close` as you open the next one with `laura open`. If `laura close` returns an error because an editor pane has unsaved edits, ask your partner to save (`:w`) or quit Neovim, and don't retry.
+- **Exposition** — teach in ordered steps. Open a markdown pane, and highlight the lines you're explaining with `laura highlight`. Close the previous pane with `laura close` as you open the next one with `laura open`. Pass `--no-focus` to `laura open`, so your partner keeps reading the chat. In the web app, Laura closes the drawer when a pane takes the focus. If `laura close` returns an error because an editor pane has unsaved edits, ask your partner to save (`:w`) or quit Neovim, and don't retry.
 - **Produce** — write a stub file for your partner to complete, then open the stub:
-  - If `laura ready` listed `editor` under `experimental`, run `laura open <stub> --edit` to open an editor pane next to the chat. Laura never focuses an editor pane, so tell your partner to press `Ctrl+P` then the pane id to edit, and `Ctrl+P 0` to return to the chat.
-  - Otherwise, or if `--edit` returns an error, run plain `laura open <stub>` and don't retry. Your partner edits the file in the shell (`vim`, `code .`), and Laura reloads the pane on save.
+  - If `laura ready` listed `editor` under `experimental`, run `laura open <stub> --edit` to open an editor pane. Laura never focuses an editor pane, so tell your partner to press `Ctrl+P` then the pane id to edit, and `Ctrl+P 0` to return to the chat.
+  - Otherwise, or if `--edit` returns an error, run `laura open <stub> --no-focus` and don't retry. Your partner edits the file in the shell (`vim`, `code .`), and Laura reloads the pane on save.
 - **Review** — review your partner's work in **one chat message that references `file:line`**. As you walk through each point, highlight that line with `laura highlight <line> --pane <id>`. An editor pane shows no highlight or diff, and `laura highlight` returns an error on it, so annotate the lines with `laura comment --pane <id>` instead. Then tell your partner to press `Ctrl+L` to read and reply in the file view.
 - **Revise** — your partner edits again, Laura reloads the pane, and you loop back as needed. In an editor pane, the whole loop stays in one pane: when your partner submits, Laura flips the pane back to the editor view for the next revision.
 

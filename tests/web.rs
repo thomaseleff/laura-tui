@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use assert_cmd::Command;
 use laura::UserAction;
-use laura::tab::NO_DIFF_IN_EDITOR;
+use laura::tab::{NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK};
 use serde_json::{Value, json};
 use tungstenite::Message;
 
@@ -226,6 +226,148 @@ fn the_layout_describes_each_pane() -> Result<()> {
     Ok(())
 }
 
+/// The shell takes the `--agent` name of the latest `laura ready`, and is `shell` before it.
+#[test]
+fn the_shell_takes_the_agents_name() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
+    assert_eq!(layout["panes"][0]["name"], "shell", "{layout}");
+    rig.drive(&["ready", "--agent", "claude"]);
+    rig.until(
+        &mut ws,
+        "the agent's name",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["panes"][0]["name"] == "claude"),
+    );
+    Ok(())
+}
+
+/// The web app sizes the shell from its own type, and Laura clamps the size as it clamps `view`.
+#[test]
+fn a_shell_size_resizes_the_shell() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    for (sent, want) in [((50, 12), (12, 50)), ((0, 0), (5, 20))] {
+        send(&mut ws, json!({"shell": {"cols": sent.0, "rows": sent.1}}));
+        let start = Instant::now();
+        while rig.tab.pty.with_screen(|s| s.size()) != want {
+            assert!(
+                start.elapsed() < common::DEADLINE,
+                "never resized to {want:?}"
+            );
+            rig.pump();
+            thread::sleep(Duration::from_millis(5));
+        }
+        // `laura layout` reports the shell's own rows, not its rect's.
+        let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+        assert_eq!(report["panes"][0]["visible_rows"], want.0, "{report}");
+        // The child sees the size too.
+        #[cfg(unix)]
+        {
+            rig.tab.pty.write(b"clear; stty size\r")?;
+            rig.shell_shows(&format!("{} {}", want.0, want.1));
+        }
+    }
+    Ok(())
+}
+
+/// Runs `script` in a 30-row shell, makes the shell 10 rows once the screen shows `ready`, and
+/// returns the screen's trimmed lines once the screen shows `done`.
+#[cfg(unix)]
+fn shrink_during(script: &[u8], ready: &str, done: &str) -> Result<Vec<String>> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    let mut resize = |rig: &mut Rig, rows: u16| {
+        send(&mut ws, json!({"shell": {"cols": 50, "rows": rows}}));
+        let start = Instant::now();
+        while rig.tab.pty.with_screen(|s| s.size()) != (rows, 50) {
+            assert!(
+                start.elapsed() < common::DEADLINE,
+                "never resized to {rows}"
+            );
+            rig.pump();
+            thread::sleep(Duration::from_millis(5));
+        }
+    };
+    resize(&mut rig, 30);
+    rig.tab.pty.write(script)?;
+    rig.shell_shows(ready);
+    resize(&mut rig, 10);
+    rig.shell_shows(done);
+    Ok(rig
+        .tab
+        .pty
+        .with_screen(|s| s.contents())
+        .lines()
+        .map(|l| l.trim().to_owned())
+        .collect())
+}
+
+/// A shorter shell scrolls its top rows into the scrollback, as xterm.js does, else a new view's
+/// replay loses the last lines (#187). The shrink lands inside the child's unfinished escape code,
+/// which must still end as a color, not as text.
+#[cfg(unix)]
+#[test]
+fn a_shorter_shell_keeps_its_last_lines() -> Result<()> {
+    // `'A''Z'` keeps the echoed command from matching `AZ`.
+    let lines = shrink_during(
+        b"clear; seq 40; printf 'A''Z\\033['; sleep 2; printf '31mB\\n'\r",
+        "AZ",
+        "AZB",
+    )?;
+    assert!(
+        lines.iter().any(|l| l == "40") && lines.iter().any(|l| l == "33"),
+        "lost the last lines: {lines:?}"
+    );
+    assert!(!lines.iter().any(|l| l == "12"), "kept the top: {lines:?}");
+    assert!(
+        lines.iter().any(|l| l == "AZB"),
+        "broke the color: {lines:?}"
+    );
+    Ok(())
+}
+
+/// A shrink under a full-screen app keeps the main screen's last lines for when the app quits (#187).
+#[cfg(unix)]
+#[test]
+fn a_shorter_shell_keeps_its_last_lines_under_a_full_screen_app() -> Result<()> {
+    let lines = shrink_during(
+        b"clear; seq 40; printf '\\033[?1049hAL''T'; sleep 2; printf '\\033[?1049lDO''NE\\n'\r",
+        "ALT",
+        "DONE",
+    )?;
+    assert!(
+        lines.iter().any(|l| l == "40") && lines.iter().any(|l| l == "33"),
+        "lost the last lines: {lines:?}"
+    );
+    assert!(!lines.iter().any(|l| l == "12"), "kept the top: {lines:?}");
+    Ok(())
+}
+
+/// A reload's xterm takes the saved screen's size from the layout before the screen comes, else
+/// rows past xterm's default 24 write over others.
+#[test]
+fn a_new_view_gets_the_shells_size_before_its_screen() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.until(&mut ws, "layout", |f| f.is("layout"));
+    send(&mut ws, json!({"shell": {"cols": 50, "rows": 12}}));
+    let start = Instant::now();
+    while rig.tab.pty.with_screen(|s| s.size()) != (12, 50) {
+        assert!(start.elapsed() < common::DEADLINE, "never resized");
+        rig.pump();
+        thread::sleep(Duration::from_millis(5));
+    }
+    let mut reload = rig.connect();
+    let first = rig.until(&mut reload, "layout or screen", |f| {
+        f.is("layout") || matches!(f, Frame::Bytes(0, _))
+    });
+    assert_eq!(first.json()["shell"], json!({"cols": 50, "rows": 12}));
+    Ok(())
+}
+
 /// A markdown pane's header names the highlight's source lines, not its rendered rows.
 #[test]
 fn a_markdown_highlight_names_its_source_lines() -> Result<()> {
@@ -267,22 +409,240 @@ fn the_web_border_is_three_rows() -> Result<()> {
     Ok(())
 }
 
+/// The first `layout` frame that `want` accepts.
+fn layout_when(rig: &mut Rig, ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
+    rig.until(
+        ws,
+        what,
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && want(v)),
+    )
+    .json()
+}
+
+/// Pane `id`'s entry in a `layout` frame.
+fn pane_of(layout: &Value, id: u64) -> &Value {
+    layout["panes"]
+        .as_array()
+        .and_then(|ps| ps.iter().find(|p| p["id"] == id))
+        .unwrap_or(&Value::Null)
+}
+
+/// Pane `id`'s cells in a `layout` frame: x, y, w, h.
+fn cells(layout: &Value, id: u64) -> [u64; 4] {
+    let p = pane_of(layout, id);
+    ["x", "y", "w", "h"].map(|k| p[k].as_u64().unwrap_or(u64::MAX))
+}
+
+/// #187: once a pane opens, the panes fill the workspace and the shell floats in the drawer. The
+/// drawer follows the focus in the web app.
+#[test]
+fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let first = layout_when(&mut rig, &mut ws, "layout", |_| true);
+    assert_eq!(pane_of(&first, 0)["drawer"], false, "{first}");
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    let layout = layout_when(&mut rig, &mut ws, "pane 1", |v| v["focus"] == 1);
+    let (cols, rows) = (layout["cols"].as_u64(), layout["rows"].as_u64());
+    let whole = [0, 0, cols.unwrap_or(0), rows.unwrap_or(0)];
+    assert_eq!(cells(&layout, 1), whole, "{layout}");
+    assert_eq!(cells(&layout, 0), whole, "{layout}");
+    assert_eq!(pane_of(&layout, 0)["drawer"], true, "{layout}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    for id in [0, 1] {
+        let r = &report["panes"][id]["rect"];
+        assert_eq!((&r["x"], &r["y"]), (&json!(0), &json!(0)), "{report}");
+        assert_eq!(
+            (&r["width"], &r["height"]),
+            (&json!(cols), &json!(rows)),
+            "{report}"
+        );
+    }
+    assert_eq!(report["panes"][0]["drawer"], true, "{report}");
+    assert!(report["panes"][1].get("drawer").is_none(), "{report}");
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    let open = layout_when(&mut rig, &mut ws, "the shell", |v| v["focus"] == 0);
+    assert_eq!(
+        open["hints"]["pane"][0],
+        json!(["Ctrl+`", "hide the shell"]),
+        "{open}"
+    );
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    layout_when(&mut rig, &mut ws, "the file pane", |v| v["focus"] == 1);
+    Ok(())
+}
+
+/// **Show the shell as a pane** shows the shell as the left-most pane, at the full height, with
+/// 40% of the width; **Show the shell in a drawer** puts the shell back. Laura keeps the choice
+/// for the workspace.
+#[test]
+fn dock_shows_the_shell_as_a_pane_and_drawer_puts_it_back() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    let layout = layout_when(&mut rig, &mut ws, "pane 1", |v| v["focus"] == 1);
+    let (cols, rows) = (
+        layout["cols"].as_u64().unwrap_or(0),
+        layout["rows"].as_u64().unwrap_or(0),
+    );
+    let acted = rig.act(&mut ws, json!({"act": "dock"}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let docked = layout_when(&mut rig, &mut ws, "docked", |v| {
+        v["panes"][0]["drawer"] == false
+    });
+    let w = cols * 40 / 100;
+    assert_eq!(cells(&docked, 0), [0, 0, w, rows], "{docked}");
+    assert_eq!(cells(&docked, 1), [w, 0, cols - w, rows], "{docked}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    assert!(report["panes"][0].get("drawer").is_none(), "{report}");
+    // The choice outlasts the last pane.
+    rig.drive(&["close", "1"]);
+    rig.drive(&["open", &path]);
+    let again = layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    assert_eq!(pane_of(&again, 0)["drawer"], false, "{again}");
+    assert_eq!(cells(&again, 0)[2], cols / 2, "{again}");
+    rig.act(&mut ws, json!({"act": "drawer"}));
+    let back = layout_when(&mut rig, &mut ws, "drawer", |v| {
+        v["panes"][0]["drawer"] == true
+    });
+    assert_eq!(cells(&back, 2), [0, 0, cols, rows], "{back}");
+    Ok(())
+}
+
+/// The shell docks only when every pane still fits beside the shell.
+#[test]
+fn dock_needs_room_for_every_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    send(&mut ws, json!({"view": {"cols": 40, "rows": 20}}));
+    rig.until(
+        &mut ws,
+        "resized layout",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["cols"] == 40),
+    );
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    // Pane 2 gets 4 of the 40 columns, and would get 2 beside the shell.
+    rig.drive(&["open", &b, "--split", "1", "--dir", "h", "--ratio", "8"]);
+    layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    let acted = rig.act(&mut ws, json!({"act": "dock"}));
+    assert_eq!(acted["ok"], false, "{acted}");
+    assert_eq!(acted["text"], NO_ROOM_TO_DOCK, "{acted}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    assert_eq!(report["panes"][0]["drawer"], true, "{report}");
+    Ok(())
+}
+
+/// A close doesn't open the drawer: Laura focuses the first other pane, and with none left the
+/// shell fills the workspace and takes the focus.
+#[test]
+fn a_close_in_drawer_mode_focuses_another_pane() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    rig.drive(&["open", &b]);
+    layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    rig.act(&mut ws, json!({"act": "close", "pane": 2}));
+    let one = layout_when(&mut rig, &mut ws, "one pane", |v| {
+        v["panes"].as_array().is_some_and(|p| p.len() == 2)
+    });
+    assert_eq!(one["focus"], 1, "{one}");
+    rig.act(&mut ws, json!({"act": "close", "pane": 1}));
+    let alone = layout_when(&mut rig, &mut ws, "the shell alone", |v| {
+        v["panes"].as_array().is_some_and(|p| p.len() == 1)
+    });
+    assert_eq!(alone["focus"], 0, "{alone}");
+    assert_eq!(pane_of(&alone, 0)["drawer"], false, "{alone}");
+    let whole = [
+        0,
+        0,
+        alone["cols"].as_u64().unwrap_or(0),
+        alone["rows"].as_u64().unwrap_or(0),
+    ];
+    assert_eq!(cells(&alone, 0), whole, "{alone}");
+    Ok(())
+}
+
+/// In drawer mode, Laura tiles as if the shell weren't there: a second open dwindles across the
+/// whole area, and a split of the shell splits the first other pane.
+#[test]
+fn drawer_mode_tiles_without_the_shell() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    rig.drive(&["open", &b]);
+    let two = layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    let (cols, rows) = (
+        two["cols"].as_u64().unwrap_or(0),
+        two["rows"].as_u64().unwrap_or(0),
+    );
+    assert_eq!(cells(&two, 1), [0, 0, cols / 2, rows], "{two}");
+    assert_eq!(
+        cells(&two, 2),
+        [cols / 2, 0, cols - cols / 2, rows],
+        "{two}"
+    );
+    // The focus on the shell is the open drawer; `--split 0` names the shell too.
+    rig.drive(&["focus", "0"]);
+    rig.drive(&["open", &a, "--dir", "h"]);
+    let three = layout_when(&mut rig, &mut ws, "pane 3", |v| v["focus"] == 3);
+    assert_eq!(
+        cells(&three, 1)[2] + cells(&three, 3)[2],
+        cols / 2,
+        "{three}"
+    );
+    assert_eq!(cells(&three, 2), cells(&two, 2), "{three}");
+    rig.drive(&["open", &b, "--split", "0", "--dir", "v"]);
+    let four = layout_when(&mut rig, &mut ws, "pane 4", |v| v["focus"] == 4);
+    assert_eq!(cells(&four, 1)[3] + cells(&four, 4)[3], rows, "{four}");
+    Ok(())
+}
+
+/// `Shift+S` focuses the shell, which opens the drawer, so the user sees the agent answer.
+#[test]
+fn a_submit_opens_the_drawer() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready"]);
+    rig.act(
+        &mut ws,
+        json!({"act": "comment", "pane": 1, "line": 2, "text": "why"}),
+    );
+    let acted = rig.act(&mut ws, json!({"act": "submit", "pane": 1, "body": ""}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let open = layout_when(&mut rig, &mut ws, "the shell", |v| v["focus"] == 0);
+    assert_eq!(pane_of(&open, 0)["drawer"], true, "{open}");
+    Ok(())
+}
+
 /// #112: a bare open fits a stacked pane to its file's rows plus the web app's three-row border.
-/// The browser draws markdown blocks taller than their rows, so a markdown file gets half.
+/// The browser draws markdown blocks taller than their rows, so a markdown file gets half. The
+/// shell is in the drawer, so the second pane splits the first side by side, and the third stacks.
 #[test]
 fn a_stacked_split_fits_a_plain_file_but_not_markdown_in_the_web_app() -> Result<()> {
     for (name, body, want) in [
-        ("b.txt", five_lines(), 8),
-        ("b.txt", String::new(), 4),
-        ("b.md", "# Title\n\npara\n".to_string(), 20),
+        ("c.txt", five_lines(), 8),
+        ("c.txt", String::new(), 4),
+        ("c.md", "# Title\n\npara\n".to_string(), 20),
     ] {
         let mut rig = Rig::new()?;
-        let (_a, filler) = file("a.txt", "x\n")?;
-        let (_b, path) = file(name, &body)?;
-        rig.drive(&["open", &filler]);
+        let (_a, a) = file("a.txt", "x\n")?;
+        let (_b, b) = file("b.txt", "x\n")?;
+        let (_c, path) = file(name, &body)?;
+        rig.drive(&["open", &a]);
+        rig.drive(&["open", &b]);
         rig.drive(&["open", &path]);
         let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
-        assert_eq!(report["panes"][2]["rect"]["height"], want, "{report}");
+        assert_eq!(report["panes"][3]["rect"]["height"], want, "{report}");
     }
     Ok(())
 }

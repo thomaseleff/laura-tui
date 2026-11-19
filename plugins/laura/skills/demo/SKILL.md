@@ -104,6 +104,8 @@ done
 >
 > Send `Next` to learn how to interact with your agent in a pane.
 
+_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here."_
+
 _Then **wait for `Next`**, and `laura close --all`._
 
 ---
@@ -126,7 +128,7 @@ Review before we ship.
 
 Open question: should refresh tokens rotate on every use?
 EOF
-DOC=$(laura open "$D/plan.md" --ratio 55)
+DOC=$(laura open "$D/plan.md" --ratio 55 --no-focus)
 # Annotate the spec for your partner to reply to. Line numbers are
 # 1-based *file* lines (count them in the heredoc, not the rendered view).
 laura comment 6 "suggest 1 hour — 24h is a long window for a bearer token" --pane "$DOC"
@@ -138,9 +140,9 @@ laura comment 6 "suggest 1 hour — 24h is a long window for a bearer token" --p
 >
 > Beyond laying out panes, Laura lets you review with your agent in every pane, next to the chat.
 >
-> I opened a plan in the pane to the right and left a comment for you. Reply to my comment and add your own:
+> I opened a plan in a new pane and left a comment for you. Reply to my comment and add your own:
 >
-> 1. Laura focuses a new pane when it opens. To focus another pane, press `Ctrl+P` then the pane's number. Press `Esc` in a file pane to return to the chat.
+> 1. To focus the plan pane, press `Ctrl+P`, then the pane's number. Press `Esc` in a file pane to return to the chat.
 > 2. In the plan pane, press `↑`/`↓` to move the cursor to L6, the **"Every token expires 24 hours…"** line. My comment shows as a card under the line. Press `c`, type `Agreed`, then press `Enter` to reply.
 > 3. Move to L11, the **"Open question: should refresh tokens rotate…"** line. Press `c`, type `Sounds good`, then press `Enter`. L11 has no thread yet, so your comment starts a **new** thread.
 > 4. Press `r` on a thread to collapse or expand the thread. Press `r` on a line without a thread to collapse or expand every thread in the pane.
@@ -219,16 +221,17 @@ def issue(user):
     set_httponly_cookie(token)
     return token
 EOF
-laura open "$R/tokens.py" --diff --ratio 55   # focused, straight into the inline diff vs HEAD
+laura open "$R/tokens.py" --diff --ratio 55 --no-focus   # the inline diff vs HEAD
 ```
 
 **Say (git available):**
 
 > **[3 / 5] Code review**
 >
-> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff. I opened the full diff in the pane to the right.
+> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff. I opened the full diff in a new pane.
 >
-> 1. Press `d` to turn the diff view **off**. Laura shows the file with the gutter markers. Press `d` again to turn the diff view back on.
+> 1. Press `Ctrl+P`, then the pane's number, to focus the diff.
+> 2. Press `d` to turn the diff view **off**. Laura shows the file with the gutter markers. Press `d` again to turn the diff view back on.
 >
 > In the diff view, press `↑`/`↓` to move and `Esc` to return to the chat. To comment, press `d` to turn the diff view off, then press `c`. Press `Shift+S` to submit. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
@@ -254,16 +257,17 @@ diff --git a/auth/tokens.py b/auth/tokens.py
 +    set_httponly_cookie(token)
      return token
 EOF
-laura open "$D/tokens.diff" --ratio 55   # git absent — show the static patch instead
+laura open "$D/tokens.diff" --ratio 55 --no-focus   # git absent — show the static patch instead
 ```
 
 **Say (git unavailable):**
 
 > **[3 / 5] Code review**
 >
-> Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in the pane to the right. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff.
+> Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in a new pane. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff.
 >
-> The patch is still a file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
+> 1. Press `Ctrl+P`, then the pane's number, to focus the diff.
+> 2. The patch is still a file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
 > **Suggested prompts**
 >
@@ -299,7 +303,7 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 
 > **[4 / 5] Debug**
 >
-> I opened a source file in the pane to the right, ran the code, and piped its logs into a tail pane below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.
+> I opened a source file in a new pane, ran the code, and piped its logs into a tail pane below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.
 >
 > Press `p` in the tail pane to pause the tail pane and read the output. Press `p` again to follow the newest output.
 >
@@ -335,7 +339,7 @@ ED=$(laura open "$D/retry.py" --edit --ratio 55)   # never takes focus
 
 > **Bonus · Edit together**
 >
-> The pane to the right is an **editor pane**, where you edit the file in Neovim next to the chat.
+> The new pane is an **editor pane**, where you edit the file in Neovim.
 >
 > 1. Press `Ctrl+P`, then the pane's number, to edit the file. Change `2 ** tries` to `min(2 ** tries, 60)` and save with `:w`.
 > 2. Tell me when you've saved.
@@ -391,14 +395,14 @@ cat > "$D/notes.md" <<'EOF'
 
 The cap on retries is 60 seconds.
 EOF
-laura open "$D/page.html" --ratio 55
+laura open "$D/page.html" --ratio 55 --no-focus
 ```
 
 **Say:**
 
 > **Bonus · See a page**
 >
-> I opened `page.html` in the pane to the right. Laura shows the page with its stylesheet and runs its script when you click **Save**.
+> I opened `page.html` in a new pane. Laura shows the page with its stylesheet and runs its script when you click **Save**.
 >
 > 1. Click **Save**. Laura moves the cursor to the button's line.
 > 2. Click the comment-mode button in the pane's header, then click **Save**. Laura shows the comment box below the button. Type a comment, press `Enter`, then click **Done** to leave comment mode.
@@ -423,7 +427,7 @@ _Next, show a page from a URL. Serve `$D` with any static file server; the examp
 python -m http.server 8765 --directory "$D" >/dev/null 2>&1 & SRV=$!
 # Wait for the server.
 until curl -s -o /dev/null http://localhost:8765/; do sleep 0.5; done
-P=$(laura open http://localhost:8765/page.html --ratio 55)
+P=$(laura open http://localhost:8765/page.html --ratio 55 --no-focus)
 # Retry while the page loads.
 while laura highlight button --pane $P 2>&1 | grep -q "is still loading"; do sleep 1; done
 ```
@@ -434,7 +438,7 @@ _If `laura highlight` returns another error, tell your partner and skip this bea
 
 > **Bonus · See a page from a URL**
 >
-> I started a small web server and opened `http://localhost:8765/page.html` in a browser pane to the right. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Save** button by its CSS selector, so Laura outlines it.
+> I started a small web server and opened `http://localhost:8765/page.html` in a new browser pane. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Save** button by its CSS selector, so Laura outlines it.
 >
 > 1. Click **Save** in the pane. The page changes the button to **Saved**, as in your own browser.
 > 2. Press `Ctrl+R` in the pane to refresh the pane. Laura reloads the page.

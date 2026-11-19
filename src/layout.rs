@@ -87,6 +87,29 @@ impl Layout {
         }
     }
 
+    /// The tree with `pane`'s leaf collapsed; `None` when the leaf is the whole tree.
+    pub fn without(&self, pane: PaneId) -> Option<Layout> {
+        if *self == Layout::Pane(pane) {
+            return None;
+        }
+        let mut rest = self.clone();
+        rest.collapse(pane);
+        Some(rest)
+    }
+
+    /// Move `pane`'s leaf to the left of the other panes, at the full height, with `ratio` percent
+    /// of the width. With one leaf, nothing changes.
+    pub fn dock_left(&mut self, pane: PaneId, ratio: u16) {
+        if let Some(rest) = self.without(pane) {
+            *self = Layout::Split {
+                dir: Dir::Horizontal,
+                ratio,
+                first: Box::new(Layout::Pane(pane)),
+                second: Box::new(rest),
+            };
+        }
+    }
+
     /// True if `pane` is a leaf anywhere in this tree.
     pub fn contains(&self, pane: PaneId) -> bool {
         match self {

@@ -26,6 +26,14 @@ Laura serves the workspace to this computer only. Over SSH, run `laura --tui`, o
 > [!TIP]
 > To show the workspace in the terminal, run `laura --tui -- claude`. See [Navigating the TUI](tui-navigation.md).
 
+## The shell
+
+The agent runs in the shell, pane `0`. Laura shows the shell in white, with Laura's light colors, so the chat reads like the rest of the workspace. When the agent prints a color that is hard to read on white, Laura darkens the color. An editor pane keeps its dark colors.
+
+The pane header names the shell after the agent: the name that the agent gives with `laura ready --agent`, such as `claude`. Before the agent runs `laura ready`, the pane header shows `shell`. The pane selector shows the same name, also in the TUI.
+
+When the agent opens a pane, the panes fill the workspace, and Laura shows the shell in a drawer over the panes. Press ``Ctrl+` `` to open or close the drawer. To keep the shell beside the panes, click **Show the shell as a pane** in the drawer. See [The drawer](navigation.md#the-drawer).
+
 ## Review a file
 
 1. Hover a line and click **+**, or move the cursor to the line and press `c`.

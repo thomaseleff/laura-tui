@@ -393,3 +393,19 @@ fn the_agent_cannot_act_as_the_user() -> Result<()> {
     assert!(!shell_text(&tab).contains("laura review"));
     Ok(())
 }
+
+/// #187: the TUI always shows the shell as a pane. `laura layout` has no `drawer`, and the web
+/// app's **Show the shell as a pane** and
+/// **Show the shell in a drawer** change nothing.
+#[test]
+fn the_tui_has_no_drawer() -> Result<()> {
+    let (mut tab, _dir, _path) = tab_with("a.rs", &five_lines())?;
+    let before = drive(&mut tab, &["layout"]);
+    assert!(!before.contains("drawer"), "{before}");
+    let layout = tab.layout.clone();
+    tab.act(UserAction::Dock)?;
+    tab.act(UserAction::Drawer)?;
+    assert_eq!(tab.layout, layout);
+    assert_eq!(drive(&mut tab, &["layout"]), before);
+    Ok(())
+}

@@ -1,5 +1,6 @@
 //! One workspace: a PTY, its panels, the split tree, and the socket that ties them together.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
@@ -26,22 +27,29 @@ use crate::protocol::{
 use crate::pty::PtyTab;
 use crate::web;
 
-/// Walk `layout`'s rects and, for each panel, measure content vs. visible rows to fill a `LayoutReport`.
+/// For each pane's rect, measure content vs. visible rows to fill a `LayoutReport`.
 /// `web`: the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell takes a
-/// column (`web::GAP`).
+/// column (`web::GAP`). `drawer`: the shell floats in the drawer. `shell_rows`: the shell's own
+/// rows from the web app, which differ from its rect while the shell is in the drawer.
+#[allow(clippy::too_many_arguments)] // one per input both reports share
 fn build_report(
-    layout: &Layout,
+    rects: HashMap<PaneId, Rect>,
     panels: &HashMap<PaneId, &Panel>,
     editors: &HashMap<PaneId, Nvim>,
     browsers: &HashMap<PaneId, Page>,
     area: Rect,
     web: bool,
+    drawer: bool,
+    shell_rows: Option<u16>,
 ) -> LayoutReport {
-    let mut panes: Vec<PaneReport> = rects(layout, area)
+    let mut panes: Vec<PaneReport> = rects
         .into_iter()
         .map(|(id, rect)| {
             let border = if web { 3 } else { 2 };
-            let visible_rows = rect.height.saturating_sub(border) as usize;
+            let visible_rows = match shell_rows {
+                Some(rows) if id == PTY_PANE => rows as usize,
+                _ => rect.height.saturating_sub(border) as usize,
+            };
             let inner_w = rect.width.saturating_sub(if web { 3 } else { 2 }).max(1) as usize;
             let too_small = rect.width < 3 || rect.height < border + 1;
             let mut title = None;
@@ -75,6 +83,7 @@ fn build_report(
                 clipped: overflow_rows > 0 || too_small,
                 title,
                 paused: panels.get(&id).is_some_and(|p| p.paused),
+                drawer: drawer && id == PTY_PANE,
             }
         })
         .collect();
@@ -125,6 +134,9 @@ pub const SUBMIT_FAILED: &str =
 /// `SUBMIT_FAILED` in the web app, whose review popover names the keystrokes on its buttons.
 pub const SUBMIT_FAILED_WEB: &str =
     "⚠ Laura did not submit the inline review, but kept its threads and review body.";
+/// **Show the shell as a pane** when a pane would get too small beside the shell.
+pub const NO_ROOM_TO_DOCK: &str =
+    "⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
@@ -218,6 +230,10 @@ pub enum UserAction {
     },
     /// `Ctrl+Q`: `Ok` means the caller may ask `y` and end the workspace.
     Quit,
+    /// **Show the shell as a pane**: the shell as the left-most pane, at the full height. The TUI ignores it.
+    Dock,
+    /// **Show the shell in a drawer**: the shell back in the drawer.
+    Drawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
     BrowserMouse {
@@ -350,6 +366,11 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
+    /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
+    /// type; `None` sizes the shell to its pane, as the TUI always does.
+    pub shell_size: Option<(u16, u16)>,
+    /// The user showed the shell as a pane (**Show the shell as a pane**) in the web app, in place of the drawer.
+    pub docked: bool,
     /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
     pub hold: bool,
     /// Editor panes' Neovim, by pane id. Each also has its file panel in `panels`.
@@ -423,6 +444,8 @@ impl Tab {
             agent: false,
             journal: None,
             title: None,
+            shell_size: None,
+            docked: false,
             hold: false,
             editors: HashMap::new(),
             editor: Err(editor::FLAG_OFF.into()),
@@ -577,6 +600,17 @@ impl Tab {
                 let e = self.editors.get_mut(&pane).ok_or_else(|| no_pane(pane))?;
                 e.editor_view = !e.editor_view;
             }
+            A::Dock if self.web => {
+                let mut probe = self.layout.clone();
+                probe.dock_left(PTY_PANE, 40);
+                if !all_panes_fit(&probe, self.area) {
+                    return Err(NO_ROOM_TO_DOCK.into());
+                }
+                self.layout = probe;
+                self.docked = true;
+            }
+            A::Dock => {}
+            A::Drawer => self.docked = false,
             A::Input { pane, bytes } => self.write_keys(pane, &bytes)?,
             A::Paste { pane, text } => self.write_keys(pane, &bracketed_paste(&text, false))?,
             A::Quit => {
@@ -820,11 +854,14 @@ impl Tab {
             self.focus = id;
         }
         if self.focus != PTY_PANE && !self.panels.contains_key(&self.focus) {
-            self.focus = PTY_PANE;
+            self.focus = self.fallback_focus();
         }
-        let rect_map = rects(&self.layout, content);
+        let rect_map = self.rects(content);
         let pty_inner = self.inner(rect_map.get(&PTY_PANE).copied().unwrap_or(content));
-        self.resize_to(pty_inner.height, pty_inner.width);
+        let (rows, cols) = self
+            .shell_size
+            .unwrap_or((pty_inner.height, pty_inner.width));
+        self.resize_to(rows, cols);
         for (id, r) in &rect_map {
             let inner = self.inner(*r);
             if let Some(e) = self.editors.get_mut(id) {
@@ -849,6 +886,59 @@ impl Tab {
         }
     }
 
+    /// The web app shows the shell in the drawer, over the other panes: the user didn't dock it,
+    /// and another pane is open. The TUI always shows the shell as a pane.
+    pub fn drawer_in_use(&self) -> bool {
+        self.web && !self.docked && self.layout != Layout::Pane(PTY_PANE)
+    }
+
+    /// The tree that `l` draws: without the shell's leaf while the shell is in the drawer. The
+    /// shell's leaf stays in `layout`, so its rules hold.
+    fn shown<'a>(&self, l: &'a Layout) -> Cow<'a, Layout> {
+        match (self.web && !self.docked)
+            .then(|| l.without(PTY_PANE))
+            .flatten()
+        {
+            Some(rest) => Cow::Owned(rest),
+            None => Cow::Borrowed(l),
+        }
+    }
+
+    /// Each pane's rect in `l` at `area`. The drawer floats over the panes, so the shell gets the
+    /// whole area.
+    fn tree_rects(&self, l: &Layout, area: Rect) -> HashMap<PaneId, Rect> {
+        let mut map = rects(&self.shown(l), area);
+        map.entry(PTY_PANE).or_insert(area);
+        map
+    }
+
+    /// Each pane's rect at `area`: the one source of geometry for drawing and for overflow.
+    pub fn rects(&self, area: Rect) -> HashMap<PaneId, Rect> {
+        self.tree_rects(&self.layout, area)
+    }
+
+    /// The pane that takes the focus when the focused pane goes: the first other pane while the
+    /// drawer is in use, so a close doesn't open the drawer, else the shell.
+    fn fallback_focus(&self) -> PaneId {
+        let other = self
+            .layout
+            .order()
+            .into_iter()
+            .find(|id| self.panels.contains_key(id));
+        match other {
+            Some(id) if self.drawer_in_use() => id,
+            _ => PTY_PANE,
+        }
+    }
+
+    /// The shell's name: the `--agent` name of the latest `laura ready`, else `shell`.
+    pub fn shell_name(&self) -> String {
+        self.journal
+            .as_ref()
+            .and_then(Journal::agent)
+            .unwrap_or_else(|| "shell".into())
+    }
+
     /// The focused panel, if a panel (not the PTY) has focus.
     pub fn focused_panel(&self) -> Option<&Panel> {
         (self.focus != PTY_PANE)
@@ -864,12 +954,14 @@ impl Tab {
     /// Current geometry + overflow at draw area `area`.
     pub fn report(&self, area: Rect) -> LayoutReport {
         build_report(
-            &self.layout,
+            self.rects(area),
             &self.panel_refs(),
             &self.editors,
             &self.browsers,
             area,
             self.web,
+            self.drawer_in_use(),
+            self.shell_size.map(|(rows, _)| rows),
         )
     }
 
@@ -1178,7 +1270,7 @@ impl Tab {
                 self.browsers.remove(&target);
                 self.browser_sizes.remove(&target);
                 if self.focus == target {
-                    self.focus = PTY_PANE;
+                    self.focus = self.fallback_focus();
                 }
                 self.log_event(json!({"type": "close", "pane": target}));
                 Response::Ok
@@ -1354,7 +1446,8 @@ impl Tab {
             .map_err(|message| Response::Error { message })?;
         // Drop the old Neovim first: its Drop deletes the same bootstrap files the new one writes.
         let was = self.editors.remove(&id).map(|e| e.editor_view);
-        let inner = rects(&self.layout, area)
+        let inner = self
+            .rects(area)
             .get(&id)
             .map(|r| self.inner(*r))
             .unwrap_or_default();
@@ -1513,7 +1606,7 @@ impl Tab {
                 let new = self.next_pane;
                 let inferred =
                     (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
-                        .then(|| infer_split(&self.layout, area, new))
+                        .then(|| infer_split(&self.shown(&self.layout), area, new))
                         .flatten();
                 let (target, dir, ratio, side) = match inferred {
                     Some(t) => t,
@@ -1523,6 +1616,12 @@ impl Tab {
                         ratio.unwrap_or(50),
                         side.unwrap_or_default(),
                     ),
+                };
+                // A split never targets the hidden shell: the focus there is the open drawer.
+                let target = if target == PTY_PANE && self.drawer_in_use() {
+                    self.fallback_focus()
+                } else {
+                    target
                 };
                 // A stacked pane gets only the rows its file needs, up to half.
                 let ratio = if inferred.is_some()
@@ -1538,7 +1637,7 @@ impl Tab {
                 }
                 let mut probe = self.layout.clone();
                 if probe.split(target, dir, ratio, side, new).is_ok()
-                    && !all_panes_fit(&probe, area)
+                    && !all_panes_fit(&self.shown(&probe), area)
                 {
                     return Response::Error {
                         message: format!(
@@ -1899,12 +1998,14 @@ impl Tab {
         let mut refs = self.panel_refs();
         refs.insert(new, &temp);
         Response::Report(build_report(
-            &layout,
+            self.tree_rects(&layout, area),
             &refs,
             &self.editors,
             &self.browsers,
             area,
             self.web,
+            self.web && !self.docked,
+            self.shell_size.map(|(rows, _)| rows),
         ))
     }
 
@@ -1919,13 +2020,18 @@ impl Tab {
         let rect = |ratio| {
             let mut l = self.layout.clone();
             l.split(target, Dir::Vertical, ratio, side, new).ok()?;
-            rects(&l, area).get(&new).copied()
+            self.tree_rects(&l, area).get(&new).copied()
         };
         let Some(half) = rect(50) else { return 50 };
         let need = fit_rows(&temp, half.width, self.web);
         (1..=50)
             .find(|&r| rect(r).is_some_and(|rc| rc.height as usize >= need))
             .unwrap_or(50)
+    }
+
+    /// The PTY's size (rows, cols) now, which is the size of the shell's saved screen.
+    pub fn pty_size(&self) -> (u16, u16) {
+        self.pty_size
     }
 
     /// Resize the PTY only when its draw area changed, else the shell wraps wrong.

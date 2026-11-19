@@ -159,7 +159,7 @@ enum Cmd {
         /// Name the journal session (default: `laura-<pid>-<n>`).
         #[arg(long)]
         session: Option<String>,
-        /// Attribute journal events to this agent name.
+        /// Attribute journal events to this agent name, and name the shell after it.
         #[arg(long)]
         agent: Option<String>,
         /// Label the session in a few words, such as "flat elevation profile".

@@ -7,11 +7,24 @@ const $ = id => document.getElementById(id);
 const root = $("ws"), hintEl = $("hint"), noticeEl = $("notice");
 const enc = new TextEncoder();
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
-const THEME = { background: v("--term-bg"), foreground: v("--term-fg"), cursor: v("--term-fg"), selectionBackground: v("--term-sel") };
-ANSI.forEach((c, i) => {
-  THEME[c] = v(`--ansi-${i}`);
-  THEME["bright" + c[0].toUpperCase() + c.slice(1)] = v(`--ansi-${i + 8}`);
-});
+// An xterm.js theme: `base`, and the 16 ANSI colors from a computed style's `--ansi-N`.
+function theme(style, base) {
+  ANSI.forEach((c, i) => {
+    base[c] = style.getPropertyValue(`--ansi-${i}`).trim();
+    base["bright" + c[0].toUpperCase() + c.slice(1)] = style.getPropertyValue(`--ansi-${i + 8}`).trim();
+  });
+  return base;
+}
+// An editor view keeps Nord, from `:root`.
+const THEME = theme(css, { background: v("--term-bg"), foreground: v("--term-fg"), cursor: v("--term-fg"), selectionBackground: v("--term-sel") });
+// The shell is light: `.rows`' set, which a short-lived element reads.
+const LIGHT = (() => {
+  const el = document.body.appendChild(document.createElement("div"));
+  el.className = "rows";
+  const t = theme(getComputedStyle(el), { background: v("--pane"), foreground: v("--fg"), cursor: v("--acc"), cursorAccent: "#fff", selectionBackground: v("--shell-sel") });
+  el.remove();
+  return t;
+})();
 
 let ws, layout = null, strings = {}, cw = 0, ch = 0;
 let focusKey = "", locked = false, help = false, popup = null, confirmQuit = false, ended = false;
@@ -29,7 +42,11 @@ let spaces = [], server = null, leaving = false;
 let listOpen = null, moreOpen = null;
 // The page's pane in comment mode, where a click on the page picks an element to comment on.
 let commentMode = null;
+// The last pane other than the shell that had the focus, where `Ctrl+\`` goes from the shell.
+let lastFocus = null;
 const terms = new Map(); // pane id → xterm, one per PTY pane
+// A hidden terminal with an editor pane's type, which measures the grid's cell (`measure`).
+let probe = null;
 const acts = []; // `{ then, pane }` for `acted` replies, in send order
 
 const send = m => ws?.readyState === 1 && ws.send(JSON.stringify(m));
@@ -59,6 +76,10 @@ const browserKey = (pane, kind, e) => ({
 });
 const pane = id => layout?.panes.find(p => p.id === id);
 const focused = () => pane(layout?.focus);
+// The lock sends a file pane's or a browser pane's keystrokes to the shell; an editor pane keeps them.
+const toShell = () => locked && focused()?.kind !== "editor";
+// The drawer shows while the shell has the focus or the lock's keystrokes.
+const drawerOpen = () => layout.focus === 0 || toShell();
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
 
 function showNotice(text, secs, pane) {
@@ -74,7 +95,8 @@ function paintNotice() {
   noticeEl.classList.toggle("on", !!notice);
   if (notice) noticeEl.textContent = notice;
   const el = noticePane !== undefined && $("p" + noticePane);
-  const wide = el && el.offsetWidth >= 300;
+  // A closed drawer hides its notice, so the notice goes to the corner.
+  const wide = el && el.offsetWidth >= 300 && !el.matches(".drawer:not(.open)");
   if (wide && noticeEl.parentNode !== el) el.appendChild(noticeEl);
   // The card fits below the pane header, else it goes to the workspace's corner.
   const fits = wide && noticeEl.offsetHeight <= el.offsetHeight - 3 * ch - 20;
@@ -92,13 +114,16 @@ function paintHint() {
   // As the keydown listener: comment mode's hint only over a file or browser pane's own plain hint.
   const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
     : !$("menu").hidden ? h.workspace : popup !== null ? ($("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes) : commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
-  hintEl.replaceChildren(...(pairs ?? []).flatMap(([k, label], i) => {
+  const groups = (pairs ?? []).map(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
     const sep = document.createElement("i");
     sep.className = "sep";
     return [...(i ? [sep] : []), ...kbds(k), s];
-  }));
+  });
+  hintEl.replaceChildren(...groups.flat());
+  // Whole keystrokes only: drop the last ones that don't fit, such as beside the shell button.
+  while (groups.length > 1 && hintEl.scrollWidth > hintEl.clientWidth) groups.pop().forEach(n => n.remove());
 }
 // Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
 addEventListener("focus", paintHint);
@@ -110,7 +135,8 @@ const kbds = k => k.split(" ").filter(Boolean).map(x => {
   return c;
 });
 
-// One cell: xterm's own once it has drawn (it can't be given one), else the font's advance.
+// One cell: xterm's own once the probe has drawn (xterm.js can't be given one), else the font's
+// advance. The shell has its own type, so the probe, not the shell, sets the grid.
 function measure() {
   const s = document.createElement("span");
   s.className = "probe";
@@ -121,9 +147,8 @@ function measure() {
   [cw, ch] = [r.width / 200, r.height];
   // The font's advance; file-pane text is letter-spaced from it onto the grid's cell.
   document.documentElement.style.setProperty("--pw", cw + "px");
-  const t = terms.get(0);
-  const screen = t?.element?.querySelector(".xterm-screen");
-  if (screen?.offsetWidth && t.cols) [cw, ch] = [screen.offsetWidth / t.cols, screen.offsetHeight / t.rows];
+  const r2 = probe?.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
+  if (r2?.width) [cw, ch] = [r2.width / probe.cols, r2.height / probe.rows];
   document.documentElement.style.setProperty("--cw", cw + "px");
   document.documentElement.style.setProperty("--ch", ch + "px");
 }
@@ -145,12 +170,39 @@ function report() {
   send({ view: { cols, rows } });
 }
 
+// The probe: an editor pane's options, on screen but hidden, so xterm.js draws it. Each draw is a
+// new cell size, such as after a zoom, so the grid follows.
+function makeProbe() {
+  const el = document.body.appendChild(document.createElement("div"));
+  el.className = "tprobe";
+  probe = new Terminal({ ...TERM, cols: 200, rows: 4, disableStdin: true, cursorBlink: false });
+  probe.open(el);
+  webgl(probe);
+  probe.onRender(report);
+}
+
+// The shell's size from its own cell, in its box less the padding (style.css) and the scrollbar.
+// `force` sends the size to a new connection.
+function fitShell(force) {
+  const t = terms.get(0), box = $("p0")?.querySelector(".term");
+  const r = t?.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
+  if (!r?.width || !box.clientWidth) return;
+  // Laura's minimum (`cells` in src/web.rs), so xterm and the shell use one grid.
+  const cols = Math.max(20, Math.floor((box.clientWidth - 40 - 10) / (r.width / t.cols)));
+  const rows = Math.max(5, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
+  if (cols === t.cols && rows === t.rows && !force) return;
+  t.resize(cols, rows);
+  send({ shell: { cols, rows } });
+}
+
 // Laura's keys inside a terminal: false leaves the key to app.js, unsent.
 function termKeys(id, term, e) {
   if (overlayOpen()) return false;
   if (e.key === "F12") return false;
   if (locked) return true;
   if (draft) return false;
+  // `code`, so a layout that types another character on that key still shows or hides the shell.
+  if (e.ctrlKey && !e.altKey && e.code === "Backquote") return false;
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
@@ -162,12 +214,32 @@ function termKeys(id, term, e) {
   return true;
 }
 
+// An editor pane's terminal, which sits on the grid.
+const TERM = {
+  fontFamily: v("--mono"), fontSize: 14, lineHeight: 1, cursorBlink: true, allowProposedApi: true,
+  scrollback: 10000, // src/pty.rs SCROLLBACK, so the replay keeps the shell's whole history
+  theme: THEME,
+};
+// The shell reads less like a terminal: Laura's light colors, smaller type and more space between
+// lines. The contrast keeps an agent's dark theme readable on white.
+const SHELL = {
+  ...TERM, fontSize: 13, lineHeight: 1.3, theme: LIGHT, minimumContrastRatio: 4.5,
+  cursorStyle: "bar", cursorInactiveStyle: "none",
+};
+
+// The DOM renderer draws block characters from the font, with gaps; WebGL fills the cell.
+// Without WebGL2 (a VM, remote desktop), the addon throws and the DOM renderer stays.
+function webgl(term) {
+  try {
+    const gl = new WebglAddon.WebglAddon();
+    gl.onContextLoss(() => gl.dispose());
+    term.loadAddon(gl);
+  } catch {}
+}
+
 function makeTerm(id, el) {
-  const term = new Terminal({
-    fontFamily: v("--mono"), fontSize: 14, lineHeight: 1, cursorBlink: true, allowProposedApi: true,
-    scrollback: 10000, // src/pty.rs SCROLLBACK, so the replay keeps the shell's whole history
-    theme: THEME,
-  });
+  // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.
+  const term = new Terminal(id === 0 ? { ...SHELL, ...layout.shell } : TERM);
   // Emoji are two cells wide in Unicode 11+, as the child and vt100 count them.
   term.loadAddon(new Unicode11Addon.Unicode11Addon());
   term.unicode.activeVersion = "11";
@@ -185,15 +257,11 @@ function makeTerm(id, el) {
   term.onBinary(d => frame(id, Uint8Array.from(d, c => c.charCodeAt(0))));
   term.attachCustomKeyEventHandler(e => termKeys(id, term, e));
   term.open(el.querySelector(".term"));
-  // The DOM renderer draws block characters from the font, with gaps; WebGL fills the cell.
-  // Without WebGL2 (a VM, remote desktop), the addon throws and the DOM renderer stays.
-  try {
-    const gl = new WebglAddon.WebglAddon();
-    gl.onContextLoss(() => gl.dispose());
-    term.loadAddon(gl);
-  } catch {}
+  webgl(term);
+  terms.set(id, term);
   if (id === 0) {
-    const once = term.onRender(() => (once.dispose(), report()));
+    const once = term.onRender(() => (once.dispose(), fitShell()));
+    new ResizeObserver(() => fitShell()).observe(el.querySelector(".term"));
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
   // pane (a comment, the review body) takes its own paste.
@@ -203,7 +271,6 @@ function makeTerm(id, el) {
     e.stopPropagation();
     act({ act: "paste", pane: id, text: e.clipboardData.getData("text") });
   }, true);
-  terms.set(id, term);
 }
 
 // The pane header's icons, from the mockup (plans/web-tui/web-workspace.html).
@@ -225,6 +292,8 @@ const I = {
   fwd: '<path d="M5 12h14M12 5l7 7-7 7"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
+  dock: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  drawer: '<rect x="3" y="4" width="18" height="16" rx="2"/><rect x="7" y="12" width="10" height="5" rx="1"/>',
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
 // A tooltip that shows at once; `aria-label` reads the same text to a screen reader.
@@ -257,6 +326,8 @@ const head = () => `<div class="head"><span class="pid"></span>`
   + '<i class="cdot" role="img"></i><span class="grow"></span><span class="spin" hidden></span><span class="live tip-c" hidden></span>'
   + `<button class="threads" data-act="list" ${tip("All threads  n / N")}><span class="avs"></span><span class="tn"></span><span class="tl"></span></button>`
   + `<button class="submit" data-act="review" ${tip("Submit the inline review  Shift+S")}></button>`
+  + `<button class="tool" data-act="dock" ${tip("Show the shell as a pane")}>${ic("dock")}</button>`
+  + `<button class="tool" data-act="drawer" ${tip("Show the shell in a drawer")}>${ic("drawer")}</button>`
   + `<span class="tools">${TOOLS.map(([a, i, t]) => `<button class="tool" data-act="${a}" ${tip(t)}>${ic(i)}</button>`).join("")}</span>`
   + `<button class="tool more" data-act="more" ${tip("More")}>${ic("more")}</button></div>`;
 
@@ -339,6 +410,8 @@ function paintHead(el, p) {
   show(".shot", browser && !!el.shot);
   show(".rec", browser && !!el.recording);
   show(".more", p.id !== 0);
+  show("[data-act=dock]", p.drawer);
+  show("[data-act=drawer]", p.id === 0 && !p.drawer && layout.panes.length > 1);
   // An editor pane has no diff view (NO_DIFF_IN_EDITOR), and nor does a file with no changes.
   show(".tools [data-act=toggle_diff]", !p.pty && (p.added || p.removed || p.diff));
   q(".tools [data-act=toggle_diff]").classList.toggle("on", p.diff);
@@ -492,6 +565,7 @@ function placePlus(id) {
 }
 
 function onLayout(m) {
+  if (m.focus !== 0) lastFocus = m.focus;
   for (const p of m.panes) {
     const old = layout && (pane(p.id) ?? {});
     if (old && p.id !== m.focus && p.highlight && String(p.highlight) !== String(old.highlight)) unseen.add(p.id);
@@ -509,7 +583,8 @@ function onLayout(m) {
     if (fresh) el.animate([{ opacity: 0, transform: "translateY(6px)" }, {}], { duration: 350, easing: "ease-out" });
     seen.add(el.id);
     if (p.pty && !terms.has(p.id)) makeTerm(p.id, el);
-    Object.assign(el.style, {
+    // CSS places the drawer.
+    Object.assign(el.style, p.drawer ? { left: "", top: "", width: "", height: "" } : {
       left: `calc(var(--cw) * ${p.x})`, top: `calc(var(--ch) * ${p.y})`,
       width: `calc(var(--cw) * ${p.w})`, height: `calc(var(--ch) * ${p.h})`,
     });
@@ -523,10 +598,12 @@ function onLayout(m) {
       el.querySelector(".marks")?.remove();
     }
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
+      + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "")
       + (unseen.has(p.id) ? " unseen" : "") + (commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
-    const t = terms.get(p.id);
-    // The header takes the border's top two rows, and the bottom border one (`Tab::inner`).
+    const t = p.id !== 0 && terms.get(p.id);
+    // The header takes the border's top two rows, and the bottom border one (`Tab::inner`). The
+    // shell sizes itself (`fitShell`).
     if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 3)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 3));
     // The focus, the diff view and a freeze change how threads show.
     paintThreads(p.id);
@@ -930,6 +1007,38 @@ function paintStatus() {
     items.push(s);
   }
   $("sbar").replaceChildren(...items);
+  paintShellButton();
+}
+
+// The shell button, while the drawer is in use: the shell's name, and `open` while the drawer is.
+function paintShellButton() {
+  const b = $("sbtn"), s = pane(0), was = b.hidden;
+  b.hidden = !s?.drawer;
+  // The button narrows the hint line, or gives it back its width.
+  if (b.hidden !== was) paintHint();
+  if (b.hidden) return;
+  const open = drawerOpen(), t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
+  b.classList.toggle("open", open);
+  b.querySelector("b").textContent = s.name;
+  b.dataset.tip = t;
+  b.setAttribute("aria-label", t);
+}
+$("sbtn").addEventListener("mousedown", e => e.preventDefault());
+$("sbtn").addEventListener("click", () => (draft ? followFocus(true) : toggleShell()));
+// The dot pulses for a second after each of the shell's frames.
+function shellBusy() {
+  const b = $("sbtn");
+  b.classList.add("busy");
+  clearTimeout(b.busyTimer);
+  b.busyTimer = setTimeout(() => b.classList.remove("busy"), 1000);
+}
+
+// `Ctrl+\`` and the shell button: from the shell, back to the last pane that had the focus, or the
+// first other pane when that one closed; from any other pane, to the shell, which opens the drawer.
+function toggleShell() {
+  if (layout.focus !== 0) return act({ act: "focus", pane: 0 });
+  const to = pane(lastFocus) ? lastFocus : layout.panes.find(p => p.id !== 0)?.id;
+  if (to !== undefined) act({ act: "focus", pane: to });
 }
 $("sbar").addEventListener("mousedown", e => e.preventDefault());
 $("sbar").addEventListener("click", e => {
@@ -1331,7 +1440,7 @@ function followFocus(force) {
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
-  const t = f.kind !== "file" ? terms.get(f.id) : locked ? terms.get(0) : null;
+  const t = toShell() ? terms.get(0) : f.kind !== "file" ? terms.get(f.id) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
   // Below the workspace's minimum size the window scrolls; a focus change leaves it where the user put it.
@@ -1701,6 +1810,8 @@ addEventListener("keydown", e => {
   if (e.key === "F12") {
     take();
     locked = !locked;
+    // An unlock sends no layout, so the drawer and the shell button repaint here.
+    if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
     followFocus(true);
     return paintHint();
   }
@@ -1765,7 +1876,7 @@ addEventListener("keydown", e => {
     }
     if (e.key === "Escape") return take(), root.focus({ preventScroll: true });
     if (ctrl && "rl".includes(k)) return take(); // the viewing browser's reload and address bar
-    if (!(ctrl && "pq".includes(k))) return; // Ctrl+P and Ctrl+Q go on to Laura
+    if (!(ctrl && ("pq".includes(k) || e.code === "Backquote"))) return; // Ctrl+P, Ctrl+Q and Ctrl+` go on to Laura
   }
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) {
     take();
@@ -1777,6 +1888,7 @@ addEventListener("keydown", e => {
   const b = f?.kind === "browser" && $("p" + f.id);
   if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(), setCommentMode(null);
   if (ctrl && k === "p") return take(), openSelector();
+  if (ctrl && e.code === "Backquote") return take(), toggleShell();
   if (ctrl && k === "q") {
     take();
     return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));
@@ -1897,6 +2009,8 @@ addEventListener("mouseup", e => {
 
 addEventListener("resize", () => {
   report();
+  fitShell();
+  paintHint();
   // A zoom changes the pixel ratio, not always the pane's size.
   layout?.panes.forEach(p => sizeView(p.id));
 });
@@ -2045,11 +2159,12 @@ function connect() {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const sock = (ws = new WebSocket(url));
   sock.binaryType = "arraybuffer";
-  sock.onopen = report;
+  sock.onopen = () => (report(), fitShell(true));
   sock.onmessage = e => {
     if (typeof e.data !== "string") {
       const id = Number(new DataView(e.data).getBigUint64(0));
       if (pane(id)?.kind === "browser") return onFrame(id, e.data);
+      if (id === 0) shellBusy();
       return terms.get(id)?.write(new Uint8Array(e.data, 8));
     }
     const m = JSON.parse(e.data);
@@ -2148,6 +2263,7 @@ function connect() {
 
 // The cell size comes from the bundled mono font, not a fallback, so load both before measuring.
 Promise.all(["14px Inter", '14px "JetBrains Mono"'].map(f => document.fonts.load(f))).finally(() => {
+  makeProbe();
   measure();
   connect();
 });

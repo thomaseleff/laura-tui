@@ -934,7 +934,7 @@ fn render_panes(f: &mut Frame, tab: &Tab, buf: &str) {
     let mut lines = vec![];
     for id in tab.layout.order() {
         let name = if id == PTY_PANE {
-            "shell".to_string()
+            tab.shell_name()
         } else {
             tab.panels
                 .get(&id)
