@@ -2207,6 +2207,37 @@ fn the_bell_makes_the_workspace_wait_until_the_user_types() -> Result<()> {
     Ok(())
 }
 
+/// #190: a bell that rings between two frames, just before the user types, doesn't bring the wait
+/// back once the user typed.
+#[cfg(unix)]
+#[test]
+fn a_bell_just_before_the_user_types_does_not_bring_the_wait_back() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    // `sync` alone applies the socket's input; no `drain` sees the bell until the user typed.
+    let sync_until = |rig: &mut Rig, what: &str, done: &dyn Fn(&Rig) -> bool| {
+        let start = Instant::now();
+        while !done(rig) {
+            assert!(start.elapsed() < common::DEADLINE, "timed out: {what}");
+            rig.web.sync(&mut rig.tab, false);
+            thread::sleep(Duration::from_millis(10));
+        }
+    };
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    sync_until(&mut rig, "bell", &|r| r.tab.pty.bells() == 1);
+    type_in(&mut ws, 0, b"zq")?;
+    sync_until(&mut rig, "zq", &|r| {
+        r.tab.pty.with_screen(|s| s.contents()).contains("zq")
+    });
+    rig.idle(&mut ws, 5);
+    assert!(
+        !rig.tab.waiting,
+        "a bell before the keystroke made the workspace wait after it"
+    );
+    Ok(())
+}
+
 /// #190: OSC 9 and OSC 777 `notify` make the workspace wait; OSC 9's numbered ConEmu commands (progress, folder) don't.
 #[cfg(unix)]
 #[test]

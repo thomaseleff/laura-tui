@@ -645,11 +645,15 @@ impl Tab {
             A::Input { pane, bytes } => {
                 self.write_keys(pane, &bytes)?;
                 // A wheel or a click in the shell isn't an answer to the agent.
-                self.waiting &= pane != PTY_PANE || only_mouse(&bytes);
+                if pane == PTY_PANE && !only_mouse(&bytes) {
+                    self.answered();
+                }
             }
             A::Paste { pane, text } => {
                 self.write_keys(pane, &bracketed_paste(&text, false))?;
-                self.waiting &= pane != PTY_PANE;
+                if pane == PTY_PANE {
+                    self.answered();
+                }
             }
             A::Quit => {
                 if let Some(message) = self.unsaved_edits() {
@@ -882,7 +886,7 @@ impl Tab {
             e.editor_view = true;
         }
         self.focus = PTY_PANE;
-        self.waiting = false;
+        self.answered();
         Ok(())
     }
 
@@ -1002,6 +1006,12 @@ impl Tab {
             self.drawer_in_use(),
             self.shell_size.map(|(rows, _)| rows),
         )
+    }
+
+    /// The user answered the agent: the wait ends, and so do the bells already rung.
+    fn answered(&mut self) {
+        self.waiting = false;
+        self.bells = self.pty.bells();
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
