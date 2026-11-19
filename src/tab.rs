@@ -400,7 +400,7 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
-    /// The shell rang the bell or sent a notification since the user last typed in it: the agent waits for the user.
+    /// The shell rang the bell or sent a notification since the user last moved to the shell, used it or submitted an inline review: the agent waits for the user.
     pub waiting: bool,
     /// The shell's bell count that `drain` last saw.
     bells: u64,

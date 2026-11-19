@@ -65,10 +65,10 @@ To switch to another workspace:
 
 Laura loads the other workspace in the same browser tab. The workspace that you leave keeps running.
 
-The dot before each workspace in the list and in the pane selector shows its state:
+The list shows each workspace, and the pane selector shows the other workspaces. The dot before each workspace shows its state:
 
 - Amber: the agent in that workspace [waits for you](workspace.md#know-when-the-agent-waits). The row also shows `Waiting for you`.
-- Blue: the workspace that you are in.
+- Blue: the workspace that you are in. The dot stays blue while the agent in this workspace waits for you. To see where this workspace shows its wait, see [Know when the agent waits](workspace.md#know-when-the-agent-waits).
 - Grey: any other workspace.
 
 While another workspace waits for you, the workspace switcher shows an amber dot before ▾.
