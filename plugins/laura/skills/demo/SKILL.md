@@ -23,6 +23,7 @@ The following workflow guides you through the demo, follow it from start to fini
   - IF your partner asks you a question or for a further explanation, answer the question or walk them through the explanation in the same style of narration as the script before returning to the next step in the demo.
 - Commands under **Do** are the exact commands to run that accompany that portion of the script.
 - Italicized text is instruction for you
+- _Mark a feature with **New:** only if the README's **New:** tip names the feature. When the tip drops the feature, remove the mark here too._
 
 ### Setup
 
@@ -35,7 +36,9 @@ laura ready --session demo --agent claude --title "Laura demo"   # enables inlin
 D=$(mktemp -d)                                          # scratch dir for demo files
 ```
 
-_Keep `$D` and the `journal` path `laura ready` printed (`$JOURNAL` below) for later beats. Note what it lists under `experimental`, whether `web_app` is `true`, and whether it printed a `browser_url`: they decide which bonus beats run._
+_Keep `$D` and the `journal` path `laura ready` printed (`$JOURNAL` below) for later beats. Note what it lists under `experimental`, whether `web_app` is `true`, and whether it printed a `browser_url`: they decide which beats run._
+
+_The beat headings count to 7. If `laura ready` did not print `web_app` as `true`, beats 5 and 6 don't run: count to 5 instead (`[1 / 5]` … `[4 / 5]`), and number **Recording feedback** `[5 / 5]`._
 
 ```bash
 # Close all open panes before beginning the demo
@@ -91,7 +94,7 @@ done
 
 **Say:**
 
-> **[1 / 5] The workspace is just panes**
+> **[1 / 7] The workspace is just panes**
 >
 > Laura's workspace is just panes, so your agent can lay out almost anything. Here's a Fibonacci sequence, one number per pane.
 >
@@ -104,7 +107,7 @@ done
 >
 > Send `Next` to learn how to interact with your agent in a pane.
 
-_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here."_
+_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "**New:** The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here."_
 
 _Then **wait for `Next`**, and `laura close --all`._
 
@@ -116,35 +119,35 @@ _Then **wait for `Next`**, and `laura close --all`._
 
 ```bash
 cat > "$D/plan.md" <<'EOF'
-# Auth tokens — draft spec
+# Greeting — draft spec
 
 Review before we ship.
 
-- Tokens are issued on login and returned in the JSON body.
-- Every token expires 24 hours after it is issued.
-- A refresh token extends a session up to 30 days.
-- Tokens are stored in local storage on the client.
-- Revoked tokens are checked against a denylist on each request.
+- `greet` prints `Hello, world!`.
+- The greeting is in English only.
+- `greet Ada` prints `Hello, Ada!`.
+- The API serves the greeting at `/hello?name=Ada`.
+- The API logs each request.
 
-Open question: should refresh tokens rotate on every use?
+Open question: should an empty name fall back to `world`?
 EOF
 DOC=$(laura open "$D/plan.md" --ratio 55 --no-focus)
 # Annotate the spec for your partner to reply to. Line numbers are
 # 1-based *file* lines (count them in the heredoc, not the rendered view).
-laura comment 6 "suggest 1 hour — 24h is a long window for a bearer token" --pane "$DOC"
+laura comment 6 'suggest Spanish too: `--lang es` prints `Hola, Ada!`' --pane "$DOC"
 ```
 
 **Say:**
 
-> **[2 / 5] The pane interactions**
+> **[2 / 7] The pane interactions**
 >
 > Beyond laying out panes, Laura lets you review with your agent in every pane, next to the chat.
 >
 > I opened a plan in a new pane and left a comment for you. Reply to my comment and add your own:
 >
 > 1. To focus the plan pane, press `Ctrl+P`, then the pane's number. Press `Esc` in a file pane to return to the chat.
-> 2. In the plan pane, press `↑`/`↓` to move the cursor to L6, the **"Every token expires 24 hours…"** line. My comment shows as a card under the line. Press `c`, type `Agreed`, then press `Enter` to reply.
-> 3. Move to L11, the **"Open question: should refresh tokens rotate…"** line. Press `c`, type `Sounds good`, then press `Enter`. L11 has no thread yet, so your comment starts a **new** thread.
+> 2. In the plan pane, press `↑`/`↓` to move the cursor to L6, the **"The greeting is in English only."** line. My comment shows as a card under the line. Press `c`, type `Agreed`, then press `Enter` to reply.
+> 3. Move to L11, the **"Open question: should an empty name fall back…"** line. Press `c`, type `Sounds good`, then press `Enter`. L11 has no thread yet, so your comment starts a **new** thread.
 > 4. Press `r` on a thread to collapse or expand the thread. Press `r` on a line without a thread to collapse or expand every thread in the pane.
 > 5. When you're ready, press `Shift+S`, type `Replied below - all looks good` as the review body, then press `Enter` to submit.
 >
@@ -161,28 +164,28 @@ _Then **wait** for the `[laura review · …]` block. If your partner sends `Nex
 
 **Do:**
 
-_Apply the agreed revisions to `$D/plan.md` (`ttl` → 1 hour, httpOnly cookie,
-rotating refresh) — the file pane reloads with the revisions:_
+_Apply the agreed revisions to `$D/plan.md` (Spanish with `--lang es`, an empty
+name falls back to `world`) — the file pane reloads with the revisions:_
 
 ```bash
 cat > "$D/plan.md" <<'EOF'
-# Auth tokens — draft spec
+# Greeting — draft spec
 
 Review before we ship.
 
-- Tokens are issued on login and returned in the JSON body.
-- Every token expires 1 hour after it is issued.
-- A refresh token extends a session up to 30 days, rotating on every use.
-- Tokens are stored in an httpOnly cookie on the client.
-- Revoked tokens are checked against a denylist on each request.
+- `greet` prints `Hello, world!`.
+- The greeting is in English or Spanish: `--lang es` prints `Hola, Ada!`.
+- `greet Ada` prints `Hello, Ada!`.
+- The API serves the greeting at `/hello?name=Ada`.
+- The API logs each request.
 
-Open question: resolved — refresh tokens rotate on every use.
+Open question: resolved — an empty name falls back to `world`.
 EOF
 ```
 
 **Say:**
 
-> I applied your inline review: L6 now sets a 1 hour TTL, and L11 now says refresh tokens rotate on every use. Laura reloaded the plan in the pane with the changes.
+> I applied your inline review: L6 now adds Spanish, and L11 now says an empty name falls back to `world`. Laura reloaded the plan in the pane with the changes.
 >
 > Your threads add up to one inline review. When you submit with `Shift+S`, Laura writes the whole inline review into the chat and clears the threads from the pane.
 >
@@ -204,29 +207,26 @@ _Branch the following step on whether `git` is installed, then run *one* script 
 
 ```bash
 R="$D/repo"; mkdir -p "$R"
-cat > "$R/tokens.py" <<'EOF'
-def issue(user):
-    ttl = 24 * 3600
-    token = sign(user, ttl)
-    store_local(token)
-    return token
+cat > "$R/hello.py" <<'EOF'
+def greet(name):
+    return "Hello, " + name + "!"
 EOF
 git -C "$R" init -q
 git -C "$R" -c user.email=demo@laura -c user.name=laura add -A
 git -C "$R" -c user.email=demo@laura -c user.name=laura commit -qm base
-cat > "$R/tokens.py" <<'EOF'
-def issue(user):
-    ttl = 3600
-    token = sign(user, ttl)
-    set_httponly_cookie(token)
-    return token
+cat > "$R/hello.py" <<'EOF'
+GREETINGS = {"en": "Hello", "es": "Hola"}
+
+
+def greet(name="world", lang="en"):
+    return f"{GREETINGS[lang]}, {name or 'world'}!"
 EOF
-laura open "$R/tokens.py" --diff --ratio 55 --no-focus   # the inline diff vs HEAD
+laura open "$R/hello.py" --diff --ratio 55 --no-focus   # the inline diff vs HEAD
 ```
 
 **Say (git available):**
 
-> **[3 / 5] Code review**
+> **[3 / 7] Code review**
 >
 > Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff. I opened the full diff in a new pane.
 >
@@ -245,24 +245,25 @@ laura open "$R/tokens.py" --diff --ratio 55 --no-focus   # the inline diff vs HE
 **Do (git unavailable):**
 
 ```bash
-cat > "$D/tokens.diff" <<'EOF'
-diff --git a/auth/tokens.py b/auth/tokens.py
---- a/auth/tokens.py
-+++ b/auth/tokens.py
-@@ -3,8 +3,8 @@ def issue(user):
--    ttl = 24 * 3600
-+    ttl = 3600
-     token = sign(user, ttl)
--    store_local(token)
-+    set_httponly_cookie(token)
-     return token
+cat > "$D/hello.diff" <<'EOF'
+diff --git a/hello.py b/hello.py
+--- a/hello.py
++++ b/hello.py
+@@ -1,2 +1,5 @@
+-def greet(name):
+-    return "Hello, " + name + "!"
++GREETINGS = {"en": "Hello", "es": "Hola"}
++
++
++def greet(name="world", lang="en"):
++    return f"{GREETINGS[lang]}, {name or 'world'}!"
 EOF
-laura open "$D/tokens.diff" --ratio 55 --no-focus   # git absent — show the static patch instead
+laura open "$D/hello.diff" --ratio 55 --no-focus   # git absent — show the static patch instead
 ```
 
 **Say (git unavailable):**
 
-> **[3 / 5] Code review**
+> **[3 / 7] Code review**
 >
 > Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in a new pane. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff.
 >
@@ -282,28 +283,48 @@ _Then **wait for `Next`** (ignore any inline review if one is submitted), and `l
 
 ### Debug
 
+_The example runs the API with Python and sends it requests with `curl`. Use any language you have for the API; the steps stay the same._
+
 **Do:**
 
 ```bash
-cat > "$D/worker.py" <<'EOF'
-def process(job):
-    tries = 0
-    while not job.done:
-        tries += 1           # bug: backoff never resets between jobs
-        run(job)
-    return tries
+cat > "$D/app.py" <<'EOF'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
+
+GREETINGS = {"en": "Hello", "es": "Hola"}
+
+
+class Hello(BaseHTTPRequestHandler):
+    def do_GET(self):
+        q = parse_qs(urlparse(self.path).query)
+        name, lang = q.get("name", ["world"])[0], q.get("lang", ["en"])[0]
+        body = f"{GREETINGS[lang]}, {name}!\n".encode()  # bug: no fallback for an unknown lang
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(body)
+
+
+HTTPServer(("127.0.0.1", 8766), Hello).serve_forever()
 EOF
-CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code right
-# Split the code pane vertically: code on top (67%), a thin tail pane below (33%) where autoscroll is visible.
-( for i in {1..120}; do echo "[$i] retry job=42 backoff=$((i*i))s"; sleep 0.5; done ) \
-  | laura tail --title worker.log --follow --split "$CODE" --dir v --ratio 33 &
+CODE=$(laura open "$D/app.py" --ratio 50 --no-focus)   # shell left, code right
+# One subshell starts the API, sends it requests and stops it, so the tail pane ends by itself.
+# Split the code pane vertically: code on top (60%), the API's log below (40%).
+( python -u "$D/app.py" & APP=$!
+  until curl -s -o /dev/null http://127.0.0.1:8766/hello; do sleep 0.5; done
+  for i in $(seq 1 12); do
+    for q in "name=Ada" "name=Ada&lang=es" "name=Bo" "name=Cy&lang=fr"; do
+      curl -s -o /dev/null "http://127.0.0.1:8766/hello?$q"; sleep 1
+    done
+  done
+  kill $APP ) 2>&1 | laura tail --title app.log --follow --split "$CODE" --dir v --ratio 40 &
 ```
 
 **Say:**
 
-> **[4 / 5] Debug**
+> **[4 / 7] Debug**
 >
-> I opened a source file in a new pane, ran the code, and piped its logs into a tail pane below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.
+> I opened the greeting API's source in a new pane, started the API, sent it requests, and piped its log into a tail pane below the source. Laura scrolls the tail pane to the newest output as the requests arrive. The requests with `lang=fr` fail with `KeyError: 'fr'` on L11.
 >
 > Press `p` in the tail pane to pause the tail pane and read the output. Press `p` again to follow the newest output.
 >
@@ -311,66 +332,18 @@ CODE=$(laura open "$D/worker.py" --ratio 50 --no-focus)   # shell left, code rig
 >
 > **Suggested prompts**
 >
-> - `/laura:laura Open worker.py and tail the test run beside it`
-> - `/laura:laura Run the build and tail its output next to the failing file`
+> - `/laura:laura Start the API and tail its log next to app.py`
+> - `/laura:laura Run the tests and tail their output next to the failing file`
 >
-> Send `Next` to learn how to record feedback.
+> Send `Next` to see a page.
 
-_If `laura ready` listed `editor` under `experimental`, end with "Send `Next` to try the experimental features." instead. If `laura ready` printed `web_app` as `true` and did not list `editor`, end with "Send `Next` to see a page." instead. Then **wait for `Next`**, and `laura close --all`._
-
----
-
-### Edit together (experimental)
-
-_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, skip to the next beat without mentioning it. If `laura open --edit` returns an error, follow the Rules. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
-
-**Do:**
-
-```bash
-cat > "$D/retry.py" <<'EOF'
-def backoff(tries):
-    delay = 2 ** tries
-    return delay
-EOF
-ED=$(laura open "$D/retry.py" --edit --ratio 55)   # never takes focus
-```
-
-**Say:**
-
-> **Bonus · Edit together**
->
-> The new pane is an **editor pane**, where you edit the file in Neovim.
->
-> 1. Press `Ctrl+P`, then the pane's number, to edit the file. Change `2 ** tries` to `min(2 ** tries, 60)` and save with `:w`.
-> 2. Tell me when you've saved.
-
-_Wait for your partner, then annotate the saved line:_
-
-```bash
-laura comment 2 "nice cap - should 60 be a setting?" --pane "$ED"
-```
-
-**Say:**
-
-> I left a comment on L2. In the editor view, Neovim shows my comment as a `✎` sign on L2, and the pane's border shows `[review: 1]`. To read the whole thread, press `]d`.
->
-> 1. Press `Ctrl+L` to flip the pane to its **file view**. The file view shows the saved file, with my comment as a card, and takes the usual pane keystrokes.
-> 2. On L2, press `c`, type a reply, then press `Enter`.
-> 3. Press `Shift+S`, then `Enter`, to submit. Laura submits the inline review into the chat and flips the pane back to the editor view.
->
-> **Suggested prompts**
->
-> - `/laura:laura Open retry.py in an editor pane so I can fix it`
->
-> Submit your inline review with `Shift+S` to continue.
-
-_Then **wait** for the `[laura review · …]` block, and `laura close --all`._
+_If `laura ready` did not print `web_app` as `true`, end with "Send `Next` to try the experimental features." instead if `laura ready` listed `editor` under `experimental`, or else with "Send `Next` to learn how to record feedback." Then **wait for `Next`**, and `laura close --all`._
 
 ---
 
 ### See a page
 
-_Run this beat only if `laura ready` printed `web_app` as `true`: the TUI shows the page as plain text. Otherwise, skip straight to **Recording feedback** without mentioning it._
+_Run this beat only if `laura ready` printed `web_app` as `true`: the TUI shows the page as plain text. Otherwise, skip this beat and **Switch workspaces** without mentioning them._
 
 **Do:**
 
@@ -380,38 +353,39 @@ cat > "$D/page.html" <<'EOF'
 <html>
 <head><link rel="stylesheet" href="style.css"></head>
 <body>
-<h1>Retry settings</h1>
-<button onclick="this.textContent = 'Saved'">Save</button>
+<h1>Hello, world!</h1>
+<input id="name" value="Ada">
+<button onclick="document.querySelector('h1').textContent = 'Hello, ' + document.getElementById('name').value + '!'">Greet</button>
 <p><a href="notes.md">Read the notes</a></p>
 </body>
 </html>
 EOF
 cat > "$D/style.css" <<'EOF'
 body { font-family: sans-serif; margin: 2em; }
-button { padding: 0.5em 1em; }
+button, input { padding: 0.5em 1em; }
 EOF
 cat > "$D/notes.md" <<'EOF'
 # Notes
 
-The cap on retries is 60 seconds.
+The page greets the name in the field.
 EOF
 laura open "$D/page.html" --ratio 55 --no-focus
 ```
 
 **Say:**
 
-> **Bonus · See a page**
+> **[5 / 7] See a page**
 >
-> I opened `page.html` in a new pane. Laura shows the page with its stylesheet and runs its script when you click **Save**.
+> I opened `page.html` in a new pane. Laura shows the page with its stylesheet and runs its script when you click **Greet**.
 >
-> 1. Click **Save**. Laura moves the cursor to the button's line.
-> 2. Click the comment-mode button in the pane's header, then click **Save**. Laura shows the comment box below the button. Type a comment, press `Enter`, then click **Done** to leave comment mode.
+> 1. Click **Greet**. The page changes the heading to **Hello, Ada!**, and Laura moves the cursor to the button's line.
+> 2. Click the comment-mode button in the pane's header, then click **Greet**. Laura shows the comment box below the button. Type a comment, press `Enter`, then click **Done** to leave comment mode.
 > 3. Click **Read the notes**. Laura opens `notes.md` in a new pane.
 > 4. Click **Submit review** in the header of page.html's pane, or click the page and press `Shift+S`. Then press `Enter` to submit. Laura quotes the button's line from `page.html` in the inline review.
 >
 > **Suggested prompts**
 >
-> - `/laura:laura Build a settings page and open it so I can comment on it`
+> - `/laura:laura Build a greeting page and open it so I can comment on it`
 >
 > Click the page and submit your inline review with `Shift+S` to continue.
 
@@ -436,18 +410,18 @@ _If `laura highlight` returns another error, tell your partner and skip this bea
 
 **Say:**
 
-> **Bonus · See a page from a URL**
+> **See a page from a URL**
 >
-> I started a small web server and opened `http://localhost:8765/page.html` in a new browser pane. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Save** button by its CSS selector, so Laura outlines it.
+> I started a small web server and opened `http://localhost:8765/page.html` in a new browser pane. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Greet** button by its CSS selector, so Laura outlines it.
 >
-> 1. Click **Save** in the pane. The page changes the button to **Saved**, as in your own browser.
+> 1. Click **Greet** in the pane. The page changes the heading to **Hello, Ada!**, as in your own browser.
 > 2. Press `Ctrl+R` in the pane to refresh the pane. Laura reloads the page.
 > 3. Point at the button and press `c`. Laura names the button by its CSS selector. Type a comment and press `Enter`.
 > 4. Press `Shift+S`, then `Enter`, to submit your inline review.
 
 _Then **wait** for the `[laura review · …]` block._
 
-_If you have chrome-devtools-mcp, add one beat. Select the page whose URL matches pane `$P` in `laura layout`, and click **Save** with the tool while your partner watches. Then run `laura highlight button --pane $P` and say: "I clicked **Save** with my browser tool. The ring showed where I clicked, and the button changed to **Saved**." Without the tool, skip this beat._
+_If you have chrome-devtools-mcp, add one beat. Select the page whose URL matches pane `$P` in `laura layout`, and click **Greet** with the tool while your partner watches. Then run `laura highlight button --pane $P` and say: "I clicked **Greet** with my browser tool. The ring showed where I clicked, and the heading changed to **Hello, Ada!**." Without the tool, skip this beat._
 
 _Then `laura close --all`, and `kill $SRV`._
 
@@ -455,11 +429,11 @@ _Then `laura close --all`, and `kill $SRV`._
 
 ### Switch workspaces
 
-_Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no workspace switcher. Otherwise, skip straight to **Recording feedback** without mentioning it._
+_Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no workspace switcher._
 
 **Say:**
 
-> **Bonus · Switch workspaces**
+> **[6 / 7] Switch workspaces**
 >
 > Each workspace is one task in one folder. The workspace switcher at the left of the top bar shows this workspace's session label, **Laura demo**, and its folder. I set the session label when the demo started.
 >
@@ -473,17 +447,65 @@ _Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no
 > 1. Click the workspace switcher. Laura lists the running workspaces. Click a workspace to switch to it. The workspace that you leave keeps running.
 > 2. Or press `Ctrl+P` and type part of a session label or a folder. Laura lists the other workspaces under **Workspaces**. Press `Enter` to switch.
 >
-> While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones. When the agent in another workspace waits for you, for example at a permission prompt, the Laura server's page shows `Waiting for you` on that workspace's row.
+> While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones.
+>
+> **New:** When the agent in another workspace waits for you, for example at a permission prompt, the Laura server's page shows `Waiting for you` on that workspace's row.
 >
 > Read more in [Switch workspaces](https://thomaseleff.github.io/laura-tui/navigation/#switch-workspaces).
 >
 > **Suggested prompts**
 >
-> - `Label this session "flaky login test"`
+> - `Label this session "greeting page"`
 >
 > Send `Next` to learn how to record feedback.
 
-_Then **wait for `Next`.**_
+_If `laura ready` listed `editor` under `experimental`, end with "Send `Next` to try the experimental features." instead. Then **wait for `Next`.**_
+
+---
+
+### Edit together (experimental)
+
+_Run this beat only if `laura ready` listed `editor` under `experimental`. Otherwise, skip to **Recording feedback** without mentioning it. The beat has no number. If `laura open --edit` returns an error, follow the Rules. The beat shows best with Laura's theme on (your partner answered `y` to the startup question), so the flip keeps one palette._
+
+**Do:**
+
+```bash
+cat > "$D/greet.py" <<'EOF'
+print("Hello, world!")
+EOF
+ED=$(laura open "$D/greet.py" --edit --ratio 55)   # never takes focus
+```
+
+**Say:**
+
+> **Experimental · Edit together**
+>
+> The new pane is an **editor pane**, where you edit the file in Neovim.
+>
+> 1. Press `Ctrl+P`, then the pane's number, to edit the file. Change `world` to `Laura` and save with `:w`.
+> 2. Tell me when you've saved.
+
+_Wait for your partner, then annotate the saved line:_
+
+```bash
+laura comment 1 "nice - should the name come from the command line?" --pane "$ED"
+```
+
+**Say:**
+
+> I left a comment on L1. In the editor view, Neovim shows my comment as a `✎` sign on L1, and the pane's border shows `[review: 1]`. To read the whole thread, press `]d`.
+>
+> 1. Press `Ctrl+L` to flip the pane to its **file view**. The file view shows the saved file, with my comment as a card, and takes the usual pane keystrokes.
+> 2. On L1, press `c`, type a reply, then press `Enter`.
+> 3. Press `Shift+S`, then `Enter`, to submit. Laura submits the inline review into the chat and flips the pane back to the editor view.
+>
+> **Suggested prompts**
+>
+> - `/laura:laura Open greet.py in an editor pane so I can edit it`
+>
+> Submit your inline review with `Shift+S` to learn how to record feedback.
+
+_Then **wait** for the `[laura review · …]` block, and `laura close --all`._
 
 ---
 
@@ -499,7 +521,7 @@ tail -2 "$JOURNAL"
 
 **Say:**
 
-> **[5 / 5] Recording feedback**
+> **[7 / 7] Recording feedback**
 >
 > Laura is new, so your agent may not know every command and flag yet, your agent may lay out content poorly, or you may spot ways to improve Laura.
 >
