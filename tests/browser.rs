@@ -862,7 +862,7 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
         assert!(t0.elapsed() < common::DEADLINE, "B has no shell");
         thread::sleep(Duration::from_millis(50));
     }
-    // Rows 6–7 wrap a path after `src/foo.test`, rows 8–9 wrap a URL after `https://x.com/`.
+    // Rows 9–10 wrap a path after `src/foo.test`, rows 11–12 wrap a URL after `https://x.com/`.
     let got = eval(
         &mut r,
         r#"(async () => {
@@ -877,20 +877,23 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
                     "Update(src/a.rs) (src/b.rs) app/[slug]/page.tsx:12",
                     "node_modules/@types/x/index.d.ts src/café/a.rs:3 1/2.5",
                     "**src/c.rs** “src/d.rs” node_modules/lodash.merge/index",
+                    "a/foo.test.js/index logs/app.log.1 src/**/a.rs src/*x/a.rs",
+                    "**/b.rs src/a.rs.bak src/e.rs. (src/f.rs:3), src/g.rs's",
+                    "src\\b.c.d\\e C:\\p\\v1.2\\a.rs:4",
                     " ".repeat(t.cols - 12) + "src/foo.test.ts:12",
                     " ".repeat(t.cols - 14) + "https://x.com/@a/b.js",
                 ].join("\r\n"), w));
                 await new Promise(r => setTimeout(r, 200));
             }
             const rows = [];
-            for (let y = 1; y <= 9; y++) {
+            for (let y = 1; y <= 12; y++) {
                 const texts = [];
                 for (const p of t._core._linkProviderService.linkProviders)
                     for (const l of await new Promise(cb => p.provideLinks(y, cb)) ?? []) texts.push(l.text);
                 rows.push(texts);
             }
             const b = t.buffer.active;
-            return { rows, wrapped: [b.getLine(6).isWrapped, b.getLine(8).isWrapped] };
+            return { rows, wrapped: [b.getLine(9).isWrapped, b.getLine(11).isWrapped] };
         })()"#,
     );
     assert_eq!(
@@ -902,6 +905,9 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
                 ["src/a.rs", "src/b.rs", "app/[slug]/page.tsx:12"],
                 ["node_modules/@types/x/index.d.ts", "src/café/a.rs:3"],
                 ["src/c.rs", "src/d.rs"],
+                [],
+                ["src/a.rs.bak", "src/e.rs", "src/f.rs:3", "src/g.rs"],
+                ["C:\\p\\v1.2\\a.rs:4"],
                 [], [], [], [],
             ],
             "wrapped": [true, true],
