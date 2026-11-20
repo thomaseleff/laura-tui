@@ -131,19 +131,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with lock:
                 entries.append(["agent", body["text"], None])
                 chat, _, reply, room = view()
-                # A reply taller than the drawer shows from its first line. record.py scrolls the rest with /scroll.
+                # A reply taller than the drawer shows from its first line. record.py shows the end with /scroll.
                 below = len(chat) - reply - room
                 ui["top"] = reply if below > 0 else None
                 draw()
             self.reply({"below": max(below, 0)})
         elif self.path == "/scroll":
             with lock:
-                if ui["top"] is not None:
-                    chat, _, _, room = view()
-                    ui["top"] += 1
-                    if ui["top"] + room >= len(chat):
-                        ui["top"] = None
-                    draw()
+                ui["top"] = None
+                draw()
             self.reply({})
         elif self.path == "/ask":
             # A question that needs the user: the bell marks the workspace as waiting.

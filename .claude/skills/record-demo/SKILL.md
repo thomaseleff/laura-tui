@@ -17,7 +17,7 @@ The scene has three actors:
 - **The agent** writes chat replies and runs `laura` commands. A chat stub (`scripts/demo/chat.py`) runs as the shell program in the workspace. The chat stub looks like Claude Code in auto mode.
 - **The camera** records the browser.
 
-The recorder also starts a Laura server, so that the workspace switcher lists **New workspace…** and the Laura logo opens the Laura server's page.
+The recorder starts a Laura server, and the scene starts on the Laura server's page. The user starts the scene's workspace from the page, so that the video opens and ends on the list of workspaces.
 
 The recorder works on Linux (WSL). The recorder clears every `LAURA_*` variable that it gets from your partner's shell, so that the demo's Laura does not use the `LAURA_RUNTIME`, `LAURA_TAB` or `LAURA_BROWSER_URL` of your partner's own workspace. The recorder also sets a scratch `HOME`, which keeps your partner's own workspaces out of the demo's list.
 
@@ -54,16 +54,21 @@ When your partner asks for a new README demo:
 
 - `demo.mp4` and `demo.gif`.
 - One PNG for each `camera.shot`.
-- `laura.log`, the output of Laura. `serve.log` is the output of the Laura server, and `<name>.log` is the output of each `agent.workspace`.
+- `serve.log`, the output of the Laura server, and `<name>.log`, the output of each `agent.workspace`. If the scene's workspace fails to start, the Laura server's page shows the error, and `failure.png` shows the page.
 - `home/hello-api/`, the scratch repo. The top bar shows `~/hello-api`. `record.py` copies the fixtures in `scripts/demo/scenes/demo/` into the scratch repo and commits them.
 
 ## Change the scene
 
-`demo.py` has one async function, `scene(user, agent, camera)`. The scene uses these helpers:
+`demo.py` has two async functions:
+
+- `setup(agent)` runs before the camera starts, so that the first frame shows its result, for example another workspace from `agent.workspace`. The scene gets the return value as its fourth argument.
+- `scene(user, agent, camera, ctx)` starts on the Laura server's page. The scene starts its workspace with the page's form, then calls `agent.ready()`.
+
+The scene uses these helpers:
 
 | Helper | Action |
 |---|---|
-| `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. If the reply is taller than the drawer, the chat shows the reply from its first line, then scrolls to the end in the middle of the hold. A bar along the top edge shows the time until the next action. |
+| `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. If the reply is taller than the drawer, the chat shows the reply from its first line for half of the hold, then shows the end of the reply. A bar along the top edge shows the time until the next action. |
 | `agent.ask(text)` | Shows the text in the chat and rings the bell, so that Laura marks the workspace as waiting. Use `agent.ask` on the `Agent` of another workspace, to show `Waiting for you`. |
 | `agent.laura(*args, pipe=None, shown=None)` | Runs `laura <args>` from the chat and gives the stdout, for example the pane id. If the exit code is not 0, raises an error. `pipe` is a shell command whose output goes into `laura`, as `sh -c '<pipe> \| laura <args>'`, for `laura tail`. `shown` is the command line that the chat shows instead, for example `python app.py 2>&1 \| laura tail …`. |
 | `agent.wait_for_review()` | Waits until a submitted inline review comes into the chat. Gives the text of the review. |

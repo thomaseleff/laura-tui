@@ -299,7 +299,10 @@ class Hello(BaseHTTPRequestHandler):
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
         name, lang = q.get("name", ["world"])[0], q.get("lang", ["en"])[0]
-        body = f"{GREETINGS[lang]}, {name}!\n".encode()  # bug: no fallback for an unknown lang
+        if lang not in GREETINGS:  # bug: no fallback to English
+            self.send_error(400, f"unknown lang: {lang}")
+            return
+        body = f"{GREETINGS[lang]}, {name}!\n".encode()
         self.send_response(200)
         self.end_headers()
         self.wfile.write(body)
@@ -324,7 +327,7 @@ CODE=$(laura open "$D/app.py" --ratio 50 --no-focus)   # shell left, code right
 
 > **[4 / 7] Debug**
 >
-> I opened the greeting API's source in a new pane, started the API, sent it requests, and piped its log into a tail pane below the source. Laura scrolls the tail pane to the newest output as the requests arrive. The requests with `lang=fr` fail with `KeyError: 'fr'` on L11.
+> I opened the greeting API's source in a new pane, started the API, sent it requests, and piped its log into a tail pane below the source. Laura scrolls the tail pane to the newest output as the requests arrive. The requests with `lang=fr` fail with `400` and `unknown lang: fr`, because L11 has no fallback to English.
 >
 > Press `p` in the tail pane to pause the tail pane and read the output. Press `p` again to follow the newest output.
 >
@@ -379,7 +382,7 @@ laura open "$D/page.html" --ratio 55 --no-focus
 > I opened `page.html` in a new pane. Laura shows the page with its stylesheet and runs its script when you click **Greet**.
 >
 > 1. Click **Greet**. The page changes the heading to **Hello, Ada!**, and Laura moves the cursor to the button's line.
-> 2. Click the comment-mode button in the pane's header, then click **Greet**. Laura shows the comment box below the button. Type a comment, press `Enter`, then click **Done** to leave comment mode.
+> 2. Click the comment-mode button in the pane's header, then click **Greet**. Laura shows the comment box below the button. Type `Make the button blue`, press `Enter`, then click **Done** to leave comment mode.
 > 3. Click **Read the notes**. Laura opens `notes.md` in a new pane.
 > 4. Click **Submit review** in the header of page.html's pane, or click the page and press `Shift+S`. Then press `Enter` to submit. Laura quotes the button's line from `page.html` in the inline review.
 >
@@ -398,6 +401,12 @@ _Next, show a page from a URL. Serve `$D` with any static file server; the examp
 **Do:**
 
 ```bash
+# Apply your partner's comment on the button.
+cat > "$D/style.css" <<'EOF'
+body { font-family: sans-serif; margin: 2em; }
+button, input { padding: 0.5em 1em; }
+button { background: #4f5bd5; color: white; border: 0; border-radius: 4px; }
+EOF
 python -m http.server 8765 --directory "$D" >/dev/null 2>&1 & SRV=$!
 # Wait for the server.
 until curl -s -o /dev/null http://localhost:8765/; do sleep 0.5; done
@@ -412,7 +421,7 @@ _If `laura highlight` returns another error, tell your partner and skip this bea
 
 > **See a page from a URL**
 >
-> I started a small web server and opened `http://localhost:8765/page.html` in a new browser pane. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Greet** button by its CSS selector, so Laura outlines it.
+> I made the **Greet** button blue, as your inline review asked. Then I started a small web server and opened `http://localhost:8765/page.html` in a new browser pane. Laura's browser shows the page live, as your dev server would. The pane header shows the URL, and **● live** while the pane shows the page. I highlighted the **Greet** button by its CSS selector, so Laura outlines it.
 >
 > 1. Click **Greet** in the pane. The page changes the heading to **Hello, Ada!**, as in your own browser.
 > 2. Press `Ctrl+R` in the pane to refresh the pane. Laura reloads the page.

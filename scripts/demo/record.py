@@ -19,6 +19,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -118,12 +119,10 @@ class Agent:
         ms = max(1000, 125 * len(text.split()))
         await self.page.evaluate("ms => window.__wait(ms)", ms)
         if below:
-            # The chat stub shows a reply taller than the drawer from its first line. Scroll to the end in the middle 40% of the hold.
-            await self.page.wait_for_timeout(ms * 0.4)
-            for _ in range(below):
-                await self._call("/scroll", {})
-                await self.page.wait_for_timeout(ms * 0.4 / below)
-            ms *= 0.2
+            # The chat stub shows a reply taller than the drawer from its first line. Show the end at half the hold.
+            await self.page.wait_for_timeout(ms / 2)
+            await self._call("/scroll", {})
+            ms /= 2
         await self.page.wait_for_timeout(ms)
 
     async def ask(self, text):
@@ -343,7 +342,7 @@ def encode(frames_dir, out):
     subprocess.run([*run, "-vf", gif, str(out / "demo.gif")], check=True)
 
 
-async def record(scene, page, cdp, url, port, repo, out, start):
+async def record(scene, page, cdp, server, port, repo, out, start):
     frames_dir = out / "frames"
     frames_dir.mkdir()
     frames = []
@@ -359,14 +358,16 @@ async def record(scene, page, cdp, url, port, repo, out, start):
         "console",
         lambda m: m.type == "error" and not m.location.get("url", "").endswith("/favicon.ico") and errors.append(m.text),
     )
+    agent = Agent(port, repo, page, start)
+    # The setup runs before the camera starts, so that the first frame shows the setup's workspaces.
+    ctx = await scene.setup(agent)
+    # The scene starts on the Laura server's page. The user starts the scene's workspace there.
+    await page.goto(server)
+    await page.locator("#rows li").first.wait_for(timeout=15000)
     cdp.on("Page.screencastFrame", on_frame)
     await cdp.send("Page.startScreencast", {"format": "png", "maxWidth": 1280, "maxHeight": 800})
-    await page.goto(url)
-    await page.wait_for_selector("#p0 .xterm", timeout=15000)
-    agent = Agent(port, repo, page, start)
-    await agent.ready()
     page.set_default_timeout(10000)
-    await scene.scene(User(page), agent, Camera(page, out))
+    await scene.scene(User(page), agent, Camera(page, out), ctx)
     await page.wait_for_timeout(1500)
     stop = time.time()
     await cdp.send("Page.stopScreencast")
@@ -405,17 +406,16 @@ async def main():
                 procs.append(proc)
                 return url
 
-            # The Laura server, so that the workspace switcher ends with New workspace… and the logo opens the Laura server's page.
-            start(home, 0, out / "serve.log", ["--serve", "--port", "0"])
+            # The Laura server starts the scene's workspace, which gets the chat stub's port from the Laura server.
             port = free_port()
-            url = start(repo, port, out / "laura.log")
+            server = start(home, port, out / "serve.log", ["--serve", "--port", "0"])
             browser = await p.chromium.launch(channel="chromium")
             ctx = await browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             await ctx.add_init_script(OVERLAY)
             page = await ctx.new_page()
             cdp = await ctx.new_cdp_session(page)
             try:
-                await record(scene, page, cdp, url, port, repo, out, start)
+                await record(scene, page, cdp, server, port, repo, out, start)
             except Exception:
                 traceback.print_exc()
                 await page.screenshot(path=str(out / "failure.png"))
@@ -428,6 +428,12 @@ async def main():
         for proc in reversed(procs):
             proc.kill()
             proc.wait()
+        # The Laura server starts a workspace in its own process group, so the workspace keeps running after the Laura server stops.
+        for rec in (home / ".laura" / "workspaces").glob("*.json"):
+            try:
+                os.kill(int(rec.stem), signal.SIGKILL)
+            except (ValueError, ProcessLookupError):
+                pass
     encode(out / "frames", out)
     print(f"Wrote {out / 'demo.mp4'} and {out / 'demo.gif'}")
     return 0
