@@ -1031,15 +1031,16 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         };
         (x, y)
     }
-    let waiting = |r: &mut Rig, ws: &mut Ws, what: &str, on: bool| {
-        state_until(r, ws, what, id, |v| {
-            v["title"]
-                .as_str()
-                .is_some_and(|t| t.starts_with('●') == on)
-        });
-    };
+    /// #200: the wait shows as the badged icon in B's browser tab, and the title has no `●`.
+    fn waiting(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, what: &str, on: bool) {
+        let js = format!(
+            "document.querySelector('link[rel=icon]').href.startsWith('data:image/svg+xml') === {on} \
+             && document.title.startsWith('Laura · ')"
+        );
+        until(r, eval, &js, what);
+    }
     ring()?;
-    waiting(&mut r, &mut ws, "the wait", true);
+    waiting(&mut r, &mut eval, "the wait", true);
     // F12 while the pane selector keeps the keystrokes: the user has not reached the shell.
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
     press(&mut ws, id, "F12", 123);
@@ -1058,15 +1059,15 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     press(&mut ws, id, "Escape", 27);
     waiting(
         &mut r,
-        &mut ws,
+        &mut eval,
         "Esc out of the pane selector ends the wait",
         false,
     );
     press(&mut ws, id, "F12", 123);
     ring()?;
-    waiting(&mut r, &mut ws, "the wait after the unlock", true);
+    waiting(&mut r, &mut eval, "the wait after the unlock", true);
     press(&mut ws, id, "F12", 123);
-    waiting(&mut r, &mut ws, "F12 ends the wait", false);
+    waiting(&mut r, &mut eval, "F12 ends the wait", false);
     press(&mut ws, id, "F12", 123);
     press(&mut ws, id, "Escape", 27);
     // The move to the shell ends a wait: ring the bell after B's server moved the focus (the
@@ -1078,12 +1079,12 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         "the shell has no focus",
     );
     ring()?;
-    waiting(&mut r, &mut ws, "the wait again", true);
+    waiting(&mut r, &mut eval, "the wait again", true);
     press(&mut ws, id, "PageUp", 33);
-    waiting(&mut r, &mut ws, "PageUp ends the wait", false);
+    waiting(&mut r, &mut eval, "PageUp ends the wait", false);
     // With no lock too: the open of the pane selector keeps the wait, the close ends the wait.
     ring()?;
-    waiting(&mut r, &mut ws, "the wait in the shell", true);
+    waiting(&mut r, &mut eval, "the wait in the shell", true);
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
     until(&mut r, &mut eval, "popup !== null", "no pane selector");
     holds(
@@ -1094,12 +1095,12 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     press(&mut ws, id, "Escape", 27);
     waiting(
         &mut r,
-        &mut ws,
+        &mut eval,
         "Esc out of the pane selector into the shell ends the wait",
         false,
     );
     ring()?;
-    waiting(&mut r, &mut ws, "the wait before the help", true);
+    waiting(&mut r, &mut eval, "the wait before the help", true);
     press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
     until(&mut r, &mut eval, "help", "no help");
     // The help leaves the focus in the shell, but keeps the keystrokes.
@@ -1107,7 +1108,7 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     press(&mut ws, id, "Escape", 27);
     waiting(
         &mut r,
-        &mut ws,
+        &mut eval,
         "Esc out of the help into the shell ends the wait",
         false,
     );
@@ -1120,7 +1121,7 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     };
     // A modifier alone: the user may be leaving the browser, as with `Alt+Tab`.
     ring()?;
-    waiting(&mut r, &mut ws, "the wait before Control", true);
+    waiting(&mut r, &mut eval, "the wait before Control", true);
     press_key(&mut ws, id, ("Control", "ControlLeft", 17, 2, ""));
     holds(&mut r, &mut eval, "a modifier alone ended the wait");
     let (x, y) = point(
@@ -1130,10 +1131,15 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         "e.closest('#p0 .term')",
     );
     click(&mut ws, id, x, y);
-    waiting(&mut r, &mut ws, "a click in the shell ends the wait", false);
+    waiting(
+        &mut r,
+        &mut eval,
+        "a click in the shell ends the wait",
+        false,
+    );
     // The press comes before the click that opens the help.
     ring()?;
-    waiting(&mut r, &mut ws, "the wait before the help button", true);
+    waiting(&mut r, &mut eval, "the wait before the help button", true);
     let (x, y) = point(
         &mut r,
         &mut eval,
@@ -1157,13 +1163,18 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     click(&mut ws, id, x, y);
     waiting(
         &mut r,
-        &mut ws,
+        &mut eval,
         "a click outside the help into the shell ends the wait",
         false,
     );
     // A click outside the shell that sends no action keeps the wait, though the shell keeps the keystrokes.
     ring()?;
-    waiting(&mut r, &mut ws, "the wait before the highlight chip", true);
+    waiting(
+        &mut r,
+        &mut eval,
+        "the wait before the highlight chip",
+        true,
+    );
     let (x, y) = point(
         &mut r,
         &mut eval,
@@ -1184,13 +1195,13 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     press(&mut ws, id, "PageDown", 34);
     waiting(
         &mut r,
-        &mut ws,
+        &mut eval,
         "PageDown in the shell ends the wait",
         false,
     );
     // `Ctrl+`` sends Laura an action, and the focus moves after the reply.
     ring()?;
-    waiting(&mut r, &mut ws, "the wait before Ctrl+`", true);
+    waiting(&mut r, &mut eval, "the wait before Ctrl+`", true);
     press_key(&mut ws, id, ("`", "Backquote", 192, 2, ""));
     until(
         &mut r,
@@ -1202,7 +1213,7 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     press(&mut ws, id, "Escape", 27);
     waiting(
         &mut r,
-        &mut ws,
+        &mut eval,
         "Esc back into the shell ends the wait",
         false,
     );

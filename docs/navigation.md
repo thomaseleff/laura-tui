@@ -36,7 +36,7 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 When a file pane, a browser pane or an editor pane is open, the panes fill the workspace, and Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus.
 
-The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits), the shell button is amber and shows `Waiting for you`, and the browser tab shows `●` before `Laura`.
+The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits), the shell button is amber and shows `Waiting for you`, and the browser tab's icon shows an amber dot.
 
 To open the drawer, do one of these:
 
