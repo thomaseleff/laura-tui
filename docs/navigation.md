@@ -68,10 +68,12 @@ The browser tab shows `Laura · <session label>`, or `Laura · <folder name>` be
 
 To switch to another workspace:
 
-1. Click the workspace switcher. Laura lists the running workspaces, oldest first, and marks the workspace that you are in with ✓. Laura selects the first other workspace.
+1. Click the workspace switcher. Laura lists the workspace that you are in first, marked with ✓, then the other running workspaces, the workspace that you visited last first. Laura selects the first other workspace.
 2. Press `Enter` to switch to the selected workspace, or press `↑` or `↓` to select a different workspace first. You can also click the workspace.
 
 Laura loads the other workspace in the same browser tab. The workspace that you leave keeps running.
+
+You visit a workspace when you show its browser tab or switch to the workspace. Laura sorts a workspace that you have not visited yet by its start, the newest first.
 
 The list shows each workspace, and the pane selector shows the other workspaces. The dot before each workspace shows its state:
 
@@ -85,7 +87,7 @@ While another workspace waits for you, the workspace switcher shows an amber dot
 - To close the list, press `Esc` or click outside the list.
 - While a comment box is open, the browser asks before it leaves the workspace, so you do not lose the comment.
 
-The pane selector finds a workspace too. Press `Ctrl+P` and type part of a session label or a folder. Laura lists the panes under **Panes** and the other workspaces under **Workspaces**. Press `Enter` to switch to the selected workspace, or `Ctrl+Enter` to open the workspace in a new browser tab.
+The pane selector finds a workspace too. Press `Ctrl+P` and type part of a session label or a folder. Laura lists the panes under **Panes** and the other workspaces under **Workspaces**, in the order of the workspace switcher. Press `Enter` to switch to the selected workspace, or `Ctrl+Enter` to open the workspace in a new browser tab.
 
 What Laura shows depends on [the Laura server](workspace.md#the-laura-server):
 

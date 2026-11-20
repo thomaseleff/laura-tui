@@ -313,7 +313,6 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
         }
         ("GET", "/workspaces") => {
             let mut list = web::live();
-            list.reverse(); // newest first
             for w in &mut list {
                 let shown = shown_root(Path::new(w["root"].as_str().unwrap_or("")));
                 w["path"] = std::mem::replace(&mut w["root"], shown.into());

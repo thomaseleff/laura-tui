@@ -35,7 +35,8 @@ const unseen = new Set();
 // The open comment or review body: `{pane, line, kind, hint, busy, failed, text}`. A comment's box
 // is `draftCard`, in its line's thread or below its line; a review body's is in the pane's popover.
 let draft = null, draftCard = null;
-// The `workspaces` frame: the running workspaces, oldest first, and the Laura server's URL or null.
+// The `workspaces` frame: the running workspaces, this workspace first, then the latest visit
+// first, and the Laura server's URL or null.
 // `leaving` is set by a switch to another workspace, which skips the leave question.
 let spaces = [], server = null, leaving = false;
 // The pane whose thread list is open, and the pane whose **More** is open.
@@ -167,7 +168,11 @@ hintEl.addEventListener("mouseleave", () => ($("htip").hidden = true));
 // Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
 addEventListener("focus", () => {
   paintHint();
+  visit();
 });
+// A visit to this workspace, which the workspace switcher and the Laura server list first.
+const visit = () => document.visibilityState === "visible" && send({ visit: true });
+document.addEventListener("visibilitychange", visit);
 
 // A keystroke's keys, split on spaces, as `<kbd>` chips.
 const kbds = k => k.split(" ").filter(Boolean).map(x => {
@@ -2246,7 +2251,8 @@ function connect() {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const sock = (ws = new WebSocket(url));
   sock.binaryType = "arraybuffer";
-  sock.onopen = () => (report(), fitShell(true));
+  // A switch through the workspace switcher loads this page in the same tab: no focus event.
+  sock.onopen = () => (report(), fitShell(true), visit());
   sock.onmessage = e => {
     if (typeof e.data !== "string") {
       const id = Number(new DataView(e.data).getBigUint64(0));
