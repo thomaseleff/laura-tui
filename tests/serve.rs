@@ -624,15 +624,32 @@ fn recent_workspaces_list_first() -> Result<()> {
     assert_eq!(urls(&s.workspaces()?), [c, b, a]);
 
     // A ahead of the newer B: the visit orders the list, not the start.
+    let mut view_c = view(c)?;
     let mut view_a = view(a)?;
     send(&mut view_a, json!({"visit": true}));
     until("A first on the Laura server", || {
         Ok(urls(&s.workspaces()?) == [a, c, b])
     })?;
-    let mut view_c = view(c)?;
+    // C's thread read the records for this frame: its next timed read is about 2 s away.
     workspaces_frame(&mut view_c, "C, then A, then B", |f| {
         f["list"].as_array().is_some_and(|l| urls(l) == [c, a, b])
     })?;
+    let mut view_b = view(b)?;
+    send(&mut view_b, json!({"visit": true}));
+    until("B first on the Laura server", || {
+        Ok(urls(&s.workspaces()?) == [b, a, c])
+    })?;
+    // A new view of C reads the records at once, not with the next timed read.
+    let mut again = view(c)?;
+    let opened = Instant::now();
+    workspaces_frame(&mut again, "C, then B, then A", |f| {
+        f["list"].as_array().is_some_and(|l| urls(l) == [c, b, a])
+    })?;
+    assert!(
+        opened.elapsed() < Duration::from_secs(1),
+        "the frame came in {:?}",
+        opened.elapsed()
+    );
     Ok(())
 }
 

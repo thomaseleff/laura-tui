@@ -222,8 +222,10 @@ pub struct WebServer {
     started: u64,
     /// When the user last showed this workspace's browser tab, in Unix ms: the list's order.
     visited: u64,
-    /// The `workspaces` frames from `watch`'s thread, and the last one, which a new view gets.
+    /// The `workspaces` frames from `watch`'s thread, the last one, which a new view gets, and
+    /// the poke that has the thread read the records at once.
     watch: Option<Receiver<String>>,
+    poke: Option<Sender<()>>,
     workspaces: Option<String>,
 }
 
@@ -260,6 +262,7 @@ impl WebServer {
             started,
             visited: started,
             watch: None,
+            poke: None,
             workspaces: None,
         })
     }
@@ -289,10 +292,11 @@ impl WebServer {
     }
 
     /// Tell the view which workspaces run, and whether a Laura server runs: a thread reads the
-    /// records every 2 s, and `sync` sends the `workspaces` frame when the list changes. The view
+    /// records every 2 s and at once when a view connects, and `sync` sends the `workspaces` frame when the list changes. The view
     /// then holds the other workspaces' tokens: the same user, the same files on disk.
     pub fn watch(&mut self) {
         let (tx, rx) = channel();
+        let (poke, poked) = channel();
         let url = self.url.clone();
         std::thread::spawn(move || {
             let mut last = String::new();
@@ -317,10 +321,15 @@ impl WebServer {
                     }
                     last = frame;
                 }
-                std::thread::sleep(Duration::from_secs(2));
+                if let Err(RecvTimeoutError::Disconnected) =
+                    poked.recv_timeout(Duration::from_secs(2))
+                {
+                    return; // the workspace ended
+                }
             }
         });
         self.watch = Some(rx);
+        self.poke = Some(poke);
     }
 
     /// Delete this workspace's record. A workspace that ends without it (`Ctrl+C`, a crash) leaves
@@ -396,6 +405,10 @@ impl WebServer {
                            "narrow": "This pane is too small to show {name}. Make the window larger or close a pane."}));
             if let Some(frame) = &self.workspaces {
                 v.send(Outbound::Text(frame.clone()));
+            }
+            // The kept frame can miss a visit to another workspace in the last 2 s.
+            if let Some(p) = &self.poke {
+                let _ = p.send(());
             }
             if let Err(e) = &tab.editor
                 && e == crate::editor::NO_NVIM
