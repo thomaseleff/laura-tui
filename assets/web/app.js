@@ -279,10 +279,11 @@ function webgl(term) {
 }
 
 // A file path in the shell with a `/` or `\` and an extension with a letter, and an optional `:line`.
-// A path starts a word: at the row's start, after a space or after an opening mark, so Laura doesn't
-// link the end of a longer word (`Update(src/a.rs)` links `src/a.rs`). A folder can be a whole `[slug]`
-// or `(group)`, or start with `@` or `+`. Not a home path (`~/a/b.rs`); the link provider skips URLs.
-const PATH = /(?<=^|[\s(\[{<"'`=])(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:(?:[@+]?[\p{L}\p{N}_.+-]+|\[[^\]\/\\\s]+\]|\([^)\/\\\s]+\))[\/\\])*\+?[\p{L}\p{N}_.-]*[\p{L}\p{N}_-]\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*(?::\d+)?/gu;
+// A path starts a word: at the row's start, after a space, after an opening mark, after `**` or a quote,
+// so Laura doesn't link the end of a longer word (`Update(src/a.rs)` links `src/a.rs`). A folder can be
+// a whole `[slug]` or `(group)`, or start with `@` or `+`. Not a home path (`~/a/b.rs`); the link provider
+// skips URLs. A name followed by `/` is a folder, so `lodash.merge/index` is no link.
+const PATH = /(?<=^|[\s(\[{<"'`=*“‘])(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:(?:[@+]?[\p{L}\p{N}_.+-]+|\[[^\]\/\\\s]+\]|\([^)\/\\\s]+\))[\/\\])*\+?[\p{L}\p{N}_.-]*[\p{L}\p{N}_-]\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*(?![\/\\\p{L}\p{N}_-])(?::\d+)?/gu;
 
 function makeTerm(id, el) {
   // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.

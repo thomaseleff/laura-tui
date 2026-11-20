@@ -862,31 +862,36 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
         assert!(t0.elapsed() < common::DEADLINE, "B has no shell");
         thread::sleep(Duration::from_millis(50));
     }
-    // Rows 5–6 wrap a path after `src/foo.test`, rows 7–8 wrap a URL after `https://x.com/`.
+    // Rows 6–7 wrap a path after `src/foo.test`, rows 8–9 wrap a URL after `https://x.com/`.
     let got = eval(
         &mut r,
-        r#"new Promise(done => {
+        r#"(async () => {
             const t = terms.get(0);
-            t.reset();
-            t.write([
-                "see src/foo.test.ts:12 src\\tab.rs:41 C:\\proj\\a.rs ./README.md:3",
-                "https://example.com/@scope/pkg/index.js README.md ~/a/b.rs",
-                "Update(src/a.rs) (src/b.rs) app/[slug]/page.tsx:12",
-                "node_modules/@types/x/index.d.ts src/café/a.rs:3 1/2.5",
-                " ".repeat(t.cols - 12) + "src/foo.test.ts:12",
-                " ".repeat(t.cols - 14) + "https://x.com/@a/b.js",
-            ].join("\r\n"), async () => {
-                const rows = [];
-                for (let y = 1; y <= 8; y++) {
-                    const texts = [];
-                    for (const p of t._core._linkProviderService.linkProviders)
-                        for (const l of await new Promise(cb => p.provideLinks(y, cb)) ?? []) texts.push(l.text);
-                    rows.push(texts);
-                }
-                const b = t.buffer.active;
-                done({ rows, wrapped: [b.getLine(5).isWrapped, b.getLine(7).isWrapped] });
-            });
-        })"#,
+            // `fitShell` can resize the shell after the page loads, which moves the wrap: write again until the width holds.
+            for (let cols; cols !== t.cols;) {
+                cols = t.cols;
+                t.reset();
+                await new Promise(w => t.write([
+                    "see src/foo.test.ts:12 src\\tab.rs:41 C:\\proj\\a.rs ./README.md:3",
+                    "https://example.com/@scope/pkg/index.js README.md ~/a/b.rs",
+                    "Update(src/a.rs) (src/b.rs) app/[slug]/page.tsx:12",
+                    "node_modules/@types/x/index.d.ts src/café/a.rs:3 1/2.5",
+                    "**src/c.rs** “src/d.rs” node_modules/lodash.merge/index",
+                    " ".repeat(t.cols - 12) + "src/foo.test.ts:12",
+                    " ".repeat(t.cols - 14) + "https://x.com/@a/b.js",
+                ].join("\r\n"), w));
+                await new Promise(r => setTimeout(r, 200));
+            }
+            const rows = [];
+            for (let y = 1; y <= 9; y++) {
+                const texts = [];
+                for (const p of t._core._linkProviderService.linkProviders)
+                    for (const l of await new Promise(cb => p.provideLinks(y, cb)) ?? []) texts.push(l.text);
+                rows.push(texts);
+            }
+            const b = t.buffer.active;
+            return { rows, wrapped: [b.getLine(6).isWrapped, b.getLine(8).isWrapped] };
+        })()"#,
     );
     assert_eq!(
         got,
@@ -896,6 +901,7 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
                 [],
                 ["src/a.rs", "src/b.rs", "app/[slug]/page.tsx:12"],
                 ["node_modules/@types/x/index.d.ts", "src/café/a.rs:3"],
+                ["src/c.rs", "src/d.rs"],
                 [], [], [], [],
             ],
             "wrapped": [true, true],
