@@ -826,8 +826,9 @@ fn the_browser_tab_shows_the_session_label() -> Result<()> {
     Ok(())
 }
 
-/// #193: a file path in the shell is a link, a path in a URL or a path that wraps is not, and a
-/// click on `src/foo.test.ts:12` opens `foo.test.ts` on line 12.
+/// #193: a file path in the shell is a link from the start of its word, also through route folders
+/// such as `[slug]`; a path in a URL or a path that wraps is not, and a click on
+/// `src/foo.test.ts:12` opens `foo.test.ts` on line 12.
 #[cfg(unix)]
 #[test]
 fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
@@ -861,7 +862,7 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
         assert!(t0.elapsed() < common::DEADLINE, "B has no shell");
         thread::sleep(Duration::from_millis(50));
     }
-    // Rows 3–4 wrap a path after `src/foo.test`, rows 5–6 wrap a URL after `https://x.com/`.
+    // Rows 5–6 wrap a path after `src/foo.test`, rows 7–8 wrap a URL after `https://x.com/`.
     let got = eval(
         &mut r,
         r#"new Promise(done => {
@@ -870,18 +871,20 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
             t.write([
                 "see src/foo.test.ts:12 src\\tab.rs:41 C:\\proj\\a.rs ./README.md:3",
                 "https://example.com/@scope/pkg/index.js README.md ~/a/b.rs",
+                "Update(src/a.rs) (src/b.rs) app/[slug]/page.tsx:12",
+                "node_modules/@types/x/index.d.ts src/café/a.rs:3 1/2.5",
                 " ".repeat(t.cols - 12) + "src/foo.test.ts:12",
                 " ".repeat(t.cols - 14) + "https://x.com/@a/b.js",
             ].join("\r\n"), async () => {
                 const rows = [];
-                for (let y = 1; y <= 6; y++) {
+                for (let y = 1; y <= 8; y++) {
                     const texts = [];
                     for (const p of t._core._linkProviderService.linkProviders)
                         for (const l of await new Promise(cb => p.provideLinks(y, cb)) ?? []) texts.push(l.text);
                     rows.push(texts);
                 }
                 const b = t.buffer.active;
-                done({ rows, wrapped: [b.getLine(3).isWrapped, b.getLine(5).isWrapped] });
+                done({ rows, wrapped: [b.getLine(5).isWrapped, b.getLine(7).isWrapped] });
             });
         })"#,
     );
@@ -890,7 +893,10 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
         json!({
             "rows": [
                 ["src/foo.test.ts:12", "src\\tab.rs:41", "C:\\proj\\a.rs", "./README.md:3"],
-                [], [], [], [], [],
+                [],
+                ["src/a.rs", "src/b.rs", "app/[slug]/page.tsx:12"],
+                ["node_modules/@types/x/index.d.ts", "src/café/a.rs:3"],
+                [], [], [], [],
             ],
             "wrapped": [true, true],
         }),

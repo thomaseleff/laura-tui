@@ -278,9 +278,11 @@ function webgl(term) {
   } catch {}
 }
 
-// A file path in the shell with a `/` or `\` and an extension, and an optional `:line`. The file
-// name can have more dots (`a.test.ts`). Not a home path (`~/a/b.rs`); the link provider skips URLs.
-const PATH = /(?<![\w/\\:.~-])(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:[\w.-]+[\/\\])*[\w.-]*[\w-]\.[A-Za-z0-9]+(?::\d+)?/g;
+// A file path in the shell with a `/` or `\` and an extension with a letter, and an optional `:line`.
+// A path starts a word: at the row's start, after a space or after an opening mark, so Laura doesn't
+// link the end of a longer word (`Update(src/a.rs)` links `src/a.rs`). A folder can be a whole `[slug]`
+// or `(group)`, or start with `@` or `+`. Not a home path (`~/a/b.rs`); the link provider skips URLs.
+const PATH = /(?<=^|[\s(\[{<"'`=])(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:(?:[@+]?[\p{L}\p{N}_.+-]+|\[[^\]\/\\\s]+\]|\([^)\/\\\s]+\))[\/\\])*\+?[\p{L}\p{N}_.-]*[\p{L}\p{N}_-]\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*(?::\d+)?/gu;
 
 function makeTerm(id, el) {
   // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.
