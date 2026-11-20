@@ -77,6 +77,12 @@ async def reply(user, text="Next"):
 
 
 async def setup(agent):
+    # app.py binds 8766, which the GIF shows. With another program on 8766, curl gets that program's answers.
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", 8766))
+        except OSError:
+            raise RuntimeError("port 8766 is in use; stop the program on it and record again") from None
     # Another workspace runs before the demo, so that the Laura server's page lists it.
     return await agent.workspace("hello-web", "greeting page")
 
