@@ -223,7 +223,7 @@ pub struct WebServer {
     /// When the user last showed this workspace's browser tab, in Unix ms: the list's order.
     visited: u64,
     /// The `workspaces` frames from `watch`'s thread, the last one, which a new view gets, and
-    /// the poke that has the thread read the records at once.
+    /// the poke that has the thread read the records at once (a view connects or sends a visit).
     watch: Option<Receiver<String>>,
     poke: Option<Sender<()>>,
     workspaces: Option<String>,
@@ -292,7 +292,7 @@ impl WebServer {
     }
 
     /// Tell the view which workspaces run, and whether a Laura server runs: a thread reads the
-    /// records every 2 s and at once when a view connects, and `sync` sends the `workspaces` frame when the list changes. The view
+    /// records every 2 s, and at once when a view connects or sends a visit, and `sync` sends the `workspaces` frame when the list changes. The view
     /// then holds the other workspaces' tokens: the same user, the same files on disk.
     pub fn watch(&mut self) {
         let (tx, rx) = channel();
@@ -508,6 +508,10 @@ impl WebServer {
                         });
                     } else if msg.get("visit") == Some(&Value::Bool(true)) {
                         self.visited = now_ms();
+                        // Back from another tab: that workspace's visit can be newer than the kept frame.
+                        if let Some(p) = &self.poke {
+                            let _ = p.send(());
+                        }
                     } else if let Some((cols, rows)) = msg.get("view").and_then(cells) {
                         self.area = Some(Rect::new(0, 0, cols, rows));
                     } else if let Some((cols, rows)) = msg.get("shell").and_then(cells) {

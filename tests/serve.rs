@@ -650,6 +650,25 @@ fn recent_workspaces_list_first() -> Result<()> {
         "the frame came in {:?}",
         opened.elapsed()
     );
+
+    // The connect poke made A's thread read just now: its next timed read is about 2 s away.
+    let mut back = view(a)?;
+    workspaces_frame(&mut back, "A's kept frame", |_| true)?;
+    send(&mut again, json!({"visit": true}));
+    until("C first on the Laura server", || {
+        Ok(urls(&s.workspaces()?) == [c, b, a])
+    })?;
+    // The user goes back to A's open tab: A's visit reads the records at once.
+    send(&mut back, json!({"visit": true}));
+    let shown = Instant::now();
+    workspaces_frame(&mut back, "A, then C, then B", |f| {
+        f["list"].as_array().is_some_and(|l| urls(l) == [a, c, b])
+    })?;
+    assert!(
+        shown.elapsed() < Duration::from_secs(1),
+        "the frame came in {:?}",
+        shown.elapsed()
+    );
     Ok(())
 }
 
