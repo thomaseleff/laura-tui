@@ -9,6 +9,7 @@ Your agent can open the file you're discussing, the plan you're following, the d
 > [!TIP]
 > **New:**
 >
+> - Laura now shows when the agent waits for you, in this workspace and in your other workspaces. See [Know when the agent waits](docs/workspace.md#know-when-the-agent-waits).
 > - Once a pane is open, the panes fill the workspace, and the shell floats in a drawer. Press ``Ctrl+` `` to open or close the drawer. See [The drawer](docs/navigation.md#the-drawer).
 
 **Laura lets you:**
