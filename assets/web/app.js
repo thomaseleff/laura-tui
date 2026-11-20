@@ -279,8 +279,7 @@ function webgl(term) {
 }
 
 // A file path in the shell with a `/` or `\` and an extension, and an optional `:line`. The file
-// name can have more dots (`a.test.ts`). Not part of a URL (`https://x.com/a.js`) or a home path
-// (`~/a/b.rs`).
+// name can have more dots (`a.test.ts`). Not a home path (`~/a/b.rs`); the link provider skips URLs.
 const PATH = /(?<![\w/\\:.~-])(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:[\w.-]+[\/\\])*[\w.-]*[\w-]\.[A-Za-z0-9]+(?::\d+)?/g;
 
 function makeTerm(id, el) {
@@ -311,7 +310,7 @@ function makeTerm(id, el) {
     // A wheel step scrolls the shell without the focus, so the keystroke-or-click rule doesn't see it.
     el.querySelector(".term").addEventListener("wheel", () => layout.waiting && act({ act: "seen", wait: layout.wait }), { capture: true, passive: true });
     term.registerLinkProvider({ provideLinks(y, cb) {
-      // shortcut: a path that wraps onto the next row is no link; join wrapped rows if agents wrap paths.
+      // shortcut: Laura links neither part of a path that wraps onto the next row; join wrapped rows if agents wrap paths.
       const line = term.buffer.active.getLine(y - 1);
       // The text, and each character's column: an emoji takes two columns.
       let text = "";
@@ -323,7 +322,13 @@ function makeTerm(id, el) {
         text += s;
         for (let i = 0; i < s.length; i++) col.push(x + 1);
       }
-      cb([...text.matchAll(PATH)].filter(m => /[\/\\]/.test(m[0])).map(m => ({
+      // A path in a URL (`https://x.com/@a/b.js`) is no link.
+      const urls = [...text.matchAll(/[a-z][\w+.-]*:\/\/\S+/gi)].map(u => [u.index, u.index + u[0].length]);
+      // The word that crosses a row boundary, a wrapped path or URL, is no link: the URL's second row has no scheme.
+      const head = line?.isWrapped ? text.search(/\s|$/) : 0;
+      const tail = term.buffer.active.getLine(y)?.isWrapped ? text.search(/\S*$/) : text.length;
+      cb([...text.matchAll(PATH)].filter(m => /[\/\\]/.test(m[0]) && m.index >= head && m.index + m[0].length <= tail
+        && !urls.some(([a, b]) => m.index >= a && m.index < b)).map(m => ({
         text: m[0],
         range: { start: { x: col[m.index], y }, end: { x: col[m.index + m[0].length - 1], y } },
         decorations: { underline: true, pointerCursor: true },
