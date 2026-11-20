@@ -234,6 +234,12 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
+    /// What the web app keeps from the shell and sends no bytes for: a keystroke or a click after
+    /// which the shell has the keystrokes, or a wheel step over the shell. `wait` is the layout
+    /// frame's `wait` at the press, so a wait that began after the press stays. Focus stays where it is.
+    Seen {
+        wait: u64,
+    },
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
     BrowserMouse {
@@ -286,6 +292,37 @@ pub enum UserAction {
     BrowserReveal {
         pane: PaneId,
     },
+}
+
+/// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
+/// (`\e[M` and 3 bytes): a hover isn't the user looking, but a wheel step or a click is.
+fn only_hover(mut b: &[u8]) -> bool {
+    // Motion (32) with no button (3), below the wheel (64).
+    let hover = |code: u32| code & 32 != 0 && code & 3 == 3 && code < 64;
+    if b.is_empty() {
+        return false;
+    }
+    while !b.is_empty() {
+        if let Some(rest) = b.strip_prefix(b"\x1b[<") {
+            let Some(end) = rest.iter().position(|c| !matches!(c, b'0'..=b'9' | b';')) else {
+                return false;
+            };
+            let code = rest[..end].split(|&c| c == b';').next().unwrap_or_default();
+            let code = std::str::from_utf8(code).ok().and_then(|c| c.parse().ok());
+            if !matches!(rest[end], b'M' | b'm') || !code.is_some_and(hover) {
+                return false;
+            }
+            b = &rest[end + 1..];
+        } else if let Some(rest) = b.strip_prefix(b"\x1b[M")
+            && rest.len() >= 3
+            && hover(u32::from(rest[0].wrapping_sub(32)))
+        {
+            b = &rest[3..];
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 fn no_pane(pane: PaneId) -> String {
@@ -366,6 +403,13 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
+    /// The shell rang the bell or sent a notification since the user last moved to the shell, used it or submitted an inline review: the agent waits for the user.
+    pub waiting: bool,
+    /// The shell's bell count when the current wait began. The layout frame carries this count,
+    /// and `seen` names it, so a `seen` from before a new wait does not end the new wait.
+    pub wait: u64,
+    /// The shell's bell count that `drain` last saw.
+    bells: u64,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -444,6 +488,9 @@ impl Tab {
             agent: false,
             journal: None,
             title: None,
+            waiting: false,
+            wait: 0,
+            bells: 0,
             shell_size: None,
             docked: false,
             hold: false,
@@ -517,6 +564,10 @@ impl Tab {
                     return Err(no_pane(pane));
                 }
                 self.focus = pane;
+                // The user's move into the shell: the user sees the agent.
+                if pane == PTY_PANE {
+                    self.answered(self.pty.bells());
+                }
             }
             A::MoveCursor { pane, delta } => self.panel_mut(pane)?.move_cursor(delta),
             A::ScrollH { pane, delta } => self.panel_mut(pane)?.scroll_h(delta),
@@ -592,8 +643,13 @@ impl Tab {
             }
             A::Refresh { pane } => self.panel_mut(pane)?.discard_and_reload(),
             A::Close { pane } => {
+                let from = self.focus;
                 if let Response::Error { message } = self.close_pane(Some(pane)) {
                     return Err(message);
+                }
+                // The user's close that moves the focus to the shell: the user sees the agent.
+                if from != PTY_PANE && self.focus == PTY_PANE {
+                    self.answered(self.pty.bells());
                 }
             }
             A::ToggleEditorView { pane } => {
@@ -611,8 +667,27 @@ impl Tab {
             }
             A::Dock => {}
             A::Drawer => self.docked = false,
-            A::Input { pane, bytes } => self.write_keys(pane, &bytes)?,
-            A::Paste { pane, text } => self.write_keys(pane, &bracketed_paste(&text, false))?,
+            // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
+            // after the wait ended does nothing, so the answered count never goes down.
+            A::Seen { wait } => {
+                if self.waiting && wait == self.wait {
+                    self.answered(self.pty.bells());
+                }
+            }
+            A::Input { pane, bytes } => {
+                let bells = self.pty.bells();
+                self.write_keys(pane, &bytes)?;
+                if pane == PTY_PANE && !only_hover(&bytes) {
+                    self.answered(bells);
+                }
+            }
+            A::Paste { pane, text } => {
+                let bells = self.pty.bells();
+                self.write_keys(pane, &bracketed_paste(&text, false))?;
+                if pane == PTY_PANE {
+                    self.answered(bells);
+                }
+            }
             A::Quit => {
                 if let Some(message) = self.unsaved_edits() {
                     return Err(message);
@@ -825,6 +900,7 @@ impl Tab {
     /// view; a failed one keeps the threads for a retry.
     fn submit(&mut self, pane: PaneId, body: &str) -> Result<(), String> {
         self.review_gate(pane)?;
+        let bells = self.pty.bells();
         let pty = &self.pty;
         let p = self
             .panels
@@ -844,6 +920,7 @@ impl Tab {
             e.editor_view = true;
         }
         self.focus = PTY_PANE;
+        self.answered(bells);
         Ok(())
     }
 
@@ -965,10 +1042,27 @@ impl Tab {
         )
     }
 
+    /// The user answered the agent or saw the wait: the wait ends. `bells` is the count the answer
+    /// covers. Input, a paste and a review read it before they reach the shell, so a bell after the
+    /// answer is a new wait. A move into the shell (`Focus`, `Close`) and `Seen` read it at arrival:
+    /// the user now sees the shell.
+    fn answered(&mut self, bells: u64) {
+        self.waiting = false;
+        self.bells = bells;
+    }
+
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
     /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
     pub fn drain(&mut self, area: Rect) -> bool {
         self.area = area;
+        // Before the hold: a bell while the user types a comment still counts.
+        let bells = self.pty.bells();
+        // A new wait begins; a bell during a wait is the same wait the user sees.
+        if bells != self.bells && !self.waiting {
+            self.wait = bells;
+        }
+        self.waiting |= bells != self.bells;
+        self.bells = bells;
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
         let browsed = self.poll_browsers();
         if self.hold {

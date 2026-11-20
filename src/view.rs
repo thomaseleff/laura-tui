@@ -361,30 +361,30 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
         ],
         Hint::Page => [
             vec![("", "Click an element")],
-            when(tab.agent, vec![("c", "comment")]),
+            when(tab.agent || tab.web, vec![("c", "comment")]),
             vec![("n N", "threads")],
-            when(tab.agent, vec![("Shift+S", "submit")]),
+            when(tab.agent || tab.web, vec![("Shift+S", "submit")]),
             vec![
                 ("d", "diff"),
                 ("Ctrl+R", "refresh"),
                 ("x", "close"),
                 ("Esc", "shell"),
             ],
-            when(!tab.agent, vec![("", READY)]),
+            when(!tab.agent && !tab.web, vec![("", READY)]),
         ]
         .concat(),
         Hint::Browser => [
             vec![("", "Click, scroll and type in the page")],
-            when(tab.agent, vec![("c", "comment")]),
+            when(tab.agent || tab.web, vec![("c", "comment")]),
             vec![("n N", "threads")],
-            when(tab.agent, vec![("Shift+S", "submit")]),
+            when(tab.agent || tab.web, vec![("Shift+S", "submit")]),
             vec![
                 ("h", "clear highlight"),
                 ("Ctrl+R", "refresh"),
                 ("x", "close"),
                 ("Esc", "shell"),
             ],
-            when(!tab.agent, vec![("", READY)]),
+            when(!tab.agent && !tab.web, vec![("", READY)]),
         ]
         .concat(),
         Hint::BrowserTyping => vec![
@@ -396,9 +396,9 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
         Hint::BrowserLeave => vec![("", "The page asks"), ("Enter", "leave"), ("Esc", "stay")],
         Hint::Pane if !pty => [
             vec![("↑ ↓", "move")],
-            when(tab.agent, vec![("c", "comment")]),
+            when(tab.agent || tab.web, vec![("c", "comment")]),
             vec![("n N", "threads"), ("r", "collapse")],
-            when(tab.agent, vec![("Shift+S", "submit")]),
+            when(tab.agent || tab.web, vec![("Shift+S", "submit")]),
             if editor {
                 vec![("Ctrl+L", "editor view")]
             } else {
@@ -408,7 +408,7 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
                 vec![("p", if p.paused { "resume" } else { "pause" })]
             }),
             vec![("Ctrl+R", "refresh"), ("x", "close"), ("Esc", "shell")],
-            when(!tab.agent, vec![("", READY)]),
+            when(!tab.agent && !tab.web, vec![("", READY)]),
         ]
         .concat(),
         Hint::Pane if editor_focused => vec![
@@ -445,7 +445,8 @@ pub fn cut_left(s: &str, n: usize) -> String {
     format!("…{tail}")
 }
 
-/// The hint line's note before the agent runs `laura ready`.
+/// The TUI's hint line note before the agent runs `laura ready`; the web app dims `c` and
+/// `Shift+S` instead.
 const READY: &str = "inline review: run `laura ready`";
 
 /// `pairs` when `on`, else none.

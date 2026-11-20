@@ -57,7 +57,9 @@ function paintList() {
     here.onclick = () => location.assign(r.url);
     tab.onclick = () => window.open(r.url, "_blank", "noopener");
     open.append(here, tab);
-    li.append(el("span", "sv-dot"), names, open);
+    li.append(el("span", r.waiting ? "sv-dot w" : "sv-dot"), names);
+    if (r.waiting) li.append(el("span", "sv-wait", "Waiting for you"));
+    li.append(open);
     return li;
   });
   known = new Set(list.map(r => r.url));

@@ -34,6 +34,42 @@ The pane header names the shell after the agent: the name that the agent gives w
 
 When the agent opens a pane, the panes fill the workspace, and Laura shows the shell in a drawer over the panes. Press ``Ctrl+` `` to open or close the drawer. To keep the shell beside the panes, click **Show the shell as a pane** in the drawer. See [The drawer](navigation.md#the-drawer).
 
+## Know when the agent waits
+
+When the agent waits for you, for example at a permission prompt, Laura marks the workspace as waiting:
+
+- While the shell is in the drawer, the shell button turns amber and shows `Waiting for you`.
+- The browser tab shows `● Laura · <session label>`.
+- The other workspaces show an amber dot in the workspace switcher and `Waiting for you` on this workspace's row. See [Switch workspaces](navigation.md#switch-workspaces).
+- The Laura server's page shows `Waiting for you` on this workspace's row. See [Open a running workspace](#open-a-running-workspace).
+
+The wait ends when you:
+
+- Move to the shell, for example with `` Ctrl+` `` or a click.
+- Press `F12`, so that every keystroke goes to the shell.
+- Close the pane selector, the list of keystrokes or the list of workspaces while the shell has the focus.
+- Type, paste, scroll or click in the shell.
+- Submit an inline review.
+- Close a pane, and Laura moves the focus to the shell.
+
+The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, or when you come back to the browser tab.
+
+Laura shows a wait when the program in the shell rings the terminal bell or sends a terminal notification.
+
+Claude Code's default signal depends on the terminal that started Laura. Under iTerm2 and Ghostty, Claude Code sends a terminal notification and Laura shows the wait. In other terminals, for example Windows Terminal, Claude Code sends no signal. The terminal bell works in every terminal. To set up Claude Code:
+
+1. Add this setting to `~/.claude/settings.json`:
+
+   ```json
+   { "preferredNotifChannel": "terminal_bell" }
+   ```
+
+2. Restart Claude Code.
+
+Other agent CLIs work too when they ring the terminal bell or send a terminal notification. Look in the agent CLI's settings for a terminal bell or terminal notifications.
+
+The shell's own bell also marks the workspace, for example when bash rings the bell on a failed `Tab` completion. Your next keystroke ends that wait.
+
 ## Review a file
 
 1. Hover a line and click **+**, or move the cursor to the line and press `c`.
@@ -156,6 +192,8 @@ A workspace that the Laura server started has no terminal. The workspace runs un
 
 - **Open** opens the workspace in this tab.
 - **↗** opens the workspace in a new tab.
+
+While the agent in a workspace [waits for you](#know-when-the-agent-waits), the row's dot is amber and the row shows `Waiting for you`.
 
 The page reloads the list every 5 seconds. A workspace that ended leaves the list.
 

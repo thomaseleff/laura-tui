@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use laura::browser;
-use serde_json::json;
+use serde_json::{Value, json};
 use tungstenite::Message;
 
 use browser_rig::*;
@@ -721,79 +721,387 @@ fn a_killed_laura_closes_real_chrome_and_its_helpers() -> Result<()> {
     Ok(())
 }
 
+/// Workspace B, under `laura --web` with `script` as its shell, for a browser pane of A to show.
+// Unix only: B's shell hands over its `LAURA_TAB` with `sh`. `app.js` is the same on each OS.
+#[cfg(unix)]
+struct WorkspaceB {
+    _proc: Kill,
+    url: String,
+    dir: tempfile::TempDir,
+    _home: tempfile::TempDir,
+    socket: String,
+}
+
+#[cfg(unix)]
+impl WorkspaceB {
+    /// `script` must first write `$LAURA_TAB` to `tab`.
+    fn start(script: &str) -> Result<WorkspaceB> {
+        use std::io::{BufRead, BufReader};
+        use std::process::{Command, Stdio};
+        use std::sync::mpsc;
+
+        // Its own HOME, so its workspace switcher lists only B and no record goes to the real
+        // home. Not `laura_start`: its `isolate_home` moves HOME for this whole test process.
+        let dir = tempfile::tempdir()?;
+        let home = tempfile::tempdir()?;
+        let mut b = Kill(
+            Command::new(env!("CARGO_BIN_EXE_laura"))
+                .args(["--web", "--", "/bin/sh", "-c", script])
+                .current_dir(dir.path())
+                .env("HOME", home.path())
+                .env("LAURA_BROWSER", dir.path().join("no-browser"))
+                .env_remove("LAURA_TAB")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()?,
+        );
+        let stdout = b.0.stdout.take().expect("stdout is piped");
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut line = String::new();
+            let _ = BufReader::new(stdout).read_line(&mut line);
+            let _ = tx.send(line);
+        });
+        let url = rx.recv_timeout(common::DEADLINE)?.trim().to_string();
+        let tab = dir.path().join("tab");
+        let t0 = Instant::now();
+        let socket = loop {
+            if let Ok(s) = std::fs::read_to_string(&tab)
+                && !s.is_empty()
+            {
+                break s;
+            }
+            assert!(
+                t0.elapsed() < common::DEADLINE,
+                "B's shell wrote no LAURA_TAB"
+            );
+            thread::sleep(Duration::from_millis(50));
+        };
+        Ok(WorkspaceB {
+            _proc: b,
+            url,
+            dir,
+            _home: home,
+            socket,
+        })
+    }
+
+    /// `laura <args>` on B, asserting success.
+    fn drive(&self, args: &[&str]) -> Result<()> {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_laura"))
+            .args(args)
+            .env("LAURA_TAB", &self.socket)
+            .output()?;
+        assert!(
+            out.status.success(),
+            "laura {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Ok(())
+    }
+}
+
 /// `app.js` paints the browser tab: the folder name, then the session label after `ready --title`.
-// Unix only: workspace B's shell hands over its `LAURA_TAB` with `sh`. `app.js` is the same on each OS.
 #[cfg(unix)]
 #[test]
 fn the_browser_tab_shows_the_session_label() -> Result<()> {
-    use std::io::{BufRead, BufReader};
-    use std::process::{Command, Stdio};
-    use std::sync::mpsc;
-
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
     let (mut r, mut ws) = rig(path)?;
-    // Workspace B: its own HOME, so its workspace switcher lists only B and no record goes to the
-    // real home. Not `laura_start`: its `isolate_home` moves HOME for this whole test process.
-    let dir = tempfile::tempdir()?;
-    let home = tempfile::tempdir()?;
-    let tab = dir.path().join("tab");
-    let mut b = Kill(
-        Command::new(env!("CARGO_BIN_EXE_laura"))
-            .args(["--web", "--", "/bin/sh", "-c"])
-            .arg(r#"printf %s "$LAURA_TAB" > tab; exec sleep 60"#)
-            .current_dir(dir.path())
-            .env("HOME", home.path())
-            .env("LAURA_BROWSER", dir.path().join("no-browser"))
-            .env_remove("LAURA_TAB")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?,
-    );
-    let stdout = b.0.stdout.take().expect("stdout is piped");
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut line = String::new();
-        let _ = BufReader::new(stdout).read_line(&mut line);
-        let _ = tx.send(line);
-    });
-    let url_b = rx.recv_timeout(common::DEADLINE)?.trim().to_string();
-
-    let id = open(&mut r, &url_b);
+    let b = WorkspaceB::start(r#"printf %s "$LAURA_TAB" > tab; exec sleep 60"#)?;
+    let id = open(&mut r, &b.url);
     // macOS: the temp folder is a link into /private/var.
-    let folder = dir.path().canonicalize()?;
+    let folder = b.dir.path().canonicalize()?;
     let folder = folder.file_name().expect("a name").to_string_lossy();
     let want = format!("Laura · {folder}");
     state_until(&mut r, &mut ws, "the folder name", id, |v| {
         v["title"] == want.as_str()
     });
-
-    let t0 = Instant::now();
-    let socket = loop {
-        if let Ok(s) = std::fs::read_to_string(&tab)
-            && !s.is_empty()
-        {
-            break s;
-        }
-        assert!(
-            t0.elapsed() < common::DEADLINE,
-            "B's shell wrote no LAURA_TAB"
-        );
-        thread::sleep(Duration::from_millis(50));
-    };
-    let ok = Command::new(env!("CARGO_BIN_EXE_laura"))
-        .args(["ready", "--title", "flat elevation profile"])
-        .env("LAURA_TAB", socket)
-        .output()?;
-    assert!(
-        ok.status.success(),
-        "{}",
-        String::from_utf8_lossy(&ok.stderr)
-    );
+    b.drive(&["ready", "--title", "flat elevation profile"])?;
     state_until(&mut r, &mut ws, "the session label", id, |v| {
         v["title"] == "Laura · flat elevation profile"
     });
+    Ok(())
+}
+
+/// #190: in the web app, a keystroke or a click that leaves the shell with the keystrokes ends the
+/// wait, a keystroke or a click that sends Laura an action does not, and before `laura ready` the
+/// hint line dims `c` and `Shift+S`, with the reason on hover.
+#[cfg(unix)]
+#[test]
+fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    // B's shell rings the bell each time the test writes `bell`.
+    let b = WorkspaceB::start(
+        r#"printf %s "$LAURA_TAB" > tab; while :; do [ -e bell ] && rm bell && printf '\a'; sleep 0.05; done"#,
+    )?;
+    let ring = || std::fs::write(b.dir.path().join("bell"), "");
+    let id = open(&mut r, &b.url);
+    state_until(&mut r, &mut ws, "B loads", id, |v| {
+        v["title"].as_str().is_some_and(|t| t.starts_with("Laura"))
+    });
+    let file = b.dir.path().join("a.rs");
+    std::fs::write(&file, "fn main() {}\n")?;
+    // The highlight shows a chip in pane 1's header, which acts in the page alone.
+    b.drive(&["open", &file.to_string_lossy(), "--highlight", "1"])?;
+
+    let url = pane_of(&mut r, id)["path"]
+        .as_str()
+        .expect("a URL")
+        .to_string();
+    let mut tools = Tools::attach(&mut r, &url);
+    let mut eval = |r: &mut Rig, js: &str| {
+        tools.call(
+            r,
+            "Runtime.evaluate",
+            json!({"expression": js, "returnByValue": true}),
+        )["result"]["value"]
+            .clone()
+    };
+    let t0 = Instant::now();
+    // B's pane is narrow: the hint line keeps `c`, and drops `Shift+S` with the other groups.
+    let dimmed = "document.querySelector('#hint .off')?.textContent ?? ''";
+    while eval(&mut r, dimmed) != "ccomment" {
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "{}",
+            eval(&mut r, "hint.textContent")
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    let shown = eval(
+        &mut r,
+        "document.querySelector('#hint .off').dispatchEvent(new MouseEvent('mouseover', {bubbles: true})), \
+         [document.querySelectorAll('#sbar .si').length, htip.hidden, htip.innerHTML]",
+    );
+    assert_eq!(
+        shown,
+        json!([
+            0,
+            false,
+            "Available after the agent runs <code>laura ready</code>"
+        ]),
+    );
+
+    /// Poll `js` in B's page until it is true.
+    fn until(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, js: &str, what: &str) {
+        let t0 = Instant::now();
+        while eval(r, js) != true {
+            assert!(t0.elapsed() < common::DEADLINE, "timed out: {what}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    /// The wait stays for 500 ms.
+    fn holds(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, what: &str) {
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(500) {
+            assert_eq!(eval(r, "layout.waiting"), true, "{what}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    /// The point `at` in B's page, where `document.elementFromPoint` must give an element `e` with `hit`.
+    fn point(
+        r: &mut Rig,
+        eval: &mut impl FnMut(&mut Rig, &str) -> Value,
+        at: &str,
+        hit: &str,
+    ) -> (f64, f64) {
+        let js = format!(
+            "(() => {{ const [x, y] = {at}; const e = document.elementFromPoint(x, y); \
+             return e && ({hit}) ? [x, y] : null; }})()"
+        );
+        let p = eval(r, &js);
+        let (Some(x), Some(y)) = (p[0].as_f64(), p[1].as_f64()) else {
+            panic!("{at} in B's page doesn't hit {hit}");
+        };
+        (x, y)
+    }
+    let waiting = |r: &mut Rig, ws: &mut Ws, what: &str, on: bool| {
+        state_until(r, ws, what, id, |v| {
+            v["title"]
+                .as_str()
+                .is_some_and(|t| t.starts_with('●') == on)
+        });
+    };
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait", true);
+    // F12 while the pane selector keeps the keystrokes: the user has not reached the shell.
+    press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
+    press(&mut ws, id, "F12", 123);
+    until(
+        &mut r,
+        &mut eval,
+        "locked && popup !== null",
+        "no lock over the pane selector",
+    );
+    holds(
+        &mut r,
+        &mut eval,
+        "F12 over the pane selector ended the wait",
+    );
+    // The close gives the lock's keystrokes to the shell.
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc out of the pane selector ends the wait",
+        false,
+    );
+    press(&mut ws, id, "F12", 123);
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait after the unlock", true);
+    press(&mut ws, id, "F12", 123);
+    waiting(&mut r, &mut ws, "F12 ends the wait", false);
+    press(&mut ws, id, "F12", 123);
+    press(&mut ws, id, "Escape", 27);
+    // The move to the shell ends a wait: ring the bell after B's server moved the focus (the
+    // layout comes from B's server) and the shell has the keystrokes.
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 0 && !!document.activeElement?.closest('#p0')",
+        "the shell has no focus",
+    );
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait again", true);
+    press(&mut ws, id, "PageUp", 33);
+    waiting(&mut r, &mut ws, "PageUp ends the wait", false);
+    // With no lock too: the open of the pane selector keeps the wait, the close ends the wait.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait in the shell", true);
+    press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
+    until(&mut r, &mut eval, "popup !== null", "no pane selector");
+    holds(
+        &mut r,
+        &mut eval,
+        "the open of the pane selector ended the wait",
+    );
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc out of the pane selector into the shell ends the wait",
+        false,
+    );
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before the help", true);
+    press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
+    until(&mut r, &mut eval, "help", "no help");
+    // The help leaves the focus in the shell, but keeps the keystrokes.
+    holds(&mut r, &mut eval, "the open of the help ended the wait");
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc out of the help into the shell ends the wait",
+        false,
+    );
+
+    let centre = |sel: &str| {
+        format!(
+            "(b => [b.left + b.width / 2, b.top + b.height / 2])\
+             (document.querySelector('{sel}').getBoundingClientRect())"
+        )
+    };
+    // A modifier alone: the user may be leaving the browser, as with `Alt+Tab`.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before Control", true);
+    press_key(&mut ws, id, ("Control", "ControlLeft", 17, 2, ""));
+    holds(&mut r, &mut eval, "a modifier alone ended the wait");
+    let (x, y) = point(
+        &mut r,
+        &mut eval,
+        &centre("#p0 .term"),
+        "e.closest('#p0 .term')",
+    );
+    click(&mut ws, id, x, y);
+    waiting(&mut r, &mut ws, "a click in the shell ends the wait", false);
+    // The press comes before the click that opens the help.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before the help button", true);
+    let (x, y) = point(
+        &mut r,
+        &mut eval,
+        &centre("#helpbtn"),
+        "e.closest('#helpbtn')",
+    );
+    mouse(&mut ws, id, "down", x, y);
+    holds(
+        &mut r,
+        &mut eval,
+        "a press on the help button ended the wait",
+    );
+    mouse(&mut ws, id, "up", x, y);
+    until(&mut r, &mut eval, "help", "the help button opens the help");
+    holds(
+        &mut r,
+        &mut eval,
+        "the click on the help button ended the wait",
+    );
+    let (x, y) = point(&mut r, &mut eval, "[8, 8]", "e === veil");
+    click(&mut ws, id, x, y);
+    waiting(
+        &mut r,
+        &mut ws,
+        "a click outside the help into the shell ends the wait",
+        false,
+    );
+    // A click outside the shell that sends no action keeps the wait, though the shell keeps the keystrokes.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before the highlight chip", true);
+    let (x, y) = point(
+        &mut r,
+        &mut eval,
+        &centre("#p1 [data-act=highlight]"),
+        "e.closest('#p1 [data-act=highlight]')",
+    );
+    click(&mut ws, id, x, y);
+    holds(
+        &mut r,
+        &mut eval,
+        "a click on a file pane's highlight chip ended the wait",
+    );
+    assert_eq!(
+        eval(&mut r, "!!document.activeElement?.closest('#p0')"),
+        true,
+        "the click took the focus from the shell"
+    );
+    press(&mut ws, id, "PageDown", 34);
+    waiting(
+        &mut r,
+        &mut ws,
+        "PageDown in the shell ends the wait",
+        false,
+    );
+    // `Ctrl+`` sends Laura an action, and the focus moves after the reply.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before Ctrl+`", true);
+    press_key(&mut ws, id, ("`", "Backquote", 192, 2, ""));
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 1",
+        "Ctrl+` moves to the file pane",
+    );
+    holds(&mut r, &mut eval, "Ctrl+` out of the shell ended the wait");
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc back into the shell ends the wait",
+        false,
+    );
+
+    b.drive(&["ready"])?;
+    let t0 = Instant::now();
+    while eval(&mut r, dimmed) != "" {
+        assert!(t0.elapsed() < common::DEADLINE, "dimmed after laura ready");
+        thread::sleep(Duration::from_millis(50));
+    }
     Ok(())
 }

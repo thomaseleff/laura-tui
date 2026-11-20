@@ -36,7 +36,7 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 When a file pane, a browser pane or an editor pane is open, the panes fill the workspace, and Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus.
 
-The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints.
+The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits), the shell button is amber and shows `Waiting for you`, and the browser tab shows `●` before `Laura`.
 
 To open the drawer, do one of these:
 
@@ -64,6 +64,14 @@ To switch to another workspace:
 2. Press `Enter` to switch to the selected workspace, or press `↑` or `↓` to select a different workspace first. You can also click the workspace.
 
 Laura loads the other workspace in the same browser tab. The workspace that you leave keeps running.
+
+The list shows each workspace, and the pane selector shows the other workspaces. The dot before each workspace shows its state:
+
+- Amber: the agent in that workspace [waits for you](workspace.md#know-when-the-agent-waits). The row also shows `Waiting for you`.
+- Blue: the workspace that you are in. The dot stays blue while the agent in this workspace waits for you. To see where this workspace shows its wait, see [Know when the agent waits](workspace.md#know-when-the-agent-waits).
+- Grey: any other workspace.
+
+While another workspace waits for you, the workspace switcher shows an amber dot before ▾.
 
 - To open a workspace in a new browser tab, click **↗** on its row or press `Ctrl+Enter`. `Ctrl`+click, `Cmd`+click and a middle click also open a new browser tab.
 - To close the list, press `Esc` or click outside the list.
@@ -96,6 +104,8 @@ While the Laura server runs, select the Laura logo at the left of the top bar to
 | `p` | Pause \| Resume | Pauses or resumes a tail pane, or a file pane that the agent opened with `--follow`. |
 | `x` | Close | Closes the pane. |
 | `Esc` | — | Focuses the shell. While the drawer is in use, Laura opens the drawer. |
+
+Before the agent runs `laura ready`, the hint line shows `c` and `Shift+S` dimmed. Hover over a dimmed keystroke to see ``Available after the agent runs `laura ready` ``.
 
 An inline review is a **call and response**. Your comments and the agent's comments stay in the pane until you submit the inline review.
 
@@ -149,7 +159,6 @@ The status bar on the right of the hint line lists what waits on you. Click an i
 
 - `<file> · unsubmitted inline review`: the pane has an unsubmitted inline review. After a failed submit, the item's dot turns red.
 - `<file> · unsaved Neovim edits`: the editor pane has unsaved edits.
-- `Waiting for laura ready`: the agent has not run `laura ready`, so you can't comment yet.
 
 ## Notices
 

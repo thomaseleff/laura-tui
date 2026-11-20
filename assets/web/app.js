@@ -56,7 +56,11 @@ const frame = (id, bytes) => {
   out.set(bytes, 8);
   if (ws?.readyState === 1) ws.send(out);
 };
+// The user's last keystroke or mouse press, for the wait rule below `overlayOpen`.
+let press = null;
 function act(m, then) {
+  // The user's press sent Laura an action: the server, not the wait rule below, decides the wait.
+  if (press && m.act !== "seen") press.acted = true;
   if (ws?.readyState !== 1) return;
   acts.push({ then, pane: m.pane });
   send(m);
@@ -81,6 +85,23 @@ const toShell = () => locked && focused()?.kind !== "editor";
 // The drawer shows while the shell has the focus or the lock's keystrokes.
 const drawerOpen = () => layout.focus === 0 || toShell();
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
+const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
+// The user's keystroke or click that leaves the shell with the keystrokes ends the wait. The rule runs
+// after the event's handlers, so the close of the pane selector, the help or the menu counts, and the
+// open doesn't. It runs on `click`, not on `mousedown`, which comes before the click that opens the
+// help. A click counts in the shell, or when an overlay was open at the press. An event that sends
+// Laura an action or opens another workspace leaves the wait to the server, which ends it on the
+// user's move to the shell: the focus moves only after the reply. `seen` names the wait shown at the
+// press, so a wait that began later stays. Not a focus listener: the agent's `laura focus` and a
+// return to the browser tab don't end the wait.
+const pressed = () => (press = { overlay: overlayOpen(), wait: layout?.wait, acted: false });
+function seenAfter(p, counts) {
+  setTimeout(() => counts && p?.wait !== undefined && !p.acted && layout?.waiting && !overlayOpen()
+    && $("p0")?.contains(document.activeElement) && act({ act: "seen", wait: p.wait }));
+}
+addEventListener("mousedown", pressed, true);
+addEventListener("keydown", e => MODIFIERS.includes(e.key) || (pressed(), seenAfter(press, true)), true);
+addEventListener("click", e => seenAfter(press, press?.overlay || $("p0")?.contains(e.target)), true);
 
 function showNotice(text, secs, pane) {
   notice = text;
@@ -119,14 +140,34 @@ function paintHint() {
     s.textContent = label;
     const sep = document.createElement("i");
     sep.className = "sep";
+    // Before `laura ready`, `c` and `Shift+S` show dimmed; a hover gives the reason.
+    if (!layout.agent && (k === "c" || k === "Shift+S")) {
+      const o = document.createElement("span");
+      o.className = "off";
+      o.append(...kbds(k), s);
+      return [...(i ? [sep] : []), o];
+    }
     return [...(i ? [sep] : []), ...kbds(k), s];
   });
   hintEl.replaceChildren(...groups.flat());
   // Whole keystrokes only: drop the last ones that don't fit, such as beside the shell button.
   while (groups.length > 1 && hintEl.scrollWidth > hintEl.clientWidth) groups.pop().forEach(n => n.remove());
+  // A repaint after `laura ready` takes away the dimmed keystroke under a shown tooltip.
+  if (!hintEl.querySelector(".off")) $("htip").hidden = true;
 }
+// The shell button, the shell's name and the status bar change the hint line's width.
+new ResizeObserver(() => paintHint()).observe(hintEl);
+// A dimmed keystroke's reason. Not a `data-tip`: `#hint` clips its children, and `laura ready` shows as code.
+hintEl.addEventListener("mouseover", e => {
+  const o = e.target.closest?.(".off"), t = $("htip");
+  t.hidden = !o;
+  if (o) t.style.left = `${o.offsetLeft}px`;
+});
+hintEl.addEventListener("mouseleave", () => ($("htip").hidden = true));
 // Focus back from a page's frame, such as a click on its pane header: the typing hint goes.
-addEventListener("focus", paintHint);
+addEventListener("focus", () => {
+  paintHint();
+});
 
 // A keystroke's keys, split on spaces, as `<kbd>` chips.
 const kbds = k => k.split(" ").filter(Boolean).map(x => {
@@ -262,6 +303,8 @@ function makeTerm(id, el) {
   if (id === 0) {
     const once = term.onRender(() => (once.dispose(), fitShell()));
     new ResizeObserver(() => fitShell()).observe(el.querySelector(".term"));
+    // A wheel step scrolls the shell without the focus, so the keystroke-or-click rule doesn't see it.
+    el.querySelector(".term").addEventListener("wheel", () => layout.waiting && act({ act: "seen", wait: layout.wait }), { capture: true, passive: true });
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
   // pane (a comment, the review body) takes its own paste.
@@ -620,6 +663,7 @@ function onLayout(m) {
   followFocus();
   paintHint();
   paintStatus();
+  paintTitle();
   paintNotice();
   // A pane that closes or freezes changes the pane selector's rows.
   if (popup !== null) paintSelector();
@@ -1000,28 +1044,22 @@ function paintStatus() {
     ...layout.panes.filter(p => p.threads).map(review),
     ...layout.panes.filter(p => p.unsaved).map(p => item(p, "unsaved Neovim edits", "warn", "Unsaved Neovim edits")),
   ];
-  if (!layout.agent) {
-    const s = document.createElement("span");
-    s.className = "si";
-    s.innerHTML = '<span class="d"></span>Waiting for <code>laura ready</code>';
-    items.push(s);
-  }
   $("sbar").replaceChildren(...items);
   paintShellButton();
 }
 
 // The shell button, while the drawer is in use: the shell's name, and `open` while the drawer is.
 function paintShellButton() {
-  const b = $("sbtn"), s = pane(0), was = b.hidden;
+  const b = $("sbtn"), s = pane(0);
   b.hidden = !s?.drawer;
-  // The button narrows the hint line, or gives it back its width.
-  if (b.hidden !== was) paintHint();
   if (b.hidden) return;
   const open = drawerOpen(), t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
   b.classList.toggle("open", open);
+  b.classList.toggle("wait", layout.waiting);
+  b.querySelector(".say").hidden = !layout.waiting;
   b.querySelector("b").textContent = s.name;
   b.dataset.tip = t;
-  b.setAttribute("aria-label", t);
+  b.setAttribute("aria-label", layout.waiting ? `${t} · Waiting for you` : t);
 }
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());
 $("sbtn").addEventListener("click", () => (draft ? followFocus(true) : toggleShell()));
@@ -1654,6 +1692,10 @@ function spaceRow(w) {
   b.className = "prow";
   b.dataset.url = w ? w.url : server;
   b.innerHTML = w ? '<span class="wdot"></span><span class="name"></span><span class="mute"></span>' : '<span class="pid">+</span><span class="name">New workspace…</span>';
+  if (w?.waiting) {
+    b.querySelector(".wdot").classList.add("w");
+    b.insertAdjacentHTML("beforeend", '<span class="wait">Waiting for you</span>');
+  }
   if (w) {
     b.querySelector(".name").textContent = spaceLabel(w);
     b.querySelector(".name").classList.toggle("fallback", !w.title);
@@ -1803,7 +1845,7 @@ const FILE_KEYS = {
 };
 
 addEventListener("keydown", e => {
-  if (!layout || ended || !$("overlay").hidden || ["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+  if (!layout || ended || !$("overlay").hidden || MODIFIERS.includes(e.key)) return;
   const ctrl = e.ctrlKey && !e.altKey;
   const k = e.key.length === 1 && ctrl ? e.key.toLowerCase() : e.key;
   const take = () => (e.preventDefault(), e.stopPropagation());
@@ -2021,6 +2063,8 @@ addEventListener("beforeunload", e => ended || leaving || e.preventDefault());
 // workspace that the user leaves keeps running. The browser asks before it leaves only while a
 // comment box is open, so the comment is not lost. `<base target="_blank">` would open a new tab.
 function go(url, tab) {
+  // The user leaves for another workspace.
+  if (press) press.acted = true;
   if (tab) return window.open(url, "_blank");
   leaving = draft === null;
   location.assign(url);
@@ -2028,9 +2072,10 @@ function go(url, tab) {
 const folderName = root => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
 const spaceLabel = w => w.title ?? folderName(w.root);
 
-// The browser tab: the session label, or the folder name before the agent sets one.
-function paintTitle(label) {
-  document.title = `Laura · ${label}`;
+// The browser tab: the session label, or the folder name before the agent sets one, with `● `
+// in front while the agent waits for the user.
+function paintTitle() {
+  document.title = `${layout?.waiting ? "● " : ""}Laura · ${$("wlabel").textContent}`;
 }
 
 // The workspace switcher: the session label and the folder, or the folder name in grey before the
@@ -2038,11 +2083,12 @@ function paintTitle(label) {
 function paintSwitcher() {
   const root = strings.root ?? "", title = spaces.find(w => w.current)?.title;
   $("wlabel").textContent = title ?? folderName(root);
-  paintTitle($("wlabel").textContent);
+  paintTitle();
   $("wlabel").classList.toggle("fallback", !title);
   $("wroot").textContent = title ? root : "";
   const menu = spaces.length > 1 || !!server;
   $("caret").hidden = $("wsw").disabled = !menu;
+  $("wwait").hidden = !spaces.some(w => !w.current && w.waiting);
   if (menu) $("wsw").dataset.tip = "Switch workspace";
   else delete $("wsw").dataset.tip;
   // With a Laura server, the brand opens its page; with no `href`, the brand is plain text.
@@ -2079,7 +2125,9 @@ function paintMenu() {
   const rows = spaces.map(w => {
     const mi = div(`mi${w.current ? " cur" : ""}${w.url === on ? " on" : ""}`);
     mi.setAttribute("role", "menuitem");
-    mi.innerHTML = '<span class="wdot"></span><div class="mt"><div class="wl"></div><div class="p"></div></div>'
+    const wait = w.waiting && !w.current;
+    mi.innerHTML = `<span class="wdot${wait ? " w" : ""}"></span><div class="mt"><div class="wl"></div><div class="p"></div></div>`
+      + (wait ? '<span class="wait">Waiting for you</span>' : "")
       + (w.current ? '<span class="chk" aria-label="This workspace">✓</span>' : '<button class="nt" aria-label="Open in a new tab" data-tip="Open in a new tab">↗</button>');
     if (w.current) mi.setAttribute("aria-current", "true");
     else mi.dataset.url = w.url;

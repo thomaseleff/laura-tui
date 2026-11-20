@@ -265,6 +265,26 @@ fn a_workspace_shows_in_the_list_until_it_ends() -> Result<()> {
     until("the row goes", || Ok(s.record(&url)?.is_none()))
 }
 
+/// #190: a workspace that crashed between the write of its record and the rename leaves a
+/// `<pid>.tmp`; the list deletes it once it is old, and leaves one that is being written.
+#[test]
+fn a_record_that_a_crash_left_behind_is_deleted() -> Result<()> {
+    let s = Server::start()?;
+    let dir = s.home.path().join(".laura").join("workspaces");
+    std::fs::create_dir_all(&dir)?;
+    let (old, fresh) = (dir.join("999999.tmp"), dir.join("999998.tmp"));
+    std::fs::write(&old, "{")?;
+    std::fs::write(&fresh, "{")?;
+    std::fs::File::options()
+        .write(true)
+        .open(&old)?
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(120))?;
+    s.workspaces()?;
+    assert!(!old.exists(), "the old .tmp stayed");
+    assert!(fresh.exists(), "the fresh .tmp went");
+    Ok(())
+}
+
 #[test]
 fn a_new_workspace_on_the_same_port_replaces_the_old_row() -> Result<()> {
     let s = Server::start()?;
@@ -308,6 +328,42 @@ fn the_session_label_shows_in_the_list() -> Result<()> {
             Ok(s.record(&url)?.is_some_and(|w| w["title"] == title))
         })?;
     }
+    Ok(())
+}
+
+/// #190: a workspace whose shell rings the bell waits in the record, the Laura server's list and
+/// the other workspace's list, until the user types in the shell.
+#[cfg(unix)]
+#[test]
+fn a_waiting_workspace_shows_in_every_list() -> Result<()> {
+    let s = Server::start()?;
+    let (dir_a, dir_b) = (temp()?, temp()?);
+    let (_a, url_a) = s.workspace(dir_a.path())?;
+    let (_b, url_b) = s.workspace(dir_b.path())?;
+    let mut view_a = view(&url_a)?;
+    let mut view_b = view(&url_b)?;
+    let type_in = |view: &mut Ws, bytes: &[u8]| -> Result<()> {
+        let mut frame = 0u64.to_be_bytes().to_vec();
+        frame.extend(bytes);
+        Ok(view.send(Message::binary(frame))?)
+    };
+    type_in(&mut view_a, b"printf '\\007'\r")?;
+    until("A waits in the Laura server's list", || {
+        while read(&mut view_a).is_some() {}
+        Ok(s.record(&url_a)?.is_some_and(|w| w["waiting"] == true))
+    })?;
+    let waits = |f: &Value| {
+        f["list"].as_array().is_some_and(|l| {
+            l.iter()
+                .any(|w| w["url"] == url_a.as_str() && w["waiting"] == true)
+        })
+    };
+    workspaces_frame(&mut view_b, "A waits in B's list", waits)?;
+    type_in(&mut view_a, b"x")?;
+    until("A no longer waits", || {
+        while read(&mut view_a).is_some() {}
+        Ok(s.record(&url_a)?.is_some_and(|w| w["waiting"] == false))
+    })?;
     Ok(())
 }
 

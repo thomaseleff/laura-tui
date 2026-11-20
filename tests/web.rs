@@ -1839,7 +1839,7 @@ fn a_nested_item_is_its_own_unit() -> Result<()> {
     Ok(())
 }
 
-/// A stand-in editor that stays up and prints nothing; a `--headless` push exits at once.
+/// A stand-in editor that stays up and prints `fake` (after a bell on unix); a `--headless` push exits at once.
 fn fake_nvim() -> std::path::PathBuf {
     static ONCE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
@@ -1854,7 +1854,7 @@ fn fake_nvim() -> std::path::PathBuf {
         #[cfg(not(windows))]
         let (name, body) = (
             "nvim",
-            "#!/bin/sh\n[ \"$1\" = --headless ] && exit 0\necho fake\nsleep 30\n",
+            "#!/bin/sh\n[ \"$1\" = --headless ] && exit 0\nprintf '\\007'\necho fake\nsleep 30\n",
         );
         let f = dir.join(name);
         std::fs::write(&f, body).unwrap();
@@ -2175,6 +2175,244 @@ fn a_binary_frame_reaches_the_shell() -> Result<()> {
     frame.extend(b"echo binmark\r");
     ws.send(Message::binary(frame))?;
     rig.shell_shows("binmark");
+    Ok(())
+}
+
+/// `bytes` typed into pane `id`, as the web app's terminal sends them.
+fn type_in(ws: &mut Ws, id: u64, bytes: &[u8]) -> Result<()> {
+    let mut frame = id.to_be_bytes().to_vec();
+    frame.extend(bytes);
+    ws.send(Message::binary(frame))?;
+    Ok(())
+}
+
+/// #190: the terminal bell makes the workspace wait; a hover over the shell doesn't end the wait,
+/// and a wheel step does.
+#[cfg(unix)]
+#[test]
+fn the_bell_makes_the_workspace_wait_until_the_user_scrolls_the_shell() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let layout = layout_when(&mut rig, &mut ws, "layout", |_| true);
+    assert_eq!(layout["waiting"], false, "{layout}");
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    type_in(&mut ws, 0, b"\x1b[<35;10;5M")?;
+    // Frames apply in order: once the act replies, the hover has reached the shell.
+    rig.act(&mut ws, json!({"act": "drawer"}));
+    rig.idle(&mut ws, 10);
+    assert!(rig.tab.waiting, "a hover ended the wait");
+    type_in(&mut ws, 0, b"\x1b[<64;10;5M")?;
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    Ok(())
+}
+
+/// #190: the user's move into the shell ends the wait; the agent's `laura focus 0` doesn't.
+#[cfg(unix)]
+#[test]
+fn moving_focus_into_the_shell_ends_the_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.drive(&["focus", "0"]);
+    rig.idle(&mut ws, 10);
+    assert!(rig.tab.waiting, "the agent's focus ended the wait");
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting again", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    Ok(())
+}
+
+/// #190: the user's close that moves the focus to the shell ends the wait; the agent's
+/// `laura close` doesn't.
+#[cfg(unix)]
+#[test]
+fn closing_the_last_pane_ends_the_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "close", "pane": 1}));
+    layout_when(&mut rig, &mut ws, "no wait", |l| {
+        l["waiting"] == false && l["focus"] == 0
+    });
+    let id = rig.drive(&["open", &path]);
+    layout_when(&mut rig, &mut ws, "file pane again", |l| l["focus"] != 0);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    layout_when(&mut rig, &mut ws, "waiting again", |l| l["waiting"] == true);
+    rig.drive(&["close", &id]);
+    rig.idle(&mut ws, 10);
+    assert!(rig.tab.waiting, "the agent's close ended the wait");
+    Ok(())
+}
+
+/// #190: before `laura ready`, the web app's hint line keeps `c` and `Shift+S`, which `app.js`
+/// dims, and has no `laura ready` note.
+#[cfg(unix)]
+#[test]
+fn before_laura_ready_the_hint_line_keeps_comment_and_submit() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    let l = layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    assert_eq!(l["agent"], false, "{l}");
+    let hint = pairs(&l["hints"]["pane"]);
+    assert!(hint.contains("c comment"), "{hint}");
+    assert!(hint.contains("Shift+S submit"), "{hint}");
+    assert!(!hint.contains("laura ready"), "{hint}");
+    Ok(())
+}
+
+/// #190: `seen`, which the web app sends for a keystroke or a click that leaves the shell with the
+/// keystrokes and for a wheel step over the shell, ends the wait, and focus stays on the file pane.
+#[cfg(unix)]
+#[test]
+fn a_click_or_a_wheel_step_at_a_prompt_ends_the_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", &path]), "1");
+    layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let l = layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "seen", "wait": l["wait"]}));
+    let l = layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    assert_eq!(l["focus"], 1, "seen moved the focus");
+    Ok(())
+}
+
+/// #190: a `seen` ends only the wait the web app showed at the user's press: not a wait that began
+/// after it, and not a wait it does not name. A bell during a wait is the same wait.
+#[cfg(unix)]
+#[test]
+fn seen_ends_only_the_wait_the_web_app_showed() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let w1 = layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true)["wait"].clone();
+    // `Ctrl+U`: the user's input, which ends the wait and leaves the line empty for the next bell.
+    type_in(&mut ws, 0, b"\x15")?;
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let w2 = layout_when(&mut rig, &mut ws, "new wait", |l| l["waiting"] == true)["wait"].clone();
+    assert_ne!(w1, w2);
+
+    rig.act(&mut ws, json!({"act": "seen", "wait": w1}));
+    rig.idle(&mut ws, 5);
+    assert!(rig.tab.waiting, "a seen from before the new wait ended it");
+    rig.act(&mut ws, json!({"act": "seen", "wait": 0xFFFF_FFFFu64}));
+    rig.idle(&mut ws, 5);
+    assert!(rig.tab.waiting, "a seen that names no wait ended the wait");
+
+    let bells = rig.tab.pty.bells();
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let start = Instant::now();
+    while rig.tab.pty.bells() == bells {
+        assert!(start.elapsed() < common::DEADLINE, "timed out: bell");
+        thread::sleep(Duration::from_millis(10));
+    }
+    rig.idle(&mut ws, 5);
+    rig.act(&mut ws, json!({"act": "seen", "wait": w2}));
+    layout_when(
+        &mut rig,
+        &mut ws,
+        "a bell during the wait is the same wait",
+        |l| l["waiting"] == false,
+    );
+    rig.act(&mut ws, json!({"act": "seen", "wait": w2}));
+    rig.idle(&mut ws, 5);
+    assert!(!rig.tab.waiting, "a late seen brought the wait back");
+    Ok(())
+}
+
+/// #190: a bell that rings between two frames, just before the user types, doesn't bring the wait
+/// back once the user typed.
+#[cfg(unix)]
+#[test]
+fn a_bell_just_before_the_user_types_does_not_bring_the_wait_back() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    // `sync` alone applies the socket's input; no `drain` sees the bell until the user typed.
+    let sync_until = |rig: &mut Rig, what: &str, done: &dyn Fn(&Rig) -> bool| {
+        let start = Instant::now();
+        while !done(rig) {
+            assert!(start.elapsed() < common::DEADLINE, "timed out: {what}");
+            rig.web.sync(&mut rig.tab, false);
+            thread::sleep(Duration::from_millis(10));
+        }
+    };
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    sync_until(&mut rig, "bell", &|r| r.tab.pty.bells() == 1);
+    type_in(&mut ws, 0, b"zq")?;
+    sync_until(&mut rig, "zq", &|r| {
+        r.tab.pty.with_screen(|s| s.contents()).contains("zq")
+    });
+    rig.idle(&mut ws, 5);
+    assert!(
+        !rig.tab.waiting,
+        "a bell before the keystroke made the workspace wait after it"
+    );
+    Ok(())
+}
+
+/// #190: OSC 9 and OSC 777 `notify` make the workspace wait; OSC 9's numbered ConEmu commands (progress, folder) don't.
+#[cfg(unix)]
+#[test]
+fn a_notification_makes_the_workspace_wait_and_a_conemu_command_does_not() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    for seq in ["\\033]9;done\\007", "\\033]777;notify;Laura;done\\007"] {
+        type_in(&mut ws, 0, format!("printf '{seq}'\r").as_bytes())?;
+        layout_when(&mut rig, &mut ws, seq, |l| l["waiting"] == true);
+        // `Ctrl+U` empties the line for the next command.
+        type_in(&mut ws, 0, b"\x15")?;
+        layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    }
+    // `'pro''gress'` keeps the echoed command from matching.
+    type_in(
+        &mut ws,
+        0,
+        b"printf '\\033]9;4;1;50\\007\\033]9;9;/tmp\\033\\\\'; echo pro''gress\r",
+    )?;
+    rig.shell_shows("progress");
+    rig.idle(&mut ws, 5);
+    assert!(!rig.tab.waiting, "a ConEmu command made the workspace wait");
+    Ok(())
+}
+
+/// #190: Neovim's bell in an editor pane isn't the agent's: the workspace doesn't wait.
+#[cfg(unix)]
+#[test]
+fn a_bell_in_an_editor_pane_does_not_make_the_workspace_wait() -> Result<()> {
+    let mut rig = Rig::new()?;
+    rig.tab.editor = Ok(fake_nvim());
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", "--edit", &path]), "1");
+    rig.until(&mut ws, "editor bytes", |f| matches!(f, Frame::Bytes(1, _)));
+    let start = Instant::now();
+    while rig.tab.editors[&1].pty.bells() == 0 {
+        assert!(start.elapsed() < Duration::from_secs(10), "no editor bell");
+        rig.idle(&mut ws, 1);
+    }
+    rig.idle(&mut ws, 5);
+    assert!(
+        !rig.tab.waiting,
+        "the editor's bell made the workspace wait"
+    );
     Ok(())
 }
 

@@ -34,9 +34,28 @@ fn floor_size(rows: u16, cols: u16) -> (u16, u16) {
     (rows.max(1), cols.max(2))
 }
 
+/// Bells and notifications the child sent (`BEL`, OSC 9, OSC 777 `notify`): the agent waits for the user.
+#[derive(Default)]
+pub struct Bells(u64);
+
+impl vt100::Callbacks for Bells {
+    fn audible_bell(&mut self, _: &mut vt100::Screen) {
+        self.0 += 1;
+    }
+
+    fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
+        match params {
+            // ConEmu's numbered commands (9;4 progress, 9;9 cwd …), not a notification
+            [b"9", n, ..] if !n.is_empty() && n.iter().all(u8::is_ascii_digit) => {}
+            [b"9", ..] | [b"777", b"notify", ..] => self.0 += 1,
+            _ => {}
+        }
+    }
+}
+
 /// One PTY-hosted shell/agent plus its parsed screen. Killed on drop, winding down the reader/wait threads.
 pub struct PtyTab {
-    parser: Arc<Mutex<vt100::Parser>>,
+    parser: Arc<Mutex<vt100::Parser<Bells>>>,
     writer: SharedWriter,
     exited: Arc<AtomicBool>,
     killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
@@ -62,7 +81,12 @@ impl PtyTab {
         drop(pair.slave);
 
         let killer = child.clone_killer();
-        let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, SCROLLBACK)));
+        let parser = Arc::new(Mutex::new(vt100::Parser::new_with_callbacks(
+            rows,
+            cols,
+            SCROLLBACK,
+            Bells::default(),
+        )));
 
         let subscribers = Subscribers::default();
         spawn_reader(reader, parser.clone(), writer.clone(), subscribers.clone());
@@ -209,6 +233,11 @@ impl PtyTab {
         })
     }
 
+    /// How many bells and notifications the child sent so far.
+    pub fn bells(&self) -> u64 {
+        self.parser.lock().map(|p| p.callbacks().0).unwrap_or(0)
+    }
+
     /// Run `f` against the current parsed screen (for rendering).
     pub fn with_screen<R>(&self, f: impl FnOnce(&vt100::Screen) -> R) -> R {
         let p = self.parser.lock().expect("parser mutex poisoned");
@@ -246,7 +275,7 @@ fn scrollback_formatted(s: &mut vt100::Screen) -> Vec<u8> {
 // Feed every PTY byte into the vt100 parser and answer ConPTY's DSR query. No clean shutdown — ConPTY never EOFs, the loop ends with the process.
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
-    parser: Arc<Mutex<vt100::Parser>>,
+    parser: Arc<Mutex<vt100::Parser<Bells>>>,
     writer: SharedWriter,
     subscribers: Subscribers,
 ) {
