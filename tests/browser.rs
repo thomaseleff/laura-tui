@@ -826,6 +826,116 @@ fn the_browser_tab_shows_the_session_label() -> Result<()> {
     Ok(())
 }
 
+/// #193: a file path in the shell is a link from the start of its word, also through route folders
+/// such as `[slug]`; a path in a URL or a path that wraps is not, and a click on
+/// `src/foo.test.ts:12` opens `foo.test.ts` on line 12.
+#[cfg(unix)]
+#[test]
+fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let b = WorkspaceB::start(r#"printf %s "$LAURA_TAB" > tab; exec sleep 60"#)?;
+    std::fs::create_dir(b.dir.path().join("src"))?;
+    let lines: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(b.dir.path().join("src/foo.test.ts"), lines)?;
+    let id = open(&mut r, &b.url);
+    state_until(&mut r, &mut ws, "B loads", id, |v| {
+        v["title"].as_str().is_some_and(|t| t.starts_with("Laura"))
+    });
+    let url = pane_of(&mut r, id)["path"]
+        .as_str()
+        .expect("a URL")
+        .to_string();
+    let mut tools = Tools::attach(&mut r, &url);
+    let mut eval = |r: &mut Rig, js: &str| {
+        tools.call(
+            r,
+            "Runtime.evaluate",
+            json!({"expression": js, "returnByValue": true, "awaitPromise": true}),
+        )["result"]["value"]
+            .clone()
+    };
+    let t0 = Instant::now();
+    while eval(&mut r, "!!terms.get(0)") != true {
+        assert!(t0.elapsed() < common::DEADLINE, "B has no shell");
+        thread::sleep(Duration::from_millis(50));
+    }
+    // Rows 9–10 wrap a path after `src/foo.test`, rows 11–12 wrap a URL after `https://x.com/`.
+    let got = eval(
+        &mut r,
+        r#"(async () => {
+            const t = terms.get(0);
+            // `fitShell` can resize the shell after the page loads, which moves the wrap: write again until the width holds.
+            for (let cols; cols !== t.cols;) {
+                cols = t.cols;
+                t.reset();
+                await new Promise(w => t.write([
+                    "see src/foo.test.ts:12 src\\tab.rs:41 C:\\proj\\a.rs ./README.md:3",
+                    "https://example.com/@scope/pkg/index.js README.md ~/a/b.rs",
+                    "Update(src/a.rs) (src/b.rs) app/[slug]/page.tsx:12",
+                    "node_modules/@types/x/index.d.ts src/café/a.rs:3 1/2.5",
+                    "**src/c.rs** “src/d.rs” node_modules/lodash.merge/index",
+                    "a/foo.test.js/index logs/app.log.1 src/**/a.rs src/*x/a.rs",
+                    "**/b.rs src/a.rs.bak src/e.rs. (src/f.rs:3), src/g.rs's",
+                    "src\\b.c.d\\e C:\\p\\v1.2\\a.rs:4",
+                    " ".repeat(t.cols - 12) + "src/foo.test.ts:12",
+                    " ".repeat(t.cols - 14) + "https://x.com/@a/b.js",
+                ].join("\r\n"), w));
+                await new Promise(r => setTimeout(r, 200));
+            }
+            const rows = [];
+            for (let y = 1; y <= 12; y++) {
+                const texts = [];
+                for (const p of t._core._linkProviderService.linkProviders)
+                    for (const l of await new Promise(cb => p.provideLinks(y, cb)) ?? []) texts.push(l.text);
+                rows.push(texts);
+            }
+            const b = t.buffer.active;
+            return { rows, wrapped: [b.getLine(9).isWrapped, b.getLine(11).isWrapped] };
+        })()"#,
+    );
+    assert_eq!(
+        got,
+        json!({
+            "rows": [
+                ["src/foo.test.ts:12", "src\\tab.rs:41", "C:\\proj\\a.rs", "./README.md:3"],
+                [],
+                ["src/a.rs", "src/b.rs", "app/[slug]/page.tsx:12"],
+                ["node_modules/@types/x/index.d.ts", "src/café/a.rs:3"],
+                ["src/c.rs", "src/d.rs"],
+                [],
+                ["src/a.rs.bak", "src/e.rs", "src/f.rs:3", "src/g.rs"],
+                ["C:\\p\\v1.2\\a.rs:4"],
+                [], [], [], [],
+            ],
+            "wrapped": [true, true],
+        }),
+    );
+    let clicked = eval(
+        &mut r,
+        "(async () => { for (const p of terms.get(0)._core._linkProviderService.linkProviders) \
+         for (const l of await new Promise(cb => p.provideLinks(1, cb)) ?? []) \
+         if (l.text === 'src/foo.test.ts:12') return l.activate(new MouseEvent('click'), l.text), true; \
+         return false; })()",
+    );
+    assert_eq!(clicked, true, "no src/foo.test.ts:12 link to click");
+    let line = "(() => { const p = layout.panes.find(p => p.path?.endsWith('src/foo.test.ts')); \
+                const rows = p && document.querySelector(`#p${p.id} .rows`); \
+                return rows ? cursorEl(rows)?.dataset.line ?? null : null; })()";
+    let t0 = Instant::now();
+    while eval(&mut r, line) != "12" {
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "the link opened no foo.test.ts on line 12: {}",
+            eval(&mut r, line)
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
 /// #190: in the web app, a keystroke or a click that leaves the shell with the keystrokes ends the
 /// wait, a keystroke or a click that sends Laura an action does not, and before `laura ready` the
 /// hint line dims `c` and `Shift+S`, with the reason on hover.

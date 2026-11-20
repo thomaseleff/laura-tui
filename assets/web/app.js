@@ -278,6 +278,15 @@ function webgl(term) {
   } catch {}
 }
 
+// A file path in the shell with a `/` or `\` and an extension with a letter, and an optional `:line`.
+// A path starts a word: at the row's start, after a space or an opening mark (`Update(src/a.rs)` links
+// `src/a.rs`), or after a word's `**` but not a glob's (`src/**/a.rs`, `**/a.rs`). A path ends its word:
+// a letter, digit, `_+-`, `/` or `\` after the extension, also after dots, means a longer name
+// (`foo.test.js/index`, `app.log.1`), which is no link, so backtracking can't link a part of a path.
+// A folder can be a whole `[slug]` or `(group)`, or start with `@` or `+`. Not a home path (`~/a/b.rs`);
+// the link provider skips URLs.
+const PATH = /(?<=(?:^|[\s(\[{<"'`=“‘])(?:\*+(?![\/\\]))?)(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:(?:[@+]?[\p{L}\p{N}_.+-]+|\[[^\]\/\\\s]+\]|\([^)\/\\\s]+\))[\/\\])*\+?[\p{L}\p{N}_.-]*[\p{L}\p{N}_-]\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*(?!\.*[\/\\\p{L}\p{N}_+-])(?::\d+)?/gu;
+
 function makeTerm(id, el) {
   // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.
   const term = new Terminal(id === 0 ? { ...SHELL, ...layout.shell } : TERM);
@@ -305,6 +314,36 @@ function makeTerm(id, el) {
     new ResizeObserver(() => fitShell()).observe(el.querySelector(".term"));
     // A wheel step scrolls the shell without the focus, so the keystroke-or-click rule doesn't see it.
     el.querySelector(".term").addEventListener("wheel", () => layout.waiting && act({ act: "seen", wait: layout.wait }), { capture: true, passive: true });
+    term.registerLinkProvider({ provideLinks(y, cb) {
+      // shortcut: Laura links neither part of a path that wraps onto the next row; join wrapped rows if agents wrap paths.
+      const line = term.buffer.active.getLine(y - 1);
+      // The text, and each character's column: an emoji takes two columns.
+      let text = "";
+      const col = [];
+      for (let x = 0; line && x < line.length; x++) {
+        const c = line.getCell(x);
+        if (!c?.getWidth()) continue;
+        const s = c.getChars() || " ";
+        text += s;
+        for (let i = 0; i < s.length; i++) col.push(x + 1);
+      }
+      // A path in a URL (`https://x.com/@a/b.js`) is no link.
+      const urls = [...text.matchAll(/[a-z][\w+.-]*:\/\/\S+/gi)].map(u => [u.index, u.index + u[0].length]);
+      // The word that crosses a row boundary, a wrapped path or URL, is no link: the URL's second row has no scheme.
+      const head = line?.isWrapped ? text.search(/\s|$/) : 0;
+      const tail = term.buffer.active.getLine(y)?.isWrapped ? text.search(/\S*$/) : text.length;
+      cb([...text.matchAll(PATH)].filter(m => /[\/\\]/.test(m[0]) && m.index >= head && m.index + m[0].length <= tail
+        && !urls.some(([a, b]) => m.index >= a && m.index < b)).map(m => ({
+        text: m[0],
+        range: { start: { x: col[m.index], y }, end: { x: col[m.index + m[0].length - 1], y } },
+        decorations: { underline: true, pointerCursor: true },
+        activate: () => {
+          const [, path, n] = m[0].match(/^(.*?)(?::(\d+))?$/);
+          // `pane` only routes an error to the drawer.
+          act({ act: "open_path", pane: 0, path, line: n ? +n : undefined });
+        },
+      })));
+    } });
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
   // pane (a comment, the review body) takes its own paste.
