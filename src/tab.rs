@@ -234,10 +234,12 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
-    /// What the web app keeps from the shell and sends no bytes for (a keystroke or a click
-    /// after which the shell has the keystrokes, a wheel step over the shell): the user looked at the agent, so the wait ends.
-    /// Focus stays where it is.
-    Seen,
+    /// What the web app keeps from the shell and sends no bytes for: a keystroke or a click after
+    /// which the shell has the keystrokes, or a wheel step over the shell. `wait` is the layout
+    /// frame's `wait` at the press, so a wait that began after the press stays. Focus stays where it is.
+    Seen {
+        wait: u64,
+    },
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
     BrowserMouse {
@@ -403,6 +405,9 @@ pub struct Tab {
     pub title: Option<String>,
     /// The shell rang the bell or sent a notification since the user last moved to the shell, used it or submitted an inline review: the agent waits for the user.
     pub waiting: bool,
+    /// The shell's bell count when the current wait began. The layout frame carries this count,
+    /// and `seen` names it, so a `seen` from before a new wait does not end the new wait.
+    pub wait: u64,
     /// The shell's bell count that `drain` last saw.
     bells: u64,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
@@ -484,6 +489,7 @@ impl Tab {
             journal: None,
             title: None,
             waiting: false,
+            wait: 0,
             bells: 0,
             shell_size: None,
             docked: false,
@@ -661,7 +667,13 @@ impl Tab {
             }
             A::Dock => {}
             A::Drawer => self.docked = false,
-            A::Seen => self.answered(self.pty.bells()),
+            // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
+            // after the wait ended does nothing, so the answered count never goes down.
+            A::Seen { wait } => {
+                if self.waiting && wait == self.wait {
+                    self.answered(self.pty.bells());
+                }
+            }
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;
@@ -1030,8 +1042,10 @@ impl Tab {
         )
     }
 
-    /// The user answered the agent: the wait ends. `bells` is the count read before the answer
-    /// went to the shell, so a bell after this count is a new wait.
+    /// The user answered the agent or saw the wait: the wait ends. `bells` is the count the answer
+    /// covers. Input, a paste and a review read it before they reach the shell, so a bell after the
+    /// answer is a new wait. A move into the shell (`Focus`, `Close`) and `Seen` read it at arrival:
+    /// the user now sees the shell.
     fn answered(&mut self, bells: u64) {
         self.waiting = false;
         self.bells = bells;
@@ -1043,6 +1057,10 @@ impl Tab {
         self.area = area;
         // Before the hold: a bell while the user types a comment still counts.
         let bells = self.pty.bells();
+        // A new wait begins; a bell during a wait is the same wait the user sees.
+        if bells != self.bells && !self.waiting {
+            self.wait = bells;
+        }
         self.waiting |= bells != self.bells;
         self.bells = bells;
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.

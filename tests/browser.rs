@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use laura::browser;
-use serde_json::json;
+use serde_json::{Value, json};
 use tungstenite::Message;
 
 use browser_rig::*;
@@ -827,7 +827,8 @@ fn the_browser_tab_shows_the_session_label() -> Result<()> {
 }
 
 /// #190: in the web app, a keystroke or a click that leaves the shell with the keystrokes ends the
-/// wait, and before `laura ready` the hint line dims `c` and `Shift+S`, with the reason on hover.
+/// wait, a keystroke or a click that sends Laura an action does not, and before `laura ready` the
+/// hint line dims `c` and `Shift+S`, with the reason on hover.
 #[cfg(unix)]
 #[test]
 fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
@@ -846,7 +847,8 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     });
     let file = b.dir.path().join("a.rs");
     std::fs::write(&file, "fn main() {}\n")?;
-    b.drive(&["open", &file.to_string_lossy()])?;
+    // The highlight shows a chip in pane 1's header, which acts in the page alone.
+    b.drive(&["open", &file.to_string_lossy(), "--highlight", "1"])?;
 
     let url = pane_of(&mut r, id)["path"]
         .as_str()
@@ -886,6 +888,39 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         ]),
     );
 
+    /// Poll `js` in B's page until it is true.
+    fn until(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, js: &str, what: &str) {
+        let t0 = Instant::now();
+        while eval(r, js) != true {
+            assert!(t0.elapsed() < common::DEADLINE, "timed out: {what}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    /// The wait stays for 500 ms.
+    fn holds(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, what: &str) {
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(500) {
+            assert_eq!(eval(r, "layout.waiting"), true, "{what}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    /// The point `at` in B's page, where `document.elementFromPoint` must give an element `e` with `hit`.
+    fn point(
+        r: &mut Rig,
+        eval: &mut impl FnMut(&mut Rig, &str) -> Value,
+        at: &str,
+        hit: &str,
+    ) -> (f64, f64) {
+        let js = format!(
+            "(() => {{ const [x, y] = {at}; const e = document.elementFromPoint(x, y); \
+             return e && ({hit}) ? [x, y] : null; }})()"
+        );
+        let p = eval(r, &js);
+        let (Some(x), Some(y)) = (p[0].as_f64(), p[1].as_f64()) else {
+            panic!("{at} in B's page doesn't hit {hit}");
+        };
+        (x, y)
+    }
     let waiting = |r: &mut Rig, ws: &mut Ws, what: &str, on: bool| {
         state_until(r, ws, what, id, |v| {
             v["title"]
@@ -898,23 +933,17 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     // F12 while the pane selector keeps the keystrokes: the user has not reached the shell.
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
     press(&mut ws, id, "F12", 123);
-    let t0 = Instant::now();
-    while eval(&mut r, "locked && popup !== null") != true {
-        assert!(
-            t0.elapsed() < common::DEADLINE,
-            "no lock over the pane selector"
-        );
-        thread::sleep(Duration::from_millis(50));
-    }
-    let t0 = Instant::now();
-    while t0.elapsed() < Duration::from_millis(500) {
-        assert_eq!(
-            eval(&mut r, "layout.waiting"),
-            true,
-            "F12 over the pane selector ended the wait"
-        );
-        thread::sleep(Duration::from_millis(50));
-    }
+    until(
+        &mut r,
+        &mut eval,
+        "locked && popup !== null",
+        "no lock over the pane selector",
+    );
+    holds(
+        &mut r,
+        &mut eval,
+        "F12 over the pane selector ended the wait",
+    );
     // The close gives the lock's keystrokes to the shell.
     press(&mut ws, id, "Escape", 27);
     waiting(
@@ -932,15 +961,12 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     press(&mut ws, id, "Escape", 27);
     // The move to the shell ends a wait: ring the bell after B's server moved the focus (the
     // layout comes from B's server) and the shell has the keystrokes.
-    let t0 = Instant::now();
-    while eval(
+    until(
         &mut r,
+        &mut eval,
         "layout.focus === 0 && !!document.activeElement?.closest('#p0')",
-    ) != true
-    {
-        assert!(t0.elapsed() < common::DEADLINE, "the shell has no focus");
-        thread::sleep(Duration::from_millis(50));
-    }
+        "the shell has no focus",
+    );
     ring()?;
     waiting(&mut r, &mut ws, "the wait again", true);
     press(&mut ws, id, "PageUp", 33);
@@ -949,20 +975,12 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     ring()?;
     waiting(&mut r, &mut ws, "the wait in the shell", true);
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
-    let t0 = Instant::now();
-    while eval(&mut r, "popup !== null") != true {
-        assert!(t0.elapsed() < common::DEADLINE, "no pane selector");
-        thread::sleep(Duration::from_millis(50));
-    }
-    let t0 = Instant::now();
-    while t0.elapsed() < Duration::from_millis(500) {
-        assert_eq!(
-            eval(&mut r, "layout.waiting"),
-            true,
-            "the open of the pane selector ended the wait"
-        );
-        thread::sleep(Duration::from_millis(50));
-    }
+    until(&mut r, &mut eval, "popup !== null", "no pane selector");
+    holds(
+        &mut r,
+        &mut eval,
+        "the open of the pane selector ended the wait",
+    );
     press(&mut ws, id, "Escape", 27);
     waiting(
         &mut r,
@@ -973,26 +991,109 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     ring()?;
     waiting(&mut r, &mut ws, "the wait before the help", true);
     press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
-    let t0 = Instant::now();
-    while eval(&mut r, "help") != true {
-        assert!(t0.elapsed() < common::DEADLINE, "no help");
-        thread::sleep(Duration::from_millis(50));
-    }
+    until(&mut r, &mut eval, "help", "no help");
     // The help leaves the focus in the shell, but keeps the keystrokes.
-    let t0 = Instant::now();
-    while t0.elapsed() < Duration::from_millis(500) {
-        assert_eq!(
-            eval(&mut r, "layout.waiting"),
-            true,
-            "the open of the help ended the wait"
-        );
-        thread::sleep(Duration::from_millis(50));
-    }
+    holds(&mut r, &mut eval, "the open of the help ended the wait");
     press(&mut ws, id, "Escape", 27);
     waiting(
         &mut r,
         &mut ws,
         "Esc out of the help into the shell ends the wait",
+        false,
+    );
+
+    let centre = |sel: &str| {
+        format!(
+            "(b => [b.left + b.width / 2, b.top + b.height / 2])\
+             (document.querySelector('{sel}').getBoundingClientRect())"
+        )
+    };
+    // A modifier alone: the user may be leaving the browser, as with `Alt+Tab`.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before Control", true);
+    press_key(&mut ws, id, ("Control", "ControlLeft", 17, 2, ""));
+    holds(&mut r, &mut eval, "a modifier alone ended the wait");
+    let (x, y) = point(
+        &mut r,
+        &mut eval,
+        &centre("#p0 .term"),
+        "e.closest('#p0 .term')",
+    );
+    click(&mut ws, id, x, y);
+    waiting(&mut r, &mut ws, "a click in the shell ends the wait", false);
+    // The press comes before the click that opens the help.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before the help button", true);
+    let (x, y) = point(
+        &mut r,
+        &mut eval,
+        &centre("#helpbtn"),
+        "e.closest('#helpbtn')",
+    );
+    mouse(&mut ws, id, "down", x, y);
+    holds(
+        &mut r,
+        &mut eval,
+        "a press on the help button ended the wait",
+    );
+    mouse(&mut ws, id, "up", x, y);
+    until(&mut r, &mut eval, "help", "the help button opens the help");
+    holds(
+        &mut r,
+        &mut eval,
+        "the click on the help button ended the wait",
+    );
+    let (x, y) = point(&mut r, &mut eval, "[8, 8]", "e === veil");
+    click(&mut ws, id, x, y);
+    waiting(
+        &mut r,
+        &mut ws,
+        "a click outside the help into the shell ends the wait",
+        false,
+    );
+    // A click outside the shell that sends no action keeps the wait, though the shell keeps the keystrokes.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before the highlight chip", true);
+    let (x, y) = point(
+        &mut r,
+        &mut eval,
+        &centre("#p1 [data-act=highlight]"),
+        "e.closest('#p1 [data-act=highlight]')",
+    );
+    click(&mut ws, id, x, y);
+    holds(
+        &mut r,
+        &mut eval,
+        "a click on a file pane's highlight chip ended the wait",
+    );
+    assert_eq!(
+        eval(&mut r, "!!document.activeElement?.closest('#p0')"),
+        true,
+        "the click took the focus from the shell"
+    );
+    press(&mut ws, id, "PageDown", 34);
+    waiting(
+        &mut r,
+        &mut ws,
+        "PageDown in the shell ends the wait",
+        false,
+    );
+    // `Ctrl+`` sends Laura an action, and the focus moves after the reply.
+    ring()?;
+    waiting(&mut r, &mut ws, "the wait before Ctrl+`", true);
+    press_key(&mut ws, id, ("`", "Backquote", 192, 2, ""));
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 1",
+        "Ctrl+` moves to the file pane",
+    );
+    holds(&mut r, &mut eval, "Ctrl+` out of the shell ended the wait");
+    press(&mut ws, id, "Escape", 27);
+    waiting(
+        &mut r,
+        &mut ws,
+        "Esc back into the shell ends the wait",
         false,
     );
 

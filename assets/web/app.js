@@ -56,7 +56,11 @@ const frame = (id, bytes) => {
   out.set(bytes, 8);
   if (ws?.readyState === 1) ws.send(out);
 };
+// The user's last keystroke or mouse press, for the wait rule below `overlayOpen`.
+let press = null;
 function act(m, then) {
+  // The user's press sent Laura an action: the server, not the wait rule below, decides the wait.
+  if (press && m.act !== "seen") press.acted = true;
   if (ws?.readyState !== 1) return;
   acts.push({ then, pane: m.pane });
   send(m);
@@ -81,11 +85,23 @@ const toShell = () => locked && focused()?.kind !== "editor";
 // The drawer shows while the shell has the focus or the lock's keystrokes.
 const drawerOpen = () => layout.focus === 0 || toShell();
 const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
-// The user's keystroke or click after which the shell has the keystrokes: the user is at the shell, so the wait
-// ends. After the event's handlers, so the close of the pane selector, the help or the menu counts and the open
-// does not. Not a focus listener: the agent's `laura focus` and a return to the browser tab don't end the wait.
-for (const t of ["keydown", "mousedown", "click"])
-  addEventListener(t, () => setTimeout(() => layout?.waiting && !overlayOpen() && $("p0")?.contains(document.activeElement) && act({ act: "seen" })), true);
+const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
+// The user's keystroke or click that leaves the shell with the keystrokes ends the wait. The rule runs
+// after the event's handlers, so the close of the pane selector, the help or the menu counts, and the
+// open doesn't. It runs on `click`, not on `mousedown`, which comes before the click that opens the
+// help. A click counts in the shell, or when an overlay was open at the press. An event that sends
+// Laura an action or opens another workspace leaves the wait to the server, which ends it on the
+// user's move to the shell: the focus moves only after the reply. `seen` names the wait shown at the
+// press, so a wait that began later stays. Not a focus listener: the agent's `laura focus` and a
+// return to the browser tab don't end the wait.
+const pressed = () => (press = { overlay: overlayOpen(), wait: layout?.wait, acted: false });
+function seenAfter(p, counts) {
+  setTimeout(() => counts && p?.wait !== undefined && !p.acted && layout?.waiting && !overlayOpen()
+    && $("p0")?.contains(document.activeElement) && act({ act: "seen", wait: p.wait }));
+}
+addEventListener("mousedown", pressed, true);
+addEventListener("keydown", e => MODIFIERS.includes(e.key) || (pressed(), seenAfter(press, true)), true);
+addEventListener("click", e => seenAfter(press, press?.overlay || $("p0")?.contains(e.target)), true);
 
 function showNotice(text, secs, pane) {
   notice = text;
@@ -288,7 +304,7 @@ function makeTerm(id, el) {
     const once = term.onRender(() => (once.dispose(), fitShell()));
     new ResizeObserver(() => fitShell()).observe(el.querySelector(".term"));
     // A wheel step scrolls the shell without the focus, so the keystroke-or-click rule doesn't see it.
-    el.querySelector(".term").addEventListener("wheel", () => layout.waiting && act({ act: "seen" }), { capture: true, passive: true });
+    el.querySelector(".term").addEventListener("wheel", () => layout.waiting && act({ act: "seen", wait: layout.wait }), { capture: true, passive: true });
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
   // pane (a comment, the review body) takes its own paste.
@@ -1829,7 +1845,7 @@ const FILE_KEYS = {
 };
 
 addEventListener("keydown", e => {
-  if (!layout || ended || !$("overlay").hidden || ["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+  if (!layout || ended || !$("overlay").hidden || MODIFIERS.includes(e.key)) return;
   const ctrl = e.ctrlKey && !e.altKey;
   const k = e.key.length === 1 && ctrl ? e.key.toLowerCase() : e.key;
   const take = () => (e.preventDefault(), e.stopPropagation());
@@ -2047,6 +2063,8 @@ addEventListener("beforeunload", e => ended || leaving || e.preventDefault());
 // workspace that the user leaves keeps running. The browser asks before it leaves only while a
 // comment box is open, so the comment is not lost. `<base target="_blank">` would open a new tab.
 function go(url, tab) {
+  // The user leaves for another workspace.
+  if (press) press.acted = true;
   if (tab) return window.open(url, "_blank");
   leaving = draft === null;
   location.assign(url);

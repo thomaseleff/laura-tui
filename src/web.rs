@@ -1157,7 +1157,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
-           "agent": tab.agent, "waiting": tab.waiting, "hints": hints, "panes": panes})
+           "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})
     .to_string()
 }
 

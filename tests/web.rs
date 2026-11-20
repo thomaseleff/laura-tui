@@ -2273,8 +2273,8 @@ fn before_laura_ready_the_hint_line_keeps_comment_and_submit() -> Result<()> {
     Ok(())
 }
 
-/// #190: what the web app keeps from the shell and sends no bytes for (`seen`: a click, a wheel
-/// step, PageUp or PageDown, F12 into the shell) ends the wait, and focus stays on the file pane.
+/// #190: `seen`, which the web app sends for a keystroke or a click that leaves the shell with the
+/// keystrokes and for a wheel step over the shell, ends the wait, and focus stays on the file pane.
 #[cfg(unix)]
 #[test]
 fn a_click_or_a_wheel_step_at_a_prompt_ends_the_wait() -> Result<()> {
@@ -2284,10 +2284,55 @@ fn a_click_or_a_wheel_step_at_a_prompt_ends_the_wait() -> Result<()> {
     assert_eq!(rig.drive(&["open", &path]), "1");
     layout_when(&mut rig, &mut ws, "file pane", |l| l["focus"] == 1);
     rig.tab.pty.write(b"printf '\\007'\r")?;
-    layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
-    rig.act(&mut ws, json!({"act": "seen"}));
+    let l = layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
+    rig.act(&mut ws, json!({"act": "seen", "wait": l["wait"]}));
     let l = layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
     assert_eq!(l["focus"], 1, "seen moved the focus");
+    Ok(())
+}
+
+/// #190: a `seen` ends only the wait the web app showed at the user's press: not a wait that began
+/// after it, and not a wait it does not name. A bell during a wait is the same wait.
+#[cfg(unix)]
+#[test]
+fn seen_ends_only_the_wait_the_web_app_showed() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let w1 = layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true)["wait"].clone();
+    // `Ctrl+U`: the user's input, which ends the wait and leaves the line empty for the next bell.
+    type_in(&mut ws, 0, b"\x15")?;
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let w2 = layout_when(&mut rig, &mut ws, "new wait", |l| l["waiting"] == true)["wait"].clone();
+    assert_ne!(w1, w2);
+
+    rig.act(&mut ws, json!({"act": "seen", "wait": w1}));
+    rig.idle(&mut ws, 5);
+    assert!(rig.tab.waiting, "a seen from before the new wait ended it");
+    rig.act(&mut ws, json!({"act": "seen", "wait": 0xFFFF_FFFFu64}));
+    rig.idle(&mut ws, 5);
+    assert!(rig.tab.waiting, "a seen that names no wait ended the wait");
+
+    let bells = rig.tab.pty.bells();
+    rig.tab.pty.write(b"printf '\\007'\r")?;
+    let start = Instant::now();
+    while rig.tab.pty.bells() == bells {
+        assert!(start.elapsed() < common::DEADLINE, "timed out: bell");
+        thread::sleep(Duration::from_millis(10));
+    }
+    rig.idle(&mut ws, 5);
+    rig.act(&mut ws, json!({"act": "seen", "wait": w2}));
+    layout_when(
+        &mut rig,
+        &mut ws,
+        "a bell during the wait is the same wait",
+        |l| l["waiting"] == false,
+    );
+    rig.act(&mut ws, json!({"act": "seen", "wait": w2}));
+    rig.idle(&mut ws, 5);
+    assert!(!rig.tab.waiting, "a late seen brought the wait back");
     Ok(())
 }
 
