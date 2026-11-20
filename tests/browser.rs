@@ -1059,6 +1059,14 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         true,
         "the page's CSP blocks the badged icon"
     );
+    assert_eq!(
+        eval(
+            &mut r,
+            "decodeURIComponent(document.querySelector('link[rel=icon]').href).includes('mask=\"url(#b)\"')"
+        ),
+        true,
+        "the badged icon has no ring cut around the dot"
+    );
     // F12 while the pane selector keeps the keystrokes: the user has not reached the shell.
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
     press(&mut ws, id, "F12", 123);
