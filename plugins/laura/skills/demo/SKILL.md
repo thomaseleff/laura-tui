@@ -473,7 +473,7 @@ _Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no
 > 1. Click the workspace switcher. Laura lists the running workspaces. Click a workspace to switch to it. The workspace that you leave keeps running.
 > 2. Or press `Ctrl+P` and type part of a session label or a folder. Laura lists the other workspaces under **Workspaces**. Press `Enter` to switch.
 >
-> While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones.
+> While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones. When the agent in another workspace waits for you, for example at a permission prompt, the Laura server's page shows `Waiting for you` on that workspace's row.
 >
 > Read more in [Switch workspaces](https://thomaseleff.github.io/laura-tui/navigation/#switch-workspaces).
 >

@@ -116,6 +116,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/say":
             add("agent", body["text"])
             self.reply({})
+        elif self.path == "/ask":
+            # A question that needs the user: the bell marks the workspace as waiting.
+            add("agent", body["text"])
+            with lock:
+                sys.stdout.write("\a")
+                sys.stdout.flush()
+            self.reply({})
         elif self.path == "/tool":
             add("tool", f"{body['name']}({body['arg']})", body["out"])
             self.reply({})

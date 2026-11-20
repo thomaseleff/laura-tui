@@ -64,6 +64,7 @@ When your partner asks for a new README demo:
 | Helper | Action |
 |---|---|
 | `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. A bar along the top edge shows the time until the next action. |
+| `agent.ask(text)` | Shows the text in the chat and rings the bell, so that Laura marks the workspace as waiting. Use `agent.ask` on the `Agent` of another workspace, to show `Waiting for you`. |
 | `agent.laura(*args, stdin=lines, shown=None)` | Runs `laura <args>` from the chat and gives the stdout, for example the pane id. If the exit code is not 0, raises an error. `stdin` sends the lines one at a time, at 0.3 s intervals, for `laura tail`. `shown` is the command line that the chat shows instead, for example `python worker.py 2>&1 \| laura tail …`. |
 | `agent.wait_for_review()` | Waits until a submitted inline review comes into the chat. Gives the text of the review. |
 | `agent.write(path, text)` | Writes the file in the scratch repo. The chat shows `Update(<path>)` with the count of added and removed lines, or `Write(<path>)` for a new file. |

@@ -73,7 +73,7 @@ OVERLAY = """addEventListener("DOMContentLoaded", () => {
 BOXES = ".draft textarea, .pop.review textarea"
 TYPE_DELAY = 75
 BEAT = 600
-LABELS = {"Control+p": "Ctrl+P", "Control+l": "Ctrl+L", "Control+r": "Ctrl+R", "Escape": "Esc", "ArrowDown": "↓", "ArrowUp": "↑"}
+LABELS = {"Control+p": "Ctrl+P", "Control+l": "Ctrl+L", "Control+r": "Ctrl+R", "Control+Backquote": "Ctrl+`", "Escape": "Esc", "ArrowDown": "↓", "ArrowUp": "↑"}
 
 
 class Agent:
@@ -118,6 +118,10 @@ class Agent:
         ms = max(1000, 125 * len(text.split()))
         await self.page.evaluate("ms => window.__wait(ms)", ms)
         await self.page.wait_for_timeout(ms)
+
+    async def ask(self, text):
+        # Asks without the hold of `say`, because the camera shows another workspace.
+        await self._call("/ask", {"text": text})
 
     async def laura(self, *args, stdin=(), shown=None):
         r = await self._call("/run", {"args": [str(a) for a in args], "stdin": list(stdin), "shown": shown})

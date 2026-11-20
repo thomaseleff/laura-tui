@@ -92,17 +92,26 @@ async def scene(user, agent, camera):
         "[1 / 5] The workspace is just panes\n\n"
         "Laura's workspace is just panes, so your agent can lay out almost anything. "
         "Here's a Fibonacci sequence, one number per pane.\n\n"
+        "The panes fill the workspace, and this chat floats in a drawer over them. Press Ctrl+` to close "
+        "the drawer and see every pane, and Ctrl+` again to come back here.\n\n"
         "Send Next to learn how to interact with your agent in a pane."
     )
+    await user.press("Control+Backquote")
+    await user.page.locator("#p0").wait_for(state="hidden")
+    await camera.pause(1500)
+    await camera.shot("panes")
+    await user.press("Control+Backquote")
+    await user.focused(0)
+    await camera.pause(800)
     await reply(user)
     await agent.laura("close", "--all")
 
     # [2 / 5] The pane interactions
-    doc = await agent.laura("open", "plan.md", "--ratio", "55")
+    doc = await agent.laura("open", "plan.md", "--ratio", "55", "--no-focus")
     await agent.laura("comment", "6", "suggest 1 hour — 24h is a long window for a bearer token", "--pane", doc)
     await agent.say(
         "[2 / 5] The pane interactions\n\n"
-        "I opened a plan in the pane to the right and left a comment for you on L6. "
+        "I opened a plan in a new pane and left a comment for you on L6. "
         "Reply to my comment, add your own on L11, then press Shift+S to submit your inline review."
     )
     await user.goto_line(doc, 6)
@@ -132,13 +141,14 @@ async def scene(user, agent, camera):
 
     # [3 / 5] Code review
     await agent.write("tokens.py", TOKENS_CHANGED)
-    await agent.laura("open", "tokens.py", "--diff", "--ratio", "55")
+    diff = await agent.laura("open", "tokens.py", "--diff", "--ratio", "55", "--no-focus")
     await agent.say(
         "[3 / 5] Code review\n\n"
-        "Here's the code change that implements the plan. I opened the full diff in the pane to the right. "
-        "Press d to turn the diff view off and on.\n\n"
+        "Here's the code change that implements the plan. I opened the full diff in a new pane. "
+        "Press Ctrl+P, then the pane's number, to focus the diff. Press d to turn the diff view off and on.\n\n"
         "Send Next to debug with live logs."
     )
+    await user.focus(diff)
     await camera.shot("diff")
     await user.press("d")
     await camera.pause(1500)
@@ -174,7 +184,7 @@ async def scene(user, agent, camera):
     await camera.shot("tail")
     await agent.say(
         "[4 / 5] Debug\n\n"
-        "I opened a source file in the pane to the right, ran the code, and piped its logs into a tail pane "
+        "I opened a source file in a new pane, ran the code, and piped its logs into a tail pane "
         "below the source file. Laura scrolls the tail pane to the newest output as the logs arrive.\n\n"
         "Press p in the tail pane to pause the tail pane and read the output. Press p again to follow the "
         "newest output.\n\n"
@@ -195,7 +205,7 @@ async def scene(user, agent, camera):
     ed = await agent.laura("open", "retry.py", "--edit", "--ratio", "55")
     await agent.say(
         "Bonus · Edit together\n\n"
-        "The pane to the right is an editor pane, where you edit the file in Neovim next to the chat. "
+        "The new pane is an editor pane, where you edit the file in Neovim. "
         "Press Ctrl+P, then the pane's number, then change 2 ** tries to min(2 ** tries, 60) and save with :w."
     )
     await user.focus(ed)
@@ -233,11 +243,11 @@ async def scene(user, agent, camera):
     await agent.laura("close", "--all")
 
     # Bonus · See a page
-    pg = await agent.laura("open", "page.html", "--ratio", "55")
+    pg = await agent.laura("open", "page.html", "--ratio", "55", "--no-focus")
     frame = user.page.frame_locator(f"#p{pg} iframe")
     await agent.say(
         "Bonus · See a page\n\n"
-        "I opened page.html in the pane to the right. Laura shows the page with its stylesheet and runs its "
+        "I opened page.html in a new pane. Laura shows the page with its stylesheet and runs its "
         "script when you click Save. Use comment mode in the pane header to comment on an element."
     )
     await user.click(frame.locator("button"))
@@ -261,7 +271,8 @@ async def scene(user, agent, camera):
     try:
         url = f"http://localhost:{port}/page.html"
         pb = await agent.laura(
-            "open", url, "--ratio", "55", shown=f"python -m http.server {port} & laura open {url} --ratio 55"
+            "open", url, "--ratio", "55", "--no-focus",
+            shown=f"python -m http.server {port} & laura open {url} --ratio 55 --no-focus",
         )
         await user.page.locator(f"#p{pb} .head .live").wait_for(state="visible", timeout=20000)
         for _ in range(20):
@@ -274,7 +285,7 @@ async def scene(user, agent, camera):
                 await asyncio.sleep(1)
         await agent.say(
             "Bonus · See a page from a URL\n\n"
-            f"I started a small web server and opened {url} in a browser pane to the right. Laura's browser "
+            f"I started a small web server and opened {url} in a new browser pane. Laura's browser "
             "shows the page live, as your dev server would. I highlighted the Save button by its CSS selector.\n\n"
             "Click Save, press Ctrl+R to refresh the pane, then point at the button, press c and comment."
         )
@@ -297,13 +308,14 @@ async def scene(user, agent, camera):
         srv.kill()
 
     # Bonus · Switch workspaces
-    await agent.workspace("acme-web", "flaky login test")
+    other = await agent.workspace("acme-web", "flaky login test")
     await agent.say(
         "Bonus · Switch workspaces\n\n"
         "Each workspace is one task in one folder. The workspace switcher at the left of the top bar shows "
         "this workspace's session label, Laura demo, and its folder.\n\n"
         "Click the workspace switcher to switch, or press Ctrl+P and type a session label. While the Laura "
-        "server runs, select the Laura logo to open the Laura server's page.\n\n"
+        "server runs, select the Laura logo to open the Laura server's page. When the agent in another "
+        "workspace waits for you, the Laura server's page shows Waiting for you on that workspace's row.\n\n"
         "Send Next to learn how to record feedback."
     )
     await user.click("#wsw")
@@ -320,9 +332,14 @@ async def scene(user, agent, camera):
     await user.press("Enter")
     await user.page.locator("#wlabel", has_text="Laura demo").wait_for()
     await camera.pause(1500)
+    # The agent in the other workspace waits for the user while the user is back in this workspace.
+    await other.ask("The login test failed 3 of 20 runs. Can I add a retry to the session check? (y/n)")
+    await user.page.locator("#wwait").wait_for(state="visible")
     await user.click("#brand")
     await user.page.locator("#rows li").nth(1).wait_for()
-    await camera.pause(1500)
+    await user.page.locator("#rows .sv-wait").wait_for()
+    # Hold the page longer, so that the viewer reads Waiting for you.
+    await camera.pause(3000)
     await camera.shot("server")
     await user.click(user.page.locator("#rows li").filter(has_text="Laura demo").get_by_role("button", name="Open", exact=True))
     await user.page.locator("#wlabel", has_text="Laura demo").wait_for()
