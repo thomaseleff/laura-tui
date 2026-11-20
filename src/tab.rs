@@ -216,6 +216,12 @@ pub enum UserAction {
         pane: PaneId,
         href: String,
     },
+    /// A file path the user clicked in the shell. `line` is 1-based source.
+    OpenPath {
+        path: String,
+        #[serde(default)]
+        line: Option<u32>,
+    },
     /// Keys to the shell, or an editor pane's Neovim in its editor view. The web app sends these
     /// as binary frames, not JSON.
     #[serde(skip)]
@@ -607,6 +613,7 @@ impl Tab {
             A::ClearHighlight { pane } => self.panel_mut(pane)?.clear_highlight(),
             A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
             A::OpenLink { pane, href } => self.open_link(pane, &href)?,
+            A::OpenPath { path, line } => self.open_path(&path, line)?,
             A::BeginComment { pane } => {
                 if !self.agent {
                     return Err(NEEDS_READY.into());
@@ -832,19 +839,7 @@ impl Tab {
             if !file.is_file() {
                 return Err(missing());
             }
-            let file = file.to_string_lossy().into_owned();
-            if let Some(id) = self.showing(&file, PTY_PANE) {
-                self.focus = id;
-                target = id;
-            } else {
-                let msg = serde_json::from_value(json!({"type": "open", "path": file}))
-                    .expect("a path-only open always parses");
-                match self.apply(msg, self.area) {
-                    Response::Opened { pane, .. } => target = pane,
-                    Response::Error { message } => return Err(message),
-                    _ => {}
-                }
-            }
+            target = self.open_file(file.to_string_lossy().into_owned())?;
         }
         // Not `panel_mut`: an editor pane in its editor view keeps the heading for its file view.
         let p = self
@@ -864,6 +859,39 @@ impl Tab {
                     self.notices.push((Some(target), text));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Focus the pane already showing the absolute `file`, else open it as `laura open` would.
+    fn open_file(&mut self, file: String) -> Result<PaneId, String> {
+        if let Some(id) = self.showing(&file, PTY_PANE) {
+            self.focus = id;
+            return Ok(id);
+        }
+        let msg = serde_json::from_value(json!({"type": "open", "path": file}))
+            .expect("a path-only open always parses");
+        match self.apply(msg, self.area) {
+            Response::Opened { pane, .. } => Ok(pane),
+            Response::Error { message } => Err(message),
+            _ => unreachable!("an open without dry_run answers Opened or Error"),
+        }
+    }
+
+    /// Open `path` (relative to Laura's folder) and put the cursor on `line`.
+    fn open_path(&mut self, path: &str, line: Option<u32>) -> Result<(), String> {
+        let missing = || format!("⚠ The link target {path} does not exist.");
+        let file = std::path::absolute(path).map_err(|_| missing())?;
+        if file.is_dir() {
+            return Err(format!("⚠ The link target {path} is a folder."));
+        }
+        if !file.is_file() {
+            return Err(missing());
+        }
+        let id = self.open_file(file.to_string_lossy().into_owned())?;
+        // Not `panel_mut`: an editor pane in its editor view keeps the line for its file view.
+        if let (Some(l), Some(p)) = (line, self.panels.get_mut(&id)) {
+            p.set_cursor_line(l);
         }
         Ok(())
     }

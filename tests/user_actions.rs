@@ -409,3 +409,46 @@ fn the_tui_has_no_drawer() -> Result<()> {
     assert_eq!(drive(&mut tab, &["layout"]), before);
     Ok(())
 }
+
+#[test]
+fn a_file_path_in_the_shell_opens_in_a_pane() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    tab.drain(area());
+    let open = |path: String| UserAction::OpenPath {
+        path,
+        line: Some(3),
+    };
+    tab.act(open("src/lib.rs".into()))?;
+    tab.tick(area());
+    let lib = std::env::current_dir()?.join("src/lib.rs");
+    let ids: Vec<_> = tab.panels.keys().copied().collect();
+    assert_eq!(ids.len(), 1);
+    let p = &tab.panels[&ids[0]];
+    assert_eq!(Path::new(&p.path), lib);
+    assert_eq!((tab.focus, p.cursor_line()), (ids[0], 3));
+    // The absolute path names the same file: Laura focuses its pane.
+    tab.focus = 0;
+    tab.act(open(lib.to_string_lossy().into_owned()))?;
+    assert_eq!((tab.panels.len(), tab.focus), (1, ids[0]));
+    Ok(())
+}
+
+#[test]
+fn a_file_path_that_is_not_a_file_returns_the_link_notice() -> Result<()> {
+    let mut tab = spawn_tab()?;
+    tab.tick(area());
+    let open = |path: &str| UserAction::OpenPath {
+        path: path.into(),
+        line: None,
+    };
+    assert_eq!(
+        tab.act(open("src/nope.rs")),
+        Err("⚠ The link target src/nope.rs does not exist.".into())
+    );
+    assert_eq!(
+        tab.act(open("src")),
+        Err("⚠ The link target src is a folder.".into())
+    );
+    assert!(tab.panels.is_empty());
+    Ok(())
+}

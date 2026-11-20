@@ -278,6 +278,10 @@ function webgl(term) {
   } catch {}
 }
 
+// A file path in the shell with a `/` and an extension, and an optional `:line`. Not part of a URL
+// (`https://x.com/a.js`) or a home path (`~/a/b.rs`).
+const PATH = /(?<![\w/:.~-])(?:\.{0,2}\/)?(?:[\w.-]+\/)*[\w-]+\.[A-Za-z0-9]+(?::\d+)?/g;
+
 function makeTerm(id, el) {
   // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.
   const term = new Terminal(id === 0 ? { ...SHELL, ...layout.shell } : TERM);
@@ -305,6 +309,30 @@ function makeTerm(id, el) {
     new ResizeObserver(() => fitShell()).observe(el.querySelector(".term"));
     // A wheel step scrolls the shell without the focus, so the keystroke-or-click rule doesn't see it.
     el.querySelector(".term").addEventListener("wheel", () => layout.waiting && act({ act: "seen", wait: layout.wait }), { capture: true, passive: true });
+    term.registerLinkProvider({ provideLinks(y, cb) {
+      // shortcut: a path that wraps onto the next row is no link; join wrapped rows if agents wrap paths.
+      const line = term.buffer.active.getLine(y - 1);
+      // The text, and each character's column: an emoji takes two columns.
+      let text = "";
+      const col = [];
+      for (let x = 0; line && x < line.length; x++) {
+        const c = line.getCell(x);
+        if (!c?.getWidth()) continue;
+        const s = c.getChars() || " ";
+        text += s;
+        for (let i = 0; i < s.length; i++) col.push(x + 1);
+      }
+      cb([...text.matchAll(PATH)].filter(m => m[0].includes("/")).map(m => ({
+        text: m[0],
+        range: { start: { x: col[m.index], y }, end: { x: col[m.index + m[0].length - 1], y } },
+        decorations: { underline: true, pointerCursor: true },
+        activate: () => {
+          const [, path, n] = m[0].match(/^(.*?)(?::(\d+))?$/);
+          // `pane` only routes an error to the drawer.
+          act({ act: "open_path", pane: 0, path, line: n ? +n : undefined });
+        },
+      })));
+    } });
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
   // pane (a comment, the review body) takes its own paste.
