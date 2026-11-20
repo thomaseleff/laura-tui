@@ -34,9 +34,10 @@ pub const DEFAULT_AREA: Rect = Rect::new(0, 0, 120, 40);
 
 pub(crate) const REFERRER_POLICY: &str = "no-referrer";
 /// `'unsafe-inline'` styles: pane rows carry inline `style`. Script only from Laura's own files,
-/// so an escaping bug in pane HTML can't run code that holds the shell's websocket.
-pub(crate) const CSP: &str =
-    "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
+/// so an escaping bug in pane HTML can't run code that holds the shell's websocket. `data:`
+/// images: the tab icon with the wait's dot, which the page makes from `favicon.svg`.
+pub(crate) const CSP: &str = "default-src 'self'; img-src 'self' data:; \
+     style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
 
 /// Browsers send every `localhost` cookie to every port, so headers easily pass 8 KB.
 const MAX_HEAD: usize = 64 * 1024;

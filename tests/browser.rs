@@ -1041,6 +1041,24 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     }
     ring()?;
     waiting(&mut r, &mut eval, "the wait", true);
+    // The page's CSP lets the browser load the badged icon.
+    eval(
+        &mut r,
+        "(() => { const i = new Image(); window.iconLoad = null; \
+         i.onload = () => iconLoad = true; i.onerror = () => iconLoad = false; \
+         i.src = document.querySelector('link[rel=icon]').href; })()",
+    );
+    until(
+        &mut r,
+        &mut eval,
+        "iconLoad !== null",
+        "the badged icon never loaded",
+    );
+    assert_eq!(
+        eval(&mut r, "iconLoad"),
+        true,
+        "the page's CSP blocks the badged icon"
+    );
     // F12 while the pane selector keeps the keystrokes: the user has not reached the shell.
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
     press(&mut ws, id, "F12", 123);
