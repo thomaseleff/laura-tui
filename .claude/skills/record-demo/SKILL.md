@@ -9,7 +9,7 @@ user-invocable: true
 
 This skill records one video, the README demo `docs/assets/laura-demo.gif`. The README and `docs/index.md` show this GIF. There are no other demo scenes.
 
-`scripts/demo/record.py` plays the scene `scripts/demo/scenes/demo.py` in the web app. The scene follows the beats of `plugins/laura/skills/demo/SKILL.md`, with the same `agent.say` text and `laura` commands. A beat can use shorter text, so that the video does not become slow.
+`scripts/demo/record.py` plays the scene `scripts/demo/scenes/demo.py` in the web app. The scene follows the beats of `plugins/laura/skills/demo/SKILL.md`, with the same `agent.say` text and `laura` commands. A beat can use shorter text, so that the video does not become slow. The scene leaves out the experimental **Edit together** beat.
 
 The scene has three actors:
 
@@ -17,7 +17,7 @@ The scene has three actors:
 - **The agent** writes chat replies and runs `laura` commands. A chat stub (`scripts/demo/chat.py`) runs as the shell program in the workspace. The chat stub looks like Claude Code in auto mode.
 - **The camera** records the browser.
 
-The recorder also starts a Laura server, so that the workspace switcher lists **New workspace…** and the Laura logo opens the Laura server's page.
+The recorder starts a Laura server, and the scene starts on the Laura server's page. The user starts the scene's workspace from the page, so that the video opens and ends on the list of workspaces.
 
 The recorder works on Linux (WSL). The recorder clears every `LAURA_*` variable that it gets from your partner's shell, so that the demo's Laura does not use the `LAURA_RUNTIME`, `LAURA_TAB` or `LAURA_BROWSER_URL` of your partner's own workspace. The recorder also sets a scratch `HOME`, which keeps your partner's own workspaces out of the demo's list.
 
@@ -27,7 +27,7 @@ Do these steps one time:
 
 1. Install `uv`.
 2. Install Chromium for Playwright: `uv run --with playwright==1.63.0 playwright install chromium --no-shell`. The recorder also gives this Chromium to Laura for the browser panes.
-3. Add Neovim to `PATH`, because the demo has an editor pane.
+3. Install `curl`, because the debug beat sends requests to the greeting API with `curl`.
 4. Install a font with the chat stub's glyphs `⎿` and `⏵⏵`: `sudo apt install fonts-symbola`. Without the font, Chromium draws a blank for each glyph.
 
 Before you record, build the debug binary: `CARGO_TARGET_DIR=tmp/target cargo build`. To use a different binary, add `--laura <path>`.
@@ -54,17 +54,23 @@ When your partner asks for a new README demo:
 
 - `demo.mp4` and `demo.gif`.
 - One PNG for each `camera.shot`.
-- `laura.log`, the output of Laura. `serve.log` is the output of the Laura server, and `<name>.log` is the output of each `agent.workspace`.
-- `home/acme-api/`, the scratch repo. The top bar shows `~/acme-api`. `record.py` copies the fixtures in `scripts/demo/scenes/demo/` into the scratch repo and commits them.
+- `serve.log`, the output of the Laura server, and `<name>.log`, the output of each `agent.workspace`. If the scene's workspace fails to start, the Laura server's page shows the error, and `failure.png` shows the page.
+- `home/hello-api/`, the scratch repo. The top bar shows `~/hello-api`. `record.py` copies the fixtures in `scripts/demo/scenes/demo/` into the scratch repo and commits them.
 
 ## Change the scene
 
-`demo.py` has one async function, `scene(user, agent, camera)`. The scene uses these helpers:
+`demo.py` has two async functions:
+
+- `setup(agent)` runs before the camera starts, so that the first frame shows its result, for example another workspace from `agent.workspace`. The scene gets the return value as its fourth argument.
+- `scene(user, agent, camera, ctx)` starts on the Laura server's page. The scene starts its workspace with the page's form, then calls `agent.ready()`.
+
+The scene uses these helpers:
 
 | Helper | Action |
 |---|---|
-| `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. A bar along the top edge shows the time until the next action. |
-| `agent.laura(*args, stdin=lines, shown=None)` | Runs `laura <args>` from the chat and gives the stdout, for example the pane id. If the exit code is not 0, raises an error. `stdin` sends the lines one at a time, at 0.3 s intervals, for `laura tail`. `shown` is the command line that the chat shows instead, for example `python worker.py 2>&1 \| laura tail …`. |
+| `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. If the reply is taller than the drawer, the chat shows the reply from its first line for half of the hold, then shows the end of the reply. A bar along the top edge shows the time until the next action. |
+| `agent.ask(text)` | Shows the text in the chat and rings the bell, so that Laura marks the workspace as waiting. Use `agent.ask` on the `Agent` of another workspace, to show `Waiting for you`. |
+| `agent.laura(*args, pipe=None, shown=None)` | Runs `laura <args>` from the chat and gives the stdout, for example the pane id. If the exit code is not 0, raises an error. `pipe` is a shell command whose output goes into `laura`, as `sh -c '<pipe> \| laura <args>'`, for `laura tail`. `shown` is the command line that the chat shows instead, for example `python app.py 2>&1 \| laura tail …`. |
 | `agent.wait_for_review()` | Waits until a submitted inline review comes into the chat. Gives the text of the review. |
 | `agent.write(path, text)` | Writes the file in the scratch repo. The chat shows `Update(<path>)` with the count of added and removed lines, or `Write(<path>)` for a new file. |
 | `agent.edit(path, old, new)` | Replaces `old` with `new` in the file, as `agent.write` does. If `old` is not in the file, raises an error. |

@@ -1,3 +1,3 @@
 # Notes
 
-The cap on retries is 60 seconds.
+The page greets the name in the field.

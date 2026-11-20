@@ -2116,10 +2116,26 @@ function go(url, tab) {
 const folderName = root => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
 const spaceLabel = w => w.title ?? folderName(w.root);
 
-// The browser tab: the session label, or the folder name before the agent sets one, with `● `
-// in front while the agent waits for the user.
+// The tab icon with an amber dot in the top-right corner for the wait, made from the plain icon so
+// that the pebble path stays in one file; null until the fetch ends. A mask cuts a ring around the
+// dot, so the dot reads on a light and on a dark tab bar.
+const icon = document.querySelector("link[rel=icon]"), plainIcon = icon.href;
+let waitIcon = null;
+fetch(plainIcon).then(r => r.text()).then(svg => {
+  const warn = getComputedStyle(document.documentElement).getPropertyValue("--warn").trim();
+  waitIcon = "data:image/svg+xml," + encodeURIComponent(svg
+    .replace("<g ", '<mask id="b"><rect x="0" y="0" width="64" height="64" fill="#fff"/>'
+      + '<circle cx="48.9" cy="15.1" r="14"/></mask><g mask="url(#b)" ')
+    .replace("</svg>", `<circle cx="48.9" cy="15.1" r="11" fill="${warn}"/></svg>`));
+  paintTitle();
+}).catch(() => {});  // without the badged icon, the tab keeps the plain icon
+
+// The browser tab: the session label, or the folder name before the agent sets one, and the
+// badged icon while the agent waits for the user.
 function paintTitle() {
-  document.title = `${layout?.waiting ? "● " : ""}Laura · ${$("wlabel").textContent}`;
+  document.title = `Laura · ${$("wlabel").textContent}`;
+  const href = layout?.waiting && waitIcon || plainIcon;
+  if (icon.href !== href) icon.href = href;  // the same href again makes the browser fetch the icon again
 }
 
 // The workspace switcher: the session label and the folder, or the folder name in grey before the

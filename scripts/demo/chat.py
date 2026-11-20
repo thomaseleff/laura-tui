@@ -12,6 +12,7 @@ import http.server
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -30,7 +31,8 @@ lock = threading.RLock()
 state = {"ready": False, "reviews": []}
 # Each entry is [kind, text, out]. The kind is user, agent or tool. Out is the output of a tool, or None until the tool stops.
 entries = []
-ui = {"inp": "", "paste": None, "pastes": 0}
+# top is the first chat line on screen while a long reply scrolls, or None to show the end of the chat.
+ui = {"inp": "", "paste": None, "pastes": 0, "top": None}
 
 # Raw input keeps the paste markers, the line breaks of a review, and `\r` for Enter. draw() writes `\r\n` itself.
 tty.setraw(0)
@@ -48,6 +50,8 @@ def wrap(text, width, first, rest):
 
 
 def render(width):
+    # Returns the chat lines, the footer, and the first line of the last agent reply.
+    reply = None
     body = [f" {ORANGE}✻{RST} Welcome to Claude Code!", "", f"   cwd: ~/{os.path.basename(os.getcwd())}"]
     n = len(" ✻ Welcome to Claude Code!") + 2
     lines = ["╭" + "─" * n + "╮"]
@@ -58,6 +62,7 @@ def render(width):
         if kind == "user":
             lines += [DIM + ln + RST for ln in wrap(text, width, "> ", "  ")]
         elif kind == "agent":
+            reply = len(lines)
             lines += wrap(text, width, "● ", "  ")
         else:
             head = wrap(text, width, "● ", "  ")
@@ -76,14 +81,22 @@ def render(width):
     field[-1] += " " * (len(inp) - len(inp.rstrip(" "))) + "\x1b[7m \x1b[27m"
     rule = DIM + "─" * width + RST
     auto = f"  {YELLOW}⏵⏵ auto mode on{RST}{DIM} (shift+tab to cycle){RST}"
-    return [*lines, "", rule, *field, rule, auto, ""]
+    return lines, ["", rule, *field, rule, auto, ""], reply
+
+
+def view():
+    cols, rows = shutil.get_terminal_size()
+    # Use one column less than the width, so that a full line does not wrap.
+    lines, footer, reply = render(cols - 1)
+    return lines, footer, reply, max(rows - len(footer), 0)
 
 
 def draw():
     with lock:
-        cols, rows = shutil.get_terminal_size()
-        # Use one column less than the width, so that a full line does not wrap. Draw only the last rows, so that the footer stays below the content.
-        lines = render(cols - 1)[-rows:]
+        chat, footer, _, room = view()
+        # The footer stays at the bottom. Above it, show the chat up to the end, or up to the scroll position of a long reply.
+        end = len(chat) if ui["top"] is None else min(ui["top"] + room, len(chat))
+        lines = [*chat[max(end - room, 0) : end], *footer]
         sys.stdout.write("\x1b[H" + "\x1b[K\r\n".join(lines) + "\x1b[K\x1b[J")
         sys.stdout.flush()
 
@@ -92,6 +105,7 @@ def add(kind, text, out=None):
     entry = [kind, text, out]
     with lock:
         entries.append(entry)
+        ui["top"] = None
         draw()
     return entry
 
@@ -114,22 +128,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         if self.path == "/say":
+            with lock:
+                entries.append(["agent", body["text"], None])
+                chat, _, reply, room = view()
+                # A reply taller than the drawer shows from its first line. record.py shows the end with /scroll.
+                below = len(chat) - reply - room
+                ui["top"] = reply if below > 0 else None
+                draw()
+            self.reply({"below": max(below, 0)})
+        elif self.path == "/scroll":
+            with lock:
+                ui["top"] = None
+                draw()
+            self.reply({})
+        elif self.path == "/ask":
+            # A question that needs the user: the bell marks the workspace as waiting.
             add("agent", body["text"])
+            with lock:
+                sys.stdout.write("\a")
+                sys.stdout.flush()
             self.reply({})
         elif self.path == "/tool":
             add("tool", f"{body['name']}({body['arg']})", body["out"])
             self.reply({})
         elif self.path == "/run":
-            args = body["args"]
-            entry = add("tool", f"Bash({body.get('shown') or 'laura ' + ' '.join(args)})")
-            p = subprocess.Popen([BIN, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # Send the piped lines one at a time, as a command sends its output while it runs.
-            for ln in body.get("stdin", []):
-                p.stdin.write(ln.encode() + b"\n")
-                p.stdin.flush()
-                time.sleep(0.3)
-            out, err = p.communicate()
-            out, err = out.decode().strip(), err.decode(errors="replace").strip()
+            args, pipe = body["args"], body.get("pipe")
+            cmd = "laura " + " ".join(args)
+            entry = add("tool", f"Bash({body.get('shown') or (f'{pipe} | {cmd}' if pipe else cmd)})")
+            # A pipe runs a real command, so that a tail pane shows the command's output as it runs.
+            run = ["sh", "-c", f"{pipe} | {shlex.join([BIN, *args])}"] if pipe else [BIN, *args]
+            p = subprocess.run(run, stdin=subprocess.DEVNULL, capture_output=True)
+            out, err = p.stdout.decode().strip(), p.stderr.decode(errors="replace").strip()
             with lock:
                 entry[2] = err if p.returncode else out or "(No content)"
                 draw()
@@ -199,4 +228,5 @@ while chunk := os.read(0, 4096):
                 ui["inp"] = ui["inp"][:-1]
             elif c >= b" ":
                 ui["inp"] += c.decode("latin-1")
+            ui["top"] = None
             draw()

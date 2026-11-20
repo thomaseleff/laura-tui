@@ -1,11 +1,11 @@
-# Auth tokens — draft spec
+# Greeting — draft spec
 
 Review before we ship.
 
-- Tokens are issued on login and returned in the JSON body.
-- Every token expires 24 hours after it is issued.
-- A refresh token extends a session up to 30 days.
-- Tokens are stored in local storage on the client.
-- Revoked tokens are checked against a denylist on each request.
+- `greet` prints `Hello, world!`.
+- The greeting is in English only.
+- `greet Ada` prints `Hello, Ada!`.
+- The API serves the greeting at `/hello?name=Ada`.
+- The API logs each request.
 
-Open question: should refresh tokens rotate on every use?
+Open question: should an empty name fall back to `world`?

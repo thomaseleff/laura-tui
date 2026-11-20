@@ -9,8 +9,8 @@ Your agent can open the file you're discussing, the plan you're following, the d
 > [!TIP]
 > **New:**
 >
-> - Laura now opens in your browser, with rendered markdown, HTML pages and live web pages in browser panes. To keep working in the terminal, run `laura --tui`. See [Navigating the TUI](docs/tui-navigation.md).
-> - Laura now runs a workspace for each task. Switch between the workspaces in the workspace switcher at the left of the top bar. See [Switch workspaces](docs/navigation.md#switch-workspaces).
+> - Laura now shows when the agent waits for you, in this workspace and in your other workspaces. See [Know when the agent waits](docs/workspace.md#know-when-the-agent-waits).
+> - Once a pane is open, the panes fill the workspace, and the shell floats in a drawer. Press ``Ctrl+` `` to open or close the drawer. See [The drawer](docs/navigation.md#the-drawer).
 
 **Laura lets you:**
 
