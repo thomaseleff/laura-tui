@@ -278,9 +278,10 @@ function webgl(term) {
   } catch {}
 }
 
-// A file path in the shell with a `/` and an extension, and an optional `:line`. Not part of a URL
-// (`https://x.com/a.js`) or a home path (`~/a/b.rs`).
-const PATH = /(?<![\w/:.~-])(?:\.{0,2}\/)?(?:[\w.-]+\/)*[\w-]+\.[A-Za-z0-9]+(?::\d+)?/g;
+// A file path in the shell with a `/` or `\` and an extension, and an optional `:line`. The file
+// name can have more dots (`a.test.ts`). Not part of a URL (`https://x.com/a.js`) or a home path
+// (`~/a/b.rs`).
+const PATH = /(?<![\w/\\:.~-])(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:[\w.-]+[\/\\])*[\w.-]*[\w-]\.[A-Za-z0-9]+(?::\d+)?/g;
 
 function makeTerm(id, el) {
   // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.
@@ -322,7 +323,7 @@ function makeTerm(id, el) {
         text += s;
         for (let i = 0; i < s.length; i++) col.push(x + 1);
       }
-      cb([...text.matchAll(PATH)].filter(m => m[0].includes("/")).map(m => ({
+      cb([...text.matchAll(PATH)].filter(m => /[\/\\]/.test(m[0])).map(m => ({
         text: m[0],
         range: { start: { x: col[m.index], y }, end: { x: col[m.index + m[0].length - 1], y } },
         decorations: { underline: true, pointerCursor: true },

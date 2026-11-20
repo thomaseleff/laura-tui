@@ -430,6 +430,13 @@ fn a_file_path_in_the_shell_opens_in_a_pane() -> Result<()> {
     tab.focus = 0;
     tab.act(open(lib.to_string_lossy().into_owned()))?;
     assert_eq!((tab.panels.len(), tab.focus), (1, ids[0]));
+    // On Windows a `\` path names the same file as the `/` path.
+    #[cfg(windows)]
+    {
+        tab.focus = 0;
+        tab.act(open("src\\lib.rs".into()))?;
+        assert_eq!((tab.panels.len(), tab.focus), (1, ids[0]));
+    }
     Ok(())
 }
 
