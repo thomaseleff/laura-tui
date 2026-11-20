@@ -113,18 +113,25 @@ class Agent:
         return other
 
     async def say(self, text):
-        await self._call("/say", {"text": text})
+        below = (await self._call("/say", {"text": text}))["below"]
         # Hold the reply for approximately 480 words a minute, so that the viewer can skim the reply. The bar shows the time that remains.
         ms = max(1000, 125 * len(text.split()))
         await self.page.evaluate("ms => window.__wait(ms)", ms)
+        if below:
+            # The chat stub shows a reply taller than the drawer from its first line. Scroll to the end in the middle 40% of the hold.
+            await self.page.wait_for_timeout(ms * 0.4)
+            for _ in range(below):
+                await self._call("/scroll", {})
+                await self.page.wait_for_timeout(ms * 0.4 / below)
+            ms *= 0.2
         await self.page.wait_for_timeout(ms)
 
     async def ask(self, text):
         # Asks without the hold of `say`, because the camera shows another workspace.
         await self._call("/ask", {"text": text})
 
-    async def laura(self, *args, stdin=(), shown=None):
-        r = await self._call("/run", {"args": [str(a) for a in args], "stdin": list(stdin), "shown": shown})
+    async def laura(self, *args, pipe=None, shown=None):
+        r = await self._call("/run", {"args": [str(a) for a in args], "pipe": pipe, "shown": shown})
         if r["code"]:
             raise RuntimeError(f"laura {' '.join(map(str, args))} exited {r['code']}: {r['err']}")
         await asyncio.sleep(BEAT / 1000)
@@ -273,7 +280,7 @@ def load_scene(path):
 
 
 def make_home(scene, scene_path, home):
-    repo = home / "acme-api"
+    repo = home / "hello-api"
     fixtures = getattr(scene, "FIXTURES", None)
     if fixtures:
         shutil.copytree(scene_path.parent / fixtures, repo)
@@ -297,7 +304,6 @@ def start_laura(laura, cwd, home, log, chrome, port=0, args=None):
     # LAURA_TAB or LAURA_BROWSER_URL of the user's own workspace.
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("LAURA_")},
-        "LAURA_EXPERIMENTAL_EDITOR": "1",
         # Laura on Linux looks for Chrome only on PATH, and Playwright's Chromium is not on PATH.
         "LAURA_BROWSER": chrome,
         "LAURA_RUNTIME": str(home.parent / "run" / "laura"),

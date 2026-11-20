@@ -159,7 +159,6 @@ async def scene(user, agent, camera):
 
     # [4 / 5] Debug
     code = await agent.laura("open", "worker.py", "--ratio", "50", "--no-focus")
-    logs = [f"[{i}] retry job=42 backoff={i * i}s" for i in range(1, 61)]
     # The logs arrive while the agent talks and the user pauses the tail pane.
     tail = asyncio.create_task(
         agent.laura(
@@ -173,7 +172,7 @@ async def scene(user, agent, camera):
         "v",
         "--ratio",
         "33",
-        stdin=logs,
+        pipe='for i in $(seq 1 60); do echo "[$i] retry job=42 backoff=$((i*i))s"; sleep 0.3; done',
         shown=f"python worker.py 2>&1 | laura tail --title worker.log --follow --split {code} --dir v --ratio 33",
         )
     )

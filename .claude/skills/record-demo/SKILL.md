@@ -9,7 +9,7 @@ user-invocable: true
 
 This skill records one video, the README demo `docs/assets/laura-demo.gif`. The README and `docs/index.md` show this GIF. There are no other demo scenes.
 
-`scripts/demo/record.py` plays the scene `scripts/demo/scenes/demo.py` in the web app. The scene follows the beats of `plugins/laura/skills/demo/SKILL.md`, with the same `agent.say` text and `laura` commands. A beat can use shorter text, so that the video does not become slow.
+`scripts/demo/record.py` plays the scene `scripts/demo/scenes/demo.py` in the web app. The scene follows the beats of `plugins/laura/skills/demo/SKILL.md`, with the same `agent.say` text and `laura` commands. A beat can use shorter text, so that the video does not become slow. The scene leaves out the experimental **Edit together** beat.
 
 The scene has three actors:
 
@@ -27,7 +27,7 @@ Do these steps one time:
 
 1. Install `uv`.
 2. Install Chromium for Playwright: `uv run --with playwright==1.63.0 playwright install chromium --no-shell`. The recorder also gives this Chromium to Laura for the browser panes.
-3. Add Neovim to `PATH`, because the demo has an editor pane.
+3. Install `curl`, because the debug beat sends requests to the greeting API with `curl`.
 4. Install a font with the chat stub's glyphs `⎿` and `⏵⏵`: `sudo apt install fonts-symbola`. Without the font, Chromium draws a blank for each glyph.
 
 Before you record, build the debug binary: `CARGO_TARGET_DIR=tmp/target cargo build`. To use a different binary, add `--laura <path>`.
@@ -55,7 +55,7 @@ When your partner asks for a new README demo:
 - `demo.mp4` and `demo.gif`.
 - One PNG for each `camera.shot`.
 - `laura.log`, the output of Laura. `serve.log` is the output of the Laura server, and `<name>.log` is the output of each `agent.workspace`.
-- `home/acme-api/`, the scratch repo. The top bar shows `~/acme-api`. `record.py` copies the fixtures in `scripts/demo/scenes/demo/` into the scratch repo and commits them.
+- `home/hello-api/`, the scratch repo. The top bar shows `~/hello-api`. `record.py` copies the fixtures in `scripts/demo/scenes/demo/` into the scratch repo and commits them.
 
 ## Change the scene
 
@@ -63,9 +63,9 @@ When your partner asks for a new README demo:
 
 | Helper | Action |
 |---|---|
-| `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. A bar along the top edge shows the time until the next action. |
+| `agent.say(text)` | Shows the text in the chat as one agent reply, then holds the frame for sufficient time to skim the text. If the reply is taller than the drawer, the chat shows the reply from its first line, then scrolls to the end in the middle of the hold. A bar along the top edge shows the time until the next action. |
 | `agent.ask(text)` | Shows the text in the chat and rings the bell, so that Laura marks the workspace as waiting. Use `agent.ask` on the `Agent` of another workspace, to show `Waiting for you`. |
-| `agent.laura(*args, stdin=lines, shown=None)` | Runs `laura <args>` from the chat and gives the stdout, for example the pane id. If the exit code is not 0, raises an error. `stdin` sends the lines one at a time, at 0.3 s intervals, for `laura tail`. `shown` is the command line that the chat shows instead, for example `python worker.py 2>&1 \| laura tail …`. |
+| `agent.laura(*args, pipe=None, shown=None)` | Runs `laura <args>` from the chat and gives the stdout, for example the pane id. If the exit code is not 0, raises an error. `pipe` is a shell command whose output goes into `laura`, as `sh -c '<pipe> \| laura <args>'`, for `laura tail`. `shown` is the command line that the chat shows instead, for example `python app.py 2>&1 \| laura tail …`. |
 | `agent.wait_for_review()` | Waits until a submitted inline review comes into the chat. Gives the text of the review. |
 | `agent.write(path, text)` | Writes the file in the scratch repo. The chat shows `Update(<path>)` with the count of added and removed lines, or `Write(<path>)` for a new file. |
 | `agent.edit(path, old, new)` | Replaces `old` with `new` in the file, as `agent.write` does. If `old` is not in the file, raises an error. |
