@@ -188,7 +188,7 @@ A workspace that the Laura server started has no terminal. The workspace runs un
 
 ### Open a running workspace
 
-**Running** lists each workspace that runs on this computer, the newest first, also the workspaces that you started in a terminal with `laura`. Each row shows the session label, or the folder name in grey before the agent sets a session label, then the folder and the program.
+**Running** lists each workspace that runs on this computer, the workspace that you [visited](navigation.md#switch-workspaces) last first, also the workspaces that you started in a terminal with `laura`. Each row shows the session label, or the folder name in grey before the agent sets a session label, then the folder and the program.
 
 - **Open** opens the workspace in this tab.
 - **↗** opens the workspace in a new tab.

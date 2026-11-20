@@ -218,8 +218,10 @@ pub struct WebServer {
     root: PathBuf,
     files: Files,
     bases: Bases,
-    /// When the workspace started, in Unix ms: the order of the workspaces' records.
+    /// When the workspace started, in Unix ms: of two records on one port, the newer one wins.
     started: u64,
+    /// When the user last showed this workspace's browser tab, in Unix ms: the list's order.
+    visited: u64,
     /// The `workspaces` frames from `watch`'s thread, and the last one, which a new view gets.
     watch: Option<Receiver<String>>,
     workspaces: Option<String>,
@@ -245,6 +247,7 @@ impl WebServer {
                 });
             }
         });
+        let started = now_ms();
         Ok(WebServer {
             url,
             page: None,
@@ -254,12 +257,16 @@ impl WebServer {
             root,
             files,
             bases: HashMap::new(),
-            started: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as u64),
+            started,
+            visited: started,
             watch: None,
             workspaces: None,
         })
+    }
+
+    /// When the user last showed this workspace's browser tab, for `register`'s caller.
+    pub fn visited(&self) -> u64 {
+        self.visited
     }
 
     /// Write this workspace's record, which the Laura server and the other workspaces list. The
@@ -274,7 +281,7 @@ impl WebServer {
         let root = crate::gitdiff::strip_verbatim(self.root.clone());
         let record = json!({"url": self.url, "root": root.to_string_lossy(), "pid": std::process::id(),
                             "title": title, "waiting": waiting, "program": program,
-                            "started": self.started});
+                            "started": self.started, "visited": self.visited});
         write_private(
             &record_path(std::process::id()),
             record.to_string().as_bytes(),
@@ -290,8 +297,7 @@ impl WebServer {
         std::thread::spawn(move || {
             let mut last = String::new();
             loop {
-                // Oldest first, so a row doesn't move when another workspace starts.
-                let list: Vec<Value> = live()
+                let mut list: Vec<Value> = live()
                     .iter()
                     .map(|w| {
                         let root = shown_root(Path::new(w["root"].as_str().unwrap_or("")));
@@ -300,6 +306,8 @@ impl WebServer {
                                "current": w["url"] == url.as_str()})
                     })
                     .collect();
+                // This workspace first; the rest keep `live`'s order (stable sort).
+                list.sort_by_key(|w| w["current"] != true);
                 let frame = json!({"t": "workspaces", "list": list,
                                    "server": crate::serve::running()})
                 .to_string();
@@ -485,6 +493,8 @@ impl WebServer {
                                 json!({"t": "acted", "ok": false, "text": e})
                             }
                         });
+                    } else if msg.get("visit") == Some(&Value::Bool(true)) {
+                        self.visited = now_ms();
                     } else if let Some((cols, rows)) = msg.get("view").and_then(cells) {
                         self.area = Some(Rect::new(0, 0, cols, rows));
                     } else if let Some((cols, rows)) = msg.get("shell").and_then(cells) {
@@ -728,7 +738,7 @@ pub(crate) fn answers(port: u16) -> bool {
     TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_millis(200)).is_ok()
 }
 
-/// The records of the running workspaces, oldest first. A record whose port doesn't answer is a
+/// The records of the running workspaces, the latest visit first. A record whose port doesn't answer is a
 /// workspace that ended without `unregister`: `live` deletes the record.
 /// The newest record on a port wins: `live` deletes the older records on that port.
 /// shortcut: a port that a program other than Laura took over still answers, check the pid if a stale row is reported.
@@ -780,8 +790,21 @@ pub fn live() -> Vec<Value> {
         }
         fresh
     });
-    out.reverse();
+    // A record from an older Laura has no `visited`: its start stands in.
+    out.sort_by_key(|v| {
+        std::cmp::Reverse((
+            v["visited"].as_u64().or(v["started"].as_u64()),
+            v["pid"].as_u64(),
+        ))
+    });
     out
+}
+
+/// The time now, in Unix ms.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// `n` random bytes as hex.

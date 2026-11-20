@@ -564,7 +564,7 @@ fn workspaces_frame(view: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) ->
 }
 
 #[test]
-fn a_view_lists_the_running_workspaces_oldest_first() -> Result<()> {
+fn a_view_lists_this_workspace_first() -> Result<()> {
     let home = temp()?;
     let (dir_a, dir_b) = (temp()?, temp()?);
     let args = ["--web", "--", PROGRAM];
@@ -573,8 +573,6 @@ fn a_view_lists_the_running_workspaces_oldest_first() -> Result<()> {
     workspaces_frame(&mut view, "workspace A alone", |f| {
         f["list"].as_array().is_some_and(|l| l.len() == 1)
     })?;
-    // The records order by the start time in ms: B starts later.
-    thread::sleep(Duration::from_millis(20));
     let (b, url_b) = laura_start(dir_b.path(), &args, Some(home.path()))?;
     let frame = workspaces_frame(&mut view, "workspaces A and B", |f| {
         f["list"].as_array().is_some_and(|l| l.len() == 2)
@@ -600,6 +598,70 @@ fn a_view_lists_the_running_workspaces_oldest_first() -> Result<()> {
         f["list"].as_array().is_some_and(|l| l.len() == 1)
     })?;
     assert_eq!(frame["list"][0]["url"], url_a.as_str(), "{frame}");
+    Ok(())
+}
+
+/// #197: the Laura server lists the workspace that the user visited last first; a view lists its
+/// own workspace first, then the others by the latest visit.
+#[test]
+fn recent_workspaces_list_first() -> Result<()> {
+    let s = Server::start()?;
+    let dirs = [temp()?, temp()?, temp()?];
+    let mut spaces = vec![];
+    for d in &dirs {
+        // Before a visit, the start in ms orders the records.
+        thread::sleep(Duration::from_millis(20));
+        let (w, url) = s.workspace(d.path())?;
+        until("the workspace's row", || Ok(s.record(&url)?.is_some()))?;
+        spaces.push((w, url));
+    }
+    let [a, b, c] = [0, 1, 2].map(|i| spaces[i].1.as_str());
+    let urls = |list: &[Value]| -> Vec<String> {
+        list.iter()
+            .map(|w| w["url"].as_str().unwrap_or("").to_string())
+            .collect()
+    };
+    assert_eq!(urls(&s.workspaces()?), [c, b, a]);
+
+    // A ahead of the newer B: the visit orders the list, not the start.
+    let mut view_a = view(a)?;
+    send(&mut view_a, json!({"visit": true}));
+    until("A first on the Laura server", || {
+        Ok(urls(&s.workspaces()?) == [a, c, b])
+    })?;
+    let mut view_c = view(c)?;
+    workspaces_frame(&mut view_c, "C, then A, then B", |f| {
+        f["list"].as_array().is_some_and(|l| urls(l) == [c, a, b])
+    })?;
+    Ok(())
+}
+
+/// #197: of two records on one port, the older start loses, also with a later visit.
+#[test]
+fn an_older_record_on_a_port_loses_also_with_a_later_visit() -> Result<()> {
+    let s = Server::start()?;
+    let taken = TcpListener::bind("127.0.0.1:0")?;
+    let url = format!("http://127.0.0.1:{}/?t=x", taken.local_addr()?.port());
+    let dir = s.home.path().join(".laura").join("workspaces");
+    std::fs::create_dir_all(&dir)?;
+    let record = |pid: u64, started: u64, visited: u64| {
+        json!({"url": url, "root": "/", "pid": pid, "title": null, "waiting": false,
+               "program": PROGRAM, "started": started, "visited": visited})
+        .to_string()
+    };
+    std::fs::write(
+        dir.join("999990.json"),
+        record(999990, 1, 9_999_999_999_999),
+    )?;
+    std::fs::write(dir.join("999991.json"), record(999991, 2, 2))?;
+    let rows: Vec<Value> = s
+        .workspaces()?
+        .into_iter()
+        .filter(|w| w["url"] == url.as_str())
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["pid"], 999991, "{rows:?}");
+    assert!(!dir.join("999990.json").exists(), "the older record stayed");
     Ok(())
 }
 

@@ -428,7 +428,7 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
     };
     record(&web, None, false);
     web.watch();
-    let (mut title, mut waiting) = (None, false);
+    let (mut title, mut waiting, mut visited) = (None, false, web.visited());
     // The label goes to stderr, so stdout stays the URL alone for scripts.
     eprintln!("Open this URL in a web browser:");
     println!("{}", web.url());
@@ -451,8 +451,8 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
         if quit || tab.shell_done() {
             break;
         }
-        if tab.title != title || tab.waiting != waiting {
-            (title, waiting) = (tab.title.clone(), tab.waiting);
+        if tab.title != title || tab.waiting != waiting || web.visited() != visited {
+            (title, waiting, visited) = (tab.title.clone(), tab.waiting, web.visited());
             record(&web, title.as_deref(), waiting);
         }
         // Past `shell_done`, an exited shell means unsaved edits: tell a user with no browser open.
