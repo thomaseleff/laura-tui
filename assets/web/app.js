@@ -1612,7 +1612,8 @@ function toHighlight(id, jump) {
     let r = g.getBoundingClientRect();
     if (!r.height) r = t.getBoundingClientRect(); // an item with no text before its list
     const b = rows.getBoundingClientRect();
-    if (r.top < b.top || r.bottom > b.bottom) rows.scrollTop += r.top + r.height / 2 - (b.top + rows.clientHeight / 2);
+    // A target taller than the pane shows its top, as the TUI and an HTML page do.
+    if (r.top < b.top || r.bottom > b.bottom) rows.scrollTop += r.top - b.top - Math.max(0, (rows.clientHeight - r.height) / 2);
     return;
   }
   const h = rows.querySelector(".hl");
