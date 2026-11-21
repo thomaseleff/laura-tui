@@ -1604,8 +1604,14 @@ function toHighlight(id, jump) {
     const u = units(rows)[rows.dataset.cursor];
     const t = u?.querySelector(".md .cur") ?? u?.querySelector(`.md [data-line="${u.dataset.line}"]`) ?? u;
     if (!t) return;
-    // The bounding box, since a `.cur`'s `offsetTop` can be relative to its block.
-    const r = t.getBoundingClientRect(), b = rows.getBoundingClientRect();
+    // The bounding box, since a `.cur`'s `offsetTop` can be relative to its block. An `<li>`'s box
+    // holds its nested list, which can be taller than the pane, so measure the item's own text.
+    const g = document.createRange(), sub = t.tagName === "LI" && t.querySelector(":scope > ul, :scope > ol");
+    g.selectNodeContents(t);
+    if (sub) g.setEndBefore(sub);
+    let r = g.getBoundingClientRect();
+    if (!r.height) r = t.getBoundingClientRect(); // an item with no text before its list
+    const b = rows.getBoundingClientRect();
     if (r.top < b.top || r.bottom > b.bottom) rows.scrollTop += r.top + r.height / 2 - (b.top + rows.clientHeight / 2);
     return;
   }
