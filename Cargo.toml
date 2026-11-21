@@ -43,7 +43,7 @@ base64 = "=0.23.1"
 clap = { version = "=4.6.7", features = ["derive"] }
 # The web app's session token (#88).
 getrandom = "=0.4.3"
-interprocess = "=2.4.4"
+interprocess = "=2.4.7"
 tui-markdown = { version = "=0.3.10", default-features = false }
 # Already transitive via tui-markdown at this exact pin; promoted direct for the #32 block-map
 # (source-line ranges from `into_offset_iter`). Dependabot stays the update path. `html` renders each block for the web app (#89).
