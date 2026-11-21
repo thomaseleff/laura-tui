@@ -1438,6 +1438,8 @@ impl Page {
                     self.on_popup(&p["targetInfo"]);
                 }
                 Some("Target.targetInfoChanged") => {
+                    // `frameNavigated` can come before the browser process adds the entry.
+                    self.ask_history();
                     let url = p["targetInfo"]["url"].as_str().unwrap_or_default();
                     self.set_url(url, &mut out);
                 }
