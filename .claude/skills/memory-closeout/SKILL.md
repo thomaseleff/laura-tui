@@ -33,6 +33,13 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 - `--print` writes the data of a step as JSON and exits. Use it to read the rows without the page.
 - In this skill, `<B>` is the branch, and `<b__>` is the branch with each `/` changed to `__`.
 
+### Distill
+
+- The Entire watcher (`entire-brain-watch.service`) is the only distiller. It distills new sessions into memories with the agent, the model, the effort and the session cap in `~/.local/state/entire/watch-plan.json`.
+- Do not run `entire brain distill` without `--dry-run`. Do not run `entire brain patterns verify --deep`. Both commands call an agent and spend tokens.
+- The distill cache keys each session by the agent, the model and the effort. A distill with other flags distills each session again and adds duplicate memories. A dry run with other flags shows wrong counts.
+- Do not change the watch plan unless the user asks. If the user changes the model or the effort, tell the user that each session becomes pending for the watcher again.
+
 ## Workflow
 
 ### Prepare
@@ -44,7 +51,14 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
    - Else, list the branches from `entire brain memories status --all-branches --json`, in `branches[].branch`. Ignore `main`. For each branch, run the app with `branch --print`. Show the branches that have rows in `memories` or `overlaps`, with their PR state. Ask the user to pick one.
    - Do not use the counts from `memories status`. They do not agree with the store.
 3. Get the PR state: `gh pr list --head <B> --state all --json number,state`. If the state is not `MERGED`, stop. Tell the user the state: open, closed without a merge, or no PR. Continue only when the user tells you to.
-4. Run `entire brain distill --dry-run --json`. If `branches[]` shows `sessions_to_distill` more than 0 for `<B>`, tell the user that distill spends tokens. Then run `entire brain distill --branch <B>`.
+4. Find how far the watcher has distilled `<B>`. Run the dry run with the flags of the watch plan. The dry run does not spend tokens.
+
+   ```
+   entire brain distill --dry-run --json $(python3 -I -c 'import json,os; w=json.load(open(os.path.expanduser("~/.local/state/entire/watch-plan.json")))["workspaces"][0]; print("--agent", w["agent"], "--model", w["model"], "--effort", w["effort"])')
+   ```
+
+   - If `branches[]` shows `sessions_to_distill` more than 0 for `<B>`, tell the user the count. The memories of these sessions are not on the page yet. The watcher distills up to `max_sessions` sessions each `distill_every`. Continue only when the user tells you to, or stop and let the watcher catch up.
+   - Do not distill the sessions yourself (see "Distill").
 
 ### Step 1: branch
 
@@ -90,31 +104,6 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 7. Wait. Do not poll. The harness tells you when the app exits.
 
 If the app exits with an error, show the error to the user and stop. Do not retract or promote.
-
-## Set up the nightly job
-
-Use this section only when the user asks you to set up the nightly job. Each step changes the machine. Ask the user before each step.
-
-The nightly job `.claude/skills/memory-closeout/nightly.sh` runs at 02:00:
-
-- It distills `main`, with a budget of 100 sessions for each night.
-- It distills each branch whose PR is merged. It skips a branch with an open PR or with no PR.
-- It then runs `entire brain patterns verify --deep`. Then `patterns skills` can show skill candidates.
-- It writes its output to `~/.local/state/entire/logs/nightly.log`.
-
-1. Look at the plan without a distill: `DRY_RUN=1 .claude/skills/memory-closeout/nightly.sh`.
-2. Install the units from the main checkout, not from a worktree. The service file names `~/projects/laura`. Write it with the path of this checkout, and link the timer:
-
-   ```
-   sed "s#%h/projects/laura#$PWD#g" .claude/skills/memory-closeout/entire-nightly.service > ~/.config/systemd/user/entire-nightly.service
-   ln -s "$PWD"/.claude/skills/memory-closeout/entire-nightly.timer ~/.config/systemd/user/
-   ```
-
-3. Start the timer: `systemctl --user daemon-reload && systemctl --user enable --now entire-nightly.timer`.
-4. Make sure that the timer runs when the user is not logged in: `loginctl enable-linger "$USER"`.
-5. Make sure that the timer is set: `systemctl --user list-timers entire-nightly.timer`.
-
-The Entire watcher (`entire-brain-watch.service`) and the session-end hook can also distill, on every branch. If the user wants only the nightly job to distill, find the setting with `entire agent-help brain` and `entire brain setup --help`. Then check `~/.local/state/entire/logs/watch.log` for `distill=false`. Do not use `entire brain setup --uninstall-daemon`. The watcher also keeps the brain current without tokens.
 
 ## Answer
 
