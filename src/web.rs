@@ -1313,13 +1313,19 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Ba
             // ponytail: a gutter-width change (99 to 100 lines) re-pads every row; morph once instead.
             (old.len() == rows.len() || d.len() <= rows.len() / 2).then_some(d)
         });
+        // The browser centers the highlight, or the cursor's line inside its block.
+        let recenter = match recenter {
+            None => json!(false),
+            Some(true) => json!("highlight"),
+            Some(false) => json!("line"),
+        };
         let mut msg = match (v.panes.get(&id), diff) {
             (Some((old, old_cursor, _, old_threads)), Some(diff)) => {
                 // The length check too, or a trim alone never reaches the browser.
                 if old.len() == rows.len()
                     && diff.is_empty()
                     && *old_cursor == cursor
-                    && !recenter
+                    && recenter == false
                     && !reloaded
                     && *old_threads == threads
                 {

@@ -722,7 +722,7 @@ fn a_jump_to_a_line_recenters_the_pane_and_a_click_does_not() -> Result<()> {
     let frame = pane_frame(&mut rig, &mut ws, 1);
     assert_eq!(
         (frame["cursor"].clone(), frame["recenter"].clone()),
-        (json!(299), json!(true)),
+        (json!(299), json!("line")),
         "{frame}"
     );
     rig.act(
@@ -731,6 +731,16 @@ fn a_jump_to_a_line_recenters_the_pane_and_a_click_does_not() -> Result<()> {
     );
     let rows = rig.until(&mut ws, "rows", |f| f.is("rows")).json();
     assert_eq!(rows["recenter"], false, "{rows}");
+    // A highlight recenters on the whole span, not only on the cursor's line.
+    rig.drive(&["highlight", "--pane", "1", "310"]);
+    let rows = rig
+        .until(
+            &mut ws,
+            "highlight",
+            |f| matches!(f, Frame::Json(v) if v["cursor"] == 309),
+        )
+        .json();
+    assert_eq!(rows["recenter"], "highlight", "{rows}");
     Ok(())
 }
 

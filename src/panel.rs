@@ -518,10 +518,12 @@ impl Panel {
         crate::render::heading_line(&self.source_lines.join("\n"), slug)
     }
 
-    /// Whether a fresh highlight still wants centering; clears it. The web app's counterpart to
-    /// `scroll_offset`'s centering.
-    pub fn take_recenter(&self) -> bool {
-        self.recenter.take()
+    /// A pending one-time recenter, cleared: `Some(true)` for a fresh highlight (`set_highlight`
+    /// leaves the cursor on its first row), `Some(false)` for a jump to the cursor's line.
+    pub fn take_recenter(&self) -> Option<bool> {
+        self.recenter
+            .take()
+            .then(|| self.highlight.is_some_and(|(lo, _)| lo == self.cursor))
     }
 
     /// Mouse wheel: scroll the view and carry the cursor along, both by `delta` lines.
@@ -1085,11 +1087,11 @@ impl Panel {
         // Fresh agent highlight (`set_highlight` leaves the cursor on its first line), or a jump:
         // center the span once, or top-anchor it when it's taller than the pane (margin saturates
         // to 0) so the reader starts at its top. A jump to a line on screen keeps the view.
-        if self.recenter.take() {
-            let (lo, hi, hl) = match self.highlight {
-                Some((lo, hi)) if lo == self.cursor => (lo, hi, true),
-                _ => (self.cursor, self.cursor, false),
-            };
+        if let Some(hl) = self.take_recenter() {
+            let (lo, hi) = self
+                .highlight
+                .filter(|_| hl)
+                .unwrap_or((self.cursor, self.cursor));
             let start = layout.starts.get(lo).copied().unwrap_or(0);
             let end = line_end_row(layout, hi).unwrap_or(last_row);
             if hl || start < off || end >= off + view_h {

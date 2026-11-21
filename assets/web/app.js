@@ -1571,7 +1571,7 @@ function onPane(m) {
   rows.dataset.cursor = String(m.cursor);
   // A step inside a block, or onto its thread, keeps the block's index, so the key adds the line.
   const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line ?? "L" + cur?.dataset.th}`;
-  if (m.recenter) toHighlight(m.id, true);
+  if (m.recenter) toHighlight(m.id, m.recenter === "line");
   else if (key !== rows.dataset.key) {
     reveal(cur, "nearest");
     // The cursor's row stays in view above its tall thread.
@@ -1586,9 +1586,9 @@ function onPane(m) {
 // A page's frame: an HTML file pane's iframe, or a browser pane's view.
 const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? ":scope > .view" : ":scope > iframe");
 
-// Scrolls the pane to its highlight; a page's frame scrolls itself. On a frame's `recenter`
-// (`jump`), a cursor off its highlight's first line came from a jump (`Panel::jump_to_line`):
-// the pane centers the cursor's line, only when that line is off screen.
+// Scrolls the pane to its highlight; a page's frame scrolls itself. A `jump` (a frame's
+// `recenter: "line"`, from `Panel::jump_to_line`) centers the cursor's line, also the line inside
+// a markdown block, only when that line is off screen.
 function toHighlight(id, jump) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
@@ -1599,12 +1599,15 @@ function toHighlight(id, jump) {
   if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
   const rows = el.querySelector(".rows");
   if (!rows) return;
-  const first = rows.querySelector(".hl"), cur = units(rows)[rows.dataset.cursor];
-  const h = jump && cur !== first ? cur : first;
-  if (h && h !== first) {
-    const r = h.getBoundingClientRect(), b = rows.getBoundingClientRect();
-    if (r.top >= b.top && r.bottom <= b.bottom) return;
+  if (jump) {
+    const u = units(rows)[rows.dataset.cursor], t = u?.querySelector(".md .cur") ?? u;
+    if (!t) return;
+    // The bounding box, since a `.cur`'s `offsetTop` can be relative to its block.
+    const r = t.getBoundingClientRect(), b = rows.getBoundingClientRect();
+    if (r.top < b.top || r.bottom > b.bottom) rows.scrollTop += r.top + r.height / 2 - (b.top + rows.clientHeight / 2);
+    return;
   }
+  const h = rows.querySelector(".hl");
   // ponytail: row-proportional, exact for code, approximate for wrapped prose
   if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
 }
