@@ -56,7 +56,7 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 4. Find how far the watcher has distilled `<B>`. Run the dry run with the flags of the watch plan. The dry run does not spend tokens.
 
    ```
-   entire brain distill --dry-run --json $(python3 -I -c 'import json,os; w=json.load(open(os.path.expanduser("~/.local/state/entire/watch-plan.json")))["workspaces"][0]; print("--agent", w["agent"], "--model", w["model"], "--effort", w["effort"])')
+   entire brain distill --dry-run --json $(python3 -I -c 'import json,os; w=next(w for w in json.load(open(os.path.expanduser("~/.local/state/entire/watch-plan.json")))["workspaces"] if w["workspace"]=="default"); print(*(f"--{k} {w[k]}" for k in ("agent","model","effort") if w.get(k)))')
    ```
 
    - If `branches[]` shows `sessions_to_distill` more than 0 for `<B>`, tell the user the count. The memories of these sessions are not on the page yet. The watcher distills up to `max_sessions` sessions each `distill_every`. Continue only when the user tells you to, or stop and let the watcher catch up.
