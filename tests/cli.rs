@@ -38,7 +38,7 @@ fn send_and_recv(args: &[&str]) -> Result<Message> {
     static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let seq = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let name = format!("laura-test-{}-{seq}.sock", std::process::id());
-    let rx = laura::protocol::serve(&name)?;
+    let (rx, _) = laura::protocol::serve(&name)?;
     let n = name.clone();
     let a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     let h = thread::spawn(move || {

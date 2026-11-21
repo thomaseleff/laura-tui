@@ -12,7 +12,7 @@ use laura::{Message, Response};
 #[test]
 fn open_round_trips_across_processes() -> Result<()> {
     let name = format!("laura-test-{}.sock", std::process::id());
-    let rx = laura::protocol::serve(&name)?;
+    let (rx, _) = laura::protocol::serve(&name)?;
 
     // The client blocks for a response, so serve it while it's connected.
     let n = name.clone();
