@@ -145,3 +145,5 @@ The following glossary defines the vocabulary for Laura's components and interac
 Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
 @.entire/agent-guide.md
 <!-- entire-agent:end -->
+
+Agents do not record memories: `entire brain remember` and `entire brain distill` are denied in `.claude/settings.json`, and the same file sets `ENTIRE_BRAIN_NO_EGRESS=1`. To find earlier sessions, run `entire search "<question>" --compact`.
