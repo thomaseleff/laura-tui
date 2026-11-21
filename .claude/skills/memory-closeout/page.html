@@ -152,7 +152,7 @@ function wait(title, text) {
   $("wait-text").textContent = text;
 }
 
-// After Done, the app exits. The agent applies the changes and serves step 2 on the same port.
+// After Done, the app exits. The agent applies the changes and serves the next step, or the next branch, on the same port.
 async function waitForNext(step) {
   for (;;) {
     await new Promise(r => setTimeout(r, 1500));
@@ -187,7 +187,8 @@ $("done").addEventListener("click", async () => {
     wait("Applying the changes", "The agent retracts and promotes the memories. Step 2 opens in this pane when it is ready.");
     waitForNext(data.step);
   } else {
-    wait("Applying the changes", "The agent applies the changes and finishes the close-out. The chat shows the result.");
+    wait("Applying the changes", "The agent applies the changes. The next branch opens in this pane, or the chat shows the result.");
+    waitForNext(data.step);
   }
 });
 

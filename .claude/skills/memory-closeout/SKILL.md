@@ -3,7 +3,7 @@ name: memory-closeout
 description: Review a merged branch's Entire memories in a Laura browser pane, then retract and promote them into main.
 when_to_use: The user asks you to close out a branch's memories, to review or promote memories, or to clear the memory review queue.
 user-invocable: true
-argument-hint: [branch]
+argument-hint: [branch | all]
 ---
 
 # Memory close-out
@@ -12,10 +12,11 @@ argument-hint: [branch]
 
 Use this section only when the user asks how to use this skill.
 
-To start a close-out, type `/memory-closeout [branch]`. Examples:
+To start a close-out, type `/memory-closeout [branch | all]`. Examples:
 
 - `/memory-closeout` lists the merged branches with memories that `main` does not have, and asks you to pick one.
 - `/memory-closeout feat/browser-panes-107` closes out that branch.
+- `/memory-closeout all` closes out each merged branch with memories that `main` does not have, in one pane, oldest PR first.
 
 You open the close-out page in a browser pane. The page has two steps:
 
@@ -48,7 +49,8 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 2. Pick the branch:
    - If the user gives a branch, use it.
    - Else, if the current branch is not `main`, use the current branch.
-   - Else, list the branches from `entire brain memories status --all-branches --json`, in `branches[].branch`. Ignore `main`. For each branch, run the app with `branch --print`. Show the branches that have rows in `memories` or `overlaps`, with their PR state. Ask the user to pick one.
+   - Else, list the branches from `entire brain memories status --all-branches --json`, in `branches[].branch`. Ignore `main`. For each branch, run the app with `branch --print`. Show the branches that have rows in `memories` or `overlaps`, with their PR state. Ask the user to pick one, or **All**.
+   - With **All**, or when the user gives `all`, do the close-out for each listed branch with a merged PR, oldest PR first (see "All branches").
    - Do not use the counts from `memories status`. They do not agree with the store.
 3. Get the PR state: `gh pr list --head <B> --state all --json number,state`. If the state is not `MERGED`, stop. Tell the user the state: open, closed without a merge, or no PR. Continue only when the user tells you to.
 4. Find how far the watcher has distilled `<B>`. Run the dry run with the flags of the watch plan. The dry run does not spend tokens.
@@ -81,8 +83,15 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
 9. Read the actions from `tmp/memory-closeout/<b__>-main.json`. Apply them with `--branch main`:
    1. For each id in `overlaps`: apply, reject or drop, as in step 6.
    2. For each id in `main`: `entire brain memories retract <id> --branch main`.
-10. Close the pane: `laura close <id>`, with the pane id from step 5.
+10. Close the pane: `laura close <id>`, with the pane id from step 5. With **All**, close the pane only after the last branch.
 11. Run `entire brain patterns skills`. List the candidates, if there are any. Do not run `patterns skills form` unless the user asks.
+
+### All branches
+
+1. Do step 4 one time for all branches. Tell the user the count of sessions that wait for the watcher on each branch.
+2. Do steps 5 to 9 for each branch. For each branch after the first, serve its `branch` step on the port from the first step 5, and do not open a new pane. The page waits after **Done** in the `main` step and reloads into the next branch.
+3. If a command fails, stop all branches. Show the error to the user.
+4. After the last branch, do steps 10 and 11 one time.
 
 ### Serve a step
 
@@ -92,14 +101,14 @@ In each step, the **Main** tab lists all of the memories on `main`. The user can
    - In `overlaps`, `pick` is `apply`, `reject`, `drop` or `skip`. Recommend `apply` only when the new memory keeps all of the facts of the existing memory. Recommend `drop` when the existing memory already tells all of the new memory.
    - In `main`, recommend only `retract`, for a memory that is not true now. Do not write advice for the other rows.
    - Write the sentence in ASD-STE100. Tell the fact that decides the action.
-3. Run the app with the Bash tool, with `run_in_background: true`. In step 2, add `--port <port>`.
+3. Run the app with the Bash tool, with `run_in_background: true`. In step 2, and for each branch after the first with **All**, add `--port <port>`.
 
    ```
    python3 -I .claude/skills/memory-closeout/app.py <step> --branch <B> --out tmp/memory-closeout/<b__>-<step>.json --advice tmp/memory-closeout/<b__>-<step>-advice.json
    ```
 
 4. Read the first line of the app's output. It is the URL.
-5. In step 1 only, open the URL in a browser pane: `laura open <url>`. Record the pane id that `laura open` prints. Shell variables do not persist between Bash calls, and `laura close` with no id closes the focused pane.
+5. In step 1 of the first branch only, open the URL in a browser pane: `laura open <url>`. Record the pane id that `laura open` prints. Shell variables do not persist between Bash calls, and `laura close` with no id closes the focused pane.
 6. Tell the user what to select, and to click **Done** at the end. The page shows your recommendation below the buttons of each row. The page does not select it.
 7. Wait. Do not poll. The harness tells you when the app exits.
 
@@ -109,7 +118,7 @@ If the app exits with an error, show the error to the user and stop. Do not retr
 
 Write the answer in ASD-STE100 Simplified Technical English. Keep code, commands, file names and error text as they are.
 
-Write these items in this sequence:
+Write these items in this sequence. With **All**, give items 1 to 3 as one table row for each branch, then item 4 one time.
 
 1. The branch and its PR.
 2. The counts: memories kept, retracted and promoted. Proposals applied, rejected, dropped and skipped, on the branch and on `main`. Memories retracted on `main`.
