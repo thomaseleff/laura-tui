@@ -204,8 +204,10 @@ if (window === top) {
 // Each click and input in any frame, for the web app's marks of the agent's clicks and typing. Laura
 // drops the user's own. A click with no pointer (a script's `click()`, a key) marks the element's
 // center.
-// ponytail: a page's own script click() or input event, with no user input in the 500 ms before it,
-// also shows a mark; it can't be told from the agent's script click.
+// ponytail: a page's own script click() or input event, while no input of the user's waits for
+// Chrome's reply, also shows a mark; it can't be told from the agent's script click. This includes
+// a page that clicks or types some time after the user's input (a `setTimeout` after the user's
+// click or `Enter`). Tag the page's own events if users see these marks.
 // ponytail: a cross-origin frame runs in its own process, which Laura's script doesn't reach; no
 // mark there.
 {

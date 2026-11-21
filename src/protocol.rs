@@ -6,6 +6,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::sync::mpsc::{self, Receiver};
+use std::thread::JoinHandle;
 
 use anyhow::Result;
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, Stream, prelude::*};
@@ -294,13 +295,17 @@ impl Reply {
     }
 }
 
+/// The requests that `serve` forwards to the run loop.
+pub type Requests = Receiver<(Message, Reply)>;
+
 /// Server: bind `tab` synchronously (bind errors surface here), then accept on a background thread, forwarding each `(Message, Reply)` on the returned channel. One request per connection; the run loop holds the reply and answers.
-pub fn serve(tab: &str) -> Result<Receiver<(Message, Reply)>> {
+/// The thread's handle comes back too: the thread ends, and drops the listener, once a request finds the channel closed.
+pub fn serve(tab: &str) -> Result<(Requests, JoinHandle<()>)> {
     let name = tab.to_ns_name::<GenericNamespaced>()?;
     let listener = ListenerOptions::new().name(name).create_sync()?;
     let (tx, rx) = mpsc::channel();
 
-    std::thread::spawn(move || {
+    let thread = std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let mut reader = BufReader::new(conn);
             let mut line = String::new();
@@ -317,5 +322,5 @@ pub fn serve(tab: &str) -> Result<Receiver<(Message, Reply)>> {
         }
     });
 
-    Ok(rx)
+    Ok((rx, thread))
 }

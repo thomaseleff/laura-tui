@@ -70,18 +70,25 @@ jobs:
         if: matrix.tests == 'app'
         shell: bash
         run: |
+          # Each branch ends with `nvim --version`, so a failed install fails the step.
           if [ "$RUNNER_OS" = Windows ]; then
-            choco install neovim -y # adds its folder to the user PATH, which this job does not read
-            echo "C:/tools/neovim/nvim-win64/bin" >> "$GITHUB_PATH"
+            # The GitHub release, not Chocolatey, whose outages passed this step without `nvim`.
+            curl -sSfL --retry 5 -o "$RUNNER_TEMP/nvim.zip" https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-win64.zip
+            unzip -q "$RUNNER_TEMP/nvim.zip" -d "$RUNNER_TEMP"
+            "$RUNNER_TEMP/nvim-win64/bin/nvim.exe" --version
+            echo "$RUNNER_TEMP/nvim-win64/bin" >> "$GITHUB_PATH"
           elif [ "$RUNNER_OS" = macOS ]; then
             brew install neovim
+            nvim --version
           else
             sudo apt-get update && sudo apt-get install -y neovim
+            nvim --version
           fi
       - name: Run the tests
         shell: bash
         env:
           TESTS: ${{ matrix.tests }}
+          RUST_BACKTRACE: 1
         run: |
           if [ "$TESTS" = app ]; then
             LAURA_SKIP_BROWSER_TESTS=1 cargo test --locked

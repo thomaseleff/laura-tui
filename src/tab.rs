@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, OnceLock};
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -464,6 +465,8 @@ pub struct Tab {
     seq: u64,
     next_pane: PaneId,
     rx: Receiver<(Message, Reply)>,
+    /// The socket's listener thread, which `Drop` joins.
+    listener: Option<JoinHandle<()>>,
     pty_size: (u16, u16),
     /// The last draw area `drain` saw; `OpenLink` splits against it.
     area: Rect,
@@ -480,7 +483,7 @@ impl Tab {
             process_nonce(),
             n
         );
-        let rx = protocol::serve(&socket)?;
+        let (rx, listener) = protocol::serve(&socket)?;
         cmd.env("LAURA_TAB", &socket);
         cmd.env("LAURA_RUNTIME", runtime_dir());
         let pty = PtyTab::spawn(cmd, rows, cols)?;
@@ -519,6 +522,7 @@ impl Tab {
             seq: n,
             next_pane: 1,
             rx,
+            listener: Some(listener),
             pty_size: (rows, cols),
             area: Rect::default(),
         })
@@ -701,8 +705,8 @@ impl Tab {
                 }
             }
             A::BrowserMouse { pane, mouse } => self.page(pane)?.mouse(&mouse, Instant::now()),
-            A::BrowserKey { pane, key } => self.page(pane)?.key(&key, Instant::now()),
-            A::BrowserText { pane, text } => self.page(pane)?.insert_text(&text, Instant::now()),
+            A::BrowserKey { pane, key } => self.page(pane)?.key(&key),
+            A::BrowserText { pane, text } => self.page(pane)?.insert_text(&text),
             A::BrowserBlur { pane } => self.page(pane)?.blur(),
             A::BrowserHistory { pane, delta } => self.page(pane)?.go(delta)?,
             A::BrowserDialog { pane, accept, text } => self.page(pane)?.answer(accept, &text),
@@ -2167,8 +2171,9 @@ impl Tab {
 
 /// Delete the tab's `laura tail` spools and release its socket. The listener thread blocks in `accept` and only learns `rx` is gone
 /// from a failed send, so the pipe outlives the tab until a request wakes it, and a stale
-/// `LAURA_TAB` reads that request's dropped reply as success.
-/// ponytail: a self-connect wakes the accept; a nonblocking listener with a stop flag if it's flaky.
+/// `LAURA_TAB` reads that request's dropped reply as success. A self-connect wakes the accept,
+/// and the drop joins the thread: the request's reply comes before the thread drops the
+/// listener, so without the join a client could still connect to the closed tab.
 impl Drop for Tab {
     fn drop(&mut self) {
         for p in self.panels.values() {
@@ -2177,7 +2182,12 @@ impl Drop for Tab {
         self.chrome_port.store(0, Ordering::SeqCst);
         // `rx` first: alive, it would take the wake-up request and `request` would wait on a reply.
         self.rx = channel().1;
-        let _ = protocol::request(&self.socket, &Message::Layout);
+        // A failed wake-up leaves the thread in `accept`, where a join would block for good.
+        if protocol::request(&self.socket, &Message::Layout).is_ok()
+            && let Some(thread) = self.listener.take()
+        {
+            let _ = thread.join();
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 //! The web app's test rig: a workspace hosted by the web server, run in-process, and a view's
 //! websocket. Included with `#[path]` by the test crates that drive the web app.
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::path::Path;
@@ -64,6 +65,22 @@ impl Frame {
             other => panic!("not a JSON frame: {other:?}"),
         }
     }
+
+    /// One short line for a timeout message.
+    fn summary(&self) -> String {
+        match self {
+            Frame::Json(v) if v["t"] == "browser" => format!(
+                "browser #{} title={} busy={} url={}",
+                v["id"], v["title"], v["busy"], v["url"]
+            ),
+            Frame::Json(v) => {
+                let s = v.to_string();
+                s.chars().take(120).collect()
+            }
+            Frame::Bytes(id, b) => format!("frame #{id} ({} bytes)", b.len()),
+            Frame::Closed => "closed".into(),
+        }
+    }
 }
 
 /// The port and token from a printed URL.
@@ -109,6 +126,11 @@ pub fn read(ws: &mut Ws) -> Option<Frame> {
     }
 }
 
+/// The view's local port, which tells one view of a workspace from another.
+fn port_of(ws: &Ws) -> u16 {
+    ws.get_ref().local_addr().map_or(0, |a| a.port())
+}
+
 pub fn send(ws: &mut Ws, v: Value) {
     ws.send(Message::text(v.to_string())).expect("send");
 }
@@ -119,6 +141,11 @@ pub struct Rig {
     pub web: WebServer,
     pub port: u16,
     pub token: String,
+    /// The last frames that `until` skipped, for its timeout message.
+    trail: VecDeque<String>,
+    /// The frames that `act` skipped, by their view's local port, which the next reads of that view
+    /// return first.
+    stash: VecDeque<(u16, Frame)>,
 }
 
 impl Rig {
@@ -129,7 +156,16 @@ impl Rig {
     pub fn with(cmd: portable_pty::CommandBuilder) -> Result<Rig> {
         isolate_home();
         // As `laura` starts it, with browser panes off.
-        let tab = Tab::spawn_web(cmd, 24, 80, Err(laura::browser::NO_BROWSER.into()))?;
+        Rig::host(Tab::spawn_web(
+            cmd,
+            24,
+            80,
+            Err(laura::browser::NO_BROWSER.into()),
+        )?)
+    }
+
+    /// `tab`, hosted by a new web server.
+    pub fn host(tab: Tab) -> Result<Rig> {
         let web = WebServer::bind(0)?;
         let (port, token) = port_token(web.url());
         Ok(Rig {
@@ -137,6 +173,8 @@ impl Rig {
             web,
             port,
             token,
+            trail: VecDeque::new(),
+            stash: VecDeque::new(),
         })
     }
 
@@ -156,9 +194,18 @@ impl Rig {
         connect_to(self.port, Some(&self.token), Some(&self.origin())).expect("view connects")
     }
 
+    /// The next frame that `act` skipped on `ws`, else one frame from `ws` (see [`Rig::read_ws`]).
+    pub fn read(&mut self, ws: &mut Ws) -> Option<Frame> {
+        let view = port_of(ws);
+        match self.stash.iter().position(|(p, _)| *p == view) {
+            Some(i) => self.stash.remove(i).map(|(_, f)| f),
+            None => self.read_ws(ws),
+        }
+    }
+
     /// One frame from `ws`, as [`read`]. A browser pane's frame is acked, as the web app acks it:
     /// Laura's browser pauses the screencast while a frame waits for its ack.
-    pub fn read(&self, ws: &mut Ws) -> Option<Frame> {
+    fn read_ws(&self, ws: &mut Ws) -> Option<Frame> {
         let f = read(ws);
         if let Some(Frame::Bytes(id, _)) = &f
             && self.tab.browsers.contains_key(id)
@@ -169,22 +216,48 @@ impl Rig {
     }
 
     /// Pump and read `ws` until a frame matches `want`; fail after [`crate::common::DEADLINE`], or
-    /// when `ws` closes first.
+    /// when `ws` closes first. The failure lists the last frames that the wait skipped.
+    #[track_caller]
     pub fn until(&mut self, ws: &mut Ws, what: &str, want: impl Fn(&Frame) -> bool) -> Frame {
+        self.wait_for(ws, what, want, false)
+    }
+
+    /// `until`; with `keep`, it reads only `ws` and stashes each frame that it skips.
+    #[track_caller]
+    fn wait_for(
+        &mut self,
+        ws: &mut Ws,
+        what: &str,
+        want: impl Fn(&Frame) -> bool,
+        keep: bool,
+    ) -> Frame {
         let start = Instant::now();
+        self.trail.clear();
         loop {
             self.pump();
-            while let Some(f) = self.read(ws) {
+            while let Some(f) = if keep {
+                self.read_ws(ws)
+            } else {
+                self.read(ws)
+            } {
                 if want(&f) {
                     return f;
                 }
                 // A closed socket reads `Closed` on every call: no wait can end.
                 assert!(!matches!(f, Frame::Closed), "the view closed: {what}");
+                if self.trail.len() == 20 {
+                    self.trail.pop_front();
+                }
+                let ms = start.elapsed().as_millis();
+                self.trail.push_back(format!("+{ms}ms {}", f.summary()));
+                if keep {
+                    self.stash.push_back((port_of(ws), f));
+                }
             }
-            assert!(
-                start.elapsed() < crate::common::DEADLINE,
-                "timed out: {what}"
-            );
+            if start.elapsed() >= crate::common::DEADLINE {
+                let skipped = Vec::from(self.trail.clone()).join("\n  ");
+                panic!("timed out: {what}\nthe last frames skipped:\n  {skipped}");
+            }
         }
     }
 
@@ -205,10 +278,12 @@ impl Rig {
         out
     }
 
-    /// Send one `act` frame; its `acted` reply.
+    /// Send one `act` frame; its `acted` reply. The frames before the reply stay for the next
+    /// reads: Laura sends a state frame only when the state changes, so a later wait may need one.
+    #[track_caller]
     pub fn act(&mut self, ws: &mut Ws, act: Value) -> Value {
         send(ws, act);
-        self.until(ws, "acted", |f| f.is("acted")).json()
+        self.wait_for(ws, "acted", |f| f.is("acted"), true).json()
     }
 
     /// Start `laura <args>` against the workspace without pumping; its output once it exits.
@@ -229,6 +304,7 @@ impl Rig {
     }
 
     /// Pump until the client behind `rx` exits; fail after [`crate::common::DEADLINE`].
+    #[track_caller]
     pub fn wait(&mut self, rx: &mpsc::Receiver<Output>) -> Output {
         let start = Instant::now();
         loop {
@@ -245,12 +321,14 @@ impl Rig {
     }
 
     /// Run `laura <args>` against the workspace, pumping until it exits.
+    #[track_caller]
     pub fn run(&mut self, args: &[&str]) -> Output {
         let rx = self.start(args);
         self.wait(&rx)
     }
 
     /// `run`, asserting success; trimmed stdout.
+    #[track_caller]
     pub fn drive(&mut self, args: &[&str]) -> String {
         let out = self.run(args);
         assert!(
@@ -262,6 +340,7 @@ impl Rig {
     }
 
     /// Pump until the shell's screen holds `text`.
+    #[track_caller]
     pub fn shell_shows(&mut self, text: &str) {
         let start = Instant::now();
         while !self.tab.pty.with_screen(|s| s.contents()).contains(text) {

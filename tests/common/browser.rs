@@ -273,6 +273,12 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
             "Form",
             "<main><h1 id=h class=at style=top:0>Sign up</h1><input id=email class=at style=top:100px></main>",
         ),
+        // The page handles the release for 800 ms, past the time a click takes.
+        "/slow-up" => (
+            0,
+            "Slow up",
+            r#"<button class=at style=top:0 onmouseup="const t = Date.now(); while (Date.now() - t < 800) {}" onclick="document.title='clicked'">Go</button>"#,
+        ),
         "/busy" => (
             0,
             "Busy",
@@ -401,15 +407,7 @@ pub fn bare() -> Result<Rig> {
 
 /// `bare`, with browser panes resolved to `path` as `laura --web` resolves them.
 pub fn hosted(path: Result<PathBuf, String>) -> Result<Rig> {
-    let tab = laura::Tab::spawn_web(shell(), 24, 80, path)?;
-    let web = laura::web::WebServer::bind(0)?;
-    let (port, token) = port_token(web.url());
-    Ok(Rig {
-        tab,
-        web,
-        port,
-        token,
-    })
+    Rig::host(laura::Tab::spawn_web(shell(), 24, 80, path)?)
 }
 
 /// A workspace under `laura --web` whose browser panes run `path`, and a view of it.
@@ -421,11 +419,13 @@ pub fn rig(path: PathBuf) -> Result<(Rig, Ws)> {
 }
 
 /// `laura open <url>`: the new pane's id.
+#[track_caller]
 pub fn open(r: &mut Rig, url: &str) -> u64 {
     r.drive(&["open", url]).parse().expect("a pane id")
 }
 
 /// A frame for `id`: its paint time (ms since the epoch) and its PNG.
+#[track_caller]
 pub fn next_frame(r: &mut Rig, ws: &mut Ws, id: u64) -> (f64, Vec<u8>) {
     let f = r.until(
         ws,
@@ -446,10 +446,12 @@ pub fn png_size(png: &[u8]) -> (u32, u32) {
     (n(16), n(20))
 }
 
+#[track_caller]
 pub fn layout(r: &mut Rig) -> Value {
     serde_json::from_str(&r.drive(&["layout"])).expect("layout JSON")
 }
 
+#[track_caller]
 pub fn error(r: &mut Rig, args: &[&str]) -> String {
     let out = r.run(args);
     assert!(!out.status.success(), "laura {args:?} succeeded");
@@ -457,6 +459,7 @@ pub fn error(r: &mut Rig, args: &[&str]) -> String {
 }
 
 /// The next `browser` frame for `id` that `want` matches.
+#[track_caller]
 pub fn state_until(
     r: &mut Rig,
     ws: &mut Ws,
@@ -485,6 +488,7 @@ pub fn outlines(r: &Rig, id: u64) -> (Option<i64>, Vec<i64>) {
 }
 
 /// Wait until pane `id`'s page has `title` and the web app outlines `want` (see `outlines`).
+#[track_caller]
 pub fn outlined_until(
     r: &mut Rig,
     ws: &mut Ws,
@@ -507,6 +511,7 @@ pub fn outlined_until(
 }
 
 /// The next frame of type `t` for `id`.
+#[track_caller]
 pub fn event(r: &mut Rig, ws: &mut Ws, t: &str, id: u64) -> Value {
     r.until(
         ws,
@@ -517,6 +522,7 @@ pub fn event(r: &mut Rig, ws: &mut Ws, t: &str, id: u64) -> Value {
 }
 
 /// Open `path` from a new server and wait until it loads: the pane's id and the server's URL.
+#[track_caller]
 pub fn load(r: &mut Rig, ws: &mut Ws, path: &str) -> (u64, String) {
     let url = serve();
     let id = open(r, &format!("{url}{path}"));

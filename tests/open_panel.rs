@@ -16,7 +16,7 @@ fn open_renders_file_into_panel() -> Result<()> {
     let path = file.path().to_str().unwrap().to_string();
 
     let name = format!("laura-test-{}.sock", std::process::id());
-    let rx = laura::protocol::serve(&name)?;
+    let (rx, _) = laura::protocol::serve(&name)?;
 
     let n = name.clone();
     let p = path.clone();
@@ -73,7 +73,7 @@ fn open_absolutizes_relative_path_against_caller_cwd() -> Result<()> {
     let expected = std::path::absolute(dir.path().join("spec.md"))?;
 
     let name = format!("laura-abs-{}.sock", std::process::id());
-    let rx = laura::protocol::serve(&name)?;
+    let (rx, _) = laura::protocol::serve(&name)?;
 
     let n = name.clone();
     let cwd = dir.path().to_path_buf();

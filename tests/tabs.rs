@@ -158,6 +158,8 @@ fn a_closed_tab_releases_its_socket() -> Result<()> {
     let socket = tab.socket.clone();
     drop(tab);
     // A stale `LAURA_TAB` fails to connect rather than reaching a listener nobody drains.
-    assert!(laura::protocol::request(&socket, &laura::Message::Layout).is_err());
+    // `Ok(Ok)` is the EOF path: a listener still accepted the connection, then closed it.
+    let r = laura::protocol::request(&socket, &laura::Message::Layout);
+    assert!(r.is_err(), "the closed tab's socket answered: {r:?}");
     Ok(())
 }
