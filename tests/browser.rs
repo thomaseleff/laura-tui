@@ -711,8 +711,9 @@ fn a_killed_laura_closes_real_chrome_and_its_helpers() -> Result<()> {
         }
         assert!(
             t0.elapsed() < common::DEADLINE,
-            "after Laura's kill, still running: {left:?}; the profile exists: {}",
-            profile.exists()
+            "after Laura's kill, still running: {left:?}; the profile holds: {:?}",
+            std::fs::read_dir(&profile)
+                .map(|d| d.flatten().map(|e| e.file_name()).collect::<Vec<_>>())
         );
         thread::sleep(Duration::from_millis(100));
     }

@@ -3451,15 +3451,7 @@ fn ready_lists_no_web_or_browser() -> Result<()> {
 #[test]
 fn the_shell_has_the_browser_url() -> Result<()> {
     isolate_home();
-    let tab = laura::Tab::spawn_web(shell(), 24, 80, Ok("chrome".into()))?;
-    let web = laura::web::WebServer::bind(0)?;
-    let (port, token) = port_token(web.url());
-    let mut rig = Rig {
-        tab,
-        web,
-        port,
-        token,
-    };
+    let mut rig = Rig::host(laura::Tab::spawn_web(shell(), 24, 80, Ok("chrome".into()))?)?;
     let v: Value = serde_json::from_str(&rig.drive(&["ready"]))?;
     assert_eq!(v["experimental"], json!([]), "{v}");
     let url = v["browser_url"]

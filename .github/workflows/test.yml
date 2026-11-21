@@ -82,6 +82,7 @@ jobs:
         shell: bash
         env:
           TESTS: ${{ matrix.tests }}
+          RUST_BACKTRACE: 1
         run: |
           if [ "$TESTS" = app ]; then
             LAURA_SKIP_BROWSER_TESTS=1 cargo test --locked
