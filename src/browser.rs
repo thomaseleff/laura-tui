@@ -1578,7 +1578,8 @@ impl Page {
         // and input, and Laura drops the user's own: a report while the user's input or its no-op
         // script waits for Chrome's reply is the user's.
         // ponytail: the agent's input while the user's waits counts as the user's; tag the user's
-        // input in the page if users miss a mark.
+        // input in the page if users miss a mark. A page's own delayed click after the user's input
+        // shows a mark (see the note in `browser.js`).
         let user = !self.input_ask.is_empty();
         for key in ["click", "type"] {
             if !user && numbers(&m[key], if key == "click" { 2 } else { 4 }) {

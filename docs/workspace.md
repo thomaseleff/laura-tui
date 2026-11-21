@@ -138,6 +138,8 @@ Keep the single quotes, so the tool reads `LAURA_BROWSER_URL` in each workspace.
 
 You see each change that the agent makes. Laura shows a ring where the agent clicks and an outline where the agent types, and the pane header shows **Agent**, **Screenshot** or **● Recording**. The agent's screenshots show the page without Laura's marks.
 
+Laura also shows a ring or an outline when the page's own script clicks or types, for example a page that clicks a button some time after your click.
+
 > [!IMPORTANT]
 > Every program on this computer can connect to the port that the browser tools use, and control the pages in Laura's browser.
 
