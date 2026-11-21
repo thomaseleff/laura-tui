@@ -52,7 +52,7 @@ When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell do
 
 When you close the last pane, the shell fills the workspace again.
 
-To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
+To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41, in the middle of the pane. When line 41 is already on screen, Laura moves only the cursor. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
 
 - Laura underlines a path when you point at it. A path needs a `/` or a `\` and an extension, such as `src/profile.ts`, `src\profile.ts`, `./notes.md` or `app/[slug]/page.tsx`.
 - Laura reads a relative path from the folder Laura started in.

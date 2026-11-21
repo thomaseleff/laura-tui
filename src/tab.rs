@@ -852,7 +852,7 @@ impl Tab {
             .ok_or_else(|| no_pane(target))?;
         if !heading.is_empty() && !p.blocks().is_empty() {
             match p.heading_line(&heading) {
-                Some(line) => p.set_cursor_line(line),
+                Some(line) => p.jump_to_line(line),
                 // A notice, not an error: an error shows in the link's pane, and `target` can be another.
                 None => {
                     let name = Path::new(&p.path).file_name().unwrap_or_default();
@@ -895,7 +895,7 @@ impl Tab {
         let id = self.open_file(file.to_string_lossy().into_owned())?;
         // Not `panel_mut`: an editor pane in its editor view keeps the line for its file view.
         if let (Some(l), Some(p)) = (line, self.panels.get_mut(&id)) {
-            p.set_cursor_line(l);
+            p.jump_to_line(l);
         }
         Ok(())
     }

@@ -602,7 +602,7 @@ function makePane(p) {
   new ResizeObserver(() => {
     fitNarrow(el);
     if (layout?.focus === p.id) followFocus(true);
-    if (el.hlLater && !tooSmall(el)) toHighlight(p.id);
+    if (el.hlLater && !tooSmall(el)) toHighlight(p.id, el.hlLater.jump);
   }).observe(el.querySelector(".narrow"));
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
@@ -1571,7 +1571,7 @@ function onPane(m) {
   rows.dataset.cursor = String(m.cursor);
   // A step inside a block, or onto its thread, keeps the block's index, so the key adds the line.
   const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line ?? "L" + cur?.dataset.th}`;
-  if (m.recenter) toHighlight(m.id);
+  if (m.recenter) toHighlight(m.id, true);
   else if (key !== rows.dataset.key) {
     reveal(cur, "nearest");
     // The cursor's row stays in view above its tall thread.
@@ -1586,18 +1586,26 @@ function onPane(m) {
 // A page's frame: an HTML file pane's iframe, or a browser pane's view.
 const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? ":scope > .view" : ":scope > iframe");
 
-// Scrolls the pane to its highlight; a page's frame scrolls itself.
-function toHighlight(id) {
+// Scrolls the pane to its highlight; a page's frame scrolls itself. On a frame's `recenter`
+// (`jump`), a cursor off its highlight's first line came from a jump (`Panel::jump_to_line`):
+// the pane centers the cursor's line, only when that line is off screen.
+function toHighlight(id, jump) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
   const el = $("p" + id);
   // A too-small pane hides its rows and page, which can't scroll; the `.narrow` observer scrolls again.
-  if (!el || (el.hlLater = tooSmall(el))) return;
+  if (!el || (el.hlLater = tooSmall(el) && { jump })) return;
   const f = frameOf(id);
   if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
   const rows = el.querySelector(".rows");
+  if (!rows) return;
+  const first = rows.querySelector(".hl"), cur = units(rows)[rows.dataset.cursor];
+  const h = jump && cur !== first ? cur : first;
+  if (h && h !== first) {
+    const r = h.getBoundingClientRect(), b = rows.getBoundingClientRect();
+    if (r.top >= b.top && r.bottom <= b.bottom) return;
+  }
   // ponytail: row-proportional, exact for code, approximate for wrapped prose
-  const h = rows?.querySelector(".hl");
   if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
 }
 

@@ -709,6 +709,32 @@ fn set_cursor_moves_the_cursor_and_sends_two_rows() -> Result<()> {
 }
 
 #[test]
+fn a_jump_to_a_line_recenters_the_pane_and_a_click_does_not() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let body: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+    let (_dir, path) = file("long.txt", &body)?;
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": path, "line": 300}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(
+        (frame["cursor"].clone(), frame["recenter"].clone()),
+        (json!(299), json!(true)),
+        "{frame}"
+    );
+    rig.act(
+        &mut ws,
+        json!({"act": "set_cursor", "pane": 1, "line": 305}),
+    );
+    let rows = rig.until(&mut ws, "rows", |f| f.is("rows")).json();
+    assert_eq!(rows["recenter"], false, "{rows}");
+    Ok(())
+}
+
+#[test]
 fn file_pane_keys_reach_the_pane() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

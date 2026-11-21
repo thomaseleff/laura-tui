@@ -46,7 +46,8 @@ pub struct Panel {
     /// view only moves at its edges, and a card added or collapsed above it doesn't shift the lines
     /// on screen (#69). `Cell` because render holds `&Panel`; a panel never crosses threads.
     scroll: Cell<(usize, usize)>,
-    /// Set by `set_highlight`; the next `scroll_offset` centers the highlight and clears it.
+    /// Set by `set_highlight` and `jump_to_line`; the next `scroll_offset` centers the highlight
+    /// (or the jumped-to line, if it's off screen) and clears it.
     recenter: Cell<bool>,
     /// Review threads, keyed by rendered-line index (1:1 with `styled`); cleared on submit (#45).
     pub threads: Vec<Thread>,
@@ -471,6 +472,13 @@ impl Panel {
     /// Put the cursor on 1-based source `line`'s first row; `0` and past-EOF clamp to the ends.
     pub fn set_cursor_line(&mut self, line: u32) {
         self.cursor = self.source_line_to_row(line);
+    }
+
+    /// `set_cursor_line` for a jump (a shell link, a heading link): the next frame centers the
+    /// line once, if it's off screen.
+    pub fn jump_to_line(&mut self, line: u32) {
+        self.set_cursor_line(line);
+        self.recenter.set(true);
     }
 
     /// The cursor row's first source line, 1-based: the `L<n>` an inline review quotes.
@@ -1072,23 +1080,27 @@ impl Panel {
                 .get(off)
                 .map_or((0, off), |r| (r.line, off - first(r.line)))
         };
-        // Fresh agent highlight: center the span once, or top-anchor it when it's taller than the
-        // pane (margin saturates to 0) so the reader starts at its top.
-        if self.recenter.take()
-            && let Some((lo, hi)) = self.highlight
-        {
+        let (line, past) = self.scroll.get();
+        let mut off = (first(line) + past).min(max_off);
+        // Fresh agent highlight (`set_highlight` leaves the cursor on its first line), or a jump:
+        // center the span once, or top-anchor it when it's taller than the pane (margin saturates
+        // to 0) so the reader starts at its top. A jump to a line on screen keeps the view.
+        if self.recenter.take() {
+            let (lo, hi, hl) = match self.highlight {
+                Some((lo, hi)) if lo == self.cursor => (lo, hi, true),
+                _ => (self.cursor, self.cursor, false),
+            };
             let start = layout.starts.get(lo).copied().unwrap_or(0);
             let end = line_end_row(layout, hi).unwrap_or(last_row);
-            let span = end - start + 1;
-            let margin = view_h.saturating_sub(span) / 2;
-            let off = start.saturating_sub(margin).min(max_off);
-            self.scroll.set(anchor(off));
-            return off;
+            if hl || start < off || end >= off + view_h {
+                let margin = view_h.saturating_sub(end - start + 1) / 2;
+                let off = start.saturating_sub(margin).min(max_off);
+                self.scroll.set(anchor(off));
+                return off;
+            }
         }
         let start = layout.starts.get(self.cursor).copied().unwrap_or(last_row);
         let end = line_end_row(layout, self.cursor).unwrap_or(last_row);
-        let (line, past) = self.scroll.get();
-        let mut off = (first(line) + past).min(max_off);
         if end >= off + view_h {
             off = (end + 1).saturating_sub(view_h);
         }
