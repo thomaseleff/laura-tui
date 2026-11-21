@@ -462,12 +462,17 @@ impl Browser {
         // helper left alive would write the profile again after `rm -rf`. A Laura that dies before
         // Chrome starts leaves an empty `pid`, and the watcher only deletes the profile.
         // The trap keeps a terminal hangup from ending the watcher before it ends Chrome.
+        // A killed helper can still write while `rm -rf` runs, and then `rm` leaves the folder, so
+        // the watcher tries again for 5 s. It doesn't wait for the group to end: Laura's own drop
+        // waits for the watcher before it reaps Chrome, whose zombie stays in the group.
         #[cfg(unix)]
         let mut watcher = match Command::new("/bin/sh")
             .args([
                 "-c",
                 "trap '' HUP INT TERM; read pid; read _; \
-                 [ -n \"$pid\" ] && kill -s KILL -- -\"$pid\" 2>/dev/null; rm -rf \"$1\"",
+                 [ -n \"$pid\" ] && kill -s KILL -- -\"$pid\" 2>/dev/null; rm -rf \"$1\" 2>/dev/null; \
+                 n=0; while [ -e \"$1\" ] && [ $n -lt 50 ]; do \
+                 sleep 0.1; rm -rf \"$1\" 2>/dev/null; n=$((n+1)); done",
                 "sh",
             ])
             .arg(&profile)
