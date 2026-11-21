@@ -37,6 +37,15 @@ Put these items in the `## Trail` section of each plan, under the reference note
 
 ## Workflow
 
+Each time you start or continue a trail, run these commands in the checkout where you work, before you read code:
+
+```
+ENTIRE_GRAPH_SEARCH_STORE=1 entire graph index --head
+entire brain brief "<task>" --json
+```
+
+The index command builds Graph's code index for the current commit in about 5 seconds, with no tokens. Without this index, the brief shows no related code for a commit that is not on `main`.
+
 ### Start
 
 1. Read the issue with `gh issue view <N>`.

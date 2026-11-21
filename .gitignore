@@ -9,6 +9,10 @@
 !/.claude/skills/
 
 __pycache__/
+uv.lock
+
+# Playwright MCP snapshots
+.playwright-mcp/
 
 # OS cruft
 .DS_Store
