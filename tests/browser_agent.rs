@@ -393,6 +393,27 @@ fn the_users_input_shows_no_marker() -> Result<()> {
 }
 
 #[test]
+fn a_slow_page_shows_no_mark_for_the_users_click() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let (id, _) = load(&mut r, &mut ws, "/slow-up");
+    click(&mut ws, id, 50.0, 25.0);
+    let mark = |f: &Frame| matches!(f, Frame::Json(v) if v["t"] == "agent");
+    r.until(&mut ws, "the clicked title", |f| {
+        assert!(!mark(f), "a mark for the user's click: {f:?}");
+        matches!(f, Frame::Json(v) if v["t"] == "browser" && v["id"] == id && v["title"] == "clicked")
+    });
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(1) {
+        let fs = r.idle(&mut ws, 1);
+        assert!(!fs.iter().any(mark), "a mark for the user's click");
+    }
+    Ok(())
+}
+
+#[test]
 fn the_agents_tools_navigate_the_pane() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());

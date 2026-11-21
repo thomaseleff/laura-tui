@@ -62,8 +62,6 @@ const RESIZE_EVERY: Duration = Duration::from_millis(100);
 const TITLE_EVERY: Duration = Duration::from_secs(1);
 /// A `fetch` or XHR that starts this soon after a click shows the spinner.
 const CLICK_WINDOW: Duration = Duration::from_secs(1);
-/// Input this soon after the user's input is the user's.
-const USER_INPUT: Duration = Duration::from_millis(500);
 /// A click that the page still handles after this long shows the spinner.
 const CLICK_SLOW: Duration = Duration::from_millis(100);
 /// A request that runs this long stops showing the spinner.
@@ -1093,8 +1091,9 @@ pub struct Page {
     down: Option<(f64, f64)>,
     /// The last release, for the requests it starts.
     released: Option<Instant>,
-    /// The user's last keystroke or paste.
-    keyed: Option<Instant>,
+    /// The user's press, release, keystroke and paste commands (true), and the no-op scripts sent
+    /// after their replies (false), that wait for Chrome's reply.
+    input_ask: HashMap<u64, bool>,
     /// The top frame loads.
     loading: bool,
     /// The `fetch` and XHR requests a click started, by request id.
@@ -1203,7 +1202,7 @@ impl Page {
             recorders: HashSet::new(),
             down: None,
             released: None,
-            keyed: None,
+            input_ask: HashMap::new(),
             loading: false,
             requests: HashMap::new(),
             cursor: "default".into(),
@@ -1460,7 +1459,7 @@ impl Page {
                     let top =
                         self.world.is_some() && p["executionContextId"].as_i64() == self.world;
                     let payload = p["payload"].as_str().unwrap_or_default();
-                    self.on_binding(payload, top, now, &mut out);
+                    self.on_binding(payload, top, &mut out);
                 }
                 _ => {}
             }
@@ -1481,6 +1480,12 @@ impl Page {
 
     fn on_reply(&mut self, id: u64, v: &Value, out: &mut Vec<Event>) {
         self.settling.take_if(|n| *n == id);
+        // Chrome can reply to the user's input before the page's report about it. A no-op script
+        // runs after the page handles the input, and Chrome sends the report before its reply.
+        if self.input_ask.remove(&id) == Some(true) {
+            let fence = self.evaluate("0");
+            self.input_ask.insert(fence, false);
+        }
         let value = &v["result"]["result"]["value"];
         if let Some((_, dev)) = self.size_ask.take_if(|(n, _)| *n == id) {
             let screen = (value[0].as_u64(), value[1].as_u64());
@@ -1562,18 +1567,16 @@ impl Page {
     /// lost threads, or a click or an input on the page, for the agent's marks. The page's content
     /// shapes the reply, so each field's type is checked. A frame in the page (`top` false) reports
     /// only clicks and input.
-    fn on_binding(&mut self, payload: &str, top: bool, now: Instant, out: &mut Vec<Event>) {
+    fn on_binding(&mut self, payload: &str, top: bool, out: &mut Vec<Event>) {
         let Ok(m) = serde_json::from_str::<Value>(payload) else {
             return;
         };
         // CDP doesn't send the agent's `Input` to Laura's session, so the page reports each click
-        // and input, and Laura drops the user's own.
-        // ponytail: the agent's input within `USER_INPUT` of the user's counts as the user's; tag
-        // the user's input in the page if users miss a mark.
-        let user = self
-            .released
-            .max(self.keyed)
-            .is_some_and(|t| now < t + USER_INPUT);
+        // and input, and Laura drops the user's own: a report while the user's input or its no-op
+        // script waits for Chrome's reply is the user's.
+        // ponytail: the agent's input while the user's waits counts as the user's; tag the user's
+        // input in the page if users miss a mark.
+        let user = !self.input_ask.is_empty();
         for key in ["click", "type"] {
             if !user && numbers(&m[key], if key == "click" { 2 } else { 4 }) {
                 self.out.push(json!({"t": "agent", key: m[key]}));
@@ -1761,6 +1764,9 @@ impl Page {
             MouseKind::Move => {}
         }
         let id = self.send("Input.dispatchMouseEvent", params);
+        if matches!(m.kind, MouseKind::Down | MouseKind::Up) {
+            self.input_ask.insert(id, true);
+        }
         match m.kind {
             MouseKind::Down => self.down = Some((m.x, m.y)),
             MouseKind::Up => {
@@ -1779,8 +1785,7 @@ impl Page {
     /// A keystroke from the view. Enter types `\r`, as a browser's own Enter does.
     /// ponytail: no IME, and Chrome runs no editing shortcut (`Ctrl+A`, `Ctrl+C` in a field) from a
     /// key event alone; send the key's `commands` too if the user misses them.
-    pub fn key(&mut self, k: &Key, now: Instant) {
-        self.keyed = Some(now);
+    pub fn key(&mut self, k: &Key) {
         let text = if k.key == "Enter" { "\r" } else { &k.text };
         let typ = match k.kind {
             KeyKind::Down if !text.is_empty() => "keyDown",
@@ -1793,13 +1798,14 @@ impl Page {
         if typ == "keyDown" {
             (params["text"], params["unmodifiedText"]) = (text.into(), text.into());
         }
-        self.send("Input.dispatchKeyEvent", params);
+        let id = self.send("Input.dispatchKeyEvent", params);
+        self.input_ask.insert(id, true);
     }
 
     /// A paste from the view.
-    pub fn insert_text(&mut self, text: &str, now: Instant) {
-        self.keyed = Some(now);
-        self.send("Input.insertText", json!({"text": text}));
+    pub fn insert_text(&mut self, text: &str) {
+        let id = self.send("Input.insertText", json!({"text": text}));
+        self.input_ask.insert(id, true);
     }
 
     /// `Esc` gave the keystrokes back to Laura: the page's field lets go of the focus, so the scroll

@@ -705,8 +705,8 @@ impl Tab {
                 }
             }
             A::BrowserMouse { pane, mouse } => self.page(pane)?.mouse(&mouse, Instant::now()),
-            A::BrowserKey { pane, key } => self.page(pane)?.key(&key, Instant::now()),
-            A::BrowserText { pane, text } => self.page(pane)?.insert_text(&text, Instant::now()),
+            A::BrowserKey { pane, key } => self.page(pane)?.key(&key),
+            A::BrowserText { pane, text } => self.page(pane)?.insert_text(&text),
             A::BrowserBlur { pane } => self.page(pane)?.blur(),
             A::BrowserHistory { pane, delta } => self.page(pane)?.go(delta)?,
             A::BrowserDialog { pane, accept, text } => self.page(pane)?.answer(accept, &text),

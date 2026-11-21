@@ -273,6 +273,12 @@ pub fn route(path: &str) -> (u64, &'static str, &'static str) {
             "Form",
             "<main><h1 id=h class=at style=top:0>Sign up</h1><input id=email class=at style=top:100px></main>",
         ),
+        // The page handles the release for 800 ms, past the time a click takes.
+        "/slow-up" => (
+            0,
+            "Slow up",
+            r#"<button class=at style=top:0 onmouseup="const t = Date.now(); while (Date.now() - t < 800) {}" onclick="document.title='clicked'">Go</button>"#,
+        ),
         "/busy" => (
             0,
             "Busy",
