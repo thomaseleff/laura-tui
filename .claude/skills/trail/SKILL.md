@@ -161,8 +161,6 @@ Do not review your own PR. A subagent does the first review, before the Entire r
     git pull
     ```
 
-40. Do not promote the memories of the branch in this skill. `/memory-closeout` promotes the memories of the branch later.
-
 ## Brief
 
 Write every stop in ASD-STE100 Simplified Technical English. Do not change code, commands, file names or error text. Give the user all the data for each decision. The user must not have to read the code.
