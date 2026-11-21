@@ -46,9 +46,9 @@ pub struct Panel {
     /// view only moves at its edges, and a card added or collapsed above it doesn't shift the lines
     /// on screen (#69). `Cell` because render holds `&Panel`; a panel never crosses threads.
     scroll: Cell<(usize, usize)>,
-    /// Set by `set_highlight` and `jump_to_line`; the next `scroll_offset` centers the highlight
-    /// (or the jumped-to line, if it's off screen) and clears it.
-    recenter: Cell<bool>,
+    /// Set by `set_highlight` (`Some(true)`) and `jump_to_line` (`Some(false)`); the next
+    /// `scroll_offset` centers the highlight (or the jumped-to line, if it's off screen) and clears it.
+    recenter: Cell<Option<bool>>,
     /// Review threads, keyed by rendered-line index (1:1 with `styled`); cleared on submit (#45).
     pub threads: Vec<Thread>,
     /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
@@ -406,7 +406,7 @@ impl Panel {
         self.highlight = Some((lo, hi));
         // Cursor on `lo` so `c` right after a highlight comments on its first line.
         self.cursor = lo;
-        self.recenter.set(true);
+        self.recenter.set(Some(true));
     }
 
     /// Clear the agent-directed highlight; the pane returns to normal (undimmed) rendering.
@@ -478,7 +478,7 @@ impl Panel {
     /// line once, if it's off screen.
     pub fn jump_to_line(&mut self, line: u32) {
         self.set_cursor_line(line);
-        self.recenter.set(true);
+        self.recenter.set(Some(false));
     }
 
     /// The cursor row's first source line, 1-based: the `L<n>` an inline review quotes.
@@ -518,12 +518,10 @@ impl Panel {
         crate::render::heading_line(&self.source_lines.join("\n"), slug)
     }
 
-    /// A pending one-time recenter, cleared: `Some(true)` for a fresh highlight (`set_highlight`
-    /// leaves the cursor on its first row), `Some(false)` for a jump to the cursor's line.
+    /// A pending one-time recenter, cleared: `Some(true)` for a fresh highlight, `Some(false)` for
+    /// a jump to the cursor's line.
     pub fn take_recenter(&self) -> Option<bool> {
-        self.recenter
-            .take()
-            .then(|| self.highlight.is_some_and(|(lo, _)| lo == self.cursor))
+        self.recenter.take()
     }
 
     /// Mouse wheel: scroll the view and carry the cursor along, both by `delta` lines.

@@ -1600,7 +1600,9 @@ function toHighlight(id, jump) {
   const rows = el.querySelector(".rows");
   if (!rows) return;
   if (jump) {
-    const u = units(rows)[rows.dataset.cursor], t = u?.querySelector(".md .cur") ?? u;
+    // A block's first line has no `.cur`; its element carries the block's `data-line`.
+    const u = units(rows)[rows.dataset.cursor];
+    const t = u?.querySelector(".md .cur") ?? u?.querySelector(`.md [data-line="${u.dataset.line}"]`) ?? u;
     if (!t) return;
     // The bounding box, since a `.cur`'s `offsetTop` can be relative to its block.
     const r = t.getBoundingClientRect(), b = rows.getBoundingClientRect();

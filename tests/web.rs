@@ -741,6 +741,20 @@ fn a_jump_to_a_line_recenters_the_pane_and_a_click_does_not() -> Result<()> {
         )
         .json();
     assert_eq!(rows["recenter"], "highlight", "{rows}");
+    // A jump to the highlight's first line is a jump: it keeps the view when the line is on screen.
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": path, "line": 310}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let rows = rig
+        .until(
+            &mut ws,
+            "jump",
+            |f| matches!(f, Frame::Json(v) if v["cursor"] == 309 && v["recenter"] != false),
+        )
+        .json();
+    assert_eq!(rows["recenter"], "line", "{rows}");
     Ok(())
 }
 
