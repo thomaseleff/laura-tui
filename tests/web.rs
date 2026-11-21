@@ -759,6 +759,29 @@ fn a_jump_to_a_line_recenters_the_pane_and_a_click_does_not() -> Result<()> {
 }
 
 #[test]
+fn a_jump_to_a_line_in_an_html_file_tells_the_page_to_center_it() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let body: String = (1..=300).map(|n| format!("<p>line {n}</p>\n")).collect();
+    let (_dir, path) = file("page.html", &body)?;
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": path, "line": 250}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let frame = page_frame(&mut rig, &mut ws, 1, |v| v["cursor"] == 250);
+    assert_eq!(frame["jump"], true, "{frame}");
+    // A click on the page moves the cursor, not the view.
+    rig.act(
+        &mut ws,
+        json!({"act": "set_cursor", "pane": 1, "line": 260}),
+    );
+    let frame = page_frame(&mut rig, &mut ws, 1, |v| v["cursor"] == 260);
+    assert_eq!(frame["jump"], false, "{frame}");
+    Ok(())
+}
+
+#[test]
 fn file_pane_keys_reach_the_pane() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

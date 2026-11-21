@@ -48,6 +48,7 @@ pub struct Panel {
     scroll: Cell<(usize, usize)>,
     /// Set by `set_highlight` (`Some(true)`) and `jump_to_line` (`Some(false)`); the next
     /// `scroll_offset` centers the highlight (or the jumped-to line, if it's off screen) and clears it.
+    /// The web app takes it too: rows as a frame's `recenter`, an HTML page as `page`'s `jump`.
     recenter: Cell<Option<bool>>,
     /// Review threads, keyed by rendered-line index (1:1 with `styled`); cleared on submit (#45).
     pub threads: Vec<Thread>,

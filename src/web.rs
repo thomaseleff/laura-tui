@@ -1250,16 +1250,18 @@ fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Ba
             && let Some((_, _, page)) = bases.get(&id)
         {
             let highlight = panel.highlight_lines();
-            let cursor = (tab.focus == id).then(|| panel.cursor_line());
+            // A highlight (`Some(true)`) needs no flag: the page centers a new highlight itself.
+            let jump = panel.take_recenter() == Some(false);
+            // A jump's pane can get the focus after this frame, so the page scrolls now.
+            let cursor = (tab.focus == id || jump).then(|| panel.cursor_line());
             let msg = json!({"t": "page", "id": id, "page": page, "cursor": cursor,
                              "line": panel.cursor_line(),
                              "threads": threads_json(panel), "card": card_line(panel),
-                             "highlight": highlight})
+                             "highlight": highlight, "jump": jump})
             .to_string();
             // A later `d` sends the whole `pane`, not a `rows` diff, and doesn't jump to the
             // highlight the page already scrolled to.
             v.panes.remove(&id);
-            panel.take_recenter();
             if v.pages.get(&id) != Some(&msg) {
                 v.send(Outbound::Text(msg.clone()));
                 v.pages.insert(id, msg);

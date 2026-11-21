@@ -1588,7 +1588,7 @@ const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? 
 
 // Scrolls the pane to its highlight; a page's frame scrolls itself. A `jump` (a frame's
 // `recenter: "line"`, from `Panel::jump_to_line`) centers the cursor's line, also the line inside
-// a markdown block, only when that line is off screen.
+// a markdown block, only when that line is off screen. A page gets the jump in `page`'s `jump`.
 function toHighlight(id, jump) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
@@ -1640,7 +1640,9 @@ function onPage(m) {
   }
   // Target "*": the frame's origin is opaque, and line numbers aren't secret.
   const threads = m.threads.map(t => ({ line: t.line, n: t.notes.length, who: pinWho(t) }));
-  f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id };
+  // A new frame loads after later frames came, so the jump stays until the cursor moves.
+  const jump = m.jump || (!!f.state?.jump && f.state.cursor === m.cursor);
+  f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id, jump };
   f.contentWindow?.postMessage(f.state, "*");
   // The diff view's rows, if the page was in it.
   for (const u of units(rows)) u.remove();

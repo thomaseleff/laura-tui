@@ -111,7 +111,13 @@
       if (!hl.length && at(lo)) hl = [at(lo)];
     }
     const cur = cursor == null ? null : real(at(cursor));
-    if (cursor !== last) cur?.scrollIntoView({ block: "nearest" });
+    if (cursor !== last && cur) {
+      // A jump centers an element off screen, or puts its top at the top when it's taller than
+      // the view, as the TUI does.
+      const r = cur.getBoundingClientRect();
+      if (e.data.jump && (r.top < 0 || r.bottom > innerHeight)) scrollBy(0, r.top - Math.max(0, (innerHeight - r.height) / 2));
+      else cur.scrollIntoView({ block: "nearest" });
+    }
     last = cursor;
     // `scroll`: a click on the pane header's highlight chip.
     if (e.data.scroll || String(highlight) !== lastHl) hl[0]?.scrollIntoView({ block: "center" });
