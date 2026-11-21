@@ -619,8 +619,10 @@ fn a_submit_opens_the_drawer() -> Result<()> {
     );
     let acted = rig.act(&mut ws, json!({"act": "submit", "pane": 1, "body": ""}));
     assert_eq!(acted["ok"], true, "{acted}");
-    let open = layout_when(&mut rig, &mut ws, "the shell", |v| v["focus"] == 0);
-    assert_eq!(pane_of(&open, 0)["drawer"], true, "{open}");
+    // `act` keeps the layouts from before the submit, when the shell had the focus too.
+    layout_when(&mut rig, &mut ws, "the shell in the drawer", |v| {
+        v["focus"] == 0 && pane_of(v, 0)["drawer"] == true
+    });
     Ok(())
 }
 

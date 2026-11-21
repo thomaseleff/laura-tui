@@ -270,10 +270,11 @@ fn a_thread_on_another_page_is_not_lost() -> Result<()> {
         }
     }
     // Back on its page, the thread names no other page, and Laura outlines its link again.
-    r.act(
+    let acted = r.act(
         &mut ws,
         json!({"act": "browser_history", "pane": id, "delta": -1}),
     );
+    assert_eq!(acted["ok"], true, "{acted}");
     let one = format!("{url}/one");
     state_until(&mut r, &mut ws, "the first page again", id, |v| {
         v["url"] == one.as_str() && v["threads"][0]["away"].is_null()

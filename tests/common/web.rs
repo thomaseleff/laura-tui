@@ -126,6 +126,11 @@ pub fn read(ws: &mut Ws) -> Option<Frame> {
     }
 }
 
+/// The view's local port, which tells one view of a workspace from another.
+fn port_of(ws: &Ws) -> u16 {
+    ws.get_ref().local_addr().map_or(0, |a| a.port())
+}
+
 pub fn send(ws: &mut Ws, v: Value) {
     ws.send(Message::text(v.to_string())).expect("send");
 }
@@ -138,6 +143,9 @@ pub struct Rig {
     pub token: String,
     /// The last frames that `until` skipped, for its timeout message.
     trail: VecDeque<String>,
+    /// The frames that `act` skipped, by their view's local port, which the next reads of that view
+    /// return first.
+    stash: VecDeque<(u16, Frame)>,
 }
 
 impl Rig {
@@ -166,6 +174,7 @@ impl Rig {
             port,
             token,
             trail: VecDeque::new(),
+            stash: VecDeque::new(),
         })
     }
 
@@ -185,9 +194,18 @@ impl Rig {
         connect_to(self.port, Some(&self.token), Some(&self.origin())).expect("view connects")
     }
 
+    /// The next frame that `act` skipped on `ws`, else one frame from `ws` (see [`Rig::read_ws`]).
+    pub fn read(&mut self, ws: &mut Ws) -> Option<Frame> {
+        let view = port_of(ws);
+        match self.stash.iter().position(|(p, _)| *p == view) {
+            Some(i) => self.stash.remove(i).map(|(_, f)| f),
+            None => self.read_ws(ws),
+        }
+    }
+
     /// One frame from `ws`, as [`read`]. A browser pane's frame is acked, as the web app acks it:
     /// Laura's browser pauses the screencast while a frame waits for its ack.
-    pub fn read(&self, ws: &mut Ws) -> Option<Frame> {
+    fn read_ws(&self, ws: &mut Ws) -> Option<Frame> {
         let f = read(ws);
         if let Some(Frame::Bytes(id, _)) = &f
             && self.tab.browsers.contains_key(id)
@@ -201,11 +219,27 @@ impl Rig {
     /// when `ws` closes first. The failure lists the last frames that the wait skipped.
     #[track_caller]
     pub fn until(&mut self, ws: &mut Ws, what: &str, want: impl Fn(&Frame) -> bool) -> Frame {
+        self.wait_for(ws, what, want, false)
+    }
+
+    /// `until`; with `keep`, it reads only `ws` and stashes each frame that it skips.
+    #[track_caller]
+    fn wait_for(
+        &mut self,
+        ws: &mut Ws,
+        what: &str,
+        want: impl Fn(&Frame) -> bool,
+        keep: bool,
+    ) -> Frame {
         let start = Instant::now();
         self.trail.clear();
         loop {
             self.pump();
-            while let Some(f) = self.read(ws) {
+            while let Some(f) = if keep {
+                self.read_ws(ws)
+            } else {
+                self.read(ws)
+            } {
                 if want(&f) {
                     return f;
                 }
@@ -216,6 +250,9 @@ impl Rig {
                 }
                 let ms = start.elapsed().as_millis();
                 self.trail.push_back(format!("+{ms}ms {}", f.summary()));
+                if keep {
+                    self.stash.push_back((port_of(ws), f));
+                }
             }
             if start.elapsed() >= crate::common::DEADLINE {
                 let skipped = Vec::from(self.trail.clone()).join("\n  ");
@@ -241,11 +278,12 @@ impl Rig {
         out
     }
 
-    /// Send one `act` frame; its `acted` reply.
+    /// Send one `act` frame; its `acted` reply. The frames before the reply stay for the next
+    /// reads: Laura sends a state frame only when the state changes, so a later wait may need one.
     #[track_caller]
     pub fn act(&mut self, ws: &mut Ws, act: Value) -> Value {
         send(ws, act);
-        self.until(ws, "acted", |f| f.is("acted")).json()
+        self.wait_for(ws, "acted", |f| f.is("acted"), true).json()
     }
 
     /// Start `laura <args>` against the workspace without pumping; its output once it exits.

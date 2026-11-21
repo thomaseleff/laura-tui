@@ -11,6 +11,7 @@ mod common;
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
+use std::cell::Cell;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -443,8 +444,19 @@ fn a_page_that_denies_framing_shows() -> Result<()> {
         return Ok(());
     };
     let (mut r, mut ws) = rig(path)?;
-    let (id, _) = load(&mut r, &mut ws, "/deny");
-    next_frame(&mut r, &mut ws, id);
+    let id = open(&mut r, &format!("{}/deny", serve()));
+    // A still page sends one frame, which can come before or after the load's state.
+    let (framed, loaded) = (Cell::new(false), Cell::new(false));
+    r.until(&mut ws, "a frame and the loaded page", |f| {
+        match f {
+            Frame::Bytes(n, _) if *n == id => framed.set(true),
+            Frame::Json(v) if v["t"] == "browser" && v["id"] == id => {
+                loaded.set(v["title"] == "Deny" && v["busy"] == false)
+            }
+            _ => {}
+        }
+        framed.get() && loaded.get()
+    });
     Ok(())
 }
 
