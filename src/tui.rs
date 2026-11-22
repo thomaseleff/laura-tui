@@ -225,8 +225,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut help = false;
     // An in-progress left-drag selection.
     let mut selection: Option<Selection> = None;
-    // A transient bottom-right toast (message + expiry); armed once if `git` is missing. The user
-    // turned editor panes on, so a missing `nvim` is said at startup, not left to a refused `--edit`.
+    // A transient bottom-right toast (message + expiry); armed by a queued notice, and once if
+    // `git` is missing. The user turned editor panes on, so a missing `nvim` is said at startup,
+    // not left to a refused `--edit`.
     let mut toast: Option<(String, Instant)> = tab
         .editor
         .as_ref()

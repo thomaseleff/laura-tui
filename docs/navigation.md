@@ -197,7 +197,7 @@ Laura shows a markdown file as rendered markdown.
 - Click a link to a file by relative path, such as `[Setup](setup.md#install)`, and Laura opens the file in a new pane, or focuses the pane that shows it. When the link names a heading, such as `#install`, Laura puts the heading in the middle of the pane. Laura opens an `http` or `https` link in a new browser tab.
 - Laura shows an image that the file references by relative path, such as `![Flow](img/flow.png)`, when the image is below the folder Laura started in, outside hidden folders. For an image by an absolute path or a remote URL, Laura shows only the alt text.
 
-When a link's file or heading doesn't exist, Laura shows `⚠ The link target <link> does not exist.` or `⚠ The file <file> has no heading #<heading>.`
+When a link's file or heading doesn't exist, or the link names a folder, Laura shows `⚠ The link target <link> does not exist.`, `⚠ The file <file> has no heading #<heading>.` or `⚠ The link target <link> is a folder.`
 
 When the workspace has no room for another pane, Laura shows `⚠ No room for another pane. Close a pane, then click the link again.` in the link's pane.
 
@@ -210,6 +210,7 @@ Laura shows an HTML file as the rendered page, with its scripts running in a san
 - Click an element to move the cursor to the line of its start tag. Laura shows a pin on each element with a thread. Click the pin to move the cursor to the thread.
 - Click a text field, or an element with a `tabindex` attribute such as a game's canvas, to give the page the keystrokes. The hint line shows `Keystrokes go to the page`. Press `Esc` to give the keystrokes back to Laura.
 - In a page, `↑`, `↓`, `←` and `→` go to the page. Press `n` or `N` to move to a thread.
+- Click a link to a file by relative path, such as `<a href="setup.html">`, and Laura opens the file as for a [link in a markdown file](#markdown-files), with the same notices. Laura opens an `http` or `https` link in a new browser tab.
 - To comment with a click, see [Comment on an HTML page](workspace.md#comment-on-an-html-page).
 
 ## Browser panes

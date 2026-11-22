@@ -468,7 +468,8 @@ pub struct Tab {
     parked: Option<(Message, Reply)>,
     /// Each browser pane's last size from the view, for the page Laura opens there next.
     pub browser_sizes: HashMap<PaneId, browser::Size>,
-    /// Notices for the view, which the web app shows and clears, each with the pane to show it in.
+    /// Notices for the view, which the web app or the TUI shows and clears, each with the pane to
+    /// show it in.
     pub notices: Vec<(Option<PaneId>, String)>,
     /// The editor pane `shell_done` last focused for `SHELL_EXITED`.
     shell_exit_pane: Option<PaneId>,
