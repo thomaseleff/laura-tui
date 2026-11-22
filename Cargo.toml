@@ -11,7 +11,7 @@ categories = ["command-line-utilities", "development-tools"]
 authors = ["Tom Eleff <eleffthomas@gmail.com>"]
 # Package is laura-tui (laura is taken on PyPI; match across registries); binary stays `laura`.
 # assets/nord.tmTheme is include_str!'d by src/panel/render.rs, assets/web/**, assets/pebble.svg and
-# assets/favicon.svg by src/web.rs, assets/pebble.png and assets/pebble.ico by src/shortcut.rs —
+# assets/favicon.svg by src/web/, assets/pebble.png and assets/pebble.ico by src/shortcut.rs —
 # needed at compile time.
 include = ["src/**", "build.rs", "assets/nord.tmTheme", "assets/web/**", "assets/pebble.svg", "assets/favicon.svg", "assets/pebble.png", "assets/pebble.ico", "Cargo.toml", "Cargo.lock", "README.md", "/LICENSE", "pyproject.toml"]
 

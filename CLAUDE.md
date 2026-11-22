@@ -16,7 +16,7 @@ Standard Rust, plus the organization rules below. Public names and signatures fo
 
 Laura's modules sit in four layers. A module uses its own layer and the layers below it, never a layer above.
 
-1. **Front-ends:** the web app (`web.rs`, `assets/web/`), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
+1. **Front-ends:** the web app (`web/`, `assets/web/`), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
 2. **Workspace:** `tab.rs`, `layout.rs`, `journal.rs`.
 3. **Panes:** the shell (`pty.rs`), file panes (`panel/`), browser panes (`browser.rs`, `cdp_proxy.rs`), editor panes (`editor.rs`).
 4. **Leaves:** `protocol.rs`, `settings.rs`, `http.rs` (HTTP, tokens, origin checks, URL encoding), `platform.rs` (Laura's folders, private files, the user's browser opener).
