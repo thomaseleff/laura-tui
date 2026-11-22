@@ -192,7 +192,7 @@ Laura shows a markdown file as rendered markdown.
 - When the agent highlights a line in a block, Laura highlights the whole block.
 - Scroll a wide table or code block sideways with the mouse or trackpad.
 - Press `d` to see the changes as source lines.
-- Click a link to a file by relative path, such as `[Setup](setup.md#install)`, and Laura opens the file in a new pane, or focuses the pane that shows it. Laura opens an `http` or `https` link in a new browser tab.
+- Click a link to a file by relative path, such as `[Setup](setup.md#install)`, and Laura opens the file in a new pane, or focuses the pane that shows it. When the link names a heading, such as `#install`, Laura puts the heading in the middle of the pane. Laura opens an `http` or `https` link in a new browser tab.
 - Laura shows an image that the file references by relative path, such as `![Flow](img/flow.png)`, when the image is below the folder Laura started in, outside hidden folders. For an image by an absolute path or a remote URL, Laura shows only the alt text.
 
 When a link's file or heading doesn't exist, Laura shows `⚠ The link target <link> does not exist.` or `⚠ The file <file> has no heading #<heading>.`
