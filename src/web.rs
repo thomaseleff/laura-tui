@@ -477,6 +477,10 @@ impl WebServer {
                                 }
                                 UserAction::DrawerHeight { percent } => {
                                     self.drawer = save_drawer(percent);
+                                    // The web app showed the user's height before Laura took it:
+                                    // send the layout even when the height ends where it was, after
+                                    // a step and a reset in one loop.
+                                    v.layout.clear();
                                     true
                                 }
                                 _ => false,

@@ -556,6 +556,16 @@ fn the_drawer_height_is_saved_for_every_workspace() -> Result<()> {
     // The reset also leaves the shared file clean for later runs.
     set(Value::Null, 54);
     assert_eq!(saved(), Value::Null);
+
+    // A step and a reset in one loop end at the height that Laura showed: Laura sends the layout
+    // again, so the web app drops the step that it showed.
+    send(&mut ws, json!({"act": "drawer_height", "percent": 59}));
+    send(&mut ws, json!({"act": "drawer_height", "percent": null}));
+    thread::sleep(Duration::from_millis(100));
+    layout_when(&mut a, &mut ws, "the default height", |v| {
+        v["drawer_height"] == 54
+    });
+    assert_eq!(saved(), Value::Null);
     Ok(())
 }
 
