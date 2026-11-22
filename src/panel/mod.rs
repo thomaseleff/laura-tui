@@ -1,4 +1,8 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
+//! Its children read the file: [`render`] styles it, and [`gitdiff`] diffs it against git HEAD.
+
+pub mod gitdiff;
+pub mod render;
 
 use std::cell::Cell;
 use std::ops::{Range, RangeInclusive};
@@ -9,7 +13,7 @@ use ratatui::text::{Line, Span};
 use serde_json::{Value, json};
 
 use crate::browser::page_of;
-use crate::gitdiff::{self, ChangeKind, DiffOutcome};
+use crate::gitdiff::{ChangeKind, DiffOutcome};
 use crate::protocol::PaneId;
 use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
 
