@@ -9,7 +9,7 @@ Standard Rust, plus the organization rules below. Public names and signatures fo
 - **Format:** `cargo fmt` — default rustfmt, no custom `rustfmt.toml` unless a real need appears.
 - **Lint:** `cargo clippy --all-targets -- -D warnings` must pass. Fix lints, don't `#[allow]` them without a one-line reason on the attribute.
 - **Edition:** latest stable (2024). Toolchain pinned in `rust-toolchain.toml`.
-- **Errors:** `anyhow` at binary boundaries. In the library, an error a caller branches on is a variant of its module's `Error` enum (`thiserror`); never compare error text. `Result<_, String>` is only for text Laura shows as is, to the user or the agent. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
+- **Errors:** `anyhow` at binary boundaries. In the library, an error a caller branches on is a variant of its module's `Error` enum (`thiserror`, as `tab::Error`); never compare error text. `Result<_, String>` is only for text Laura shows as is, to the user or the agent. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
 - **Comments/docstrings:** terse; explain *why*, not *what*. Match the surrounding file's density.
 
 ### Code organization

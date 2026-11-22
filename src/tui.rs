@@ -23,7 +23,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use laura::editor::Nvim;
 use laura::layout::workspace_fits;
 use laura::protocol::PTY_PANE;
-use laura::tab::{SHELL_EXITED, SUBMIT_FAILED};
+use laura::tab::SHELL_EXITED;
 use laura::view::{self, Hint};
 use laura::{PaneId, Panel, PtyTab, Tab, UserAction};
 
@@ -219,6 +219,11 @@ pub fn spawn_tab(program: &[String], rows: u16, cols: u16, web: bool) -> Result<
     Ok(tab)
 }
 
+/// The toast shows a failed submit, which a retry or `Esc` takes down.
+fn submit_failed(toast: &Option<(String, Instant, Option<laura::tab::Error>)>) -> bool {
+    matches!(toast, Some((_, _, Some(laura::tab::Error::SubmitFailed))))
+}
+
 pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Result<()> {
     let area = terminal.size()?;
     let mut tab = spawn_tab(&program, area.height, area.width, false)?;
@@ -234,15 +239,18 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut help = false;
     // An in-progress left-drag selection.
     let mut selection: Option<Selection> = None;
-    // A transient bottom-right toast (message + expiry); armed by a queued notice, and once if
-    // `git` is missing. The user turned editor panes on, so a missing `nvim` is said at startup,
+    // A transient bottom-right toast (message + expiry + the error it shows, which a failed submit
+    // sets); armed by a queued notice, and once if `git` is missing. The user turned editor panes on, so a missing `nvim` is said at startup,
     // not left to a refused `--edit`.
-    let mut toast: Option<(String, Instant)> = tab
+    let mut toast: Option<(String, Instant, Option<laura::tab::Error>)> = tab
         .editor
         .as_ref()
         .err()
         .filter(|e| **e == laura::editor::Error::NoNvim)
-        .map(|e| (format!("⚠ {e}"), Instant::now() + Duration::from_secs(10)));
+        .map(|e| {
+            let until = Instant::now() + Duration::from_secs(10);
+            (format!("⚠ {e}"), until, None)
+        });
     let mut toast_git_shown = false;
 
     loop {
@@ -255,7 +263,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         tab.drain(content);
         // The web app shows each notice; the TUI shows the newest in its toast.
         if let Some((_, text)) = tab.notices.drain(..).next_back() {
-            toast = Some((text, Instant::now() + Duration::from_secs(5)));
+            toast = Some((text, Instant::now() + Duration::from_secs(5), None));
         }
         // git-presence is a machine-global fact: arm the "install git" toast once,
         // the first time any diff attempt (open or reload) found no `git` binary.
@@ -264,9 +272,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             toast = Some((
                 view::NO_GIT.into(),
                 Instant::now() + Duration::from_secs(10),
+                None,
             ));
         }
-        if toast.as_ref().is_some_and(|(_, e)| Instant::now() >= *e) {
+        if toast.as_ref().is_some_and(|(_, e, _)| Instant::now() >= *e) {
             toast = None;
         }
         // One rect map per frame — render, resize, wheel and popups all read it.
@@ -375,7 +384,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
             // A live toast (e.g. a failed submit) wins the bottom-right slot; then the exited shell's
             // notice, while Neovim holds Laura open; then a focused frozen pane's notice, which
             // returns once the toast expires, until submit / ^r clears it.
-            if let Some((msg, _)) = &toast {
+            if let Some((msg, _, _)) = &toast {
                 render_toast(f, msg);
             } else if tab.pty.has_exited() {
                 render_toast(f, SHELL_EXITED);
@@ -440,6 +449,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             toast = Some((
                                 "✅ Experimental · Editor panes setup complete".into(),
                                 Instant::now() + Duration::from_secs(10),
+                                None,
                             ));
                             tab.editor_theme = yes;
                         }
@@ -489,7 +499,8 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         text: ed.text,
                                     });
                                     if let Err(t) = res {
-                                        toast = Some((t, Instant::now() + Duration::from_secs(5)));
+                                        let until = Instant::now() + Duration::from_secs(5);
+                                        toast = Some((t.to_string(), until, None));
                                     }
                                 }
                                 Draft::Review(pane, Editor { text: body, .. }) => {
@@ -498,20 +509,19 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                                         body: body.clone(),
                                     });
                                     if let Err(t) = res {
-                                        toast = Some((t, Instant::now() + Duration::from_secs(5)));
+                                        let until = Instant::now() + Duration::from_secs(5);
+                                        toast = Some((t.to_string(), until, Some(t)));
                                         draft = Some(Draft::Review(pane, Editor::new(body)));
-                                    } else {
+                                    } else if submit_failed(&toast) {
                                         // A retry that lands must not leave "Enter to retry" up.
-                                        if toast.as_ref().is_some_and(|(m, _)| m == SUBMIT_FAILED) {
-                                            toast = None;
-                                        }
+                                        toast = None;
                                     }
                                 }
                             },
                             KeyCode::Esc => {
                                 draft = None;
                                 // Nothing left to retry, so "Enter to retry" would lie.
-                                if toast.as_ref().is_some_and(|(m, _)| m == SUBMIT_FAILED) {
+                                if submit_failed(&toast) {
                                     toast = None;
                                 }
                             }
@@ -549,8 +559,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         panes = Some(String::new());
                     } else if ctrl && key.code == KeyCode::Char('q') {
                         match tab.act(UserAction::Quit) {
-                            Err(message) => {
-                                toast = Some((message, Instant::now() + Duration::from_secs(5)))
+                            Err(e) => {
+                                let until = Instant::now() + Duration::from_secs(5);
+                                toast = Some((e.to_string(), until, None))
                             }
                             Ok(_) => confirm_quit = true,
                         }
@@ -609,7 +620,11 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                             _ => Ok(None),
                         };
                         if let Err(t) = res {
-                            toast = Some((t, Instant::now() + Duration::from_secs(5)));
+                            toast = Some((
+                                t.to_string(),
+                                Instant::now() + Duration::from_secs(5),
+                                None,
+                            ));
                         }
                     } else if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
                         && !tab.pty.on_alt_screen()

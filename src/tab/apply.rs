@@ -13,8 +13,8 @@ use crate::layout::{Layout, all_panes_fit, infer_split};
 use crate::panel::Panel;
 use crate::protocol::{Dir, Message, PTY_PANE, PaneId, Response, Side};
 
-use super::report::{build_report, fit_rows, overflow_warning, split_too_small};
-use super::{Tab, normalized, remove_if_temp};
+use super::report::{build_report, fit_rows, overflow_warning};
+use super::{Error, Tab, normalized, remove_if_temp};
 
 impl Tab {
     /// Build a panel for `path` (follow → highlight → diff, order preserved), insert it at `id`,
@@ -218,8 +218,9 @@ impl Tab {
         Response::Opened { pane: id, warnings }
     }
 
-    /// Open a file or URL in a new pane, or in pane `panel` in place.
-    fn open(&mut self, msg: Message, area: Rect) -> Response {
+    /// Open a file or URL in a new pane, or in pane `panel` in place. `Ok` holds the `Response`
+    /// of a helper that answers the agent itself, an error included.
+    pub(super) fn open(&mut self, msg: Message, area: Rect) -> Result<Response, Error> {
         let Message::Open {
             path,
             split,
@@ -242,35 +243,27 @@ impl Tab {
         // changes nothing, since the pane always shows the page live.
         let url = browser::is_url(&path);
         if url {
-            if let Err(message) = self.browser_gate() {
-                return Response::Error { message };
-            }
+            self.browser_gate()?;
             let flag = [
                 (highlight.is_some(), browser::NO_HIGHLIGHT),
                 (diff, browser::NO_DIFF),
                 (edit, browser::NO_EDIT),
             ];
             if let Some((_, message)) = flag.into_iter().find(|(on, _)| *on) {
-                return Response::Error {
-                    message: message.into(),
-                };
+                return Err(message.into());
             }
         }
         if edit && let Err(e) = &self.editor {
-            return Response::Error {
-                message: e.to_string(),
-            };
+            return Err(e.to_string().into());
         }
         if edit && (highlight.is_some() || diff) {
-            return Response::Error {
-                message: editor::SHOWS_NEITHER.into(),
-            };
+            return Err(editor::SHOWS_NEITHER.into());
         }
         // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
         // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
         // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
         if let Some(id) = panel {
-            return self.replace_panel(id, path, follow, highlight, diff, edit, area);
+            return Ok(self.replace_panel(id, path, follow, highlight, diff, edit, area));
         }
         let new = self.next_pane;
         let inferred = (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
@@ -299,27 +292,22 @@ impl Tab {
                 ratio
             };
         if dry_run {
-            return self.dry_run_open(&path, target, dir, ratio, side, area);
+            return Ok(self.dry_run_open(&path, target, dir, ratio, side, area));
         }
         let mut probe = self.layout.clone();
         if probe.split(target, dir, ratio, side, new).is_ok()
             && !all_panes_fit(&self.shown(&probe), area)
         {
-            return Response::Error {
-                message: split_too_small(),
-            };
+            return Err(Error::SplitTooSmall);
         }
         // Open the page before the split, so a page that won't open adds no pane.
-        let page = match url.then(|| self.open_page(new, &path)).transpose() {
-            Ok(page) => page,
-            Err(message) => return Response::Error { message },
-        };
+        let page = url.then(|| self.open_page(new, &path)).transpose()?;
         match self.layout.split(target, dir, ratio, side, new) {
             Ok(()) => {
                 self.next_pane += 1;
                 if edit && let Err(e) = self.attach_editor(new, &path, area) {
                     let _ = self.layout.remove(new);
-                    return e;
+                    return Ok(e);
                 }
                 let dup = self.already_open(&path, new);
                 let mut warnings = self.install_panel(new, &path, follow, highlight, diff, area);
@@ -344,19 +332,23 @@ impl Tab {
                 if focus && !edit {
                     self.pending_focus = Some(new);
                 }
-                Response::Opened {
+                Ok(Response::Opened {
                     pane: new,
                     warnings,
-                }
+                })
             }
-            Err(message) => Response::Error { message },
+            Err(message) => Err(message.into()),
         }
     }
 
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
         match msg {
-            msg @ Message::Open { .. } => self.open(msg, area),
+            msg @ Message::Open { .. } => {
+                self.open(msg, area).unwrap_or_else(|e| Response::Error {
+                    message: e.to_string(),
+                })
+            }
             Message::Close { pane, all } => {
                 if all {
                     // All-or-nothing: one pane under review refuses the whole close.

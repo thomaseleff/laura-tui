@@ -19,7 +19,7 @@ use crate::browser::{self, Browser, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp};
-use crate::layout::{Layout, rects};
+use crate::layout::{Layout, MIN_PANE, rects};
 use crate::panel::{Panel, bracketed_paste};
 use crate::platform::runtime_dir;
 use crate::protocol::{self, Message, PTY_PANE, PaneId, Reply, Response};
@@ -32,7 +32,7 @@ mod links;
 mod report;
 pub use report::overflow_warning;
 
-/// A link that can't open a pane, in place of `split_too_small`.
+/// A link that can't open a pane, in place of `Error::SplitTooSmall`.
 pub const NO_ROOM: &str = "⚠ No room for another pane. Close a pane, then click the link again.";
 /// `c` / `Shift+S` before `laura ready`. Trailing space: ⚠ renders width-2.
 pub const NEEDS_READY: &str = "⚠ The agent must run `laura ready` before you can comment. ";
@@ -54,6 +54,35 @@ pub const NO_ROOM_TO_DOCK: &str =
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
 pub const NO_SHELL: &str = "⚠ The shell stopped, so Laura cannot submit the inline review. ";
+
+/// An error from `Tab::act` or the agent's `open`. A caller matches a variant; `Text` is shown as is.
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub enum Error {
+    /// The agent's split would leave a pane below `MIN_PANE`.
+    #[error(
+        "split would shrink a pane below {}×{} — too small to render; close a pane or lower --ratio",
+        MIN_PANE.0,
+        MIN_PANE.1
+    )]
+    SplitTooSmall,
+    /// The inline review didn't reach the shell; the cause is in the journal.
+    #[error("{}", SUBMIT_FAILED)]
+    SubmitFailed,
+    #[error("{0}")]
+    Text(String),
+}
+
+impl From<String> for Error {
+    fn from(text: String) -> Self {
+        Error::Text(text)
+    }
+}
+
+impl From<&str> for Error {
+    fn from(text: &str) -> Self {
+        Error::Text(text.into())
+    }
+}
 
 /// What the user did. Never a protocol `Message`: the agent can't send one. The web app sends
 /// these as JSON, `{"act":"move_cursor","pane":1,"delta":-1}`.
@@ -463,7 +492,7 @@ impl Tab {
     /// `Shift+S` → `Enter`: write pane `pane`'s inline review with `body` into the shell and
     /// journal it. A sent review returns focus to the shell, and an editor pane to its editor
     /// view; a failed one keeps the threads for a retry.
-    fn submit(&mut self, pane: PaneId, body: &str) -> Result<(), String> {
+    fn submit(&mut self, pane: PaneId, body: &str) -> Result<(), Error> {
         self.review_gate(pane)?;
         let bells = self.pty.bells();
         let pty = &self.pty;
@@ -480,7 +509,7 @@ impl Tab {
         }
         self.log_event(event);
         // The cause is in the journal; the notice stays fixed.
-        res.map_err(|_| SUBMIT_FAILED.to_string())?;
+        res.map_err(|_| Error::SubmitFailed)?;
         if let Some(e) = self.editors.get_mut(&pane) {
             e.editor_view = true;
         }

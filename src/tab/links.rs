@@ -10,8 +10,7 @@ use serde_json::json;
 use crate::http;
 use crate::protocol::{PTY_PANE, PaneId, Response};
 
-use super::report::split_too_small;
-use super::{NO_ROOM, Tab, no_pane};
+use super::{Error, NO_ROOM, Tab, no_pane};
 
 impl Tab {
     /// Open `href`'s file, without its `?query`, beside pane `pane`'s, as `laura open` would, or move to the pane already
@@ -81,12 +80,13 @@ impl Tab {
         }
         let msg = serde_json::from_value(json!({"type": "open", "path": file}))
             .expect("a path-only open always parses");
-        match self.apply(msg, self.area) {
-            Response::Opened { pane, .. } => Ok(pane),
+        match self.open(msg, self.area) {
+            Ok(Response::Opened { pane, .. }) => Ok(pane),
+            Ok(Response::Error { message }) => Err(message),
             // The user clicked a link and set no --ratio: the agent's split text doesn't help.
-            Response::Error { message } if message == split_too_small() => Err(NO_ROOM.into()),
-            Response::Error { message } => Err(message),
-            _ => unreachable!("an open without dry_run answers Opened or Error"),
+            Err(Error::SplitTooSmall) => Err(NO_ROOM.into()),
+            Err(e) => Err(e.to_string()),
+            Ok(_) => unreachable!("an open without dry_run answers Opened or Error"),
         }
     }
 

@@ -426,7 +426,7 @@ impl WebServer {
                                 let _ = tab.act(a);
                                 continue;
                             }
-                            r => r.map_err(|e| e.to_string()),
+                            r => r.map_err(|e| crate::tab::Error::Text(e.to_string())),
                         };
                         let res = res.and_then(|a| {
                             let comment = match a {
@@ -490,10 +490,11 @@ impl WebServer {
                                        "anchor": anchor, "hint": hint})
                             }
                             Err(e) => {
-                                let e = if e == crate::tab::SUBMIT_FAILED {
-                                    crate::tab::SUBMIT_FAILED_WEB.to_string()
-                                } else {
-                                    e
+                                let e = match e {
+                                    crate::tab::Error::SubmitFailed => {
+                                        crate::tab::SUBMIT_FAILED_WEB.to_string()
+                                    }
+                                    e => e.to_string(),
                                 };
                                 json!({"t": "acted", "ok": false, "text": e})
                             }
@@ -537,7 +538,7 @@ impl WebServer {
                         // Again, after the user's `y`: edits made since still block it.
                         match tab.act(UserAction::Quit) {
                             Ok(_) => quit = true,
-                            Err(e) => v.text(json!({"t": "notice", "text": e})),
+                            Err(e) => v.text(json!({"t": "notice", "text": e.to_string()})),
                         }
                     }
                 }
