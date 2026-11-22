@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, OnceLock};
@@ -19,7 +19,6 @@ use serde_json::json;
 use crate::browser::{self, Browser, Cdp, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
-use crate::http;
 use crate::journal::{Journal, is_runtime_temp, session_path};
 use crate::layout::{Layout, all_panes_fit, infer_split, rects};
 use crate::panel::{Panel, bracketed_paste};
@@ -27,6 +26,7 @@ use crate::platform::runtime_dir;
 use crate::protocol::{self, Dir, Message, PTY_PANE, PaneId, Reply, Response, Side};
 use crate::pty::PtyTab;
 
+mod links;
 mod report;
 pub use report::overflow_warning;
 use report::{build_report, fit_rows, split_too_small};
@@ -725,100 +725,6 @@ impl Tab {
             .get(&pane)
             .filter(|e| e.editor_view)
             .map(|e| &e.pty)
-    }
-
-    /// Open `href`'s file, without its `?query`, beside pane `pane`'s, as `laura open` would, or move to the pane already
-    /// showing it, and put the cursor on its `#heading`. A bare `#heading` moves pane `pane`'s
-    /// cursor. A missing heading is a notice for the pane that shows the file.
-    fn open_link(&mut self, pane: PaneId, href: &str) -> Result<(), String> {
-        let missing = || format!("⚠ The link target {href} does not exist.");
-        let (path, heading) = href.split_once('#').unwrap_or((href, ""));
-        let path = path.split_once('?').map_or(path, |(p, _)| p);
-        let (path, heading) = (
-            http::pct_decode(path).ok_or_else(missing)?,
-            http::pct_decode(heading).ok_or_else(missing)?,
-        );
-        let mut target = pane;
-        let dir = Path::new(&self.panel_mut(pane)?.path)
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
-        if !path.is_empty() {
-            // A root or drive (`/x`, `//host/share`, `C:x`) would replace the folder in `join`.
-            let rel = Path::new(&path);
-            if !rel.components().all(|c| {
-                matches!(
-                    c,
-                    Component::Normal(_) | Component::CurDir | Component::ParentDir
-                )
-            }) {
-                return Err(missing());
-            }
-            // As `laura open` names it, so `..` and `/` match the CLI's path on Windows.
-            let file = std::path::absolute(dir.join(rel)).map_err(|_| missing())?;
-            if file.is_dir() {
-                return Err(format!("⚠ The link target {href} is a folder."));
-            }
-            if !file.is_file() {
-                return Err(missing());
-            }
-            target = self.open_file(file.to_string_lossy().into_owned())?;
-        }
-        // Not `panel_mut`: an editor pane in its editor view keeps the heading for its file view.
-        let p = self
-            .panels
-            .get_mut(&target)
-            .ok_or_else(|| no_pane(target))?;
-        if !heading.is_empty() && !p.blocks().is_empty() {
-            match p.heading_line(&heading) {
-                Some(line) => p.jump_to_line(line),
-                // A notice, not an error: an error shows in the link's pane, and `target` can be another.
-                None => {
-                    let name = Path::new(&p.path).file_name().unwrap_or_default();
-                    let text = format!(
-                        "⚠ The file {} has no heading #{heading}.",
-                        name.to_string_lossy()
-                    );
-                    self.notices.push((Some(target), text));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Focus the pane already showing the absolute `file`, else open it as `laura open` would.
-    fn open_file(&mut self, file: String) -> Result<PaneId, String> {
-        if let Some(id) = self.showing(&file, PTY_PANE) {
-            self.focus = id;
-            return Ok(id);
-        }
-        let msg = serde_json::from_value(json!({"type": "open", "path": file}))
-            .expect("a path-only open always parses");
-        match self.apply(msg, self.area) {
-            Response::Opened { pane, .. } => Ok(pane),
-            // The user clicked a link and set no --ratio: the agent's split text doesn't help.
-            Response::Error { message } if message == split_too_small() => Err(NO_ROOM.into()),
-            Response::Error { message } => Err(message),
-            _ => unreachable!("an open without dry_run answers Opened or Error"),
-        }
-    }
-
-    /// Open `path` (relative to Laura's folder) and put the cursor on `line`.
-    fn open_path(&mut self, path: &str, line: Option<u32>) -> Result<(), String> {
-        let missing = || format!("⚠ The link target {path} does not exist.");
-        let file = std::path::absolute(path).map_err(|_| missing())?;
-        if file.is_dir() {
-            return Err(format!("⚠ The link target {path} is a folder."));
-        }
-        if !file.is_file() {
-            return Err(missing());
-        }
-        let id = self.open_file(file.to_string_lossy().into_owned())?;
-        // Not `panel_mut`: an editor pane in its editor view keeps the line for its file view.
-        if let (Some(l), Some(p)) = (line, self.panels.get_mut(&id)) {
-            p.jump_to_line(l);
-        }
-        Ok(())
     }
 
     /// Write `bytes` to pane `pane`'s terminal, snapping it to live.
