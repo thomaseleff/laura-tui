@@ -4,14 +4,33 @@ See [README.md](README.md) for what Laura is and how to run it, and [docs/](docs
 
 ## Coding
 
-Standard Rust. No house style on top of it.
+Standard Rust, plus the organization rules below. Public names and signatures follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/naming.html) (`as_`/`to_`/`into_`, no `get_` prefix, `new` for constructors).
 
 - **Format:** `cargo fmt` — default rustfmt, no custom `rustfmt.toml` unless a real need appears.
 - **Lint:** `cargo clippy --all-targets -- -D warnings` must pass. Fix lints, don't `#[allow]` them without a one-line reason on the attribute.
 - **Edition:** latest stable (2024). Toolchain pinned in `rust-toolchain.toml`.
-- **Errors:** `anyhow` at binary boundaries, `thiserror` for typed library errors. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
-- **Naming/layout:** stock Rust conventions (snake_case, `mod`s per concern). Don't invent abstractions ahead of the second caller.
+- **Errors:** `anyhow` at binary boundaries. In the library, an error a caller branches on is a variant of its module's `Error` enum (`thiserror`); never compare error text. `Result<_, String>` is only for text Laura shows as is, to the user or the agent. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
 - **Comments/docstrings:** terse; explain *why*, not *what*. Match the surrounding file's density.
+
+### Code organization
+
+Laura's modules sit in four layers. A module uses its own layer and the layers below it, never a layer above.
+
+1. **Front-ends:** the web app (`web.rs`, `assets/web/`), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
+2. **Workspace:** `tab.rs`, `layout.rs`, `journal.rs`.
+3. **Panes:** the shell (`pty.rs`), file panes (`panel.rs`, `render.rs`, `gitdiff.rs`), browser panes (`browser.rs`, `cdp_proxy.rs`), editor panes (`editor.rs`).
+4. **Leaves:** `protocol.rs`, `settings.rs`. The HTTP, encoding and folder helpers in `web.rs` belong here too; `tab`, `browser`, `cdp_proxy`, `serve` and `settings` import them from `web` today, which breaks the rule.
+
+These rules hold for the Rust and for the web client:
+
+- **One rule, one place.** A rule both front-ends follow is a function in the domain that owns the state (`panel`, `tab`), and both front-ends call it. The web client gets the result in a frame, and only measures and paints. A derived condition is one method (`Tab::drawer_in_use`), never an inline copy.
+- **State behind its owner.** New state is a field on the struct that owns it, read and changed through that struct's methods. Don't add a public field that a front-end reads. Don't add another map keyed by `PaneId` beside `panels`, `editors` and `browsers`: put per-pane state on the pane.
+- **Kinds are enums.** A new kind or mode is an enum variant, not a `bool` (`Panel`'s `tail`, `browser` and `diff_view` are the pattern to retire).
+- **Small units.** A function does one step. A `match` over messages or actions calls one function per arm. A function past about 80 lines, or a file past about 1,500, splits along a seam the code already has.
+- **Smallest visibility.** `pub` only for what the binary or the tests use; `pub(crate)` or `pub(super)` otherwise.
+- **A module says what it owns.** Each module opens with a `//!` paragraph in the glossary's terms, and `src/lib.rs` lists each module in one line.
+- **The web client reports to Laura.** Strings go in through `esc`. A focus move or keystroke the client handles alone still tells the server, because the focus and the wait live in `tab`.
+- **No abstraction ahead of the second caller.**
 
 ## Commits & PRs
 
@@ -45,9 +64,14 @@ Run before calling anything done: `cargo fmt --check && cargo clippy --all-targe
 
 ## Implementation requirements
 
-Implementation should always be comprehensive of code, tests, docs and skills.
+Implementation should always be comprehensive of code, tests, docs and skills, and should leave the code it touches up to the Coding rules.
 
 - **Code** — the feature itself.
+- **Cleanup** — bring what you touch up to the rules in Coding and Code organization. What you touch is each function you change and each module you add code to.
+  - Fix that function or that addition, not the whole file: extract the `match` arm you change, type the error you branch on, put the state you add behind a method. A new rule follows "One rule, one place" from the start.
+  - A cleanup doesn't change behavior. It goes in its own commit before the feature commit, and the tests pass on it unchanged.
+  - If a cleanup would reach into another domain, or grow larger than the change itself, open an issue for it instead and name the issue in the PR body.
+  - The PR body names each cleanup in one line.
 - **Tests** — integration coverage per the workstream's *Done when* (see Testing).
 - **Docs** — `README.md` + `docs/` reflect the new verbs, flags, protocol messages, keybindings.
 - **Skills** — `plugins/laura/skills/` teach the agent the new surface. Revise `skills/demo/` when the demo must show a new user-facing capability. Record a demo (`/record-demo`) only when the user asks. A change to `skills/demo/` is not a request to record the README demo. The user asks for the video after the feature works.
@@ -65,7 +89,11 @@ For prose in `README.md`, `docs/`, and skills.
 - **Write for someone new to Laura.** Describe what the user sees, with no internals or jargon.
 - **Lead with what it is and what to do, then how.** Use numbered steps for setup.
 - **One idea per paragraph.** Split a dense paragraph into a list.
-- **Document each fact in one place.** Elsewhere, link to that place instead of repeating the fact.
+- **Document each fact in one place.** Elsewhere, link to that place instead of repeating the fact. Each kind of fact has one place:
+  - Keystrokes: `docs/navigation.md`. `docs/tui-navigation.md` and the skills link to it, and add only what differs.
+  - CLI verbs and flags: `docs/cli.md`.
+  - Protocol messages: `docs/protocol.md`.
+  - Notice texts: a `const` in the module that shows the notice (`tab.rs`, `browser.rs`, `editor.rs`, `view.rs`), quoted once in `docs/navigation.md`.
 - **Use the glossary terms exactly.** When citing an error or notice, copy its exact text.
 - **Experimental means early, not unsafe.** Describe an experimental feature as a minimal implementation of a pattern that's still evolving, not as a warning.
 
@@ -127,7 +155,9 @@ The following glossary defines the vocabulary for Laura's components and interac
 
 - **Revision** at the top (`Revision N`); bump it on every revision.
 - **Organize by commit, not by artifact.** Each commit carries its own code, tests, docs, and
-  skills, passes the check suite on its own, and can be reviewed in isolation.
+  skills, passes the check suite on its own, and can be reviewed in isolation. A cleanup
+  (see Implementation requirements) is its own commit, listed before the feature commit it
+  prepares.
 - **Reference note.** Put this under the title word for word, filling in `{branch}` and
   `{commit}`:
 
