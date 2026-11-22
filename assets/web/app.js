@@ -242,6 +242,7 @@ function fitShell(force) {
   const rows = Math.max(5, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
   // The drawer's minimum shows those 5 rows: the header, the body's inset and padding, and the rows.
   root.style.setProperty("--drawer-min", Math.ceil(box.offsetTop + 6 + 32 + 5 * r.height / t.rows) + "px");
+  ariaDrawer();
   if (cols === t.cols && rows === t.rows && !force) return;
   t.resize(cols, rows);
   send({ shell: { cols, rows } });
@@ -670,13 +671,21 @@ function saveDrawer(h) {
   heldDrawer = h ?? null;
   act({ act: "drawer_height", percent: h }, () => heldDrawer === h && (heldDrawer = null));
 }
+// The drawer's height in % as the user sees it: the 5 rows can make the drawer taller than `--drawer`.
+const shownDrawer = () => Math.max(drawerRange()[0],
+  Math.round(parseFloat(root.style.getPropertyValue("--drawer")) || layout.drawer_height));
+// Tell a screen reader the height that the drawer shows, and the lowest height the window allows.
+function ariaDrawer(g = $("p0")?.querySelector(".grip")) {
+  g?.setAttribute("aria-valuemin", drawerRange()[0]);
+  g?.setAttribute("aria-valuenow", shownDrawer());
+}
 // Show the drawer at `h`%, and tell a screen reader.
-const showDrawer = h => (root.style.setProperty("--drawer", h + "%"), $("p0")?.querySelector(".grip")?.setAttribute("aria-valuenow", h));
+const showDrawer = h => (root.style.setProperty("--drawer", h + "%"), ariaDrawer());
 // `Ctrl+Shift+↑ ↓`, or `↑ ↓` on the grip: the drawer `d`% taller, within its range. The shell's
 // `ResizeObserver` fits the shell.
 function stepDrawer(d) {
   const [lo, hi] = drawerRange();
-  const cur = Math.round(parseFloat(root.style.getPropertyValue("--drawer")) || layout.drawer_height);
+  const cur = shownDrawer();
   const h = Math.min(hi, Math.max(lo, cur + d));
   showDrawer(h);
   saveDrawer(h);
@@ -692,9 +701,10 @@ function grip(el) {
   g.className = "grip tip-c";
   g.dataset.tip = GRIP_TIP;
   g.tabIndex = 0;
-  for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "horizontal", "aria-valuemin": 20,
-    "aria-valuemax": 85, "aria-valuenow": layout.drawer_height, "aria-label": "Drawer height" })) g.setAttribute(k, v);
+  for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "horizontal", "aria-valuemax": 85,
+    "aria-label": "Drawer height" })) g.setAttribute(k, v);
   el.append(g);
+  ariaDrawer(g);
   // The pane's own handlers would take the focus or the line.
   for (const t of ["mousedown", "click"]) g.addEventListener(t, e => e.stopPropagation());
   let h = null;

@@ -1391,7 +1391,13 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
     let least = eval(&mut r, "drawerRange()[0]");
     // B's page is short: the 5 rows need more than 20%.
     assert!(least.as_u64().is_some_and(|l| l > 20), "{least}");
-    saved(&mut r, &mut eval, drawer, least, "the drag to the bottom");
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        least.clone(),
+        "the drag to the bottom",
+    );
     until(
         &mut r,
         &mut eval,
@@ -1400,6 +1406,39 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
          return !resizing && terms.get(0).rows >= 5 && s.bottom <= t.bottom; })()",
         "the drawer cuts off a row of the shell",
     );
+    // A screen reader hears the height that the drawer shows, and the lowest height the window
+    // allows; `↑` on the grip steps from the shown height.
+    let aria = |k: &str| format!("document.querySelector('#p0 .grip').getAttribute('{k}')");
+    assert_eq!(eval(&mut r, &aria("aria-valuemin")), least.to_string());
+    assert_eq!(eval(&mut r, &aria("aria-valuenow")), least.to_string());
+    eval(&mut r, "act({act: 'drawer_height', percent: 20})");
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        json!(20),
+        "a height under the 5 rows",
+    );
+    until(
+        &mut r,
+        &mut eval,
+        &format!(
+            "root.style.getPropertyValue('--drawer') === '20%' && {} === '{least}'",
+            aria("aria-valuenow")
+        ),
+        "the grip tells a height that the drawer doesn't show",
+    );
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press(&mut ws, id, "ArrowUp", 38);
+    let up = json!(least.as_u64().expect("a height") + 5);
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        up,
+        "↑ on the grip under the 5 rows",
+    );
+    eval(&mut r, "terms.get(0).focus()");
 
     // Any loss of the capture ends the drag.
     let (x, y) = point(&mut r, &mut eval, centre, grip);
