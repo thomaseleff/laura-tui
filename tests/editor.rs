@@ -272,6 +272,7 @@ fn open_edit_runs_neovim_in_a_pane_without_focus() -> Result<()> {
 }
 
 /// Real Neovim: skipped when `nvim` isn't on `PATH`; under `CI`, it fails.
+// Timing-fragile on Windows CI: when this test fails there, rerun the failed job once.
 #[test]
 fn bracket_d_opens_the_next_thread() -> Result<()> {
     let mut tab = spawn_tab()?;
