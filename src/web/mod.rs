@@ -44,21 +44,13 @@ const OUTBOUND_BOUND: usize = 1024;
 
 /// Path, content type, body. The files hold no workspace data, so they need no token.
 pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
-    (
-        "/",
-        "text/html",
-        include_bytes!("../../assets/web/index.html"),
-    ),
+    ("/", "text/html", include_bytes!("client/index.html")),
     (
         "/app.js",
         "text/javascript",
-        include_bytes!("../../assets/web/app.js"),
+        include_bytes!("client/app.js"),
     ),
-    (
-        "/style.css",
-        "text/css",
-        include_bytes!("../../assets/web/style.css"),
-    ),
+    ("/style.css", "text/css", include_bytes!("client/style.css")),
     (
         "/xterm.js",
         "text/javascript",
@@ -769,9 +761,9 @@ fn reconcile(bases: &mut Bases, files: &Files, root: &Path, tab: &Tab) {
             // The block keeps `lauraDraw` out of the page's globals.
             let script = concat!(
                 "<script>{\n",
-                include_str!("../../assets/web/draw.js"),
+                include_str!("client/draw.js"),
                 "\n",
-                include_str!("../../assets/web/page.js"),
+                include_str!("client/page.js"),
                 "\n}</script>"
             );
             let html = tag_lines(&p.content, script);
