@@ -434,12 +434,12 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
     println!("{}", web.url());
     // From a pipe (a script or a test), the caller opens the URL itself.
     if std::io::stdout().is_terminal() {
-        let opener = laura::browser::opener();
+        let opener = laura::platform::opener();
         if let Err(e) = web
             .open_page(&opener.dir)
             .and_then(|p| opener.open(&p).map_err(Into::into))
         {
-            laura::browser::no_browser(e);
+            laura::platform::no_browser(e);
         }
     }
     let mut told = false;
@@ -545,7 +545,7 @@ fn tail(
     let Ok(tab) = std::env::var("LAURA_TAB") else {
         bail!("not inside a Laura workspace (LAURA_TAB unset)");
     };
-    let runtime = laura::journal::runtime_dir();
+    let runtime = laura::platform::runtime_dir();
     std::fs::create_dir_all(&runtime)
         .with_context(|| format!("couldn't create {}", runtime.display()))?;
     let stem = title.as_deref().unwrap_or("tail");

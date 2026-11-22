@@ -8,12 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
 
-/// Laura's data dir: `~/.laura` on every OS.
-pub fn data_dir() -> PathBuf {
-    std::env::home_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(".laura")
-}
+use crate::platform::{data_dir, runtime_dir};
 
 /// Where every session's journal lives.
 pub fn sessions_dir() -> PathBuf {
@@ -23,31 +18,6 @@ pub fn sessions_dir() -> PathBuf {
 /// The per-session NDJSON path. `session` is sanitized to a safe file stem.
 pub fn session_path(session: &str) -> PathBuf {
     sessions_dir().join(format!("{}.ndjson", sanitize(session)))
-}
-
-/// Scratch dir for `laura tail` spools: a per-user temp dir, so a crash's leftovers sit with the OS's temp files.
-/// Always a `laura` subdir: `is_runtime_temp` is a direct-child check, and `close` deletes what it matches.
-/// Inside a tab, `LAURA_RUNTIME` carries the host's choice, so a client with other temp env spools where `close` looks (#84).
-/// A `LAURA_RUNTIME` the client can't create (sandbox) falls through; `close` can't find that spool, so it stays in the temp dir.
-pub fn runtime_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("LAURA_RUNTIME")
-        .map(PathBuf::from)
-        .filter(|d| d.is_absolute() && d.ends_with("laura") && std::fs::create_dir_all(d).is_ok())
-    {
-        return d;
-    }
-    // An XDG_RUNTIME_DIR Laura can't create a dir in falls through to the per-OS dir.
-    if let Some(d) = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|d| d.is_absolute() && std::fs::create_dir_all(d.join("laura")).is_ok())
-    {
-        return d.join("laura");
-    }
-    if cfg!(any(windows, target_os = "macos")) {
-        std::env::temp_dir().join("laura") // per-user already
-    } else {
-        data_dir().join("runtime").join("laura") // a bare /tmp is shared between users
-    }
 }
 
 /// Whether `path` is a spool directly in `runtime_dir` (so `close` may delete it).

@@ -19,7 +19,7 @@ Laura's modules sit in four layers. A module uses its own layer and the layers b
 1. **Front-ends:** the web app (`web.rs`, `assets/web/`), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
 2. **Workspace:** `tab.rs`, `layout.rs`, `journal.rs`.
 3. **Panes:** the shell (`pty.rs`), file panes (`panel.rs`, `render.rs`, `gitdiff.rs`), browser panes (`browser.rs`, `cdp_proxy.rs`), editor panes (`editor.rs`).
-4. **Leaves:** `protocol.rs`, `settings.rs`. The HTTP, encoding and folder helpers in `web.rs` belong here too; `tab`, `browser`, `cdp_proxy`, `serve` and `settings` import them from `web` today, which breaks the rule.
+4. **Leaves:** `protocol.rs`, `settings.rs`, `http.rs` (HTTP, tokens, origin checks, URL encoding), `platform.rs` (Laura's folders, private files, the user's browser opener).
 
 These rules hold for the Rust and for the web client:
 

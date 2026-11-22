@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 /// `~/.laura/settings.json`.
 pub fn path() -> PathBuf {
-    crate::journal::data_dir().join("settings.json")
+    crate::platform::data_dir().join("settings.json")
 }
 
 /// The settings in the file. A missing file has none. A file that Laura can't read or parse is an
@@ -27,7 +27,7 @@ pub fn get(key: &str) -> Option<Value> {
 
 /// Set `key`, or remove it for `None`. Keeps the other keys.
 pub fn set(key: &str, value: Option<Value>) -> Result<()> {
-    let dir = crate::journal::data_dir();
+    let dir = crate::platform::data_dir();
     std::fs::create_dir_all(&dir)?;
     // Another Laura's save waits here, so neither save drops the other's key. The OS ends the lock
     // when `lock` drops, or when a Laura crashes. Never truncate: another Laura may hold the lock.
@@ -42,5 +42,5 @@ pub fn set(key: &str, value: Option<Value>) -> Result<()> {
         Some(v) => s.insert(key.into(), v),
         None => s.remove(key),
     };
-    crate::web::write_private(&path(), Value::Object(s).to_string().as_bytes())
+    crate::platform::write_private(&path(), Value::Object(s).to_string().as_bytes())
 }

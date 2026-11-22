@@ -18,7 +18,7 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
 use crate::browser;
-use crate::web::{header, nothing_yet, peek_head, respond};
+use crate::http::{header, nothing_yet, peek_head, respond};
 
 /// The reply before Laura's browser starts, or after it exits.
 pub const NOT_RUNNING: &str =

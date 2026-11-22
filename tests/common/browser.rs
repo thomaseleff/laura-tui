@@ -761,7 +761,7 @@ impl Tools {
                     }
                 }
                 Ok(_) => {}
-                Err(e) if laura::web::nothing_yet(&e) => {
+                Err(e) if laura::http::nothing_yet(&e) => {
                     r.pump();
                 }
                 Err(e) => panic!("{method}: {e}"),

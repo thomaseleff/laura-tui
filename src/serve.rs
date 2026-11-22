@@ -11,10 +11,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
-use crate::browser;
 use crate::gitdiff::strip_verbatim;
-use crate::journal::{data_dir, runtime_dir};
-use crate::web::{self, header, shown_root};
+use crate::http::{self, header};
+use crate::platform::{self, data_dir, runtime_dir, shown_root};
+use crate::web;
 
 /// 1989: the year Rachel and Stephen Kaplan named soft fascination.
 pub const DEFAULT_PORT: u16 = 1989;
@@ -100,22 +100,22 @@ pub fn run(port: u16, open: bool) -> Result<()> {
              white-space: pre-wrap; font: 12.5px/1.5 \"JetBrains Mono\", ui-monospace, Consolas, monospace; }}\
              </style><main><h1>Laura could not start</h1><pre>{text}</pre></main>"
         );
-        show(|dir| web::page(dir, &html));
+        show(|dir| platform::page(dir, &html));
     }
     result
 }
 
 /// Open the user's browser at the page that `write` puts in the opener's folder.
 fn show(write: impl FnOnce(&Path) -> Result<PathBuf>) {
-    let opener = browser::opener();
+    let opener = platform::opener();
     if let Err(e) = write(&opener.dir).and_then(|p| opener.open(&p).map_err(Into::into)) {
-        browser::no_browser(e);
+        platform::no_browser(e);
     }
 }
 
 /// Open the user's browser at the Laura server's `url`.
 fn open_at(url: &str) {
-    show(|dir| web::redirect_page(dir, url));
+    show(|dir| platform::redirect_page(dir, url));
 }
 
 /// Print the URL of the Laura server that runs on `port`, and with `open`, open the browser at it.
@@ -139,7 +139,7 @@ fn serve(port: u16, open: bool) -> Result<()> {
             return Ok(());
         }
         // A second click can find the old Laura server already stopped by the first. Then
-        // `web::listen` binds, or the branch below opens the Laura server of the first click.
+        // `http::listen` binds, or the branch below opens the Laura server of the first click.
         if let Err(e) = quit(old, &token) {
             // Or already replaced: the new Laura server refuses the old key.
             if let Some((new, token)) = state()
@@ -153,11 +153,11 @@ fn serve(port: u16, open: bool) -> Result<()> {
             }
         }
     }
-    let listener = match web::listen(port) {
+    let listener = match http::listen(port) {
         Ok(l) => l,
         // The Laura icon has no `--port` to pass. A second click can find the port taken by the
         // first one, which binds before it writes `serve.json`.
-        Err(_) if open && web::answers(port) => {
+        Err(_) if open && http::answers(port) => {
             let deadline = Instant::now() + Duration::from_secs(3);
             while Instant::now() < deadline {
                 if let Some((old, token)) = state()
@@ -177,9 +177,9 @@ fn serve(port: u16, open: bool) -> Result<()> {
     let port = listener.local_addr()?.port();
     // A new token on each start: a program that took the port while the Laura server was stopped
     // holds a key of no use.
-    let token = web::nonce(32)?;
+    let token = http::nonce(32)?;
     std::fs::create_dir_all(data_dir())?;
-    web::write_private(
+    platform::write_private(
         &state_path(),
         json!({"token": token, "port": port}).to_string().as_bytes(),
     )?;
@@ -236,8 +236,8 @@ fn reply(stream: &mut TcpStream, status: &str, mime: &str, body: &[u8], extra: &
          X-Content-Type-Options: nosniff\r\nReferrer-Policy: {}\r\n\
          Content-Security-Policy: {}\r\n{extra}Connection: close\r\n\r\n",
         body.len(),
-        web::REFERRER_POLICY,
-        web::CSP,
+        http::REFERRER_POLICY,
+        http::CSP,
     )?;
     stream.write_all(body)?;
     Ok(())
@@ -265,7 +265,7 @@ fn json_reply(stream: &mut TcpStream, v: &Value) -> Result<()> {
 
 /// One connection: the page and its files, or a request that needs the key.
 fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
-    let Some(mut head) = web::peek_head(&mut stream)? else {
+    let Some(mut head) = http::peek_head(&mut stream)? else {
         return Ok(());
     };
     stream.read_exact(&mut head)?;
@@ -286,12 +286,12 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
     if len.is_some_and(|n| n > MAX_BODY) {
         return text(&mut stream, "413 Content Too Large", "");
     }
-    if web::foreign_subresource(&head) {
+    if http::foreign_subresource(&head) {
         return text(&mut stream, "404 Not Found", "");
     }
     // The page sends the key in a header: a browser sends a cookie to every 127.0.0.1 port.
     let authed =
-        header(&head, "X-Laura-Key").is_some_and(|k| web::same(k.as_bytes(), s.token.as_bytes()));
+        header(&head, "X-Laura-Key").is_some_and(|k| http::same(k.as_bytes(), s.token.as_bytes()));
     let page = "text/html; charset=utf-8";
     match (method, path) {
         // The page holds no workspace: it asks `/workspaces`, and shows how to start Laura on 401.
@@ -320,14 +320,14 @@ fn route(mut stream: TcpStream, s: &Server) -> Result<()> {
             json_reply(&mut stream, &Value::Array(list))
         }
         ("GET", "/dirs") => {
-            let path = param("path").and_then(web::pct_decode).unwrap_or_default();
+            let path = param("path").and_then(http::pct_decode).unwrap_or_default();
             match dirs(&path) {
                 Some(v) => json_reply(&mut stream, &v),
                 None => text(&mut stream, "404 Not Found", &not_a_folder(&path)),
             }
         }
         // A second check: only the Laura server's own page starts or stops a process.
-        ("POST", "/new" | "/quit") if !web::our_origin(header(&head, "Origin"), s.port) => {
+        ("POST", "/new" | "/quit") if !http::our_origin(header(&head, "Origin"), s.port) => {
             text(&mut stream, "403 Forbidden", "")
         }
         ("POST", "/new") => {
@@ -444,7 +444,7 @@ fn start(exe: &Path, typed: &str, program: &str) -> Result<String, String> {
     // The workspace's stderr, which tells why a workspace failed to start.
     let log = runtime.join(format!(
         "start-{}.log",
-        web::nonce(8).map_err(|e| failed(&e))?
+        http::nonce(8).map_err(|e| failed(&e))?
     ));
     let stderr = std::fs::File::create(&log).map_err(|e| failed(&e))?;
     let mut cmd = Command::new(exe);
