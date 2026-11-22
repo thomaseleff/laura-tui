@@ -1,5 +1,6 @@
 //! The JSON frames that the web app's server sends a view each turn: the layout, each file pane's
-//! rows or page, each browser pane, and each pane's threads.
+//! rows or page, each browser pane, and each pane's threads. `src/web/CLAUDE.md` lists every
+//! frame.
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -16,7 +16,7 @@ Standard Rust, plus the organization rules below. Public names and signatures fo
 
 Laura's modules sit in four layers. A module uses its own layer and the layers below it, never a layer above.
 
-1. **Front-ends:** the web app (`web/`, its client in `web/client/`), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
+1. **Front-ends:** the web app (`web/`, its client in `web/client/`, its rules in [`src/web/CLAUDE.md`](src/web/CLAUDE.md)), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
 2. **Workspace:** `tab.rs`, `layout.rs`, `journal.rs`.
 3. **Panes:** the shell (`pty.rs`), file panes (`panel/`), browser panes (`browser.rs`, `cdp_proxy.rs`), editor panes (`editor.rs`).
 4. **Leaves:** `protocol.rs`, `settings.rs`, `http.rs` (HTTP, tokens, origin checks, URL encoding), `platform.rs` (Laura's folders, private files, the user's browser opener).
@@ -31,6 +31,15 @@ These rules hold for the Rust and for the web client:
 - **A module says what it owns.** Each module opens with a `//!` paragraph in the glossary's terms, and `src/lib.rs` lists each module in one line.
 - **The web client reports to Laura.** Strings go in through `esc`. A focus move or keystroke the client handles alone still tells the server, because the focus and the wait live in `tab`.
 - **No abstraction ahead of the second caller.**
+
+### Where knowledge goes
+
+A fact goes in the first place that can hold it:
+
+1. The code: a type, a name, a `//!` paragraph.
+2. A test.
+3. This `CLAUDE.md`.
+4. A domain's `CLAUDE.md` (today only [`src/web/CLAUDE.md`](src/web/CLAUDE.md)), only for a miss that reviews find twice.
 
 ## Commits & PRs
 
