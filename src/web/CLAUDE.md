@@ -49,3 +49,8 @@ Before a change to the web app, ask: does the TUI need the same change?
 - `run` and `drive` call the `laura` CLI against the workspace.
 
 Assert on frames, not pixels.
+
+The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `file_panes`, `markdown`, `pages`, `review`, `start` and `links`. The `//!` paragraph of each module tells what the module covers.
+
+- Add a web test to the module for its feature.
+- Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.

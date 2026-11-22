@@ -223,6 +223,7 @@ fn a_dropdown_list_takes_the_arrow_keys() -> Result<()> {
     dropdown(|r, ws, p| picks(r, ws, p, "/select", &[DOWN], &by_laura("ArrowDown b")))
 }
 
+// Timing-fragile on Windows CI: when this test fails there, rerun the failed job once.
 #[test]
 fn a_dropdown_list_in_a_web_component_takes_the_arrow_keys() -> Result<()> {
     dropdown(|r, ws, p| picks(r, ws, p, "/shadow-select", &[DOWN], "ArrowDown b"))
@@ -377,6 +378,7 @@ fn a_page_s_own_events_change_no_dropdown_list() -> Result<()> {
     dropdown(|r, ws, p| goto(r, ws, p, "/select-untrusted", "a false"))
 }
 
+// Timing-fragile on Windows CI: when this test fails there, rerun the failed job once.
 #[test]
 fn a_page_that_cancels_mousedown_keeps_the_dropdown_list_unfocused() -> Result<()> {
     dropdown(|r, ws, p| {
