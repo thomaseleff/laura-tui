@@ -105,7 +105,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 /// The folder Laura started in, for the top bar: under the home folder as `~/…`, with `/` between
 /// names on every OS.
 pub(crate) fn shown_root(root: &Path) -> String {
-    let strip = crate::gitdiff::strip_verbatim;
+    let strip = strip_verbatim;
     let root = strip(root.to_path_buf());
     let home = std::env::home_dir().and_then(|h| h.canonicalize().ok().map(strip));
     let shown = match home.as_deref().and_then(|h| root.strip_prefix(h).ok()) {
@@ -313,4 +313,16 @@ fn file_url(program: &Path, page: &Path) -> std::io::Result<String> {
     } else {
         format!("file:///{path}")
     })
+}
+
+/// Windows `canonicalize` yields `\\?\C:\…` verbatim paths git can't parse; drop
+/// the drive-letter prefix. (UNC shares are left alone — an accepted edge.)
+pub(crate) fn strip_verbatim(p: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(rest) = p.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
+        && !rest.starts_with("UNC\\")
+    {
+        return PathBuf::from(rest);
+    }
+    p
 }

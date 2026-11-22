@@ -269,7 +269,7 @@ impl WebServer {
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
         b.create(&dir)?;
-        let root = crate::gitdiff::strip_verbatim(self.root.clone());
+        let root = crate::platform::strip_verbatim(self.root.clone());
         let record = json!({"url": self.url, "root": root.to_string_lossy(), "pid": std::process::id(),
                             "title": title, "waiting": waiting, "program": program,
                             "started": self.started, "visited": self.visited});
