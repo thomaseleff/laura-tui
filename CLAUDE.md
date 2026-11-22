@@ -17,7 +17,7 @@ Standard Rust, plus the organization rules below. Public names and signatures fo
 Laura's modules sit in four layers. A module uses its own layer and the layers below it, never a layer above.
 
 1. **Front-ends:** the web app (`web/`, its client in `web/client/`, its rules in [`src/web/CLAUDE.md`](src/web/CLAUDE.md)), the TUI (`tui.rs`, `mouse.rs`, `keys.rs`), the Laura server (`serve.rs`, `shortcut.rs`), and `view.rs`, which both front-ends share.
-2. **Workspace:** `tab.rs`, `layout.rs`, `journal.rs`.
+2. **Workspace:** `tab/`, `layout.rs`, `journal.rs`.
 3. **Panes:** the shell (`pty.rs`), file panes (`panel/`), browser panes (`browser.rs`, `cdp_proxy.rs`), editor panes (`editor.rs`).
 4. **Leaves:** `protocol.rs`, `settings.rs`, `http.rs` (HTTP, tokens, origin checks, URL encoding), `platform.rs` (Laura's folders, private files, the user's browser opener).
 
@@ -102,7 +102,7 @@ For prose in `README.md`, `docs/`, and skills.
   - Keystrokes: `docs/navigation.md`. `docs/tui-navigation.md` and the skills link to it, and add only what differs.
   - CLI verbs and flags: `docs/cli.md`.
   - Protocol messages: `docs/protocol.md`.
-  - Notice texts: a `const` in the module that shows the notice (`tab.rs`, `browser.rs`, `editor.rs`, `view.rs`), quoted once in `docs/navigation.md`.
+  - Notice texts: a `const` in the module that shows the notice (`tab/`, `browser.rs`, `editor.rs`, `view.rs`), quoted once in `docs/navigation.md`.
 - **Use the glossary terms exactly.** When citing an error or notice, copy its exact text.
 - **Experimental means early, not unsafe.** Describe an experimental feature as a minimal implementation of a pattern that's still evolving, not as a warning.
 
