@@ -243,6 +243,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         // wizard holds them too, so an `open --edit` launches with the answer.
         tab.hold = wizard || draft.is_some();
         tab.drain(content);
+        // The web app shows each notice; the TUI shows the newest in its toast.
+        if let Some((_, text)) = tab.notices.drain(..).next_back() {
+            toast = Some((text, Instant::now() + Duration::from_secs(5)));
+        }
         // git-presence is a machine-global fact: arm the "install git" toast once,
         // the first time any diff attempt (open or reload) found no `git` binary.
         if !toast_git_shown && laura::gitdiff::git_missing() {
