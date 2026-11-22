@@ -121,7 +121,7 @@ pub fn read(ws: &mut Ws) -> Option<Frame> {
         }
         Ok(Message::Close(_)) => Some(Frame::Closed),
         Ok(_) => None,
-        Err(e) if laura::web::nothing_yet(&e) => None,
+        Err(e) if laura::http::nothing_yet(&e) => None,
         Err(_) => Some(Frame::Closed),
     }
 }

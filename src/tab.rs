@@ -19,6 +19,7 @@ use serde_json::json;
 use crate::browser::{self, Browser, Cdp, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
+use crate::http;
 use crate::journal::{Journal, is_runtime_temp, runtime_dir, session_path};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
 use crate::panel::{Panel, bracketed_paste};
@@ -835,8 +836,8 @@ impl Tab {
         let (path, heading) = href.split_once('#').unwrap_or((href, ""));
         let path = path.split_once('?').map_or(path, |(p, _)| p);
         let (path, heading) = (
-            web::pct_decode(path).ok_or_else(missing)?,
-            web::pct_decode(heading).ok_or_else(missing)?,
+            http::pct_decode(path).ok_or_else(missing)?,
+            http::pct_decode(heading).ok_or_else(missing)?,
         );
         let mut target = pane;
         let dir = Path::new(&self.panel_mut(pane)?.path)

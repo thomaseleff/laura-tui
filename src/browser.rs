@@ -308,7 +308,7 @@ fn file_url(program: &Path, page: &Path) -> std::io::Result<String> {
         .split('/')
         .map(|s| match s.as_bytes() {
             [d, b':'] if d.is_ascii_alphabetic() => s.to_string(),
-            _ => crate::web::pct_encode(s),
+            _ => crate::http::pct_encode(s),
         })
         .collect::<Vec<_>>()
         .join("/");
@@ -409,7 +409,8 @@ impl Browser {
 
     /// Start `path`'s process on a fresh profile.
     fn spawn(path: &Path) -> Result<Proc> {
-        let profile = std::env::temp_dir().join(format!("laura-browser-{}", crate::web::nonce(8)?));
+        let profile =
+            std::env::temp_dir().join(format!("laura-browser-{}", crate::http::nonce(8)?));
         std::fs::create_dir_all(&profile)
             .with_context(|| format!("couldn't create {}", profile.display()))?;
         // Chrome's own output, for the journal when the start fails.
@@ -926,7 +927,7 @@ fn io(
             }
             Ok(Message::Close(_)) => return Ok(()),
             Ok(_) => {}
-            Err(e) if crate::web::nothing_yet(&e) => {}
+            Err(e) if crate::http::nothing_yet(&e) => {}
             Err(e) => return Err(e),
         }
         loop {

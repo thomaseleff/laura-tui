@@ -13,6 +13,7 @@
 //! - [`view`] — pane titles, file pane rows, and the hint, help, and notice text a front-end draws.
 //! - [`web`] — the web app: serves a workspace to the browser.
 //! - [`serve`] — the Laura server: one address that lists the workspaces and starts new ones.
+//! - [`http`] — HTTP for the web app, the Laura server and the CDP proxy: heads, responses, tokens, origins.
 //! - [`settings`] — the user's settings for every workspace, `~/.laura/settings.json`.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
@@ -21,6 +22,7 @@ pub mod browser;
 pub mod cdp_proxy;
 pub mod editor;
 pub mod gitdiff;
+pub mod http;
 pub mod journal;
 pub mod layout;
 pub mod panel;
