@@ -441,6 +441,40 @@ fn a_file_path_in_the_shell_opens_in_a_pane() -> Result<()> {
 }
 
 #[test]
+fn a_file_path_in_the_shell_centers_its_line_once() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("long.txt");
+    let body: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(&file, body)?;
+    let mut tab = spawn_tab()?;
+    tab.drain(area());
+    let open = |line| UserAction::OpenPath {
+        path: file.to_string_lossy().into_owned(),
+        line: Some(line),
+    };
+    tab.act(open(300))?;
+    tab.tick(area());
+    let id = tab.focus;
+    let off = |tab: &Tab| {
+        let p = &tab.panels[&id];
+        let layout = p.layout(80);
+        (p.scroll_offset(&layout, 20), layout.starts[p.cursor])
+    };
+    // Line 300 shows in the middle of 20 rows, with rows below it.
+    let (top, start) = off(&tab);
+    assert_eq!((top, start), (299 - 9, 299));
+    // A click on a line on screen, and a jump to one, keep the view.
+    tab.act(UserAction::SetCursor {
+        pane: id,
+        line: 305,
+    })?;
+    assert_eq!(off(&tab).0, top);
+    tab.act(open(302))?;
+    assert_eq!(off(&tab), (top, 301));
+    Ok(())
+}
+
+#[test]
 fn a_file_path_that_is_not_a_file_returns_the_link_notice() -> Result<()> {
     let mut tab = spawn_tab()?;
     tab.tick(area());

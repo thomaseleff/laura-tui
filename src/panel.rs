@@ -46,8 +46,10 @@ pub struct Panel {
     /// view only moves at its edges, and a card added or collapsed above it doesn't shift the lines
     /// on screen (#69). `Cell` because render holds `&Panel`; a panel never crosses threads.
     scroll: Cell<(usize, usize)>,
-    /// Set by `set_highlight`; the next `scroll_offset` centers the highlight and clears it.
-    recenter: Cell<bool>,
+    /// Set by `set_highlight` (`Some(true)`) and `jump_to_line` (`Some(false)`); the next
+    /// `scroll_offset` centers the highlight (or the jumped-to line, if it's off screen) and clears it.
+    /// The web app takes it too: rows as a frame's `recenter`, an HTML page as `page`'s `jump`.
+    recenter: Cell<Option<bool>>,
     /// Review threads, keyed by rendered-line index (1:1 with `styled`); cleared on submit (#45).
     pub threads: Vec<Thread>,
     /// Autoscroll: pin the cursor to the last line on every reload (tail/`--follow`).
@@ -405,13 +407,17 @@ impl Panel {
         self.highlight = Some((lo, hi));
         // Cursor on `lo` so `c` right after a highlight comments on its first line.
         self.cursor = lo;
-        self.recenter.set(true);
+        self.recenter.set(Some(true));
     }
 
     /// Clear the agent-directed highlight; the pane returns to normal (undimmed) rendering.
     /// No viewport change — cursor/scroll stay put.
     pub fn clear_highlight(&mut self) {
         self.highlight = None;
+        // A highlight cleared before its frame centers nothing; a pending jump stays.
+        if self.recenter.get() == Some(true) {
+            self.recenter.set(None);
+        }
     }
 
     /// Row `i`'s source lines for diff marks. A code block's hidden fences have no row, so their
@@ -473,6 +479,13 @@ impl Panel {
         self.cursor = self.source_line_to_row(line);
     }
 
+    /// `set_cursor_line` for a jump (a shell link, a heading link): the next frame centers the
+    /// line once, if it's off screen.
+    pub fn jump_to_line(&mut self, line: u32) {
+        self.set_cursor_line(line);
+        self.recenter.set(Some(false));
+    }
+
     /// The cursor row's first source line, 1-based: the `L<n>` an inline review quotes.
     pub fn cursor_line(&self) -> u32 {
         self.source.get(self.cursor).map_or(self.cursor, |s| s.0) as u32 + 1
@@ -510,9 +523,9 @@ impl Panel {
         crate::render::heading_line(&self.source_lines.join("\n"), slug)
     }
 
-    /// Whether a fresh highlight still wants centering; clears it. The web app's counterpart to
-    /// `scroll_offset`'s centering.
-    pub fn take_recenter(&self) -> bool {
+    /// A pending one-time recenter, cleared: `Some(true)` for a fresh highlight, `Some(false)` for
+    /// a jump to the cursor's line.
+    pub fn take_recenter(&self) -> Option<bool> {
         self.recenter.take()
     }
 
@@ -1072,23 +1085,27 @@ impl Panel {
                 .get(off)
                 .map_or((0, off), |r| (r.line, off - first(r.line)))
         };
-        // Fresh agent highlight: center the span once, or top-anchor it when it's taller than the
-        // pane (margin saturates to 0) so the reader starts at its top.
-        if self.recenter.take()
-            && let Some((lo, hi)) = self.highlight
-        {
+        let (line, past) = self.scroll.get();
+        let mut off = (first(line) + past).min(max_off);
+        // Fresh agent highlight (`set_highlight` leaves the cursor on its first line), or a jump:
+        // center the span once, or top-anchor it when it's taller than the pane (margin saturates
+        // to 0) so the reader starts at its top. A jump to a line on screen keeps the view.
+        if let Some(hl) = self.take_recenter() {
+            let (lo, hi) = self
+                .highlight
+                .filter(|_| hl)
+                .unwrap_or((self.cursor, self.cursor));
             let start = layout.starts.get(lo).copied().unwrap_or(0);
             let end = line_end_row(layout, hi).unwrap_or(last_row);
-            let span = end - start + 1;
-            let margin = view_h.saturating_sub(span) / 2;
-            let off = start.saturating_sub(margin).min(max_off);
-            self.scroll.set(anchor(off));
-            return off;
+            if hl || start < off || end >= off + view_h {
+                let margin = view_h.saturating_sub(end - start + 1) / 2;
+                let off = start.saturating_sub(margin).min(max_off);
+                self.scroll.set(anchor(off));
+                return off;
+            }
         }
         let start = layout.starts.get(self.cursor).copied().unwrap_or(last_row);
         let end = line_end_row(layout, self.cursor).unwrap_or(last_row);
-        let (line, past) = self.scroll.get();
-        let mut off = (first(line) + past).min(max_off);
         if end >= off + view_h {
             off = (end + 1).saturating_sub(view_h);
         }

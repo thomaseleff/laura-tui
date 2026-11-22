@@ -118,6 +118,26 @@ fn highlight_centers_then_top_anchors() -> Result<()> {
     Ok(())
 }
 
+/// `highlight` then `highlight --off` before the next frame keeps the view: the view only follows
+/// the cursor to the bottom row, and doesn't center the cleared span.
+#[test]
+fn highlight_cleared_before_frame_keeps_view() -> Result<()> {
+    let mut f = tempfile::Builder::new().suffix(".txt").tempfile()?;
+    for i in 1..=100 {
+        writeln!(f, "line {i}")?;
+    }
+    let p = f.path().to_str().unwrap().to_string();
+
+    let mut tab = spawn_tab()?;
+    let id = drive(&mut tab, &["open", &p, "--no-focus"]);
+    let id_n: u64 = id.parse()?;
+    drive(&mut tab, &["highlight", "60", "--pane", &id]);
+    drive(&mut tab, &["highlight", "--off", "--pane", &id]);
+    let panel = &tab.panels[&id_n];
+    assert_eq!(panel.scroll_offset(&panel.layout(80), 20), 40);
+    Ok(())
+}
+
 /// `highlight --off` clears a set highlight through the CLI seam; a second `--off` is a harmless no-op.
 #[test]
 fn highlight_off_clears() -> Result<()> {

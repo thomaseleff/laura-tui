@@ -709,6 +709,79 @@ fn set_cursor_moves_the_cursor_and_sends_two_rows() -> Result<()> {
 }
 
 #[test]
+fn a_jump_to_a_line_recenters_the_pane_and_a_click_does_not() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let body: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+    let (_dir, path) = file("long.txt", &body)?;
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": path, "line": 300}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let frame = pane_frame(&mut rig, &mut ws, 1);
+    assert_eq!(
+        (frame["cursor"].clone(), frame["recenter"].clone()),
+        (json!(299), json!("line")),
+        "{frame}"
+    );
+    rig.act(
+        &mut ws,
+        json!({"act": "set_cursor", "pane": 1, "line": 305}),
+    );
+    let rows = rig.until(&mut ws, "rows", |f| f.is("rows")).json();
+    assert_eq!(rows["recenter"], false, "{rows}");
+    // A highlight recenters on the whole span, not only on the cursor's line.
+    rig.drive(&["highlight", "--pane", "1", "310"]);
+    let rows = rig
+        .until(
+            &mut ws,
+            "highlight",
+            |f| matches!(f, Frame::Json(v) if v["cursor"] == 309),
+        )
+        .json();
+    assert_eq!(rows["recenter"], "highlight", "{rows}");
+    // A jump to the highlight's first line is a jump: it keeps the view when the line is on screen.
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": path, "line": 310}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let rows = rig
+        .until(
+            &mut ws,
+            "jump",
+            |f| matches!(f, Frame::Json(v) if v["cursor"] == 309 && v["recenter"] != false),
+        )
+        .json();
+    assert_eq!(rows["recenter"], "line", "{rows}");
+    Ok(())
+}
+
+#[test]
+fn a_jump_to_a_line_in_an_html_file_tells_the_page_to_center_it() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let body: String = (1..=300).map(|n| format!("<p>line {n}</p>\n")).collect();
+    let (_dir, path) = file("page.html", &body)?;
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": path, "line": 250}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let frame = page_frame(&mut rig, &mut ws, 1, |v| v["cursor"] == 250);
+    assert_eq!(frame["jump"], true, "{frame}");
+    // A click on the page moves the cursor, not the view.
+    rig.act(
+        &mut ws,
+        json!({"act": "set_cursor", "pane": 1, "line": 260}),
+    );
+    let frame = page_frame(&mut rig, &mut ws, 1, |v| v["cursor"] == 260);
+    assert_eq!(frame["jump"], false, "{frame}");
+    Ok(())
+}
+
+#[test]
 fn file_pane_keys_reach_the_pane() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

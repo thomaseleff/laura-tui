@@ -602,7 +602,7 @@ function makePane(p) {
   new ResizeObserver(() => {
     fitNarrow(el);
     if (layout?.focus === p.id) followFocus(true);
-    if (el.hlLater && !tooSmall(el)) toHighlight(p.id);
+    if (el.hlLater && !tooSmall(el)) toHighlight(p.id, el.hlLater.jump);
   }).observe(el.querySelector(".narrow"));
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
@@ -1571,7 +1571,7 @@ function onPane(m) {
   rows.dataset.cursor = String(m.cursor);
   // A step inside a block, or onto its thread, keeps the block's index, so the key adds the line.
   const cur = cursorEl(rows), key = `${m.cursor}:${cur?.dataset.line ?? "L" + cur?.dataset.th}`;
-  if (m.recenter) toHighlight(m.id);
+  if (m.recenter) toHighlight(m.id, m.recenter === "line");
   else if (key !== rows.dataset.key) {
     reveal(cur, "nearest");
     // The cursor's row stays in view above its tall thread.
@@ -1586,18 +1586,43 @@ function onPane(m) {
 // A page's frame: an HTML file pane's iframe, or a browser pane's view.
 const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? ":scope > .view" : ":scope > iframe");
 
-// Scrolls the pane to its highlight; a page's frame scrolls itself.
-function toHighlight(id) {
+// Scrolls the pane to its highlight; a page's frame scrolls itself. A `jump` (a frame's
+// `recenter: "line"`, from `Panel::jump_to_line`) centers the cursor's line, also the line inside
+// a markdown block, only when that line is off screen. A page gets the jump in `page`'s `jump`,
+// and `again` when its pane grows after a jump.
+function toHighlight(id, jump) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
   const el = $("p" + id);
   // A too-small pane hides its rows and page, which can't scroll; the `.narrow` observer scrolls again.
-  if (!el || (el.hlLater = tooSmall(el))) return;
+  if (!el || (el.hlLater = tooSmall(el) && { jump })) return;
   const f = frameOf(id);
-  if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
+  if (f) return f.contentWindow?.postMessage({ ...f.state, [jump ? "again" : "scroll"]: true }, "*");
   const rows = el.querySelector(".rows");
+  if (!rows) return;
+  if (jump) {
+    // A block's first line has no `.cur`; its element carries the block's `data-line`.
+    const u = units(rows)[rows.dataset.cursor];
+    const t = u?.querySelector(".md .cur") ?? u?.querySelector(`.md [data-line="${u.dataset.line}"]`) ?? u;
+    if (!t) return;
+    // The bounding box, since a `.cur`'s `offsetTop` can be relative to its block. An `<li>`'s box
+    // holds its nested list, which can be taller than the pane, so measure the item's own text.
+    const g = document.createRange(), sub = t.tagName === "LI" && t.querySelector(":scope > ul, :scope > ol");
+    // A wrapped line is one unit per row, all with the line's `data-row`.
+    let end = t;
+    if (t === u) while (end.nextElementSibling?.matches(`[data-row="${u.dataset.row}"]`)) end = end.nextElementSibling;
+    g.selectNodeContents(t);
+    if (sub) g.setEndBefore(sub);
+    else if (end !== t) g.setEndAfter(end);
+    let r = g.getBoundingClientRect();
+    if (!r.height) r = t.getBoundingClientRect(); // an item with no text before its list
+    const b = rows.getBoundingClientRect();
+    // A target taller than the pane shows its top, as the TUI and an HTML page do.
+    if (r.top < b.top || r.bottom > b.bottom) rows.scrollTop += r.top - b.top - Math.max(0, (rows.clientHeight - r.height) / 2);
+    return;
+  }
+  const h = rows.querySelector(".hl");
   // ponytail: row-proportional, exact for code, approximate for wrapped prose
-  const h = rows?.querySelector(".hl");
   if (h) rows.scrollTop = h.offsetTop + h.offsetHeight * +(h.dataset.at ?? .5) - rows.clientHeight / 2;
 }
 
@@ -1621,8 +1646,12 @@ function onPage(m) {
   }
   // Target "*": the frame's origin is opaque, and line numbers aren't secret.
   const threads = m.threads.map(t => ({ line: t.line, n: t.notes.length, who: pinWho(t) }));
-  f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id };
+  // A new frame loads after later frames came, so the jump stays until the cursor moves.
+  const jump = m.jump || (!!f.state?.jump && f.state.cursor === m.cursor);
+  f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id, jump };
   f.contentWindow?.postMessage(f.state, "*");
+  // A too-small pane hides its page, which can't scroll; the `.narrow` observer scrolls again.
+  if (m.jump && tooSmall(el)) el.hlLater = { jump: true };
   // The diff view's rows, if the page was in it.
   for (const u of units(rows)) u.remove();
   rows.dataset.cursor = "";
