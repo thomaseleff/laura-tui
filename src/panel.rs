@@ -414,6 +414,10 @@ impl Panel {
     /// No viewport change — cursor/scroll stay put.
     pub fn clear_highlight(&mut self) {
         self.highlight = None;
+        // A highlight cleared before its frame centers nothing; a pending jump stays.
+        if self.recenter.get() == Some(true) {
+            self.recenter.set(None);
+        }
     }
 
     /// Row `i`'s source lines for diff marks. A code block's hidden fences have no row, so their
