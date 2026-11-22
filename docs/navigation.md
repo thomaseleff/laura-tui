@@ -60,6 +60,8 @@ To open a file that the agent names in the chat, click the file's path in the sh
 
 When the file doesn't exist, or the path names a folder, Laura shows `⚠ The link target <path> does not exist.` or `⚠ The link target <path> is a folder.` in the drawer.
 
+When the workspace has no room for another pane, Laura shows `⚠ No room for another pane. Close a pane, then click the link again.` in the drawer.
+
 ## Switch workspaces
 
 The workspace switcher is at the left of the top bar. The workspace switcher shows the session label and the folder of the workspace. Before the agent sets a session label, the workspace switcher shows the folder name in grey.
@@ -196,6 +198,8 @@ Laura shows a markdown file as rendered markdown.
 - Laura shows an image that the file references by relative path, such as `![Flow](img/flow.png)`, when the image is below the folder Laura started in, outside hidden folders. For an image by an absolute path or a remote URL, Laura shows only the alt text.
 
 When a link's file or heading doesn't exist, Laura shows `⚠ The link target <link> does not exist.` or `⚠ The file <file> has no heading #<heading>.`
+
+When the workspace has no room for another pane, Laura shows `⚠ No room for another pane. Close a pane, then click the link again.` in the link's pane.
 
 ## HTML files
 

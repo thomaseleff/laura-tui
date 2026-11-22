@@ -122,6 +122,17 @@ pub fn overflow_warning(p: &PaneReport) -> Option<String> {
     }
 }
 
+/// The agent's error when a split leaves a pane below `MIN_PANE`.
+fn split_too_small() -> String {
+    format!(
+        "split would shrink a pane below {}×{} — too small to render; \
+         close a pane or lower --ratio",
+        MIN_PANE.0, MIN_PANE.1
+    )
+}
+
+/// A link that can't open a pane, in place of `split_too_small`.
+pub const NO_ROOM: &str = "⚠ No room for another pane. Close a pane, then click the link again.";
 /// `c` / `Shift+S` before `laura ready`. Trailing space: ⚠ renders width-2.
 pub const NEEDS_READY: &str = "⚠ The agent must run `laura ready` before you can comment. ";
 /// `Shift+S` on a pane without threads.
@@ -877,6 +888,8 @@ impl Tab {
             .expect("a path-only open always parses");
         match self.apply(msg, self.area) {
             Response::Opened { pane, .. } => Ok(pane),
+            // The user clicked a link and set no --ratio: the agent's split text doesn't help.
+            Response::Error { message } if message == split_too_small() => Err(NO_ROOM.into()),
             Response::Error { message } => Err(message),
             _ => unreachable!("an open without dry_run answers Opened or Error"),
         }
@@ -1766,11 +1779,7 @@ impl Tab {
                     && !all_panes_fit(&self.shown(&probe), area)
                 {
                     return Response::Error {
-                        message: format!(
-                            "split would shrink a pane below {}×{} — too small to render; \
-                             close a pane or lower --ratio",
-                            MIN_PANE.0, MIN_PANE.1
-                        ),
+                        message: split_too_small(),
                     };
                 }
                 // Open the page before the split, so a page that won't open adds no pane.
