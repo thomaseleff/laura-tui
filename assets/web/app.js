@@ -1608,8 +1608,12 @@ function toHighlight(id, jump) {
     // The bounding box, since a `.cur`'s `offsetTop` can be relative to its block. An `<li>`'s box
     // holds its nested list, which can be taller than the pane, so measure the item's own text.
     const g = document.createRange(), sub = t.tagName === "LI" && t.querySelector(":scope > ul, :scope > ol");
+    // A wrapped line is one unit per row, all with the line's `data-row`.
+    let end = t;
+    if (t === u) while (end.nextElementSibling?.matches(`[data-row="${u.dataset.row}"]`)) end = end.nextElementSibling;
     g.selectNodeContents(t);
     if (sub) g.setEndBefore(sub);
+    else if (end !== t) g.setEndAfter(end);
     let r = g.getBoundingClientRect();
     if (!r.height) r = t.getBoundingClientRect(); // an item with no text before its list
     const b = rows.getBoundingClientRect();
