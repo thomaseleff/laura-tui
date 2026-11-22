@@ -1,6 +1,5 @@
 //! The layout report that `laura layout` and the agent's `open` replies carry: each pane's rect,
-//! its content and visible rows, and its overflow, with the texts for a pane that overflows or a
-//! split too small to render.
+//! its content and visible rows, and its overflow, with the text for a pane that overflows.
 
 use std::collections::HashMap;
 
