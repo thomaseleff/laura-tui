@@ -46,7 +46,7 @@ To open the drawer, do one of these:
 
 To close the drawer, press ``Ctrl+` `` or click the shell button again. Laura focuses the pane that you used last. A click on a pane also closes the drawer and focuses that pane.
 
-To change the drawer's height, drag the grip on the drawer's top edge. While you drag, Laura shows the height, such as `Drawer · 48% of the height`. The height can be from 20% to 85% of the workspace. Laura saves the height in `~/.laura/web.json` and uses the height for each workspace that you start later. To go back to the default height, double-click the grip.
+To change the drawer's height, drag the grip on the drawer's top edge. While you drag, Laura shows the height, such as `Drawer · 48% of the height`. The height can be from 20% to 85% of the workspace. Laura saves the height in your [settings](cli.md#settings) and uses the height for each workspace that you start later. To go back to the default height, double-click the grip.
 
 To show the shell as a pane, click **Show the shell as a pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width. The shell stays a pane when you open and close panes. To put the shell back in the drawer, click **Show the shell in a drawer** in the shell's pane header.
 
