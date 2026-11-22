@@ -31,7 +31,7 @@ use crate::pty::PtyTab;
 
 /// For each pane's rect, measure content vs. visible rows to fill a `LayoutReport`.
 /// `web`: the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell takes a
-/// column (`web::GAP`). `drawer`: the shell floats in the drawer. `shell_rows`: the shell's own
+/// column (`web::html::GAP`). `drawer`: the shell floats in the drawer. `shell_rows`: the shell's own
 /// rows from the web app, which differ from its rect while the shell is in the drawer.
 #[allow(clippy::too_many_arguments)] // one per input both reports share
 fn build_report(

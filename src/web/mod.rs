@@ -4,11 +4,9 @@
 //! channel pair in `sync`.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{
     Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, channel, sync_channel,
@@ -17,23 +15,26 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
 use serde_json::{Value, json};
 use tungstenite::Message;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::{HeaderValue, StatusCode};
 
 use crate::http::{
-    CSP, REFERRER_POLICY, answers, foreign_subresource, listen, nonce, nothing_yet, our_origin,
-    pct_decode, pct_encode, peek_head, respond, same,
+    CSP, REFERRER_POLICY, foreign_subresource, listen, nonce, nothing_yet, our_origin, pct_decode,
+    pct_encode, peek_head, respond, same,
 };
-use crate::panel::cursor::{card_line, cursor_block, on_card, on_stop, step, toggle_block_threads};
-use crate::panel::{Author, DIFF_ADD, DIFF_DEL, PanelLayout, Thread, is_page};
+use crate::panel::cursor::{cursor_block, on_card, on_stop, step, toggle_block_threads};
+use crate::panel::is_page;
 use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
-use crate::render::escape;
-use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
+use crate::serve::{live, record_path, workspaces_dir};
+use crate::{Panel, Rect, Tab, UserAction, view};
+
+mod frames;
+mod html;
+use frames::{layout_json, send_browsers, send_panes};
+use html::tag_lines;
 
 /// The workspace's size until a view reports one.
 pub const DEFAULT_AREA: Rect = Rect::new(0, 0, 120, 40);
@@ -43,63 +44,59 @@ const OUTBOUND_BOUND: usize = 1024;
 
 /// Path, content type, body. The files hold no workspace data, so they need no token.
 pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
-    ("/", "text/html", include_bytes!("../assets/web/index.html")),
+    ("/", "text/html", include_bytes!("client/index.html")),
     (
         "/app.js",
         "text/javascript",
-        include_bytes!("../assets/web/app.js"),
+        include_bytes!("client/app.js"),
     ),
-    (
-        "/style.css",
-        "text/css",
-        include_bytes!("../assets/web/style.css"),
-    ),
+    ("/style.css", "text/css", include_bytes!("client/style.css")),
     (
         "/xterm.js",
         "text/javascript",
-        include_bytes!("../assets/web/xterm.js"),
+        include_bytes!("../../assets/web/xterm.js"),
     ),
     (
         "/xterm.css",
         "text/css",
-        include_bytes!("../assets/web/xterm.css"),
+        include_bytes!("../../assets/web/xterm.css"),
     ),
     (
         "/addon-webgl.js",
         "text/javascript",
-        include_bytes!("../assets/web/addon-webgl.js"),
+        include_bytes!("../../assets/web/addon-webgl.js"),
     ),
     (
         "/addon-unicode11.js",
         "text/javascript",
-        include_bytes!("../assets/web/addon-unicode11.js"),
+        include_bytes!("../../assets/web/addon-unicode11.js"),
     ),
     (
         "/idiomorph.js",
         "text/javascript",
-        include_bytes!("../assets/web/idiomorph.js"),
+        include_bytes!("../../assets/web/idiomorph.js"),
     ),
     (
         "/fonts/Inter.woff2",
         "font/woff2",
-        include_bytes!("../assets/web/fonts/Inter.woff2"),
+        include_bytes!("../../assets/web/fonts/Inter.woff2"),
     ),
     (
         "/fonts/JetBrainsMono.woff2",
         "font/woff2",
-        include_bytes!("../assets/web/fonts/JetBrainsMono.woff2"),
+        include_bytes!("../../assets/web/fonts/JetBrainsMono.woff2"),
     ),
     // The top bar's logo: Pebble, the Laura logo. The page's icon is the same mark, white in
     // dark mode.
     (
         "/logo.svg",
         "image/svg+xml",
-        include_bytes!("../assets/pebble.svg"),
+        include_bytes!("../../assets/pebble.svg"),
     ),
     (
         "/favicon.svg",
         "image/svg+xml",
-        include_bytes!("../assets/favicon.svg"),
+        include_bytes!("../../assets/favicon.svg"),
     ),
 ];
 
@@ -686,83 +683,6 @@ fn save_drawer(percent: Option<f64>) -> u8 {
     h.unwrap_or(DRAWER)
 }
 
-fn workspaces_dir() -> PathBuf {
-    crate::platform::data_dir().join("workspaces")
-}
-
-/// The record of the workspace that process `pid` hosts.
-pub(crate) fn record_path(pid: u32) -> PathBuf {
-    workspaces_dir().join(format!("{pid}.json"))
-}
-
-/// The port of a `http://127.0.0.1:<port>/…` URL.
-fn url_port(url: &str) -> Option<u16> {
-    let rest = url.strip_prefix("http://127.0.0.1:")?;
-    rest.split('/').next()?.parse().ok()
-}
-
-/// The records of the running workspaces, the latest visit first. A record whose port doesn't answer is a
-/// workspace that ended without `unregister`: `live` deletes the record.
-/// The newest record on a port wins: `live` deletes the older records on that port.
-/// shortcut: a port that a program other than Laura took over still answers, check the pid if a stale row is reported.
-pub fn live() -> Vec<Value> {
-    let Ok(dir) = std::fs::read_dir(workspaces_dir()) else {
-        return vec![];
-    };
-    let mut out = vec![];
-    let mut records = vec![];
-    for path in dir.flatten().map(|e| e.path()) {
-        match path.extension().and_then(|e| e.to_str()) {
-            Some("json") => records.push(path),
-            // A `.tmp` this old is from a workspace that crashed between the write and the
-            // rename; a newer one is a `write_private` in progress.
-            Some("tmp") => {
-                let age = std::fs::metadata(&path)
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.elapsed().ok());
-                if age.is_some_and(|a| a > Duration::from_secs(60)) {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
-            _ => {}
-        }
-    }
-    for path in records {
-        // A record that a workspace is writing right now doesn't parse yet: skip it this time.
-        let Some(v) = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        else {
-            continue;
-        };
-        if v["url"].as_str().and_then(url_port).is_some_and(answers) {
-            out.push(v);
-        } else {
-            let _ = std::fs::remove_file(&path);
-        }
-    }
-    out.sort_by_key(|v| (v["started"].as_u64(), v["pid"].as_u64()));
-    // Newest first: an older record on the same port is a workspace that ended without `unregister`.
-    let mut ports = std::collections::HashSet::new();
-    out.reverse();
-    out.retain(|v| {
-        let fresh = ports.insert(v["url"].as_str().and_then(url_port));
-        if let (false, Some(pid)) = (fresh, v["pid"].as_u64()) {
-            let _ = std::fs::remove_file(record_path(pid as u32));
-        }
-        fresh
-    });
-    // A record from an older Laura has no `visited`: its start stands in.
-    out.sort_by_key(|v| {
-        std::cmp::Reverse((
-            v["visited"].as_u64().or(v["started"].as_u64()),
-            v["pid"].as_u64(),
-        ))
-    });
-    out
-}
-
 /// The time now, in Unix ms.
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -841,9 +761,9 @@ fn reconcile(bases: &mut Bases, files: &Files, root: &Path, tab: &Tab) {
             // The block keeps `lauraDraw` out of the page's globals.
             let script = concat!(
                 "<script>{\n",
-                include_str!("../assets/web/draw.js"),
+                include_str!("client/draw.js"),
                 "\n",
-                include_str!("../assets/web/page.js"),
+                include_str!("client/page.js"),
                 "\n}</script>"
             );
             let html = tag_lines(&p.content, script);
@@ -858,104 +778,6 @@ fn content_hash(p: &Panel) -> u64 {
     let mut h = DefaultHasher::new();
     p.content.hash(&mut h);
     h.finish()
-}
-
-/// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
-/// so a click on an element reports the line the TUI shows its tag on. Comments, CDATA and
-/// raw text aren't scanned for tags. `tail` goes at the end, or before an unclosed comment, tag,
-/// raw-text element or unclosed template, past nested ones, which would hide it.
-/// ponytail: a hand scanner, not a parser; a malformed page only misplaces a click's line. Swap in
-/// a tokenizer with source positions if that bites.
-fn tag_lines(html: &str, tail: &str) -> String {
-    let b = html.as_bytes();
-    // The index of `pat` at or after `from`, any case.
-    let find = |from: usize, pat: &str| {
-        b.get(from..)?
-            .windows(pat.len())
-            .position(|w| w.eq_ignore_ascii_case(pat.as_bytes()))
-            .map(|k| from + k)
-    };
-    // Whether the template open at `from` closes, past the nested templates inside it.
-    let closes = |mut from: usize| {
-        let mut depth = 1;
-        while let Some(j) = find(from, "template") {
-            from = j + 8;
-            if !b
-                .get(from)
-                .is_some_and(|c| c.is_ascii_whitespace() || matches!(c, b'/' | b'>'))
-            {
-                continue;
-            }
-            if b[..j].ends_with(b"</") {
-                depth -= 1;
-            } else if b[..j].ends_with(b"<") {
-                depth += 1;
-            }
-            if depth == 0 {
-                return true;
-            }
-        }
-        false
-    };
-    let mut out = String::with_capacity(html.len() + html.len() / 4);
-    let (mut i, mut copied, mut line, mut counted, mut cut) = (0, 0, 1, 0, None);
-    while let Some(k) = b[i..].iter().position(|&c| c == b'<') {
-        i += k;
-        // Where `i` lands in `out`.
-        let at = out.len() + i - copied;
-        let rest = &html[i..];
-        // `None`: the rest of the page is a comment, a tag, text or a template's content, so `tail`
-        // goes at `at`.
-        let next = if rest.starts_with("<!--") {
-            // A browser ends `<!-->` and `<!--->` at their own `>`.
-            find(i + 2, "-->").map(|e| e + 3)
-        } else if rest.starts_with("<![CDATA[") {
-            find(i + 9, "]]>").map(|e| e + 3)
-        } else if b.get(i + 1).is_some_and(u8::is_ascii_alphabetic) {
-            let end = b[i + 1..]
-                .iter()
-                .position(|c| c.is_ascii_whitespace() || matches!(c, b'/' | b'>'))
-                .map_or(b.len(), |e| i + 1 + e);
-            line += html[counted..i].matches('\n').count();
-            counted = i;
-            out.push_str(&html[copied..end]);
-            let _ = write!(out, r#" data-laura-line="{line}""#);
-            copied = end;
-            let name = html[i + 1..end].to_ascii_lowercase();
-            // The tag's `>`, past quoted values: a `<` or `>` in `title="a>b <i>"` is text. A quote
-            // opens only after `=`, so `title=it's` is a plain value.
-            let (mut quote, mut eq) = (None, false);
-            i = end;
-            while let Some(&c) = b.get(i) {
-                match quote {
-                    None if c == b'>' => break,
-                    None if eq && (c == b'"' || c == b'\'') => quote = Some(c),
-                    Some(q) if c == q => quote = None,
-                    _ => {}
-                }
-                eq = quote.is_none() && (c == b'=' || (eq && c.is_ascii_whitespace()));
-                i += 1;
-            }
-            match name.as_str() {
-                _ if i == b.len() => None,
-                "plaintext" => None,
-                "template" if !closes(i) => None,
-                "script" | "style" | "textarea" | "title" | "xmp" | "noscript" | "iframe"
-                | "noembed" | "noframes" => find(i, &format!("</{name}")),
-                _ => Some(i),
-            }
-        } else {
-            Some(i + 1)
-        };
-        let Some(next) = next else {
-            cut = Some(at);
-            break;
-        };
-        i = next;
-    }
-    out.push_str(&html[copied..]);
-    out.insert_str(cut.unwrap_or(out.len()), tail);
-    out
 }
 
 /// A path segment the file route serves: not empty, not hidden, no separator, drive or NUL.
@@ -980,649 +802,6 @@ fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
     let mut out = id.to_be_bytes().to_vec();
     out.extend(bytes);
     out
-}
-
-fn layout_json(
-    tab: &Tab,
-    rects: &HashMap<PaneId, Rect>,
-    area: Rect,
-    bases: &Bases,
-    drawer: u8,
-) -> String {
-    let mut ids: Vec<_> = rects.keys().copied().collect();
-    ids.sort();
-    let panes: Vec<Value> = ids
-        .iter()
-        .map(|id| {
-            let r = rects[id];
-            let editor = tab.editors.get(id);
-            let p = tab.panels.get(id);
-            let kind = match (p, editor) {
-                (None, _) => "shell",
-                (Some(p), _) if p.browser => "browser",
-                (_, Some(e)) if e.editor_view => "editor",
-                _ => "file",
-            };
-            // `pty`: the pane streams a terminal, in either view, so the browser keeps its xterm.
-            let pty = *id == PTY_PANE || editor.is_some();
-            let name = p.map_or_else(
-                || tab.shell_name(),
-                |p| {
-                    if p.browser {
-                        // A page without a title, or not loaded yet, goes by its URL.
-                        return tab
-                            .browsers
-                            .get(id)
-                            .map(|b| b.title())
-                            .filter(|t| !t.is_empty())
-                            .unwrap_or(&p.path)
-                            .to_string();
-                    }
-                    Path::new(&p.path)
-                        .file_name()
-                        .map_or_else(|| p.path.clone(), |n| n.to_string_lossy().into_owned())
-                },
-            );
-            let (added, removed) = p.map_or((0, 0), |p| p.diff_stat);
-            let icon = match p {
-                Some(p) if p.browser => Some("globe"),
-                Some(p) if is_page(p) => Some("page"),
-                Some(p) if p.tail => Some("log"),
-                _ => None,
-            };
-            json!({"id": id, "x": r.x, "y": r.y, "w": r.width, "h": r.height,
-                   "kind": kind, "pty": pty, "name": name, "icon": icon,
-                   // The web app places the drawer by CSS, not by its cells.
-                   "drawer": *id == PTY_PANE && tab.drawer_in_use(),
-                   "path": p.map(|p| view::display_path(&p.path)),
-                   "added": added, "removed": removed,
-                   "highlight": p.and_then(|p| match p.highlight {
-                       // A browser pane's highlight names its element.
-                       Some((row, _)) if p.browser => {
-                           p.anchors.get(row).map(|a| json!(view::cut_left(&a.selector, 24)))
-                       }
-                       _ => p.highlight_lines().map(|l| json!(l)),
-                   }),
-                   "diff": p.is_some_and(|p| p.diff_view),
-                   "frozen": p.is_some_and(|p| p.source_changed),
-                   // `null`: the pane can't pause.
-                   "paused": p.filter(|p| p.pausable()).map(|p| p.paused),
-                   "threads": p.map_or(0, Panel::thread_count),
-                   "unsaved": editor.is_some_and(|e| e.modified())})
-        })
-        .collect();
-    // A page takes clicks, not the arrows (app.js); a page with no route shows rows.
-    let page = tab
-        .panels
-        .get(&tab.focus)
-        .is_some_and(|p| is_page(p) && !p.diff_view)
-        && bases.contains_key(&tab.focus);
-    let browser = tab.panels.get(&tab.focus).is_some_and(|p| p.browser);
-    let pane = view::hint(
-        tab,
-        if browser {
-            view::Hint::Browser
-        } else if page {
-            view::Hint::Page
-        } else {
-            view::Hint::Pane
-        },
-    );
-    let hints = json!({
-        "pane": pane,
-        "locked": view::hint(tab, view::Hint::Locked),
-        "quit": view::hint(tab, view::Hint::Quit),
-        "panes": view::hint(tab, view::Hint::Panes),
-        "workspace": view::hint(tab, view::Hint::Workspace),
-        "comment_mode": view::hint(tab, view::Hint::CommentMode),
-        "browser_typing": view::hint(tab, view::Hint::BrowserTyping),
-        "browser_url": view::hint(tab, view::Hint::BrowserUrl),
-        "browser_dialog": view::hint(tab, view::Hint::BrowserDialog),
-        "browser_leave": view::hint(tab, view::Hint::BrowserLeave),
-    });
-    let (rows, cols) = tab.pty_size();
-    json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
-           "drawer_height": drawer,
-           // The saved screen's grid, so a new view's xterm parses the replay at its own size.
-           "shell": {"cols": cols, "rows": rows},
-           "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})
-    .to_string()
-}
-
-/// Send each browser pane's URL, title, whether its page is live (Laura's browser runs it), and
-/// the page's state (`Page::state`), when one changed since the view last saw it.
-fn send_browsers(v: &mut View, tab: &Tab) {
-    v.browsers
-        .retain(|id, _| tab.panels.get(id).is_some_and(|p| p.browser));
-    for (&id, p) in tab.panels.iter().filter(|(_, p)| p.browser) {
-        let page = tab.browsers.get(&id);
-        let mut msg = json!({"t": "browser", "id": id, "url": p.path,
-                             "title": page.map(|b| b.title()), "live": page.is_some(),
-                             "threads": threads_json(p), "card": card_line(p),
-                             "line": p.cursor_line()});
-        if let (Some(o), Some(b)) = (msg.as_object_mut(), page) {
-            o.extend(b.state(Instant::now()));
-        }
-        let msg = msg.to_string();
-        if v.browsers.get(&id) != Some(&msg) {
-            v.send(Outbound::Text(msg.clone()));
-            v.browsers.insert(id, msg);
-        }
-    }
-}
-
-/// Send each file-rendered pane's rows that changed since the view last saw them: `rows`, with the
-/// new row count, unless the row count changes and more than half the rows change, else the whole
-/// `pane`. A page sends `page` when its frame changes. `reloaded`
-/// marks a frame whose content changed since the view last saw it, so the browser flashes only a
-/// reload, not a scroll or a diff toggle.
-fn send_panes(v: &mut View, tab: &Tab, rects: &HashMap<PaneId, Rect>, bases: &Bases) {
-    let shown: Vec<(PaneId, &Panel, Rect)> = rects
-        .iter()
-        .filter(|(id, _)| !tab.editors.get(id).is_some_and(|e| e.editor_view))
-        .filter_map(|(id, r)| tab.panels.get(id).map(|p| (*id, p, *r)))
-        // A browser pane shows frames, not rows.
-        .filter(|(_, p, _)| !p.browser)
-        .collect();
-    v.panes.retain(|id, _| shown.iter().any(|(s, ..)| s == id));
-    v.pages.retain(|id, _| shown.iter().any(|(s, ..)| s == id));
-    for (id, panel, r) in shown {
-        // Inside the border, less the gutter's blank first cell (`GAP`).
-        let width = r.width.saturating_sub(3) as usize;
-        let layout = panel.layout(width);
-        let lines = view::panel_lines(panel, &layout, tab.focus == id, width, true);
-        // No route (a missing file) falls back to rows.
-        if is_page(panel)
-            && !panel.diff_view
-            && let Some((_, _, page)) = bases.get(&id)
-        {
-            let highlight = panel.highlight_lines();
-            // A highlight (`Some(true)`) needs no flag: the page centers a new highlight itself.
-            let jump = panel.take_recenter() == Some(false);
-            // A jump's pane can get the focus after this frame, so the page scrolls now.
-            let cursor = (tab.focus == id || jump).then(|| panel.cursor_line());
-            let msg = json!({"t": "page", "id": id, "page": page, "cursor": cursor,
-                             "line": panel.cursor_line(),
-                             "threads": threads_json(panel), "card": card_line(panel),
-                             "highlight": highlight, "jump": jump})
-            .to_string();
-            // A later `d` sends the whole `pane`, not a `rows` diff, and doesn't jump to the
-            // highlight the page already scrolled to.
-            v.panes.remove(&id);
-            if v.pages.get(&id) != Some(&msg) {
-                v.send(Outbound::Text(msg.clone()));
-                v.pages.insert(id, msg);
-            }
-            continue;
-        }
-        v.pages.remove(&id);
-        let (rows, cursor) = if !panel.diff_view && !panel.blocks().is_empty() {
-            // No route (no randomness, a missing file): `/f/-/` finds nothing.
-            let base = bases.get(&id).map_or("/f/-/", |b| b.2.as_str());
-            block_units(panel, &layout, &lines, tab.focus == id, base)
-        } else {
-            // The thread cards go; the browser draws threads from `threads`. The removed-lines rows
-            // sit before their line's start, or in `eof` below the last line, so they stay.
-            let shown: Vec<(&PanelRow, &Line)> = layout
-                .rows
-                .iter()
-                .zip(&lines)
-                .enumerate()
-                .filter(|(j, (row, _))| {
-                    !row.comment || *j <= layout.starts[row.line] || layout.eof.contains(j)
-                })
-                .map(|(_, rl)| rl)
-                .collect();
-            // The row `panel_lines` draws the band on.
-            let cursor = shown
-                .iter()
-                .position(|(r, _)| !r.comment && r.line == panel.cursor);
-            let rows = shown
-                .iter()
-                .map(|(row, line)| row_html(panel, row, line))
-                .collect();
-            (rows, cursor)
-        };
-        let recenter = panel.take_recenter();
-        // `open --panel` swaps in another file, which isn't a reload. A tail pane's new output is.
-        let file = (panel.path.clone(), content_hash(panel));
-        let reloaded = v
-            .panes
-            .get(&id)
-            .is_some_and(|(_, _, (path, hash), _)| *path == file.0 && *hash != file.1);
-        // A move onto a card, or a toggled thread, can leave the rows as they were.
-        let (thread_list, card) = (threads_json(panel), card_line(panel));
-        let threads = json!([thread_list, card]).to_string();
-        let diff = v.panes.get(&id).and_then(|(old, ..)| {
-            // New rows past the old end count as changed, so an append sends only the new rows.
-            let d: Vec<Value> = (0..rows.len())
-                .filter(|&i| old.get(i) != Some(&rows[i]))
-                .map(|i| json!([i, rows[i]]))
-                .collect();
-            // ponytail: a gutter-width change (99 to 100 lines) re-pads every row; morph once instead.
-            (old.len() == rows.len() || d.len() <= rows.len() / 2).then_some(d)
-        });
-        // The browser centers the highlight, or the cursor's line inside its block.
-        let recenter = match recenter {
-            None => json!(false),
-            Some(true) => json!("highlight"),
-            Some(false) => json!("line"),
-        };
-        let mut msg = match (v.panes.get(&id), diff) {
-            (Some((old, old_cursor, _, old_threads)), Some(diff)) => {
-                // The length check too, or a trim alone never reaches the browser.
-                if old.len() == rows.len()
-                    && diff.is_empty()
-                    && *old_cursor == cursor
-                    && recenter == false
-                    && !reloaded
-                    && *old_threads == threads
-                {
-                    continue;
-                }
-                json!({"t": "rows", "id": id, "len": rows.len(), "rows": diff, "cursor": cursor,
-                       "recenter": recenter, "reloaded": reloaded})
-            }
-            _ => json!({"t": "pane", "id": id, "html": rows.concat(), "cursor": cursor,
-                        "recenter": recenter, "reloaded": reloaded}),
-        };
-        msg["threads"] = thread_list;
-        msg["card"] = json!(card);
-        v.text(msg);
-        v.panes.insert(id, (rows, cursor, file, threads));
-    }
-}
-
-/// The gutter's first cell, blank, so the cursor's bar never touches a wide line number.
-const GAP: &str = r#"<span class="g"> "#;
-
-/// One layout row. `data-line` is the 1-based source line the browser sends back; `data-row` the
-/// rendered line, which copy joins on. The gutter, after [`GAP`], can't be selected. `hl` marks a highlighted row,
-/// which the browser scrolls to on `recenter`; `cur` marks the cursor's row.
-fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
-    let highlighted = !row.comment
-        && panel
-            .highlight
-            .is_some_and(|(lo, hi)| (lo..=hi).contains(&row.line));
-    // `panel_lines` marks the cursor's row with a background; `.cur` paints it, so `.hl` wins.
-    let cur = line.style.bg.is_some();
-    // A diff row's color, which a wrapped row's later rows keep without the sign.
-    let fg = row.spans.first().and_then(|s| s.style.fg);
-    let diff = match fg {
-        _ if !panel.diff_view => "",
-        Some(DIFF_ADD) => r#" data-diff="add""#,
-        Some(DIFF_DEL) => r#" data-diff="del""#,
-        _ => "",
-    };
-    let mut h = String::with_capacity(160);
-    let _ = write!(
-        h,
-        r#"<div class="row{}{}{}" data-line="{}" data-row="{}"{diff}{}>{GAP}"#,
-        // Only removed-lines rows reach here as comment rows: the browser draws the cards.
-        if row.comment { " gap" } else { "" },
-        if highlighted { " hl" } else { "" },
-        if cur { " cur" } else { "" },
-        panel.row_source_line(row),
-        row.line,
-        style_attr(Style {
-            bg: None,
-            ..line.style
-        })
-    );
-    // `panel_lines`' gutter: 6 spans, 2 on a comment row.
-    let gutter = (if row.comment { 2 } else { 6 }).min(line.spans.len());
-    spans_html(&mut h, &line.spans[..gutter]);
-    h.push_str("</span>");
-    spans_html(&mut h, &line.spans[gutter..]);
-    h.push_str("</div>");
-    h
-}
-
-/// Each thread as the browser draws it: its 1-based source line, and each note's author, `null`
-/// for the user.
-fn threads_json(p: &Panel) -> Value {
-    // By line, as `n`/`N` and the inline review order them; `threads` keeps insertion order.
-    let mut ts: Vec<_> = p.threads.iter().collect();
-    ts.sort_by_key(|t| t.line);
-    json!(
-        ts.into_iter()
-            .map(|t| {
-                let mut v = json!({
-                    "line": p.thread_source(t).0 + 1,
-                    "collapsed": t.collapsed,
-                    "label": label(p, t),
-                    "notes": t
-                        .notes()
-                        .map(|n| json!({"author": match &n.author {
-                            Author::User => None,
-                            Author::Agent(a) => Some(a),
-                        }, "body": n.body}))
-                        .collect::<Vec<_>>(),
-                });
-                // A browser pane's thread: its element, and its page when the pane moved on.
-                if let Some(a) = p.anchors.get(t.line) {
-                    v["label"] = a.quote.clone().into();
-                    v["anchor"] = a.selector.clone().into();
-                    v["away"] = away(&p.path, &a.url).into();
-                    v["lost"] = a.lost.into();
-                }
-                v
-            })
-            .collect::<Vec<_>>()
-    )
-}
-
-/// A thread's page when the pane shows another: its path on the pane's site, else its URL.
-fn away(here: &str, url: &str) -> Option<String> {
-    if crate::browser::page_of(here) == url {
-        return None;
-    }
-    // `scheme://host`: what comes before the third `/`.
-    fn origin(u: &str) -> &str {
-        u.match_indices('/').nth(2).map_or(u, |(i, _)| &u[..i])
-    }
-    let o = origin(url);
-    Some(if origin(here) == o && url.len() > o.len() {
-        url[o.len()..].to_string()
-    } else {
-        url.to_string()
-    })
-}
-
-/// What a thread sits on, for its card header: a markdown block's kind, or a page's start tag as
-/// `<tag#id>` or `<tag.class>`. `None` for code, where `L<n>` says enough. A page names the line's
-/// first start tag: a click reports only the line, and the outer element holds the rest of it.
-fn label(p: &Panel, t: &Thread) -> Option<String> {
-    if p.diff_view {
-        return None;
-    }
-    if is_page(p) {
-        let src = p.content.lines().nth(p.thread_source(t).0)?;
-        let at = src
-            .match_indices('<')
-            .find(|(i, _)| src[i + 1..].starts_with(|c: char| c.is_ascii_alphabetic()))?
-            .0;
-        let tag = &src[at + 1..];
-        let name = &tag[..tag
-            .find(|c: char| !c.is_ascii_alphanumeric() && c != '-')
-            .unwrap_or(tag.len())];
-        let head = &tag[..tag.find('>').unwrap_or(tag.len())];
-        // The first token of `id` or else `class`, quoted either way, after any whitespace. A whole
-        // token, so `data-id=` isn't `id`.
-        let attr = |a: &str| {
-            let v = head
-                .split_ascii_whitespace()
-                .find_map(|t| t.strip_prefix(a)?.strip_prefix('='))?;
-            let v = v.strip_prefix(['"', '\'']).unwrap_or(v);
-            let end = v.find(['"', '\'', '>']).unwrap_or(v.len());
-            Some(&v[..end]).filter(|v| !v.is_empty())
-        };
-        let name = name.to_ascii_lowercase();
-        return Some(match (attr("id"), attr("class")) {
-            (Some(id), _) => format!("<{name}#{id}>"),
-            (_, Some(class)) => format!("<{name}.{class}>"),
-            _ => format!("<{name}>"),
-        });
-    }
-    let html = p.blocks().iter().find(|b| b.rows.contains(&t.line))?.html();
-    let tag = html.strip_prefix('<')?;
-    let tag = &tag[..tag.find(|c: char| !c.is_ascii_alphanumeric())?];
-    Some(
-        match tag {
-            "p" => "paragraph",
-            "ul" | "ol" | "li" => "list item",
-            "table" => "table row",
-            "blockquote" => "quote",
-            "pre" => "code line",
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "heading",
-            _ => return None,
-        }
-        .into(),
-    )
-}
-
-/// A markdown pane as one unit per rendered block (#89): the removed-lines rows inside it go above
-/// it; the browser draws the thread cards below. A block's `data-line` is its first source line. Each of the
-/// block's [`Block::stops`] carries its own `data-line`. An `hl` block's `data-at` places the
-/// highlight within it, as a fraction of its rows. A block's `data-row` starts
-/// with `b`, so copy never joins it to a row. `base` is the pane's file route URL for the file's
-/// folder, which a relative image's `src` starts with.
-fn block_units(
-    panel: &Panel,
-    layout: &PanelLayout,
-    lines: &[Line],
-    focused: bool,
-    base: &str,
-) -> (Vec<String>, Option<usize>) {
-    let blank = |s: &Span| s.content.trim().is_empty();
-    let rows = |span: Range<usize>, units: &mut Vec<String>, cursor: &mut Option<usize>| {
-        for j in span {
-            let row = &layout.rows[j];
-            // A thread's card rows: the browser draws the card from `threads`.
-            if row.comment && j > layout.starts[row.line] && !layout.eof.contains(&j) {
-                continue;
-            }
-            if !row.comment && row.line == panel.cursor {
-                *cursor = Some(units.len());
-            }
-            units.push(row_html(panel, row, &lines[j]));
-        }
-    };
-    let mut units = vec![];
-    let mut cursor = None;
-    let mut next = 0;
-    for b in panel.blocks() {
-        let Some(&first) = layout.starts.get(b.rows.start) else {
-            continue;
-        };
-        rows(next..first, &mut units, &mut cursor);
-        // The EOF gap tags the last line but shows below the last block, from the tail `rows` call.
-        let end = layout.rows[first..]
-            .iter()
-            .position(|r| r.line >= b.rows.end)
-            .map_or(layout.rows.len(), |k| first + k)
-            .min(layout.eof.start);
-        let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
-        for (i, (row, line)) in layout.rows[first..end]
-            .iter()
-            .zip(&lines[first..end])
-            .enumerate()
-        {
-            if !row.comment {
-                // The highlighted number, the change cell and the caret show if any row of the block
-                // has one. A stop's caret shows on the stop instead.
-                // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
-                if panel
-                    .highlight
-                    .is_some_and(|(lo, hi)| (lo..=hi).contains(&row.line))
-                    && let (Some(n), Some(s)) = (gutter.get_mut(0), line.spans.first())
-                {
-                    n.style = s.style;
-                }
-                // The first non-blank span wins, except that an open caret wins over a closed one.
-                let stop = b.stops().iter().any(|&(r, _)| r == row.line);
-                for k in [2, 4].into_iter().filter(|&k| k == 2 || !stop) {
-                    if let Some(g) = gutter.get_mut(k)
-                        && let Some(s) = line.spans.get(k).filter(|s| !blank(s))
-                        && (blank(g) || (k == 4 && s.content == "▾"))
-                    {
-                        *g = s.clone();
-                    }
-                }
-            } else if first + i > layout.starts[row.line] {
-                continue;
-            } else {
-                units.push(row_html(panel, row, line));
-            }
-        }
-        // A stop with the cursor or a thread is marked inside the block, focused or not, so the
-        // browser's scroll target doesn't change with focus. The file's text can't fake
-        // ` data-line="N">`: every `>` in it is escaped.
-        let mut md = b.html().replace('\0', base);
-        for &(row, n) in b.stops() {
-            let thread = panel.threads.iter().find(|t| t.line == row);
-            let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
-                (true, Some(false)) => "cur th",
-                (true, Some(true)) => "cur th shut",
-                (true, None) => "cur",
-                (false, Some(false)) => "th",
-                (false, Some(true)) => "th shut",
-                (false, None) => continue,
-            };
-            let attr = format!(r#" data-line="{n}">"#);
-            md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
-        }
-        let has_cursor = b.rows.contains(&panel.cursor);
-        let cur = focused && has_cursor && !on_card(panel, b) && !on_stop(panel, b);
-        let hl = panel
-            .highlight
-            .is_some_and(|(lo, hi)| lo < b.rows.end && hi >= b.rows.start);
-        let cls = if cur {
-            " cur"
-        } else if panel.highlight.is_some() && !hl {
-            " dim"
-        } else {
-            ""
-        };
-        if has_cursor {
-            cursor = Some(units.len());
-        }
-        // The highlight's midpoint, so the browser centers it rather than the whole block.
-        let at = match panel.highlight {
-            Some((lo, hi)) if hl => {
-                let mid = (lo.max(b.rows.start) + hi.min(b.rows.end - 1)) as f64 / 2.0 + 0.5;
-                let at = (mid - b.rows.start as f64) / b.rows.len() as f64;
-                format!(r#" data-at="{at:.3}""#)
-            }
-            _ => String::new(),
-        };
-        // The gutter's caret column, where a stop's caret shows, past `GAP`.
-        let caret: usize = 1 + gutter
-            .iter()
-            .take(4)
-            .map(|s| s.content.chars().count())
-            .sum::<usize>();
-        let mut h = String::with_capacity(md.len() + 200);
-        let _ = write!(
-            h,
-            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}" style="--caret:{caret}"{at}>{GAP}"#,
-            if hl { " hl" } else { "" },
-            panel.row_source_line(&layout.rows[first]),
-            b.rows.start
-        );
-        spans_html(&mut h, &gutter);
-        h.push_str(r#"</span><div class="md">"#);
-        h.push_str(&md);
-        h.push_str("</div></div>");
-        units.push(h);
-        next = end;
-    }
-    rows(next..layout.rows.len(), &mut units, &mut cursor);
-    (units, cursor)
-}
-
-fn spans_html(h: &mut String, spans: &[Span]) {
-    for s in spans {
-        let _ = write!(h, "<span{}>", style_attr(s.style));
-        escape(h, &s.content);
-        h.push_str("</span>");
-    }
-}
-
-fn style_attr(st: Style) -> String {
-    let m = st.add_modifier;
-    let (mut fg, mut bg) = (st.fg.and_then(color), st.bg.and_then(color));
-    if m.contains(Modifier::REVERSED) {
-        (fg, bg) = (
-            Some(bg.unwrap_or("var(--pane)".into())),
-            Some(fg.unwrap_or("var(--fg)".into())),
-        );
-    }
-    let mut css = String::new();
-    if let Some(c) = fg {
-        let _ = write!(css, "color:{c};");
-    }
-    if let Some(c) = bg {
-        let _ = write!(css, "background:{c};");
-    }
-    for (flag, rule) in [
-        (Modifier::BOLD, "font-weight:bold;"),
-        (Modifier::DIM, "opacity:.5;"),
-        (Modifier::ITALIC, "font-style:italic;"),
-        (Modifier::UNDERLINED, "text-decoration:underline;"),
-    ] {
-        if m.contains(flag) {
-            css.push_str(rule);
-        }
-    }
-    if css.is_empty() {
-        css
-    } else {
-        format!(r#" style="{css}""#)
-    }
-}
-
-/// The RGB colors Laura's file pane rows carry, made for a dark terminal, and what the light web
-/// app shows instead: the Nord theme's code colors, then `view.rs`' and `render.rs`' own.
-const LIGHT: &[([u8; 3], &str)] = &[
-    ([0x2e, 0x34, 0x40], "#1d1f24"), // nord0
-    ([0x3b, 0x42, 0x52], "#f2f3f6"), // nord1
-    ([0x4c, 0x56, 0x6a], "#a0a4ad"), // nord3
-    ([0xd8, 0xde, 0xe9], "#1d1f24"), // nord4: code text, a highlighted row's number
-    ([0xe5, 0xe9, 0xf0], "#1d1f24"), // nord5
-    ([0xec, 0xef, 0xf4], "#1d1f24"), // nord6
-    ([0x8f, 0xbc, 0xbb], "#953800"), // nord7: types
-    ([0x88, 0xc0, 0xd0], "#0550ae"), // nord8: functions
-    ([0x81, 0xa1, 0xc1], "#cf222e"), // nord9: keywords
-    ([0x5e, 0x81, 0xac], "#0550ae"), // nord10
-    ([0xbf, 0x61, 0x6a], "#bf3a32"), // nord11
-    ([0xd0, 0x87, 0x70], "#953800"), // nord12
-    ([0xeb, 0xcb, 0x8b], "#9a5a09"), // nord13: warnings
-    ([0xa3, 0xbe, 0x8c], "#1d7d4c"), // nord14: strings
-    ([0xb4, 0x8e, 0xad], "#8250df"), // nord15: numbers
-    ([0x61, 0x6e, 0x88], "#6e7781"), // the Nord theme's comments
-    ([0x38, 0xa6, 0x60], "#1d7d4c"), // view.rs ADDED
-    ([0xb3, 0x59, 0x6b], "#bf3a32"), // view.rs REMOVED
-    ([0x38, 0x96, 0xd9], "#0550ae"), // the modified gutter
-    ([0x52, 0x5c, 0x6e], "#e2e4f6"), // view.rs CODE_ON_BAND
-    ([0x2d, 0x2d, 0x2d], "#f2f3f6"), // render.rs CODE_BG
-    ([0xab, 0xb2, 0xbf], "#1d1f24"), // a comment card's text
-    ([0xb4, 0xb4, 0xb4], "#1d1f24"), // inline code
-    ([0x78, 0xb4, 0xf0], "#4f5bd5"), // links
-    ([0xe0, 0x6c, 0x75], "#bf3a32"), // the diff view's removed text
-];
-
-/// RGB as hex, through [`LIGHT`]; the 16 ANSI colors as `style.css`'s palette.
-fn color(c: Color) -> Option<String> {
-    let ansi = |i: u8| Some(format!("var(--ansi-{i})"));
-    match c {
-        Color::Reset => None,
-        Color::Rgb(r, g, b) => Some(
-            LIGHT
-                .iter()
-                .find(|(rgb, _)| *rgb == [r, g, b])
-                .map_or_else(|| format!("#{r:02x}{g:02x}{b:02x}"), |(_, l)| l.to_string()),
-        ),
-        Color::Indexed(i) if i < 16 => ansi(i),
-        // ponytail: Laura's own styles use RGB or the 16 colors; map the 256-color cube if one appears.
-        Color::Indexed(_) => None,
-        Color::Black => ansi(0),
-        Color::Red => ansi(1),
-        Color::Green => ansi(2),
-        Color::Yellow => ansi(3),
-        Color::Blue => ansi(4),
-        Color::Magenta => ansi(5),
-        Color::Cyan => ansi(6),
-        Color::Gray => ansi(7),
-        Color::DarkGray => ansi(8),
-        Color::LightRed => ansi(9),
-        Color::LightGreen => ansi(10),
-        Color::LightYellow => ansi(11),
-        Color::LightBlue => ansi(12),
-        Color::LightMagenta => ansi(13),
-        Color::LightCyan => ansi(14),
-        Color::White => ansi(15),
-    }
 }
 
 /// One connection: a static file, a file beside a pane, or the websocket view.
