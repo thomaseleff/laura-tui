@@ -2,8 +2,9 @@
 //! view receives, the user's actions as `act` frames, and `laura --web` end to end. State and
 //! frames, not pixels.
 
+#[path = "../common/mod.rs"]
 mod common;
-#[path = "common/web.rs"]
+#[path = "../common/web.rs"]
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
