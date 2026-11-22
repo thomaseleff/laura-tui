@@ -4146,6 +4146,50 @@ fn a_link_to_a_missing_file_shows_a_notice() -> Result<()> {
 }
 
 #[test]
+fn a_link_in_a_full_workspace_shows_a_notice() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (dir, path) = image_doc("[x](x.md)\n")?;
+    std::fs::write(dir.path().join("docs/x.md"), "x\n")?;
+    let y = dir.path().join("y.txt");
+    std::fs::write(&y, "y\n")?;
+    rig.drive(&["open", &path]);
+    pane_frame(&mut rig, &mut ws, 1);
+    let mut stderr = String::new();
+    for n in 0..40 {
+        let f = dir.path().join(format!("f{n}.txt"));
+        std::fs::write(&f, "f\n")?;
+        let out = rig.run(&["open", &f.to_string_lossy()]);
+        if !out.status.success() {
+            stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            break;
+        }
+    }
+    // The agent keeps its own text.
+    assert!(stderr.contains("lower --ratio"), "{stderr}");
+    let panes = rig.tab.panels.len();
+    let no_room = "⚠ No room for another pane. Close a pane, then click the link again.";
+    let r = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "pane": 0, "path": y.to_string_lossy()}),
+    );
+    assert_eq!(
+        (r["ok"].clone(), r["text"].clone()),
+        (json!(false), json!(no_room))
+    );
+    let r = rig.act(
+        &mut ws,
+        json!({"act": "open_link", "pane": 1, "href": "x.md"}),
+    );
+    assert_eq!(
+        (r["ok"].clone(), r["text"].clone()),
+        (json!(false), json!(no_room))
+    );
+    assert_eq!(rig.tab.panels.len(), panes);
+    Ok(())
+}
+
+#[test]
 fn a_link_to_a_file_in_an_editor_pane_focuses_it() -> Result<()> {
     let mut rig = Rig::new()?;
     rig.tab.editor = Ok(fake_nvim());

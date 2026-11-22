@@ -225,8 +225,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     let mut help = false;
     // An in-progress left-drag selection.
     let mut selection: Option<Selection> = None;
-    // A transient bottom-right toast (message + expiry); armed once if `git` is missing. The user
-    // turned editor panes on, so a missing `nvim` is said at startup, not left to a refused `--edit`.
+    // A transient bottom-right toast (message + expiry); armed by a queued notice, and once if
+    // `git` is missing. The user turned editor panes on, so a missing `nvim` is said at startup,
+    // not left to a refused `--edit`.
     let mut toast: Option<(String, Instant)> = tab
         .editor
         .as_ref()
@@ -243,6 +244,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         // wizard holds them too, so an `open --edit` launches with the answer.
         tab.hold = wizard || draft.is_some();
         tab.drain(content);
+        // The web app shows each notice; the TUI shows the newest in its toast.
+        if let Some((_, text)) = tab.notices.drain(..).next_back() {
+            toast = Some((text, Instant::now() + Duration::from_secs(5)));
+        }
         // git-presence is a machine-global fact: arm the "install git" toast once,
         // the first time any diff attempt (open or reload) found no `git` binary.
         if !toast_git_shown && laura::gitdiff::git_missing() {
