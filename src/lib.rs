@@ -14,6 +14,7 @@
 //! - [`web`] — the web app: serves a workspace to the browser.
 //! - [`serve`] — the Laura server: one address that lists the workspaces and starts new ones.
 //! - [`http`] — HTTP for the web app, the Laura server and the CDP proxy: heads, responses, tokens, origins.
+//! - [`platform`] — Laura's folders, private files, and the opener for the user's browser.
 //! - [`settings`] — the user's settings for every workspace, `~/.laura/settings.json`.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
@@ -26,6 +27,7 @@ pub mod http;
 pub mod journal;
 pub mod layout;
 pub mod panel;
+pub mod platform;
 pub mod protocol;
 pub mod pty;
 pub mod render;

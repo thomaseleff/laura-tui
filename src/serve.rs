@@ -11,11 +11,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
-use crate::browser;
 use crate::gitdiff::strip_verbatim;
 use crate::http::{self, header};
-use crate::journal::{data_dir, runtime_dir};
-use crate::web::{self, shown_root};
+use crate::platform::{self, data_dir, runtime_dir, shown_root};
+use crate::web;
 
 /// 1989: the year Rachel and Stephen Kaplan named soft fascination.
 pub const DEFAULT_PORT: u16 = 1989;
@@ -101,22 +100,22 @@ pub fn run(port: u16, open: bool) -> Result<()> {
              white-space: pre-wrap; font: 12.5px/1.5 \"JetBrains Mono\", ui-monospace, Consolas, monospace; }}\
              </style><main><h1>Laura could not start</h1><pre>{text}</pre></main>"
         );
-        show(|dir| web::page(dir, &html));
+        show(|dir| platform::page(dir, &html));
     }
     result
 }
 
 /// Open the user's browser at the page that `write` puts in the opener's folder.
 fn show(write: impl FnOnce(&Path) -> Result<PathBuf>) {
-    let opener = browser::opener();
+    let opener = platform::opener();
     if let Err(e) = write(&opener.dir).and_then(|p| opener.open(&p).map_err(Into::into)) {
-        browser::no_browser(e);
+        platform::no_browser(e);
     }
 }
 
 /// Open the user's browser at the Laura server's `url`.
 fn open_at(url: &str) {
-    show(|dir| web::redirect_page(dir, url));
+    show(|dir| platform::redirect_page(dir, url));
 }
 
 /// Print the URL of the Laura server that runs on `port`, and with `open`, open the browser at it.
@@ -180,7 +179,7 @@ fn serve(port: u16, open: bool) -> Result<()> {
     // holds a key of no use.
     let token = http::nonce(32)?;
     std::fs::create_dir_all(data_dir())?;
-    web::write_private(
+    platform::write_private(
         &state_path(),
         json!({"token": token, "port": port}).to_string().as_bytes(),
     )?;

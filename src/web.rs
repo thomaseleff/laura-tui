@@ -29,6 +29,7 @@ use crate::http::{
     pct_decode, pct_encode, peek_head, respond, same,
 };
 use crate::panel::{Author, DIFF_ADD, DIFF_DEL, PanelLayout, Thread};
+use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::{Block, escape};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
@@ -668,47 +669,6 @@ impl WebServer {
     }
 }
 
-/// A page that redirects to `url`, for the user's browser: the browser's command line, which
-/// `ps` shows to other users, then holds only a path that they can't read (Jupyter's redirect
-/// file). The page holds only the port and a hex token, so `url` needs no escaping.
-pub(crate) fn redirect_page(dir: &Path, url: &str) -> Result<PathBuf> {
-    page(
-        dir,
-        &format!(
-            "<!doctype html><meta charset=\"utf-8\"><title>Laura</title>\
-             <meta http-equiv=\"refresh\" content=\"0;url={url}\">\
-             <script>location.replace(\"{url}\")</script>"
-        ),
-    )
-}
-
-/// Write `html` to a new `open-<nonce>.html` in `dir`, which only the user can read. First delete
-/// the pages older than a minute: a process that exits at once (a second `laura --serve --open`)
-/// leaves its page behind.
-pub(crate) fn page(dir: &Path, html: &str) -> Result<PathBuf> {
-    // `runtime_dir` creates only the env-chosen dirs; its per-OS fallback can be missing on a
-    // first launch, as can a snap's folder.
-    std::fs::create_dir_all(dir)?;
-    for e in std::fs::read_dir(dir)?.flatten() {
-        let name = e.file_name();
-        let name = name.to_string_lossy();
-        let old = e
-            .metadata()
-            .and_then(|m| m.modified())
-            .is_ok_and(|t| t.elapsed().is_ok_and(|d| d > Duration::from_secs(60)));
-        if old && name.starts_with("open-") && name.ends_with(".html") {
-            let _ = std::fs::remove_file(e.path());
-        }
-    }
-    let path = dir.join(format!("open-{}.html", nonce(8)?));
-    let mut f = std::fs::OpenOptions::new();
-    f.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
-    f.open(&path)?.write_all(html.as_bytes())?;
-    Ok(path)
-}
-
 /// The drawer's height before the user drags its grip, in % of the workspace's.
 const DRAWER: u8 = 54;
 
@@ -726,30 +686,12 @@ fn save_drawer(percent: Option<f64>) -> u8 {
 }
 
 fn workspaces_dir() -> PathBuf {
-    crate::journal::data_dir().join("workspaces")
+    crate::platform::data_dir().join("workspaces")
 }
 
 /// The record of the workspace that process `pid` hosts.
 pub(crate) fn record_path(pid: u32) -> PathBuf {
     workspaces_dir().join(format!("{pid}.json"))
-}
-
-/// Write `bytes` to `path`, a file that only the user can read on Unix. Writes a `.tmp` beside
-/// `path` and renames it over `path`, so a reader never sees a half-written file. The `.tmp` has
-/// the process id, so two processes that write `path` at once never share a `.tmp`.
-pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-    let mut f = std::fs::OpenOptions::new();
-    f.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
-    f.open(&tmp)?.write_all(bytes)?;
-    // Each process leaves its own `.tmp`, so remove the `.tmp` when the rename fails.
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
-    }
-    Ok(())
 }
 
 /// The port of a `http://127.0.0.1:<port>/…` URL.
@@ -915,24 +857,6 @@ fn content_hash(p: &Panel) -> u64 {
     let mut h = DefaultHasher::new();
     p.content.hash(&mut h);
     h.finish()
-}
-
-/// The folder Laura started in, for the top bar: under the home folder as `~/…`, with `/` between
-/// names on every OS.
-pub(crate) fn shown_root(root: &Path) -> String {
-    let strip = crate::gitdiff::strip_verbatim;
-    let root = strip(root.to_path_buf());
-    let home = std::env::home_dir().and_then(|h| h.canonicalize().ok().map(strip));
-    let shown = match home.as_deref().and_then(|h| root.strip_prefix(h).ok()) {
-        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Some(rest) => format!("~/{}", rest.display()),
-        None => root.display().to_string(),
-    };
-    if cfg!(windows) {
-        shown.replace('\\', "/")
-    } else {
-        shown
-    }
 }
 
 /// An HTML file, which the web app shows as a page. A browser pane's URL isn't one.

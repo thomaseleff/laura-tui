@@ -85,7 +85,7 @@ fn tail_spools_into_the_runtime_dir() -> Result<()> {
     let mut tab = spawn_tab()?;
     let (id, path) = tail(&mut tab)?;
     assert!(
-        Path::new(&path).starts_with(laura::journal::runtime_dir()),
+        Path::new(&path).starts_with(laura::platform::runtime_dir()),
         "{path}"
     );
     assert_eq!(std::fs::read_to_string(&path)?, "hello\n");
@@ -127,7 +127,7 @@ fn close_keeps_a_file_opened_from_the_temp_dir() -> Result<()> {
 #[test]
 fn close_keeps_a_file_reached_through_dotdot() -> Result<()> {
     isolate_home();
-    let rt = laura::journal::runtime_dir();
+    let rt = laura::platform::runtime_dir();
     std::fs::create_dir_all(&rt)?;
     let victim = tempfile::NamedTempFile::new_in(rt.parent().expect("spool dir has a parent"))?;
     let path = rt.join("..").join(victim.path().file_name().unwrap());
@@ -158,7 +158,9 @@ fn the_shell_gets_the_hosts_spool_dir() -> Result<()> {
     };
     // 200 cols, so the path doesn't wrap.
     let mut tab = Tab::spawn(cmd, 24, 200)?;
-    let want = laura::journal::runtime_dir().to_string_lossy().into_owned();
+    let want = laura::platform::runtime_dir()
+        .to_string_lossy()
+        .into_owned();
     let start = Instant::now();
     while !tab.pty.with_screen(|s| s.contents()).contains(&want) {
         assert!(
@@ -178,7 +180,7 @@ fn close_deletes_a_spool_from_a_client_with_other_temp_env() -> Result<()> {
     let mut tab = spawn_tab()?;
     let other = tempfile::tempdir()?;
     let other = other.path().to_str().unwrap();
-    let runtime = laura::journal::runtime_dir();
+    let runtime = laura::platform::runtime_dir();
     let env = [
         ("TMP", other),
         ("TEMP", other),

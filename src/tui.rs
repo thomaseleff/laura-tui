@@ -193,7 +193,7 @@ fn editor_theme() -> Option<String> {
     }
     // An earlier Laura kept the answer in `~/.laura/editor-theme`. A failed move keeps the file,
     // so Laura tries again at the next start.
-    let old = laura::journal::data_dir().join("editor-theme");
+    let old = laura::platform::data_dir().join("editor-theme");
     let s = std::fs::read_to_string(&old).ok()?.trim().to_string();
     if laura::settings::set("editor_theme", Some(s.clone().into())).is_ok() {
         let _ = std::fs::remove_file(&old);

@@ -20,9 +20,10 @@ use crate::browser::{self, Browser, Cdp, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
 use crate::http;
-use crate::journal::{Journal, is_runtime_temp, runtime_dir, session_path};
+use crate::journal::{Journal, is_runtime_temp, session_path};
 use crate::layout::{Layout, MIN_PANE, all_panes_fit, infer_split, rects};
 use crate::panel::{Panel, bracketed_paste};
+use crate::platform::runtime_dir;
 use crate::protocol::{
     self, Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,
 };

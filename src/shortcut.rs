@@ -29,7 +29,7 @@ pub fn write() -> Result<()> {
         .unwrap_or_else(|| "/bin/sh".into());
     let inner = format!("exec {} --serve --open", sh_quote(&exe.to_string_lossy()));
     if let Ok(distro) = std::env::var("WSL_DISTRO_NAME") {
-        let (win, dir) = crate::browser::win_env("USERPROFILE")
+        let (win, dir) = crate::platform::win_env("USERPROFILE")
             .context("Laura could not find the Windows home folder")?;
         let ico = save_ico(&dir.join(".laura"))?;
         // Minimized: the terminal that runs the Laura server stays out of the way. No quotes
