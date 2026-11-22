@@ -867,5 +867,12 @@ fn an_earlier_editor_theme_applies_when_laura_cant_move_it() -> Result<()> {
     assert_eq!(launch.matches("lua dofile").count(), 2, "{launch}");
     // Laura tries the move again at the next start.
     assert!(data.join("editor-theme").exists());
+    // The failed save leaves no temp file.
+    let left: Vec<_> = std::fs::read_dir(&data)?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
     Ok(())
 }

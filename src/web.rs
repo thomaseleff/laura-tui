@@ -759,15 +759,20 @@ pub(crate) fn record_path(pid: u32) -> PathBuf {
 }
 
 /// Write `bytes` to `path`, a file that only the user can read on Unix. Writes a `.tmp` beside
-/// `path` and renames it over `path`, so a reader never sees a half-written file.
+/// `path` and renames it over `path`, so a reader never sees a half-written file. The `.tmp` has
+/// the process id, so two processes that write `path` at once never share a `.tmp`.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("tmp");
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
     let mut f = std::fs::OpenOptions::new();
     f.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
     f.open(&tmp)?.write_all(bytes)?;
-    std::fs::rename(&tmp, path)?;
+    // Each process leaves its own `.tmp`, so remove the `.tmp` when the rename fails.
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
