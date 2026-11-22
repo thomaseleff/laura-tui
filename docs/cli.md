@@ -221,6 +221,10 @@ Laura looks for the element on the page that the pane shows now. An argument of 
 
 Laura saves your settings in `~/.laura/settings.json` and uses them in each workspace. Laura writes the file when you change a setting. To go back to a default, remove the key from the file, then start a new workspace.
 
+If Laura can't read `settings.json`, for example after a typo in a hand edit, Laura uses the defaults and doesn't change the file. A setting that you change then applies to that workspace only. Fix the file, then start a new workspace.
+
+Laura also keeps `~/.laura/settings.lock`, an empty file, so that two workspaces don't save a setting at the same moment.
+
 | Key | What Laura does with the value | You set it with |
 |---|---|---|
 | `drawer` | Shows the drawer at this height, in % of the workspace, from 20 to 85. Without the key, the drawer is 54%. | [The drawer's grip](navigation.md#the-drawer) |

@@ -582,6 +582,84 @@ fn an_earlier_editor_theme_moves_into_the_settings() -> Result<()> {
     }
 }
 
+/// `laura --web` with its own `home`, and a view connected to it.
+fn laura_web_in(home: &Path) -> Result<(Kill, Ws)> {
+    let (child, url) = laura_start(home, &["--web", "--", PROGRAM], Some(home))?;
+    let (port, token) = port_token(&url);
+    let origin = format!("http://localhost:{port}");
+    Ok((child, connect_to(port, Some(&token), Some(&origin))?))
+}
+
+/// The first `layout` frame on a raw view that `want` accepts.
+fn raw_layout_when(ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
+    let start = Instant::now();
+    loop {
+        if let Some(Frame::Json(v)) = read(ws)
+            && v["t"] == "layout"
+            && want(&v)
+        {
+            return v;
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no layout with {what}");
+    }
+}
+
+/// A `settings.json` that Laura can't parse, for example after a typo in a hand edit: Laura shows
+/// the default height, a drag applies to this workspace only, and the file keeps the user's keys.
+#[test]
+fn an_invalid_settings_file_stays_as_the_user_left_it() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join(".laura");
+    std::fs::create_dir_all(&dir)?;
+    let typo = r#"{"drawer":60,"editor_theme":"laura",}"#;
+    std::fs::write(dir.join("settings.json"), typo)?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    let first = raw_layout_when(&mut ws, "a height", |v| !v["drawer_height"].is_null());
+    assert_eq!(first["drawer_height"], 54, "{first}");
+    send(&mut ws, json!({"act": "drawer_height", "percent": 40}));
+    raw_layout_when(&mut ws, "the height 40", |v| v["drawer_height"] == 40);
+    assert_eq!(std::fs::read_to_string(dir.join("settings.json"))?, typo);
+    Ok(())
+}
+
+/// Two Lauras that save a setting at the same moment keep each other's keys: a save waits for
+/// another Laura's save, here the test's lock on `settings.lock`.
+#[test]
+fn a_save_waits_for_another_lauras_save() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join(".laura");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join("settings.json");
+    std::fs::write(&file, r#"{"editor_theme":"neovim"}"#)?;
+    let lock = std::fs::File::create(dir.join("settings.lock"))?;
+    lock.lock()?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    raw_layout_when(&mut ws, "a height", |v| !v["drawer_height"].is_null());
+    send(&mut ws, json!({"act": "drawer_height", "percent": 40}));
+    let saved = || -> Value {
+        std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(Value::Null)
+    };
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(300) {
+        let _ = read(&mut ws);
+        assert_eq!(saved(), json!({"editor_theme": "neovim"}));
+    }
+    drop(lock);
+    let start = Instant::now();
+    while saved() != json!({"editor_theme": "neovim", "drawer": 40}) {
+        let _ = read(&mut ws);
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "never saved: {}",
+            saved()
+        );
+    }
+    Ok(())
+}
+
 /// The shell docks only when every pane still fits beside the shell.
 #[test]
 fn dock_needs_room_for_every_pane() -> Result<()> {
