@@ -25,14 +25,15 @@ use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::{HeaderValue, StatusCode};
 
 use crate::http::{
-    CSP, REFERRER_POLICY, answers, foreign_subresource, listen, nonce, nothing_yet, our_origin,
-    pct_decode, pct_encode, peek_head, respond, same,
+    CSP, REFERRER_POLICY, foreign_subresource, listen, nonce, nothing_yet, our_origin, pct_decode,
+    pct_encode, peek_head, respond, same,
 };
 use crate::panel::cursor::{card_line, cursor_block, on_card, on_stop, step, toggle_block_threads};
 use crate::panel::{Author, DIFF_ADD, DIFF_DEL, PanelLayout, Thread, is_page};
 use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::escape;
+use crate::serve::{live, record_path, workspaces_dir};
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
 /// The workspace's size until a view reports one.
@@ -684,83 +685,6 @@ fn save_drawer(percent: Option<f64>) -> u8 {
     // Best-effort: an unwritable file keeps the height for this workspace only.
     let _ = crate::settings::set("drawer", h.map(Value::from));
     h.unwrap_or(DRAWER)
-}
-
-fn workspaces_dir() -> PathBuf {
-    crate::platform::data_dir().join("workspaces")
-}
-
-/// The record of the workspace that process `pid` hosts.
-pub(crate) fn record_path(pid: u32) -> PathBuf {
-    workspaces_dir().join(format!("{pid}.json"))
-}
-
-/// The port of a `http://127.0.0.1:<port>/…` URL.
-fn url_port(url: &str) -> Option<u16> {
-    let rest = url.strip_prefix("http://127.0.0.1:")?;
-    rest.split('/').next()?.parse().ok()
-}
-
-/// The records of the running workspaces, the latest visit first. A record whose port doesn't answer is a
-/// workspace that ended without `unregister`: `live` deletes the record.
-/// The newest record on a port wins: `live` deletes the older records on that port.
-/// shortcut: a port that a program other than Laura took over still answers, check the pid if a stale row is reported.
-pub fn live() -> Vec<Value> {
-    let Ok(dir) = std::fs::read_dir(workspaces_dir()) else {
-        return vec![];
-    };
-    let mut out = vec![];
-    let mut records = vec![];
-    for path in dir.flatten().map(|e| e.path()) {
-        match path.extension().and_then(|e| e.to_str()) {
-            Some("json") => records.push(path),
-            // A `.tmp` this old is from a workspace that crashed between the write and the
-            // rename; a newer one is a `write_private` in progress.
-            Some("tmp") => {
-                let age = std::fs::metadata(&path)
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.elapsed().ok());
-                if age.is_some_and(|a| a > Duration::from_secs(60)) {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
-            _ => {}
-        }
-    }
-    for path in records {
-        // A record that a workspace is writing right now doesn't parse yet: skip it this time.
-        let Some(v) = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        else {
-            continue;
-        };
-        if v["url"].as_str().and_then(url_port).is_some_and(answers) {
-            out.push(v);
-        } else {
-            let _ = std::fs::remove_file(&path);
-        }
-    }
-    out.sort_by_key(|v| (v["started"].as_u64(), v["pid"].as_u64()));
-    // Newest first: an older record on the same port is a workspace that ended without `unregister`.
-    let mut ports = std::collections::HashSet::new();
-    out.reverse();
-    out.retain(|v| {
-        let fresh = ports.insert(v["url"].as_str().and_then(url_port));
-        if let (false, Some(pid)) = (fresh, v["pid"].as_u64()) {
-            let _ = std::fs::remove_file(record_path(pid as u32));
-        }
-        fresh
-    });
-    // A record from an older Laura has no `visited`: its start stands in.
-    out.sort_by_key(|v| {
-        std::cmp::Reverse((
-            v["visited"].as_u64().or(v["started"].as_u64()),
-            v["pid"].as_u64(),
-        ))
-    });
-    out
 }
 
 /// The time now, in Unix ms.
