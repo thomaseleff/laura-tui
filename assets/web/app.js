@@ -1588,7 +1588,8 @@ const frameOf = id => $("p" + id)?.querySelector(pane(id)?.kind === "browser" ? 
 
 // Scrolls the pane to its highlight; a page's frame scrolls itself. A `jump` (a frame's
 // `recenter: "line"`, from `Panel::jump_to_line`) centers the cursor's line, also the line inside
-// a markdown block, only when that line is off screen. A page gets the jump in `page`'s `jump`.
+// a markdown block, only when that line is off screen. A page gets the jump in `page`'s `jump`,
+// and `again` when its pane grows after a jump.
 function toHighlight(id, jump) {
   // Page input gets no `acted` reply (`web.rs`), so `send`, not `act`.
   if (pane(id)?.kind === "browser") return send({ act: "browser_reveal", pane: id });
@@ -1596,7 +1597,7 @@ function toHighlight(id, jump) {
   // A too-small pane hides its rows and page, which can't scroll; the `.narrow` observer scrolls again.
   if (!el || (el.hlLater = tooSmall(el) && { jump })) return;
   const f = frameOf(id);
-  if (f) return f.contentWindow?.postMessage({ ...f.state, scroll: true }, "*");
+  if (f) return f.contentWindow?.postMessage({ ...f.state, [jump ? "again" : "scroll"]: true }, "*");
   const rows = el.querySelector(".rows");
   if (!rows) return;
   if (jump) {
@@ -1645,6 +1646,8 @@ function onPage(m) {
   const jump = m.jump || (!!f.state?.jump && f.state.cursor === m.cursor);
   f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id, jump };
   f.contentWindow?.postMessage(f.state, "*");
+  // A too-small pane hides its page, which can't scroll; the `.narrow` observer scrolls again.
+  if (m.jump && tooSmall(el)) el.hlLater = { jump: true };
   // The diff view's rows, if the page was in it.
   for (const u of units(rows)) u.remove();
   rows.dataset.cursor = "";
