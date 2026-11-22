@@ -28,7 +28,6 @@ use crate::protocol::{
     self, Dir, LayoutReport, Message, PTY_PANE, PaneId, PaneKind, PaneReport, Reply, Response, Side,
 };
 use crate::pty::PtyTab;
-use crate::web;
 
 /// For each pane's rect, measure content vs. visible rows to fill a `LayoutReport`.
 /// `web`: the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell takes a
@@ -2159,7 +2158,7 @@ impl Tab {
     /// The browser draws a page, and markdown blocks, taller than their rows, so the web app fits neither.
     fn fit_ratio(&self, path: &str, target: PaneId, side: Side, new: PaneId, area: Rect) -> u16 {
         let temp = Panel::open(path.to_string());
-        if self.web && (web::is_page(&temp) || !temp.blocks().is_empty()) {
+        if self.web && (crate::panel::is_page(&temp) || !temp.blocks().is_empty()) {
             return 50;
         }
         let rect = |ratio| {

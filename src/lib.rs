@@ -3,7 +3,7 @@
 //! - [`protocol`] — the wire `Message`/`Response` set and per-tab socket transport.
 //! - [`pty`] — process/terminal: a PTY-hosted shell/agent and its parsed vt100 screen.
 //! - [`layout`] — geometry/split-tree: a tab's recursive pane arrangement and its rects.
-//! - [`panel`] — a file's review state: content, cursor, threads, live reload; `render` styles it, `gitdiff` diffs it.
+//! - [`panel`] — a file's review state: content, cursor, threads, live reload; with `render`, `gitdiff` and `cursor`.
 //! - [`journal`] — persisted per-session NDJSON log of composition events.
 //! - [`browser`] — a browser pane's page in Laura's own headless Chrome or Edge.
 //! - [`cdp_proxy`] — `LAURA_BROWSER_URL`: the agent's browser tools reach Laura's browser through Laura.

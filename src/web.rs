@@ -28,10 +28,11 @@ use crate::http::{
     CSP, REFERRER_POLICY, answers, foreign_subresource, listen, nonce, nothing_yet, our_origin,
     pct_decode, pct_encode, peek_head, respond, same,
 };
-use crate::panel::{Author, DIFF_ADD, DIFF_DEL, PanelLayout, Thread};
+use crate::panel::cursor::{card_line, cursor_block, on_card, on_stop, step, toggle_block_threads};
+use crate::panel::{Author, DIFF_ADD, DIFF_DEL, PanelLayout, Thread, is_page};
 use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
-use crate::render::{Block, escape};
+use crate::render::escape;
 use crate::{Panel, PanelRow, Rect, Tab, UserAction, view};
 
 /// The workspace's size until a view reports one.
@@ -859,15 +860,6 @@ fn content_hash(p: &Panel) -> u64 {
     h.finish()
 }
 
-/// An HTML file, which the web app shows as a page. A browser pane's URL isn't one.
-pub(crate) fn is_page(p: &Panel) -> bool {
-    !p.browser
-        && Path::new(&p.path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
-}
-
 /// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
 /// so a click on an element reports the line the TUI shows its tag on. Comments, CDATA and
 /// raw text aren't scanned for tags. `tail` goes at the end, or before an unclosed comment, tag,
@@ -1286,24 +1278,6 @@ fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
     h
 }
 
-/// The markdown block holding the cursor; `None` in diff view or between blocks.
-fn cursor_block(p: &Panel) -> Option<&Block> {
-    if p.diff_view {
-        return None;
-    }
-    p.blocks().iter().find(|b| b.rows.contains(&p.cursor))
-}
-
-/// Whether the cursor is on one of block `b`'s [`Block::stops`].
-fn on_stop(p: &Panel, b: &Block) -> bool {
-    b.stops().iter().any(|&(row, _)| row == p.cursor)
-}
-
-/// Whether the cursor shows on an open thread's card below block `b`, not on the block.
-fn on_card(p: &Panel, b: &Block) -> bool {
-    p.cursor != b.rows.start && !on_stop(p, b) && p.cursor_thread().is_some_and(|t| !t.collapsed)
-}
-
 /// Each thread as the browser draws it: its 1-based source line, and each note's author, `null`
 /// for the user.
 fn threads_json(p: &Panel) -> Value {
@@ -1405,88 +1379,6 @@ fn label(p: &Panel, t: &Thread) -> Option<String> {
         }
         .into(),
     )
-}
-
-/// The 1-based line of the open thread whose card holds the cursor. A pane without blocks shows
-/// the cursor on the card of its line's open thread.
-fn card_line(p: &Panel) -> Option<usize> {
-    p.cursor_thread()
-        .filter(|t| !t.collapsed && cursor_block(p).is_none_or(|b| on_card(p, b)))
-        .map(|t| p.thread_source(t).0 + 1)
-}
-
-/// `↑`/`↓` in rendered markdown: one block, stop, card or blank row per keystroke. False in diff
-/// view or for a file without blocks, so `Tab::act` moves the cursor.
-fn step(p: &mut Panel, delta: isize) -> bool {
-    if p.diff_view || p.blocks().is_empty() {
-        return false;
-    }
-    let before = p.cursor;
-    if let Some(b) = cursor_block(p) {
-        let rows = b.rows.clone();
-        let stops: Vec<usize> = b.stops().iter().map(|&(row, _)| row).collect();
-        if on_card(p, b) {
-            if delta < 0 {
-                p.cursor = rows.start;
-                return true;
-            }
-        } else {
-            let at = if stops.contains(&p.cursor) {
-                p.cursor
-            } else {
-                rows.start
-            };
-            let next = if delta > 0 {
-                stops.iter().copied().find(|&r| r > at)
-            } else {
-                let start = (at > rows.start).then_some(rows.start);
-                stops.iter().copied().rfind(|&r| r < at).or(start)
-            };
-            if let Some(r) = next {
-                p.cursor = r;
-                return true;
-            }
-        }
-        p.cursor = if delta > 0 { rows.end - 1 } else { rows.start };
-    }
-    p.move_cursor(delta);
-    // A move into a block goes to its first row, or `↑` to its last stop; at either end of the
-    // file, the cursor keeps its row.
-    if let Some(b) = cursor_block(p) {
-        p.cursor = if b.rows.contains(&before) {
-            before
-        } else if delta < 0 {
-            b.stops().last().map_or(b.rows.start, |&(row, _)| row)
-        } else {
-            b.rows.start
-        };
-    }
-    true
-}
-
-/// Collapse the cursor block's threads if any is open, else expand them. False off a block, on a
-/// thread off the block's first row, or with no threads in the block.
-fn toggle_block_threads(p: &mut Panel) -> bool {
-    let Some(b) = cursor_block(p) else {
-        return false;
-    };
-    if (p.cursor != b.rows.start || on_stop(p, b)) && p.cursor_thread().is_some() {
-        return false;
-    }
-    let b = b.rows.clone();
-    let Some(open) = p
-        .threads
-        .iter()
-        .filter(|t| b.contains(&t.line))
-        .map(|t| !t.collapsed)
-        .max()
-    else {
-        return false;
-    };
-    for t in p.threads.iter_mut().filter(|t| b.contains(&t.line)) {
-        t.collapsed = open;
-    }
-    true
 }
 
 /// A markdown pane as one unit per rendered block (#89): the removed-lines rows inside it go above

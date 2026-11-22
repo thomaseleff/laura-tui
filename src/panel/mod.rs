@@ -1,11 +1,14 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
 //! Its children read the file: [`render`] styles it, and [`gitdiff`] diffs it against git HEAD.
+//! [`cursor`] moves the web app's cursor by block.
 
+pub(crate) mod cursor;
 pub mod gitdiff;
 pub mod render;
 
 use std::cell::Cell;
 use std::ops::{Range, RangeInclusive};
+use std::path::Path;
 use std::time::SystemTime;
 
 use ratatui::style::{Color, Style};
@@ -1467,4 +1470,13 @@ pub fn bracketed_paste(text: &str, submit: bool) -> Vec<u8> {
 fn stat_sig(path: &str) -> Option<(SystemTime, u64)> {
     let m = std::fs::metadata(path).ok()?;
     Some((m.modified().ok()?, m.len()))
+}
+
+/// An HTML file, which the web app shows as a page. A browser pane's URL isn't one.
+pub(crate) fn is_page(p: &Panel) -> bool {
+    !p.browser
+        && Path::new(&p.path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
 }
