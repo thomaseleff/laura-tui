@@ -188,17 +188,17 @@ impl Draft {
 
 /// The theme wizard's answer, `laura` or `neovim`; `None`: ask (only when editor panes are on).
 fn editor_theme() -> Option<String> {
-    // An earlier Laura kept the answer in `~/.laura/editor-theme`.
+    if let Some(v) = laura::settings::get("editor_theme") {
+        return v.as_str().map(String::from);
+    }
+    // An earlier Laura kept the answer in `~/.laura/editor-theme`. A failed move keeps the file,
+    // so Laura tries again at the next start.
     let old = laura::journal::data_dir().join("editor-theme");
-    if laura::settings::get("editor_theme").is_none()
-        && let Ok(s) = std::fs::read_to_string(&old)
-        && laura::settings::set("editor_theme", Some(s.trim().into())).is_ok()
-    {
+    let s = std::fs::read_to_string(&old).ok()?.trim().to_string();
+    if laura::settings::set("editor_theme", Some(s.clone().into())).is_ok() {
         let _ = std::fs::remove_file(&old);
     }
-    laura::settings::get("editor_theme")?
-        .as_str()
-        .map(String::from)
+    Some(s)
 }
 
 /// Start a workspace running `program` (else the shell), with editor and browser panes resolved

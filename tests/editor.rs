@@ -787,3 +787,85 @@ fn threads_are_pushed_to_neovim() -> Result<()> {
     });
     Ok(())
 }
+
+/// A Laura child killed on drop, so a failed assert doesn't leave it running.
+#[cfg(unix)]
+struct Kill(std::process::Child);
+
+#[cfg(unix)]
+impl Drop for Kill {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn an_earlier_editor_theme_applies_when_laura_cant_move_it() -> Result<()> {
+    use std::process::{Command, Stdio};
+
+    isolate_home();
+    fakes();
+    // A directory at `settings.json`: the read and the rename in the move both fail.
+    let home = tempfile::tempdir()?;
+    let data = home.path().join(".laura");
+    std::fs::create_dir_all(data.join("settings.json"))?;
+    std::fs::write(data.join("editor-theme"), "laura\n")?;
+    let dir = tempfile::tempdir()?;
+    let bin = fake("stay");
+    let path = format!(
+        "{}:{}",
+        bin.parent().expect("the fake is in a dir").display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let _laura = Kill(
+        Command::new(env!("CARGO_BIN_EXE_laura"))
+            .args(["--web", "--", "/bin/sh", "-c"])
+            .arg("printf %s \"$LAURA_TAB\" > tab; sleep 60")
+            .current_dir(dir.path())
+            .env("HOME", home.path())
+            .env("PATH", path)
+            .env("LAURA_BROWSER", dir.path().join("no-browser"))
+            .env_remove("LAURA_TAB")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?,
+    );
+    let t0 = Instant::now();
+    let socket = loop {
+        if let Ok(s) = std::fs::read_to_string(dir.path().join("tab"))
+            && !s.is_empty()
+        {
+            break s;
+        }
+        assert!(
+            t0.elapsed() < common::DEADLINE,
+            "the shell wrote no LAURA_TAB"
+        );
+        thread::sleep(Duration::from_millis(50));
+    };
+    let (_file_dir, file) = file();
+    let out = Command::new(env!("CARGO_BIN_EXE_laura"))
+        .args(["open", "--edit", &file])
+        .env("HOME", home.path())
+        .env("LAURA_TAB", &socket)
+        .output()?;
+    assert!(out.status.success(), "{out:?}");
+    let launch = loop {
+        let log = std::fs::read_to_string(argv_log()).unwrap_or_default();
+        if let Some(l) = log
+            .lines()
+            .find(|l| l.contains(&socket) && l.contains("--listen"))
+        {
+            break l.to_string();
+        }
+        assert!(t0.elapsed() < common::DEADLINE, "no launch logged");
+        thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(launch.matches("lua dofile").count(), 2, "{launch}");
+    // Laura tries the move again at the next start.
+    assert!(data.join("editor-theme").exists());
+    Ok(())
+}
