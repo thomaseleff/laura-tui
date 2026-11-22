@@ -10,7 +10,8 @@ use serde_json::json;
 use crate::http;
 use crate::protocol::{PTY_PANE, PaneId, Response};
 
-use super::{NO_ROOM, Tab, no_pane, split_too_small};
+use super::report::split_too_small;
+use super::{NO_ROOM, Tab, no_pane};
 
 impl Tab {
     /// Open `href`'s file, without its `?query`, beside pane `pane`'s, as `laura open` would, or move to the pane already
