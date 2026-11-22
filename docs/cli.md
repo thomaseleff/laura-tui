@@ -217,6 +217,21 @@ Laura looks for the element on the page that the pane shows now. An argument of 
 
 `laura diff --pane <id>` on a browser pane returns `a browser pane has no diff: run laura open <file> --diff on the page's source file`.
 
+## Settings
+
+Laura saves your settings in `~/.laura/settings.json` and uses them in each workspace. Laura writes the file when you change a setting. To go back to a default, remove the key from the file, then start a new workspace.
+
+If Laura can't read `settings.json`, for example after a typo in a hand edit, Laura uses the defaults and doesn't change the file. A setting that you change then applies to that workspace only. Fix the file, then start a new workspace.
+
+Laura also keeps `~/.laura/settings.lock`, an empty file, so that two workspaces don't save a setting at the same moment.
+
+| Key | What Laura does with the value | You set it with |
+|---|---|---|
+| `drawer` | Shows the drawer at this height, in % of the workspace, from 20 to 85. Without the key, the drawer is 54%. | [The drawer's grip](navigation.md#the-drawer) |
+| `editor_theme` | `laura` applies Laura's theme in editor panes, and `neovim` keeps your theme. Without the key, the TUI asks at start. | [The startup wizard](tui-navigation.md#lauras-theme) |
+
+An earlier Laura saved the theme in `~/.laura/editor-theme`. Laura moves the answer into `settings.json` at the next start. If Laura can't write `settings.json`, Laura uses the answer in `~/.laura/editor-theme` and moves the answer at a later start.
+
 ## Journal
 
 When the agent runs `laura ready`, Laura starts a journal for the session at `~/.laura/sessions/<session>.ndjson` and prints its path as `journal`. Laura adds one NDJSON line to the journal for each event in the table below. Each line includes `ts` (unix ms), `session`, `agent` (when set), and `version` (Laura's version, plus `+<commit>` when Laura was built from a git checkout). A `review` event includes `error` when Laura couldn't write the inline review into the chat. Laura adds a `browser` event when Laura's browser doesn't start.

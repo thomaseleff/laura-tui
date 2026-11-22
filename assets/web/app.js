@@ -59,6 +59,8 @@ const frame = (id, bytes) => {
 };
 // The user's last keystroke or mouse press, for the wait rule below `overlayOpen`.
 let press = null;
+// The user drags a resize handle (`dragger`).
+let resizing = false;
 function act(m, then) {
   // The user's press sent Laura an action: the server, not the wait rule below, decides the wait.
   if (press && m.act !== "seen") press.acted = true;
@@ -230,12 +232,17 @@ function makeProbe() {
 // The shell's size from its own cell, in its box less the padding (style.css) and the scrollbar.
 // `force` sends the size to a new connection.
 function fitShell(force) {
+  // While the user drags a size, the agent redraws once, on release.
+  if (resizing) return;
   const t = terms.get(0), box = $("p0")?.querySelector(".term");
   const r = t?.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
   if (!r?.width || !box.clientWidth) return;
   // Laura's minimum (`cells` in src/web.rs), so xterm and the shell use one grid.
   const cols = Math.max(20, Math.floor((box.clientWidth - 40 - 10) / (r.width / t.cols)));
   const rows = Math.max(5, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
+  // The drawer's minimum shows those 5 rows: the header, the body's inset and padding, and the rows.
+  root.style.setProperty("--drawer-min", Math.ceil(box.offsetTop + 6 + 32 + 5 * r.height / t.rows) + "px");
+  ariaDrawer();
   if (cols === t.cols && rows === t.rows && !force) return;
   t.resize(cols, rows);
   send({ shell: { cols, rows } });
@@ -249,6 +256,7 @@ function termKeys(id, term, e) {
   if (draft) return false;
   // `code`, so a layout that types another character on that key still shows or hides the shell.
   if (e.ctrlKey && !e.altKey && e.code === "Backquote") return false;
+  if (id === 0 && e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer) return false;
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
@@ -604,6 +612,7 @@ function makePane(p) {
     if (layout?.focus === p.id) followFocus(true);
     if (el.hlLater && !tooSmall(el)) toHighlight(p.id, el.hlLater.jump);
   }).observe(el.querySelector(".narrow"));
+  if (p.id === 0) grip(el);
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
@@ -626,6 +635,95 @@ function makePane(p) {
     if (a) act({ act: "open_link", pane: p.id, href: a.dataset.href });
   });
   return el;
+}
+
+// A resize handle: `move(e)` while the user drags `el` with the left button, `done()` on release.
+// One helper for every resize handle.
+function dragger(el, move, done) {
+  el.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("on");
+    // After `pointerup`, `pointercancel`, or any other loss of the capture, so a drag always ends.
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("lostpointercapture", up);
+      el.classList.remove("on");
+      done();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("lostpointercapture", up);
+  });
+}
+
+// The drawer's heights in %: 20 or the 5 rows' minimum (`--drawer-min`, `fitShell`), to 85.
+const drawerRange = () => [
+  Math.min(85, Math.max(20, Math.ceil(parseFloat(root.style.getPropertyValue("--drawer-min")) / root.clientHeight * 100) || 0)),
+  85,
+];
+// The height that the user set and Laura hasn't confirmed: a layout sent before Laura took it would
+// show the old height.
+let heldDrawer = null;
+// Save the drawer's height, or the default for `undefined`.
+function saveDrawer(h) {
+  if (ws?.readyState !== 1) return;
+  heldDrawer = h ?? null;
+  act({ act: "drawer_height", percent: h }, () => heldDrawer === h && (heldDrawer = null));
+}
+// The drawer's height in % as the user sees it: the 5 rows can make the drawer taller than `--drawer`.
+const shownDrawer = () => Math.max(drawerRange()[0],
+  Math.round(parseFloat(root.style.getPropertyValue("--drawer")) || layout.drawer_height));
+// Tell a screen reader the height that the drawer shows, and the lowest height the window allows.
+function ariaDrawer(g = $("p0")?.querySelector(".grip")) {
+  g?.setAttribute("aria-valuemin", drawerRange()[0]);
+  g?.setAttribute("aria-valuenow", shownDrawer());
+}
+// Show the drawer at `h`%, and tell a screen reader.
+const showDrawer = h => (root.style.setProperty("--drawer", h + "%"), ariaDrawer());
+// `Ctrl+Shift+↑ ↓`, or `↑ ↓` on the grip: the drawer `d`% taller, within its range. The shell's
+// `ResizeObserver` fits the shell.
+function stepDrawer(d) {
+  const [lo, hi] = drawerRange();
+  const cur = shownDrawer();
+  const h = Math.min(hi, Math.max(lo, cur + d));
+  showDrawer(h);
+  saveDrawer(h);
+}
+
+// The drawer's grip on its top edge: a drag sets the drawer's height, which Laura saves for the
+// user; a double-click goes back to the default. A screen reader and the keyboard reach the grip as
+// a separator: `↑ ↓` step the height, and `Home` resets it. The window's keydown listener takes these
+// keystrokes, after the help, the pane selector, the lock and the quit confirmation.
+const GRIP_TIP = "Drag to resize the drawer · double-click to reset  Ctrl+Shift+↑ ↓";
+function grip(el) {
+  const g = document.createElement("div");
+  g.className = "grip tip-c";
+  g.dataset.tip = GRIP_TIP;
+  g.tabIndex = 0;
+  for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "horizontal", "aria-valuemax": 85,
+    "aria-label": "Drawer height" })) g.setAttribute(k, v);
+  el.append(g);
+  ariaDrawer(g);
+  // The pane's own handlers would take the focus or the line.
+  for (const t of ["mousedown", "click"]) g.addEventListener(t, e => e.stopPropagation());
+  let h = null;
+  dragger(g, e => {
+    const r = root.getBoundingClientRect();
+    // The drawer sits 8px above the workspace's bottom (style.css).
+    const [lo, hi] = drawerRange();
+    h = Math.round(Math.min(hi, Math.max(lo, (r.bottom - 8 - e.clientY) / r.height * 100)));
+    resizing = true;
+    showDrawer(h);
+    g.dataset.tip = `Drawer · ${h}% of the height`;
+  }, () => {
+    resizing = false;
+    g.dataset.tip = GRIP_TIP;
+    if (h !== null) saveDrawer(h);
+    h = null;
+    fitShell();
+  });
+  g.addEventListener("dblclick", () => saveDrawer());
 }
 
 // The `+` on the hovered line (`el.plus`), just past its text and centred on its first line. A click
@@ -659,6 +757,8 @@ function onLayout(m) {
   }
   unseen.delete(m.focus);
   layout = m;
+  // A drag keeps the height under the pointer until the release.
+  if (!resizing && heldDrawer === null) showDrawer(m.drawer_height);
   // The list closes with its last thread, or its pane.
   if (!pane(listOpen)?.threads) listOpen = null;
   if (!pane(moreOpen) || moreOpen === 0) moreOpen = null;
@@ -2004,6 +2104,14 @@ addEventListener("keydown", e => {
   if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(), setCommentMode(null);
   if (ctrl && k === "p") return take(), openSelector();
   if (ctrl && e.code === "Backquote") return take(), toggleShell();
+  if (ctrl && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer && drawerOpen()) {
+    return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+  }
+  // The focused grip: ↑ ↓ step the drawer's height, and Home resets it.
+  if (document.activeElement?.matches?.("#p0 .grip") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+    if (e.key === "Home") return take(), saveDrawer();
+  }
   if (ctrl && k === "q") {
     take();
     return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));
@@ -2385,6 +2493,7 @@ function connect() {
   sock.onclose = () => {
     if (ws !== sock) return;
     acts.length = 0;
+    heldDrawer = null;
     if (moved) return showOverlay(strings.moved, true);
     if (ended) {
       // `replace`: Back does not return to the workspace that ended.

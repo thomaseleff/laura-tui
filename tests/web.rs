@@ -148,10 +148,12 @@ fn first_frames_carry_the_layout_and_the_replay() -> Result<()> {
     let mut ws = rig.connect();
     let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
     let groups = strings["help"].as_array().expect("help groups");
-    assert!(groups.iter().any(|g| {
-        g[1].as_array()
-            .is_some_and(|keys| keys.iter().any(|k| k[0] == "Ctrl+P"))
-    }));
+    for key in ["Ctrl+P", "Ctrl+Shift+↑ ↓"] {
+        assert!(groups.iter().any(|g| {
+            g[1].as_array()
+                .is_some_and(|keys| keys.iter().any(|k| k[0] == key))
+        }));
+    }
     let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
     assert_eq!(layout["focus"], 0);
     assert_eq!(layout["panes"][0]["kind"], "shell");
@@ -468,6 +470,11 @@ fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()>
         json!(["Ctrl+`", "hide the shell"]),
         "{open}"
     );
+    assert_eq!(
+        open["hints"]["pane"][1],
+        json!(["Ctrl+Shift+↑ ↓", "drawer height"]),
+        "{open}"
+    );
     rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
     layout_when(&mut rig, &mut ws, "the file pane", |v| v["focus"] == 1);
     Ok(())
@@ -508,6 +515,158 @@ fn dock_shows_the_shell_as_a_pane_and_drawer_puts_it_back() -> Result<()> {
         v["panes"][0]["drawer"] == true
     });
     assert_eq!(cells(&back, 2), [0, 0, cols, rows], "{back}");
+    Ok(())
+}
+
+/// A drag of the drawer's grip saves the height in `~/.laura/settings.json`, and a workspace that
+/// starts later shows the drawer at that height; Laura keeps it within 20–85%, and a reset removes
+/// it. One test: every web test shares `settings.json`.
+#[test]
+fn the_drawer_height_is_saved_for_every_workspace() -> Result<()> {
+    let mut a = Rig::new()?;
+    let mut ws = a.connect();
+    let saved = || -> Value {
+        let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join(".laura/settings.json");
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map_or(Value::Null, |v| v["drawer"].clone())
+    };
+    // `percent` null: a double-click on the grip, which resets the height.
+    let mut set = |percent: Value, shown: u64| {
+        let acted = a.act(&mut ws, json!({"act": "drawer_height", "percent": percent}));
+        assert_eq!(acted["ok"], true, "{acted}");
+        layout_when(&mut a, &mut ws, "the height", |v| {
+            v["drawer_height"] == shown
+        });
+    };
+
+    set(json!(40), 40);
+    assert_eq!(saved(), 40);
+    let mut b = Rig::new()?;
+    let mut wb = b.connect();
+    let first = b.until(&mut wb, "layout", |f| f.is("layout")).json();
+    assert_eq!(first["drawer_height"], 40, "{first}");
+
+    set(json!(95), 85);
+    assert_eq!(saved(), 85);
+    set(json!(5), 20);
+    assert_eq!(saved(), 20);
+
+    // The reset also leaves the shared file clean for later runs.
+    set(Value::Null, 54);
+    assert_eq!(saved(), Value::Null);
+
+    // A step and a reset in one loop end at the height that Laura showed: Laura sends the layout
+    // again, so the web app drops the step that it showed.
+    send(&mut ws, json!({"act": "drawer_height", "percent": 59}));
+    send(&mut ws, json!({"act": "drawer_height", "percent": null}));
+    thread::sleep(Duration::from_millis(100));
+    layout_when(&mut a, &mut ws, "the default height", |v| {
+        v["drawer_height"] == 54
+    });
+    assert_eq!(saved(), Value::Null);
+    Ok(())
+}
+
+/// An earlier Laura's `~/.laura/editor-theme` moves into `settings.json` at start, so the user
+/// doesn't get the wizard again.
+#[test]
+fn an_earlier_editor_theme_moves_into_the_settings() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join(".laura");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("editor-theme"), "laura\n")?;
+    let (_child, _url) = laura_start(home.path(), &["--", PROGRAM], Some(home.path()))?;
+    let start = Instant::now();
+    loop {
+        let saved = std::fs::read_to_string(dir.join("settings.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok());
+        if saved.is_some_and(|v| v["editor_theme"] == "laura") && !dir.join("editor-theme").exists()
+        {
+            return Ok(());
+        }
+        assert!(start.elapsed() < common::DEADLINE, "the theme never moved");
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// `laura --web` with its own `home`, and a view connected to it.
+fn laura_web_in(home: &Path) -> Result<(Kill, Ws)> {
+    let (child, url) = laura_start(home, &["--web", "--", PROGRAM], Some(home))?;
+    let (port, token) = port_token(&url);
+    let origin = format!("http://localhost:{port}");
+    Ok((child, connect_to(port, Some(&token), Some(&origin))?))
+}
+
+/// The first `layout` frame on a raw view that `want` accepts.
+fn raw_layout_when(ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
+    let start = Instant::now();
+    loop {
+        if let Some(Frame::Json(v)) = read(ws)
+            && v["t"] == "layout"
+            && want(&v)
+        {
+            return v;
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no layout with {what}");
+    }
+}
+
+/// A `settings.json` that Laura can't parse, for example after a typo in a hand edit: Laura shows
+/// the default height, a drag applies to this workspace only, and the file keeps the user's keys.
+#[test]
+fn an_invalid_settings_file_stays_as_the_user_left_it() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join(".laura");
+    std::fs::create_dir_all(&dir)?;
+    let typo = r#"{"drawer":60,"editor_theme":"laura",}"#;
+    std::fs::write(dir.join("settings.json"), typo)?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    let first = raw_layout_when(&mut ws, "a height", |v| !v["drawer_height"].is_null());
+    assert_eq!(first["drawer_height"], 54, "{first}");
+    send(&mut ws, json!({"act": "drawer_height", "percent": 40}));
+    raw_layout_when(&mut ws, "the height 40", |v| v["drawer_height"] == 40);
+    assert_eq!(std::fs::read_to_string(dir.join("settings.json"))?, typo);
+    Ok(())
+}
+
+/// Two Lauras that save a setting at the same moment keep each other's keys: a save waits for
+/// another Laura's save, here the test's lock on `settings.lock`.
+#[test]
+fn a_save_waits_for_another_lauras_save() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join(".laura");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join("settings.json");
+    std::fs::write(&file, r#"{"editor_theme":"neovim"}"#)?;
+    let lock = std::fs::File::create(dir.join("settings.lock"))?;
+    lock.lock()?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    raw_layout_when(&mut ws, "a height", |v| !v["drawer_height"].is_null());
+    send(&mut ws, json!({"act": "drawer_height", "percent": 40}));
+    let saved = || -> Value {
+        std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(Value::Null)
+    };
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(300) {
+        let _ = read(&mut ws);
+        assert_eq!(saved(), json!({"editor_theme": "neovim"}));
+    }
+    drop(lock);
+    let start = Instant::now();
+    while saved() != json!({"editor_theme": "neovim", "drawer": 40}) {
+        let _ = read(&mut ws);
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "never saved: {}",
+            saved()
+        );
+    }
     Ok(())
 }
 

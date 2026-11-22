@@ -13,6 +13,7 @@
 //! - [`view`] — pane titles, file pane rows, and the hint, help, and notice text a front-end draws.
 //! - [`web`] — the web app: serves a workspace to the browser.
 //! - [`serve`] — the Laura server: one address that lists the workspaces and starts new ones.
+//! - [`settings`] — the user's settings for every workspace, `~/.laura/settings.json`.
 //!
 //! Nothing here depends on the binary; the binary depends on this.
 
@@ -27,6 +28,7 @@ pub mod protocol;
 pub mod pty;
 pub mod render;
 pub mod serve;
+pub mod settings;
 pub mod shortcut;
 pub mod tab;
 pub mod view;

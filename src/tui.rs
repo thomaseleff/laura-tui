@@ -1,7 +1,7 @@
 //! The draw loop and its widgets: hosts the workspace, renders panes, and routes input to the engine.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -186,9 +186,19 @@ impl Draft {
     }
 }
 
-/// The theme wizard's answer: `laura` or `neovim`; missing means ask (only when editor panes are on).
-fn theme_path() -> PathBuf {
-    laura::journal::data_dir().join("editor-theme")
+/// The theme wizard's answer, `laura` or `neovim`; `None`: ask (only when editor panes are on).
+fn editor_theme() -> Option<String> {
+    if let Some(v) = laura::settings::get("editor_theme") {
+        return v.as_str().map(String::from);
+    }
+    // An earlier Laura kept the answer in `~/.laura/editor-theme`. A failed move keeps the file,
+    // so Laura tries again at the next start.
+    let old = laura::journal::data_dir().join("editor-theme");
+    let s = std::fs::read_to_string(&old).ok()?.trim().to_string();
+    if laura::settings::set("editor_theme", Some(s.clone().into())).is_ok() {
+        let _ = std::fs::remove_file(&old);
+    }
+    Some(s)
 }
 
 /// Start a workspace running `program` (else the shell), with editor and browser panes resolved
@@ -205,15 +215,14 @@ pub fn spawn_tab(program: &[String], rows: u16, cols: u16, web: bool) -> Result<
     };
     // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
     tab.editor = laura::editor::resolve();
-    tab.editor_theme = std::fs::read_to_string(theme_path()).is_ok_and(|s| s.trim() == "laura");
+    tab.editor_theme = editor_theme().as_deref() == Some("laura");
     Ok(tab)
 }
 
 pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Result<()> {
     let area = terminal.size()?;
     let mut tab = spawn_tab(&program, area.height, area.width, false)?;
-    let theme_path = theme_path();
-    let mut wizard = tab.editor.is_ok() && !theme_path.exists();
+    let mut wizard = tab.editor.is_ok() && editor_theme().is_none();
     // `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
     let mut panes: Option<String> = None;
     // `F12` locks input: every keystroke goes to the shell, Laura intercepts nothing but F12.
@@ -361,7 +370,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 render_help(f);
             }
             if wizard {
-                render_wizard(f, &theme_path);
+                render_wizard(f, &laura::settings::path());
             }
             // A live toast (e.g. a failed submit) wins the bottom-right slot; then the exited shell's
             // notice, while Neovim holds Laura open; then a focused frozen pane's notice, which
@@ -424,13 +433,9 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                         wizard = answer.is_none() && key.code != KeyCode::Esc;
                         if let Some(yes) = answer {
                             // A failed write only means the wizard asks again next launch.
-                            let _ = std::fs::create_dir_all(laura::journal::data_dir()).and_then(
-                                |()| {
-                                    std::fs::write(
-                                        &theme_path,
-                                        if yes { "laura" } else { "neovim" },
-                                    )
-                                },
+                            let _ = laura::settings::set(
+                                "editor_theme",
+                                Some((if yes { "laura" } else { "neovim" }).into()),
                             );
                             toast = Some((
                                 "✅ Experimental · Editor panes setup complete".into(),
@@ -1010,7 +1015,7 @@ fn render_help(f: &mut Frame) {
 }
 
 /// The startup wizard: should editor panes use Laura's theme? Centered like `render_help`; `answer`
-/// is the file the answer is kept in, named so the user can delete it to be asked again.
+/// is the settings file, named so the user can remove the answer from it to be asked again.
 fn render_wizard(f: &mut Frame, answer: &Path) {
     let lines = vec![
         Line::raw("Laura can open your files in editor panes via Neovim."),
@@ -1020,7 +1025,7 @@ fn render_wizard(f: &mut Frame, answer: &Path) {
         Line::raw("The theme applies only inside Laura; your Neovim config"),
         Line::raw("stays as it is."),
         Line::raw(""),
-        Line::raw("If you change your mind, delete").dim(),
+        Line::raw("If you change your mind, remove editor_theme from").dim(),
         Line::raw(answer.display().to_string()).dim(),
         Line::raw("and restart Laura to bring up this wizard again.").dim(),
         Line::raw(""),

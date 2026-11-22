@@ -228,6 +228,8 @@ pub struct WebServer {
     watch: Option<Receiver<String>>,
     poke: Option<Sender<()>>,
     workspaces: Option<String>,
+    /// The drawer's height in % of the workspace's, from the settings at the start.
+    drawer: u8,
 }
 
 impl WebServer {
@@ -265,6 +267,10 @@ impl WebServer {
             watch: None,
             poke: None,
             workspaces: None,
+            drawer: crate::settings::get("drawer")
+                .as_ref()
+                .and_then(Value::as_f64)
+                .map_or(DRAWER, drawer_pct),
         })
     }
 
@@ -469,6 +475,14 @@ impl WebServer {
                                 UserAction::ToggleThread { pane, line: None } => {
                                     toggle_block_threads(tab.panel_mut(pane)?)
                                 }
+                                UserAction::DrawerHeight { percent } => {
+                                    self.drawer = save_drawer(percent);
+                                    // The web app showed the user's height before Laura took it:
+                                    // send the layout even when the height ends where it was, after
+                                    // a step and a reset in one loop.
+                                    v.layout.clear();
+                                    true
+                                }
                                 _ => false,
                             };
                             let seed = if handled { None } else { tab.act(a)? };
@@ -576,7 +590,7 @@ impl WebServer {
         if dirty {
             reconcile(&mut self.bases, &self.files, &self.root, tab);
         }
-        let layout = layout_json(tab, &rects, area, &self.bases);
+        let layout = layout_json(tab, &rects, area, &self.bases, self.drawer);
         if v.layout != layout {
             v.send(Outbound::Text(layout.clone()));
             v.layout = layout;
@@ -723,6 +737,22 @@ pub(crate) fn listen(port: u16) -> Result<TcpListener> {
     })
 }
 
+/// The drawer's height before the user drags its grip, in % of the workspace's.
+const DRAWER: u8 = 54;
+
+/// A drawer height from the user or the file, within 20–85%.
+fn drawer_pct(p: f64) -> u8 {
+    p.clamp(20.0, 85.0).round() as u8
+}
+
+/// Save the drawer's height, or remove it for `None`; the height to show.
+fn save_drawer(percent: Option<f64>) -> u8 {
+    let h = percent.map(drawer_pct);
+    // Best-effort: an unwritable file keeps the height for this workspace only.
+    let _ = crate::settings::set("drawer", h.map(Value::from));
+    h.unwrap_or(DRAWER)
+}
+
 fn workspaces_dir() -> PathBuf {
     crate::journal::data_dir().join("workspaces")
 }
@@ -733,15 +763,20 @@ pub(crate) fn record_path(pid: u32) -> PathBuf {
 }
 
 /// Write `bytes` to `path`, a file that only the user can read on Unix. Writes a `.tmp` beside
-/// `path` and renames it over `path`, so a reader never sees a half-written file.
+/// `path` and renames it over `path`, so a reader never sees a half-written file. The `.tmp` has
+/// the process id, so two processes that write `path` at once never share a `.tmp`.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("tmp");
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
     let mut f = std::fs::OpenOptions::new();
     f.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut f, 0o600);
     f.open(&tmp)?.write_all(bytes)?;
-    std::fs::rename(&tmp, path)?;
+    // Each process leaves its own `.tmp`, so remove the `.tmp` when the rename fails.
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -1102,7 +1137,13 @@ fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
     out
 }
 
-fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bases) -> String {
+fn layout_json(
+    tab: &Tab,
+    rects: &HashMap<PaneId, Rect>,
+    area: Rect,
+    bases: &Bases,
+    drawer: u8,
+) -> String {
     let mut ids: Vec<_> = rects.keys().copied().collect();
     ids.sort();
     let panes: Vec<Value> = ids
@@ -1196,6 +1237,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
     });
     let (rows, cols) = tab.pty_size();
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
+           "drawer_height": drawer,
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
            "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})

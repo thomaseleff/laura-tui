@@ -741,7 +741,7 @@ struct WorkspaceB {
     _proc: Kill,
     url: String,
     dir: tempfile::TempDir,
-    _home: tempfile::TempDir,
+    home: tempfile::TempDir,
     socket: String,
 }
 
@@ -795,7 +795,7 @@ impl WorkspaceB {
             _proc: b,
             url,
             dir,
-            _home: home,
+            home,
             socket,
         })
     }
@@ -949,6 +949,35 @@ fn a_file_path_in_the_shell_is_a_link() -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+/// Poll `js` in B's page until it is true.
+fn until(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, js: &str, what: &str) {
+    let t0 = Instant::now();
+    while eval(r, js) != true {
+        assert!(t0.elapsed() < common::DEADLINE, "timed out: {what}");
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(unix)]
+/// The point `at` in B's page, where `document.elementFromPoint` must give an element `e` with `hit`.
+fn point(
+    r: &mut Rig,
+    eval: &mut impl FnMut(&mut Rig, &str) -> Value,
+    at: &str,
+    hit: &str,
+) -> (f64, f64) {
+    let js = format!(
+        "(() => {{ const [x, y] = {at}; const e = document.elementFromPoint(x, y); \
+         return e && ({hit}) ? [x, y] : null; }})()"
+    );
+    let p = eval(r, &js);
+    let (Some(x), Some(y)) = (p[0].as_f64(), p[1].as_f64()) else {
+        panic!("{at} in B's page doesn't hit {hit}");
+    };
+    (x, y)
+}
+
 /// #190: in the web app, a keystroke or a click that leaves the shell with the keystrokes ends the
 /// wait, a keystroke or a click that sends Laura an action does not, and before `laura ready` the
 /// hint line dims `c` and `Shift+S`, with the reason on hover.
@@ -1011,14 +1040,6 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         ]),
     );
 
-    /// Poll `js` in B's page until it is true.
-    fn until(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, js: &str, what: &str) {
-        let t0 = Instant::now();
-        while eval(r, js) != true {
-            assert!(t0.elapsed() < common::DEADLINE, "timed out: {what}");
-            thread::sleep(Duration::from_millis(50));
-        }
-    }
     /// The wait stays for 500 ms.
     fn holds(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, what: &str) {
         let t0 = Instant::now();
@@ -1026,23 +1047,6 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
             assert_eq!(eval(r, "layout.waiting"), true, "{what}");
             thread::sleep(Duration::from_millis(50));
         }
-    }
-    /// The point `at` in B's page, where `document.elementFromPoint` must give an element `e` with `hit`.
-    fn point(
-        r: &mut Rig,
-        eval: &mut impl FnMut(&mut Rig, &str) -> Value,
-        at: &str,
-        hit: &str,
-    ) -> (f64, f64) {
-        let js = format!(
-            "(() => {{ const [x, y] = {at}; const e = document.elementFromPoint(x, y); \
-             return e && ({hit}) ? [x, y] : null; }})()"
-        );
-        let p = eval(r, &js);
-        let (Some(x), Some(y)) = (p[0].as_f64(), p[1].as_f64()) else {
-            panic!("{at} in B's page doesn't hit {hit}");
-        };
-        (x, y)
     }
     /// #200: the wait shows as the badged icon in B's browser tab, and the title has no `●`.
     fn waiting(r: &mut Rig, eval: &mut impl FnMut(&mut Rig, &str) -> Value, what: &str, on: bool) {
@@ -1263,5 +1267,291 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         assert!(t0.elapsed() < common::DEADLINE, "dimmed after laura ready");
         thread::sleep(Duration::from_millis(50));
     }
+    Ok(())
+}
+
+/// #212: a drag of the drawer's grip sets the drawer's height, and Laura saves the height in B's
+/// `~/.laura/settings.json`. The shell resizes once, on release. The drawer keeps 5 rows of the
+/// shell, a drag ends on any loss of the pointer capture, and a double-click resets the height.
+#[cfg(unix)]
+#[test]
+fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let b = WorkspaceB::start(r#"printf %s "$LAURA_TAB" > tab; while :; do sleep 1; done"#)?;
+    let id = open(&mut r, &b.url);
+    state_until(&mut r, &mut ws, "B loads", id, |v| {
+        v["title"].as_str().is_some_and(|t| t.starts_with("Laura"))
+    });
+    let file = b.dir.path().join("a.rs");
+    std::fs::write(&file, "fn main() {}\n")?;
+    b.drive(&["open", &file.to_string_lossy()])?;
+    b.drive(&["focus", "0"])?;
+    let url = pane_of(&mut r, id)["path"]
+        .as_str()
+        .expect("a URL")
+        .to_string();
+    let mut tools = Tools::attach(&mut r, &url);
+    let mut eval = |r: &mut Rig, js: &str| {
+        tools.call(
+            r,
+            "Runtime.evaluate",
+            json!({"expression": js, "returnByValue": true}),
+        )["result"]["value"]
+            .clone()
+    };
+    let settings = b.home.path().join(".laura/settings.json");
+    let drawer = || {
+        std::fs::read_to_string(&settings)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map_or(Value::Null, |v| v["drawer"].clone())
+    };
+    // Poll B's saved `drawer` until it is `want`. Each poll pumps A, which forwards the events.
+    fn saved(
+        r: &mut Rig,
+        eval: &mut impl FnMut(&mut Rig, &str) -> Value,
+        drawer: impl Fn() -> Value,
+        want: Value,
+        what: &str,
+    ) {
+        let t0 = Instant::now();
+        while drawer() != want {
+            assert!(
+                t0.elapsed() < common::DEADLINE,
+                "{what}: drawer {}",
+                drawer()
+            );
+            eval(r, "0");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+    let held_move = |ws: &mut Ws, x: f64, y: f64| {
+        send(
+            ws,
+            json!({"act": "browser_mouse", "pane": id, "kind": "move", "x": x, "y": y, "buttons": 1}),
+        );
+    };
+    let grip = "e.closest('#p0 .grip')";
+    let centre = "(b => [b.left + b.width / 2, b.top + b.height / 2])\
+                  (document.querySelector('#p0 .grip').getBoundingClientRect())";
+    until(
+        &mut r,
+        &mut eval,
+        "document.getElementById('p0').classList.contains('open') && !!terms.get(0)?.rows",
+        "the drawer never opened",
+    );
+
+    // The drag shows the height, and the shell resizes only on release.
+    let rows = eval(&mut r, "terms.get(0).rows");
+    let (x, y) = point(&mut r, &mut eval, centre, grip);
+    mouse(&mut ws, id, "down", x, y);
+    held_move(&mut ws, x, y - 120.0);
+    until(
+        &mut r,
+        &mut eval,
+        "document.querySelector('#p0 .grip').dataset.tip.startsWith('Drawer · ')",
+        "the drag shows no height",
+    );
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(300) {
+        assert_eq!(
+            eval(&mut r, "terms.get(0).rows"),
+            rows,
+            "the shell resized during the drag"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    mouse(&mut ws, id, "up", x, y - 120.0);
+    let shown = eval(&mut r, "parseInt(root.style.getPropertyValue('--drawer'))");
+    saved(&mut r, &mut eval, drawer, shown, "the drag saved no height");
+    // The shell keeps the keystrokes after a drag.
+    until(
+        &mut r,
+        &mut eval,
+        "!!document.activeElement?.closest('#p0 .term')",
+        "the drag took the focus from the shell",
+    );
+    until(
+        &mut r,
+        &mut eval,
+        &format!("terms.get(0).rows !== {rows}"),
+        "the shell never fit the new height",
+    );
+
+    // At the bottom of the page, the drawer keeps 5 rows, and no row is cut off.
+    let (x, y) = point(&mut r, &mut eval, centre, grip);
+    mouse(&mut ws, id, "down", x, y);
+    let bottom = eval(&mut r, "innerHeight - 1").as_f64().expect("a height");
+    held_move(&mut ws, x, bottom);
+    until(&mut r, &mut eval, "resizing", "no drag to the bottom");
+    mouse(&mut ws, id, "up", x, bottom);
+    let least = eval(&mut r, "drawerRange()[0]");
+    // B's page is short: the 5 rows need more than 20%.
+    assert!(least.as_u64().is_some_and(|l| l > 20), "{least}");
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        least.clone(),
+        "the drag to the bottom",
+    );
+    until(
+        &mut r,
+        &mut eval,
+        "(() => { const s = document.querySelector('#p0 .xterm-screen').getBoundingClientRect(), \
+         t = document.querySelector('#p0 .term').getBoundingClientRect(); \
+         return !resizing && terms.get(0).rows >= 5 && s.bottom <= t.bottom; })()",
+        "the drawer cuts off a row of the shell",
+    );
+    // A screen reader hears the height that the drawer shows, and the lowest height the window
+    // allows; `↑` on the grip steps from the shown height.
+    let aria = |k: &str| format!("document.querySelector('#p0 .grip').getAttribute('{k}')");
+    assert_eq!(eval(&mut r, &aria("aria-valuemin")), least.to_string());
+    assert_eq!(eval(&mut r, &aria("aria-valuenow")), least.to_string());
+    eval(&mut r, "act({act: 'drawer_height', percent: 20})");
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        json!(20),
+        "a height under the 5 rows",
+    );
+    until(
+        &mut r,
+        &mut eval,
+        &format!(
+            "root.style.getPropertyValue('--drawer') === '20%' && {} === '{least}'",
+            aria("aria-valuenow")
+        ),
+        "the grip tells a height that the drawer doesn't show",
+    );
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press(&mut ws, id, "ArrowUp", 38);
+    let up = json!(least.as_u64().expect("a height") + 5);
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        up,
+        "↑ on the grip under the 5 rows",
+    );
+    eval(&mut r, "terms.get(0).focus()");
+
+    // Any loss of the capture ends the drag.
+    let (x, y) = point(&mut r, &mut eval, centre, grip);
+    mouse(&mut ws, id, "down", x, y);
+    held_move(&mut ws, x, y - 40.0);
+    until(&mut r, &mut eval, "resizing", "no drag");
+    eval(
+        &mut r,
+        "document.querySelector('#p0 .grip').dispatchEvent(new PointerEvent('lostpointercapture'))",
+    );
+    until(&mut r, &mut eval, "!resizing", "the drag never ended");
+    mouse(&mut ws, id, "up", x, y - 40.0);
+
+    // A double-click goes back to the default height.
+    let (x, y) = point(&mut r, &mut eval, centre, grip);
+    for clicks in [1, 2] {
+        for kind in ["down", "up"] {
+            send(
+                &mut ws,
+                json!({"act": "browser_mouse", "pane": id, "kind": kind, "x": x, "y": y,
+                       "button": 0, "buttons": u8::from(kind == "down"), "clicks": clicks}),
+            );
+        }
+    }
+    saved(
+        &mut r,
+        &mut eval,
+        drawer,
+        Value::Null,
+        "the double-click kept the height",
+    );
+    until(
+        &mut r,
+        &mut eval,
+        "root.style.getPropertyValue('--drawer') === '54%'",
+        "the double-click shows no default height",
+    );
+
+    // In the shell, Ctrl+Shift+↑ ↓ change the height by 5%.
+    until(
+        &mut r,
+        &mut eval,
+        "!!document.activeElement?.closest('#p0 .term')",
+        "the shell has no focus",
+    );
+    press_key(&mut ws, id, ("ArrowUp", "ArrowUp", 38, 10, ""));
+    saved(&mut r, &mut eval, drawer, json!(59), "Ctrl+Shift+↑");
+    press_key(&mut ws, id, ("ArrowDown", "ArrowDown", 40, 10, ""));
+    saved(&mut r, &mut eval, drawer, json!(54), "Ctrl+Shift+↓");
+    // Under the lock, the shell gets them.
+    press(&mut ws, id, "F12", 123);
+    until(&mut r, &mut eval, "locked", "no lock");
+    press_key(&mut ws, id, ("ArrowUp", "ArrowUp", 38, 10, ""));
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(300) {
+        eval(&mut r, "0");
+        assert_eq!(drawer(), json!(54), "Ctrl+Shift+↑ under the lock");
+        thread::sleep(Duration::from_millis(50));
+    }
+    press(&mut ws, id, "F12", 123);
+    until(&mut r, &mut eval, "!locked", "the lock stays");
+
+    // The focused grip: ↑ ↓ step the height, and Home resets it.
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press(&mut ws, id, "ArrowUp", 38);
+    saved(&mut r, &mut eval, drawer, json!(59), "↑ on the grip");
+    until(
+        &mut r,
+        &mut eval,
+        "document.querySelector('#p0 .grip').getAttribute('aria-valuenow') === '59'",
+        "the grip tells no height",
+    );
+    press(&mut ws, id, "Home", 36);
+    saved(&mut r, &mut eval, drawer, Value::Null, "Home on the grip");
+    until(
+        &mut r,
+        &mut eval,
+        "root.style.getPropertyValue('--drawer') === '54%'",
+        "Home shows no default height",
+    );
+
+    // The quit confirmation and the help take the grip's keystrokes first.
+    let unchanged = |r: &mut Rig, eval: &mut dyn FnMut(&mut Rig, &str) -> Value, what: &str| {
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(300) {
+            assert_eq!(
+                eval(r, "root.style.getPropertyValue('--drawer')"),
+                json!("54%"),
+                "{what}"
+            );
+            assert_eq!(drawer(), Value::Null, "{what}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    press_key(&mut ws, id, ("q", "KeyQ", 81, 2, ""));
+    until(&mut r, &mut eval, "confirmQuit", "Ctrl+Q asks nothing");
+    press(&mut ws, id, "ArrowUp", 38);
+    until(
+        &mut r,
+        &mut eval,
+        "!confirmQuit",
+        "↑ kept the quit confirmation",
+    );
+    unchanged(&mut r, &mut eval, "↑ after Ctrl+Q");
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
+    until(&mut r, &mut eval, "help", "Ctrl+H shows no help");
+    press(&mut ws, id, "ArrowUp", 38);
+    until(&mut r, &mut eval, "!help", "↑ kept the help");
+    unchanged(&mut r, &mut eval, "↑ after Ctrl+H");
+    // The grip still steps the height after them.
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press(&mut ws, id, "ArrowUp", 38);
+    saved(&mut r, &mut eval, drawer, json!(59), "↑ on the grip again");
     Ok(())
 }

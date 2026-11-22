@@ -419,7 +419,13 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             ("", "Other keystrokes go to Neovim"),
         ],
         Hint::Pane => [
-            when(tab.drawer_in_use(), vec![("Ctrl+`", "hide the shell")]),
+            when(
+                tab.drawer_in_use(),
+                vec![
+                    ("Ctrl+`", "hide the shell"),
+                    ("Ctrl+Shift+↑ ↓", "drawer height"),
+                ],
+            ),
             vec![
                 ("Ctrl+P", "find a pane"),
                 ("Ctrl+H", "keystrokes"),
@@ -544,6 +550,9 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
     ];
     if web {
         groups[0].1.insert(1, ("Ctrl+`", "Show or hide the shell"));
+        groups[0]
+            .1
+            .insert(2, ("Ctrl+Shift+↑ ↓", "Make the drawer taller or shorter"));
         groups.push((
             "Comment mode on an HTML page",
             vec![

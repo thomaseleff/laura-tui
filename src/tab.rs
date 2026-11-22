@@ -252,6 +252,12 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
+    /// The drawer's height in % of the workspace's, which the web app saves for the user; `None`
+    /// resets it. The TUI ignores it.
+    DrawerHeight {
+        #[serde(default)]
+        percent: Option<f64>,
+    },
     /// What the web app keeps from the shell and sends no bytes for: a keystroke or a click after
     /// which the shell has the keystrokes, or a wheel step over the shell. `wait` is the layout
     /// frame's `wait` at the press, so a wait that began after the press stays. Focus stays where it is.
@@ -690,6 +696,7 @@ impl Tab {
             }
             A::Dock => {}
             A::Drawer => self.docked = false,
+            A::DrawerHeight { .. } => {} // the web server saves it
             // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
             // after the wait ended does nothing, so the answered count never goes down.
             A::Seen { wait } => {
