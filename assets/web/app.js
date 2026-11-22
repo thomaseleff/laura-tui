@@ -59,6 +59,8 @@ const frame = (id, bytes) => {
 };
 // The user's last keystroke or mouse press, for the wait rule below `overlayOpen`.
 let press = null;
+// The user drags a resize handle (`dragger`).
+let resizing = false;
 function act(m, then) {
   // The user's press sent Laura an action: the server, not the wait rule below, decides the wait.
   if (press && m.act !== "seen") press.acted = true;
@@ -230,6 +232,8 @@ function makeProbe() {
 // The shell's size from its own cell, in its box less the padding (style.css) and the scrollbar.
 // `force` sends the size to a new connection.
 function fitShell(force) {
+  // While the user drags a size, the agent redraws once, on release.
+  if (resizing) return;
   const t = terms.get(0), box = $("p0")?.querySelector(".term");
   const r = t?.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
   if (!r?.width || !box.clientWidth) return;
@@ -604,6 +608,7 @@ function makePane(p) {
     if (layout?.focus === p.id) followFocus(true);
     if (el.hlLater && !tooSmall(el)) toHighlight(p.id, el.hlLater.jump);
   }).observe(el.querySelector(".narrow"));
+  if (p.id === 0) grip(el);
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
@@ -626,6 +631,56 @@ function makePane(p) {
     if (a) act({ act: "open_link", pane: p.id, href: a.dataset.href });
   });
   return el;
+}
+
+// A resize handle: `move(e)` while the user drags `el` with the left button, `done()` on release.
+// The drawer's grip and the splits share it.
+function dragger(el, move, done) {
+  el.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("on");
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      el.classList.remove("on");
+      done();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  });
+}
+
+// The drawer's grip on its top edge: a drag sets the drawer's height, which Laura saves for the
+// user; a double-click goes back to the default.
+const GRIP_TIP = "Drag to resize the drawer · double-click to reset";
+function grip(el) {
+  const g = document.createElement("div");
+  g.className = "grip tip-c";
+  g.dataset.tip = GRIP_TIP;
+  g.setAttribute("aria-label", GRIP_TIP);
+  el.append(g);
+  // The pane's own handlers would take the focus or the line.
+  for (const t of ["mousedown", "click"]) g.addEventListener(t, e => e.stopPropagation());
+  let h = null;
+  dragger(g, e => {
+    const r = root.getBoundingClientRect();
+    // The drawer sits 8px above the workspace's bottom (style.css).
+    h = Math.round(Math.min(85, Math.max(20, (r.bottom - 8 - e.clientY) / r.height * 100)));
+    resizing = true;
+    root.style.setProperty("--drawer", h + "%");
+    g.dataset.tip = `Drawer · ${h}% of the height`;
+  }, () => {
+    resizing = false;
+    g.dataset.tip = GRIP_TIP;
+    if (h !== null) act({ act: "drawer_height", percent: h });
+    h = null;
+    fitShell();
+  });
+  g.addEventListener("dblclick", () => act({ act: "drawer_height" }));
 }
 
 // The `+` on the hovered line (`el.plus`), just past its text and centred on its first line. A click
@@ -659,6 +714,8 @@ function onLayout(m) {
   }
   unseen.delete(m.focus);
   layout = m;
+  // A drag keeps the height under the pointer until the release.
+  if (!resizing) root.style.setProperty("--drawer", m.drawer_height + "%");
   // The list closes with its last thread, or its pane.
   if (!pane(listOpen)?.threads) listOpen = null;
   if (!pane(moreOpen) || moreOpen === 0) moreOpen = null;

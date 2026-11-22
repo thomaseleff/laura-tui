@@ -228,6 +228,8 @@ pub struct WebServer {
     watch: Option<Receiver<String>>,
     poke: Option<Sender<()>>,
     workspaces: Option<String>,
+    /// The drawer's height in % of the workspace's, from `web.json` at the start.
+    drawer: u8,
 }
 
 impl WebServer {
@@ -265,6 +267,10 @@ impl WebServer {
             watch: None,
             poke: None,
             workspaces: None,
+            drawer: settings()
+                .get("drawer")
+                .and_then(Value::as_f64)
+                .map_or(DRAWER, drawer_pct),
         })
     }
 
@@ -469,6 +475,10 @@ impl WebServer {
                                 UserAction::ToggleThread { pane, line: None } => {
                                     toggle_block_threads(tab.panel_mut(pane)?)
                                 }
+                                UserAction::DrawerHeight { percent } => {
+                                    self.drawer = save_drawer(percent);
+                                    true
+                                }
                                 _ => false,
                             };
                             let seed = if handled { None } else { tab.act(a)? };
@@ -576,7 +586,7 @@ impl WebServer {
         if dirty {
             reconcile(&mut self.bases, &self.files, &self.root, tab);
         }
-        let layout = layout_json(tab, &rects, area, &self.bases);
+        let layout = layout_json(tab, &rects, area, &self.bases, self.drawer);
         if v.layout != layout {
             v.send(Outbound::Text(layout.clone()));
             v.layout = layout;
@@ -721,6 +731,46 @@ pub(crate) fn listen(port: u16) -> Result<TcpListener> {
         ErrorKind::AddrInUse => anyhow!("port {port} is in use: pass --port"),
         _ => e.into(),
     })
+}
+
+/// The drawer's height before the user drags its grip, in % of the workspace's.
+const DRAWER: u8 = 54;
+
+/// The user's web app settings, for every workspace.
+fn settings_path() -> PathBuf {
+    crate::journal::data_dir().join("web.json")
+}
+
+fn settings() -> serde_json::Map<String, Value> {
+    std::fs::read_to_string(settings_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// A drawer height from the user or the file, within 20–85%.
+fn drawer_pct(p: f64) -> u8 {
+    p.clamp(20.0, 85.0).round() as u8
+}
+
+/// Save the drawer's height, or remove it for `None`; the height to show.
+fn save_drawer(percent: Option<f64>) -> u8 {
+    let mut s = settings();
+    let h = match percent {
+        Some(p) => {
+            let h = drawer_pct(p);
+            s.insert("drawer".into(), h.into());
+            h
+        }
+        None => {
+            s.remove("drawer");
+            DRAWER
+        }
+    };
+    // Best-effort: an unwritable file keeps the height for this workspace only.
+    let _ = std::fs::create_dir_all(crate::journal::data_dir());
+    let _ = write_private(&settings_path(), Value::Object(s).to_string().as_bytes());
+    h
 }
 
 fn workspaces_dir() -> PathBuf {
@@ -1102,7 +1152,13 @@ fn framed(id: PaneId, bytes: Vec<u8>) -> Vec<u8> {
     out
 }
 
-fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bases) -> String {
+fn layout_json(
+    tab: &Tab,
+    rects: &HashMap<PaneId, Rect>,
+    area: Rect,
+    bases: &Bases,
+    drawer: u8,
+) -> String {
     let mut ids: Vec<_> = rects.keys().copied().collect();
     ids.sort();
     let panes: Vec<Value> = ids
@@ -1196,6 +1252,7 @@ fn layout_json(tab: &Tab, rects: &HashMap<PaneId, Rect>, area: Rect, bases: &Bas
     });
     let (rows, cols) = tab.pty_size();
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
+           "drawer_height": drawer,
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
            "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})

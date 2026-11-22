@@ -511,6 +511,47 @@ fn dock_shows_the_shell_as_a_pane_and_drawer_puts_it_back() -> Result<()> {
     Ok(())
 }
 
+/// A drag of the drawer's grip saves the height in `~/.laura/web.json`, and a workspace that starts
+/// later shows the drawer at that height; Laura keeps it within 20–85%, and a reset removes it. One
+/// test: every web test shares `web.json`.
+#[test]
+fn the_drawer_height_is_saved_for_every_workspace() -> Result<()> {
+    let mut a = Rig::new()?;
+    let mut ws = a.connect();
+    let saved = || -> Value {
+        let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join(".laura/web.json");
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map_or(Value::Null, |v| v["drawer"].clone())
+    };
+    // `percent` null: a double-click on the grip, which resets the height.
+    let mut set = |percent: Value, shown: u64| {
+        let acted = a.act(&mut ws, json!({"act": "drawer_height", "percent": percent}));
+        assert_eq!(acted["ok"], true, "{acted}");
+        layout_when(&mut a, &mut ws, "the height", |v| {
+            v["drawer_height"] == shown
+        });
+    };
+
+    set(json!(40), 40);
+    assert_eq!(saved(), 40);
+    let mut b = Rig::new()?;
+    let mut wb = b.connect();
+    let first = b.until(&mut wb, "layout", |f| f.is("layout")).json();
+    assert_eq!(first["drawer_height"], 40, "{first}");
+
+    set(json!(95), 85);
+    assert_eq!(saved(), 85);
+    set(json!(5), 20);
+    assert_eq!(saved(), 20);
+
+    // The reset also leaves the shared file clean for later runs.
+    set(Value::Null, 54);
+    assert_eq!(saved(), Value::Null);
+    Ok(())
+}
+
 /// The shell docks only when every pane still fits beside the shell.
 #[test]
 fn dock_needs_room_for_every_pane() -> Result<()> {
