@@ -294,7 +294,7 @@ pub struct Tab {
     pub editors: HashMap<PaneId, Nvim>,
     /// The `nvim` to run for `open --edit`, or why editor panes are off. The TUI sets it from
     /// `editor::resolve()`; defaults to off.
-    pub editor: Result<PathBuf, String>,
+    pub editor: Result<PathBuf, editor::Error>,
     /// Editor panes use Laura's theme (the startup wizard's answer). The TUI sets it.
     pub editor_theme: bool,
     /// Hosted by the web app; browser panes need it.
@@ -371,7 +371,7 @@ impl Tab {
             docked: false,
             hold: false,
             editors: HashMap::new(),
-            editor: Err(editor::FLAG_OFF.into()),
+            editor: Err(editor::Error::FlagOff),
             editor_theme: false,
             web: false,
             browser_path: Err(browser::NO_BROWSER.into()),

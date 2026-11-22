@@ -77,11 +77,20 @@ pub const NO_NVIM: &str =
 pub const SHOWS_NEITHER: &str =
     "editor panes show no highlight or diff — annotate lines with `laura comment` instead";
 
+/// Why editor panes are off. A front-end matches `NoNvim` to say so at startup.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum Error {
+    #[error("{}", FLAG_OFF)]
+    FlagOff,
+    #[error("{}", NO_NVIM)]
+    NoNvim,
+}
+
 /// The startup gate: `nvim`'s path, or why editor panes are off. Resolved once by the TUI.
-pub fn resolve() -> Result<PathBuf, String> {
+pub fn resolve() -> Result<PathBuf, Error> {
     let on = std::env::var("LAURA_EXPERIMENTAL_EDITOR").is_ok_and(|v| !v.is_empty() && v != "0");
     if !on {
-        return Err(FLAG_OFF.into());
+        return Err(Error::FlagOff);
     }
     let exe = if cfg!(windows) { "nvim.exe" } else { "nvim" };
     std::env::var_os("PATH")
@@ -90,7 +99,7 @@ pub fn resolve() -> Result<PathBuf, String> {
                 .map(|d| d.join(exe))
                 .find(|f| f.is_file())
         })
-        .ok_or_else(|| NO_NVIM.into())
+        .ok_or(Error::NoNvim)
 }
 
 /// One editor pane's Neovim. Named `Nvim`, not `Editor`: the TUI's draft editor has that name.

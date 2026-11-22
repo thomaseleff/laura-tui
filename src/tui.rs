@@ -241,7 +241,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         .editor
         .as_ref()
         .err()
-        .filter(|e| *e == laura::editor::NO_NVIM)
+        .filter(|e| **e == laura::editor::Error::NoNvim)
         .map(|e| (format!("⚠ {e}"), Instant::now() + Duration::from_secs(10)));
     let mut toast_git_shown = false;
 

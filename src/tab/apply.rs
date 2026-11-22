@@ -108,10 +108,9 @@ impl Tab {
 
     /// Start Neovim on `path` in pane `id`, sized to the pane's inner rect.
     fn attach_editor(&mut self, id: PaneId, path: &str, area: Rect) -> Result<(), Response> {
-        let nvim = self
-            .editor
-            .clone()
-            .map_err(|message| Response::Error { message })?;
+        let nvim = self.editor.clone().map_err(|e| Response::Error {
+            message: e.to_string(),
+        })?;
         // Drop the old Neovim first: its Drop deletes the same bootstrap files the new one writes.
         let was = self.editors.remove(&id).map(|e| e.editor_view);
         let inner = self
@@ -257,9 +256,9 @@ impl Tab {
                 };
             }
         }
-        if edit && let Err(message) = &self.editor {
+        if edit && let Err(e) = &self.editor {
             return Response::Error {
-                message: message.clone(),
+                message: e.to_string(),
             };
         }
         if edit && (highlight.is_some() || diff) {

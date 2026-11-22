@@ -396,9 +396,7 @@ impl WebServer {
             if let Some(p) = &self.poke {
                 let _ = p.send(());
             }
-            if let Err(e) = &tab.editor
-                && e == crate::editor::NO_NVIM
-            {
+            if let Err(e @ crate::editor::Error::NoNvim) = &tab.editor {
                 v.text(json!({"t": "notice", "text": format!("⚠ {e}")}));
             }
             self.view = Some(v);
