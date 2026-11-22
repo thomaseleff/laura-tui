@@ -255,6 +255,7 @@ function termKeys(id, term, e) {
   if (draft) return false;
   // `code`, so a layout that types another character on that key still shows or hides the shell.
   if (e.ctrlKey && !e.altKey && e.code === "Backquote") return false;
+  if (id === 0 && e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer) return false;
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
@@ -669,16 +670,38 @@ function saveDrawer(h) {
   heldDrawer = h ?? null;
   act({ act: "drawer_height", percent: h }, () => heldDrawer === h && (heldDrawer = null));
 }
+// Show the drawer at `h`%, and tell a screen reader.
+const showDrawer = h => (root.style.setProperty("--drawer", h + "%"), $("p0")?.querySelector(".grip")?.setAttribute("aria-valuenow", h));
+// `Ctrl+Shift+↑ ↓`, or `↑ ↓` on the grip: the drawer `d`% taller, within its range. The shell's
+// `ResizeObserver` fits the shell.
+function stepDrawer(d) {
+  const [lo, hi] = drawerRange();
+  const cur = Math.round(parseFloat(root.style.getPropertyValue("--drawer")) || layout.drawer_height);
+  const h = Math.min(hi, Math.max(lo, cur + d));
+  showDrawer(h);
+  saveDrawer(h);
+}
 
 // The drawer's grip on its top edge: a drag sets the drawer's height, which Laura saves for the
-// user; a double-click goes back to the default.
-const GRIP_TIP = "Drag to resize the drawer · double-click to reset";
+// user; a double-click goes back to the default. A screen reader and the keyboard reach the grip as
+// a separator: `↑ ↓` step the height, and `Home` resets it.
+const GRIP_TIP = "Drag to resize the drawer · double-click to reset  Ctrl+Shift+↑ ↓";
 function grip(el) {
   const g = document.createElement("div");
   g.className = "grip tip-c";
   g.dataset.tip = GRIP_TIP;
-  g.setAttribute("aria-label", GRIP_TIP);
+  g.tabIndex = 0;
+  for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "horizontal", "aria-valuemin": 20,
+    "aria-valuemax": 85, "aria-valuenow": layout.drawer_height, "aria-label": "Drawer height" })) g.setAttribute(k, v);
   el.append(g);
+  g.addEventListener("keydown", e => {
+    const d = { ArrowUp: 5, ArrowDown: -5 }[e.key];
+    if (!d && e.key !== "Home") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (d) stepDrawer(d);
+    else saveDrawer();
+  });
   // The pane's own handlers would take the focus or the line.
   for (const t of ["mousedown", "click"]) g.addEventListener(t, e => e.stopPropagation());
   let h = null;
@@ -688,7 +711,7 @@ function grip(el) {
     const [lo, hi] = drawerRange();
     h = Math.round(Math.min(hi, Math.max(lo, (r.bottom - 8 - e.clientY) / r.height * 100)));
     resizing = true;
-    root.style.setProperty("--drawer", h + "%");
+    showDrawer(h);
     g.dataset.tip = `Drawer · ${h}% of the height`;
   }, () => {
     resizing = false;
@@ -732,7 +755,7 @@ function onLayout(m) {
   unseen.delete(m.focus);
   layout = m;
   // A drag keeps the height under the pointer until the release.
-  if (!resizing && heldDrawer === null) root.style.setProperty("--drawer", m.drawer_height + "%");
+  if (!resizing && heldDrawer === null) showDrawer(m.drawer_height);
   // The list closes with its last thread, or its pane.
   if (!pane(listOpen)?.threads) listOpen = null;
   if (!pane(moreOpen) || moreOpen === 0) moreOpen = null;
@@ -2078,6 +2101,9 @@ addEventListener("keydown", e => {
   if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(), setCommentMode(null);
   if (ctrl && k === "p") return take(), openSelector();
   if (ctrl && e.code === "Backquote") return take(), toggleShell();
+  if (ctrl && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer && drawerOpen()) {
+    return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+  }
   if (ctrl && k === "q") {
     take();
     return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));

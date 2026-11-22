@@ -13,6 +13,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 |---|---|
 | `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. The pane selector also finds a workspace: see [Switch workspaces](#switch-workspaces). |
 | ``Ctrl+` `` | Opens or closes the [drawer](#the-drawer). |
+| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Makes the [drawer](#the-drawer) taller or shorter by 5% of the workspace while the drawer is open. |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
 | `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. While the drawer is in use, Laura shows the drawer until you press `F12` again. In an editor pane, Laura keeps the drawer closed, and `F12` sends the keystrokes to Neovim. |
@@ -46,7 +47,9 @@ To open the drawer, do one of these:
 
 To close the drawer, press ``Ctrl+` `` or click the shell button again. Laura focuses the pane that you used last. A click on a pane also closes the drawer and focuses that pane.
 
-To change the drawer's height, drag the grip on the drawer's top edge. While you drag, Laura shows the height, such as `Drawer · 48% of the height`. The height can be from 20% to 85% of the workspace, and Laura always shows at least 5 rows of the shell. Laura saves the height in your [settings](cli.md#settings) and uses the height for each workspace that you start later. To go back to the default height, double-click the grip.
+To change the drawer's height, drag the grip on the drawer's top edge, or press `Ctrl+Shift+↑` or `Ctrl+Shift+↓`. While you drag, Laura shows the height, such as `Drawer · 48% of the height`. The height can be from 20% to 85% of the workspace, and Laura always shows at least 5 rows of the shell. Laura saves the height in your [settings](cli.md#settings) and uses the height for each workspace that you start later. To go back to the default height, double-click the grip.
+
+A screen reader names the grip **Drawer height**. When the grip has the focus, `↑` and `↓` change the height, and `Home` goes back to the default height.
 
 To show the shell as a pane, click **Show the shell as a pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width. The shell stays a pane when you open and close panes. To put the shell back in the drawer, click **Show the shell in a drawer** in the shell's pane header.
 

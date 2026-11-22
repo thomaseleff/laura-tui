@@ -317,6 +317,8 @@ kbd {
 }
 .pane .grip::before { content: ""; width: 44px; height: 4px; border-radius: 2px; background: #d5d7de; }
 .pane .grip:hover::before, .pane .grip.on::before { background: var(--acc); }
+.pane .grip:focus-visible { outline: none; }
+.pane .grip:focus-visible::before { background: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
 .pane:not(.drawer) .grip { display: none; }
 /* An editor pane in its file view keeps its xterm fed, hidden but measurable. */
 .pane.file .term { visibility: hidden; }

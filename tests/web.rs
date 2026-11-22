@@ -148,10 +148,12 @@ fn first_frames_carry_the_layout_and_the_replay() -> Result<()> {
     let mut ws = rig.connect();
     let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
     let groups = strings["help"].as_array().expect("help groups");
-    assert!(groups.iter().any(|g| {
-        g[1].as_array()
-            .is_some_and(|keys| keys.iter().any(|k| k[0] == "Ctrl+P"))
-    }));
+    for key in ["Ctrl+P", "Ctrl+Shift+↑ ↓"] {
+        assert!(groups.iter().any(|g| {
+            g[1].as_array()
+                .is_some_and(|keys| keys.iter().any(|k| k[0] == key))
+        }));
+    }
     let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
     assert_eq!(layout["focus"], 0);
     assert_eq!(layout["panes"][0]["kind"], "shell");
@@ -466,6 +468,11 @@ fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()>
     assert_eq!(
         open["hints"]["pane"][0],
         json!(["Ctrl+`", "hide the shell"]),
+        "{open}"
+    );
+    assert_eq!(
+        open["hints"]["pane"][1],
+        json!(["Ctrl+Shift+↑ ↓", "drawer height"]),
         "{open}"
     );
     rig.act(&mut ws, json!({"act": "focus", "pane": 1}));

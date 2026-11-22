@@ -1367,6 +1367,13 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
     mouse(&mut ws, id, "up", x, y - 120.0);
     let shown = eval(&mut r, "parseInt(root.style.getPropertyValue('--drawer'))");
     saved(&mut r, &mut eval, drawer, shown, "the drag saved no height");
+    // The shell keeps the keystrokes after a drag.
+    until(
+        &mut r,
+        &mut eval,
+        "!!document.activeElement?.closest('#p0 .term')",
+        "the drag took the focus from the shell",
+    );
     until(
         &mut r,
         &mut eval,
@@ -1430,5 +1437,42 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
         "root.style.getPropertyValue('--drawer') === '54%'",
         "the double-click shows no default height",
     );
+
+    // In the shell, Ctrl+Shift+↑ ↓ change the height by 5%.
+    until(
+        &mut r,
+        &mut eval,
+        "!!document.activeElement?.closest('#p0 .term')",
+        "the shell has no focus",
+    );
+    press_key(&mut ws, id, ("ArrowUp", "ArrowUp", 38, 10, ""));
+    saved(&mut r, &mut eval, drawer, json!(59), "Ctrl+Shift+↑");
+    press_key(&mut ws, id, ("ArrowDown", "ArrowDown", 40, 10, ""));
+    saved(&mut r, &mut eval, drawer, json!(54), "Ctrl+Shift+↓");
+    // Under the lock, the shell gets them.
+    press(&mut ws, id, "F12", 123);
+    until(&mut r, &mut eval, "locked", "no lock");
+    press_key(&mut ws, id, ("ArrowUp", "ArrowUp", 38, 10, ""));
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(300) {
+        eval(&mut r, "0");
+        assert_eq!(drawer(), json!(54), "Ctrl+Shift+↑ under the lock");
+        thread::sleep(Duration::from_millis(50));
+    }
+    press(&mut ws, id, "F12", 123);
+    until(&mut r, &mut eval, "!locked", "the lock stays");
+
+    // The focused grip: ↑ ↓ step the height, and Home resets it.
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press(&mut ws, id, "ArrowUp", 38);
+    saved(&mut r, &mut eval, drawer, json!(59), "↑ on the grip");
+    until(
+        &mut r,
+        &mut eval,
+        "document.querySelector('#p0 .grip').getAttribute('aria-valuenow') === '59'",
+        "the grip tells no height",
+    );
+    press(&mut ws, id, "Home", 36);
+    saved(&mut r, &mut eval, drawer, Value::Null, "Home on the grip");
     Ok(())
 }
