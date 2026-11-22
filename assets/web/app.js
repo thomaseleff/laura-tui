@@ -684,7 +684,8 @@ function stepDrawer(d) {
 
 // The drawer's grip on its top edge: a drag sets the drawer's height, which Laura saves for the
 // user; a double-click goes back to the default. A screen reader and the keyboard reach the grip as
-// a separator: `↑ ↓` step the height, and `Home` resets it.
+// a separator: `↑ ↓` step the height, and `Home` resets it. The window's keydown listener takes these
+// keystrokes, after the help, the pane selector, the lock and the quit confirmation.
 const GRIP_TIP = "Drag to resize the drawer · double-click to reset  Ctrl+Shift+↑ ↓";
 function grip(el) {
   const g = document.createElement("div");
@@ -694,14 +695,6 @@ function grip(el) {
   for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "horizontal", "aria-valuemin": 20,
     "aria-valuemax": 85, "aria-valuenow": layout.drawer_height, "aria-label": "Drawer height" })) g.setAttribute(k, v);
   el.append(g);
-  g.addEventListener("keydown", e => {
-    const d = { ArrowUp: 5, ArrowDown: -5 }[e.key];
-    if (!d && e.key !== "Home") return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (d) stepDrawer(d);
-    else saveDrawer();
-  });
   // The pane's own handlers would take the focus or the line.
   for (const t of ["mousedown", "click"]) g.addEventListener(t, e => e.stopPropagation());
   let h = null;
@@ -2103,6 +2096,11 @@ addEventListener("keydown", e => {
   if (ctrl && e.code === "Backquote") return take(), toggleShell();
   if (ctrl && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer && drawerOpen()) {
     return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+  }
+  // The focused grip: ↑ ↓ step the drawer's height, and Home resets it.
+  if (document.activeElement?.matches?.("#p0 .grip") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+    if (e.key === "Home") return take(), saveDrawer();
   }
   if (ctrl && k === "q") {
     take();

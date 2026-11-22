@@ -1474,5 +1474,45 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
     );
     press(&mut ws, id, "Home", 36);
     saved(&mut r, &mut eval, drawer, Value::Null, "Home on the grip");
+    until(
+        &mut r,
+        &mut eval,
+        "root.style.getPropertyValue('--drawer') === '54%'",
+        "Home shows no default height",
+    );
+
+    // The quit confirmation and the help take the grip's keystrokes first.
+    let unchanged = |r: &mut Rig, eval: &mut dyn FnMut(&mut Rig, &str) -> Value, what: &str| {
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(300) {
+            assert_eq!(
+                eval(r, "root.style.getPropertyValue('--drawer')"),
+                json!("54%"),
+                "{what}"
+            );
+            assert_eq!(drawer(), Value::Null, "{what}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    press_key(&mut ws, id, ("q", "KeyQ", 81, 2, ""));
+    until(&mut r, &mut eval, "confirmQuit", "Ctrl+Q asks nothing");
+    press(&mut ws, id, "ArrowUp", 38);
+    until(
+        &mut r,
+        &mut eval,
+        "!confirmQuit",
+        "↑ kept the quit confirmation",
+    );
+    unchanged(&mut r, &mut eval, "↑ after Ctrl+Q");
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
+    until(&mut r, &mut eval, "help", "Ctrl+H shows no help");
+    press(&mut ws, id, "ArrowUp", 38);
+    until(&mut r, &mut eval, "!help", "↑ kept the help");
+    unchanged(&mut r, &mut eval, "↑ after Ctrl+H");
+    // The grip still steps the height after them.
+    eval(&mut r, "document.querySelector('#p0 .grip').focus()");
+    press(&mut ws, id, "ArrowUp", 38);
+    saved(&mut r, &mut eval, drawer, json!(59), "↑ on the grip again");
     Ok(())
 }
