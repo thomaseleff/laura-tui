@@ -264,7 +264,7 @@ fn syntax_set() -> &'static SyntaxSet {
 fn nord_theme() -> &'static Theme {
     static THEME: OnceLock<Theme> = OnceLock::new();
     THEME.get_or_init(|| {
-        let mut cursor = std::io::Cursor::new(include_str!("../assets/nord.tmTheme"));
+        let mut cursor = std::io::Cursor::new(include_str!("../../assets/nord.tmTheme"));
         ThemeSet::load_from_reader(&mut cursor)
             .expect("bundled nord.tmTheme is a valid TextMate theme")
     })

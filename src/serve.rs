@@ -11,9 +11,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
-use crate::gitdiff::strip_verbatim;
 use crate::http::{self, header};
-use crate::platform::{self, data_dir, runtime_dir, shown_root};
+use crate::platform::{self, data_dir, runtime_dir, shown_root, strip_verbatim};
 use crate::web;
 
 /// 1989: the year Rachel and Stephen Kaplan named soft fascination.

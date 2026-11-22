@@ -5,9 +5,10 @@
 //! small and C-dependency-free — see `planning/git-diff-gutter.md`.
 
 use std::io;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::platform::strip_verbatim;
 
 /// Latched once when any diff attempt finds no `git` binary. Git-presence is a
 /// machine-global fact (one PATH), so a set-once latch, not per-panel state; the
@@ -156,18 +157,6 @@ fn parse(text: &str) -> Vec<Hunk> {
 fn parse_new_start(rest: &str) -> Option<usize> {
     let plus = rest.split_whitespace().find(|t| t.starts_with('+'))?;
     plus.trim_start_matches('+').split(',').next()?.parse().ok()
-}
-
-/// Windows `canonicalize` yields `\\?\C:\…` verbatim paths git can't parse; drop
-/// the drive-letter prefix. (UNC shares are left alone — an accepted edge.)
-pub(crate) fn strip_verbatim(p: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    if let Some(rest) = p.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
-        && !rest.starts_with("UNC\\")
-    {
-        return PathBuf::from(rest);
-    }
-    p
 }
 
 #[cfg(test)]
