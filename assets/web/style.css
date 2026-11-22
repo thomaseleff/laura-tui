@@ -300,7 +300,7 @@ kbd {
    `left`, not `transform`, which blurs xterm's WebGL canvas. Closed, the drawer keeps its box, so
    the shell keeps its size and the agent doesn't redraw. */
 .pane.shell.drawer {
-  z-index: 5; top: auto; bottom: 8px; height: var(--drawer, 54%);
+  z-index: 5; top: auto; bottom: 8px; height: var(--drawer, 54%); min-height: var(--drawer-min, 0px);
   width: min(980px, calc(100% - 80px)); left: max(40px, calc((100% - 980px) / 2));
 }
 .pane.shell.drawer::before {

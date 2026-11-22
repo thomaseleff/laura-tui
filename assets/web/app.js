@@ -240,6 +240,8 @@ function fitShell(force) {
   // Laura's minimum (`cells` in src/web.rs), so xterm and the shell use one grid.
   const cols = Math.max(20, Math.floor((box.clientWidth - 40 - 10) / (r.width / t.cols)));
   const rows = Math.max(5, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
+  // The drawer's minimum shows those 5 rows: the header, the body's inset and padding, and the rows.
+  root.style.setProperty("--drawer-min", Math.ceil(box.offsetTop + 6 + 32 + 5 * r.height / t.rows) + "px");
   if (cols === t.cols && rows === t.rows && !force) return;
   t.resize(cols, rows);
   send({ shell: { cols, rows } });
@@ -634,24 +636,38 @@ function makePane(p) {
 }
 
 // A resize handle: `move(e)` while the user drags `el` with the left button, `done()` on release.
-// The drawer's grip and the splits share it.
+// One helper for every resize handle.
 function dragger(el, move, done) {
   el.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
     e.preventDefault();
     el.setPointerCapture(e.pointerId);
     el.classList.add("on");
+    // After `pointerup`, `pointercancel`, or any other loss of the capture, so a drag always ends.
     const up = () => {
       el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
+      el.removeEventListener("lostpointercapture", up);
       el.classList.remove("on");
       done();
     };
     el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
+    el.addEventListener("lostpointercapture", up);
   });
+}
+
+// The drawer's heights in %: 20 or the 5 rows' minimum (`--drawer-min`, `fitShell`), to 85.
+const drawerRange = () => [
+  Math.min(85, Math.max(20, Math.ceil(parseFloat(root.style.getPropertyValue("--drawer-min")) / root.clientHeight * 100) || 0)),
+  85,
+];
+// The height that the user set and Laura hasn't confirmed: a layout sent before Laura took it would
+// show the old height.
+let heldDrawer = null;
+// Save the drawer's height, or the default for `undefined`.
+function saveDrawer(h) {
+  if (ws?.readyState !== 1) return;
+  heldDrawer = h ?? null;
+  act({ act: "drawer_height", percent: h }, () => heldDrawer === h && (heldDrawer = null));
 }
 
 // The drawer's grip on its top edge: a drag sets the drawer's height, which Laura saves for the
@@ -669,18 +685,19 @@ function grip(el) {
   dragger(g, e => {
     const r = root.getBoundingClientRect();
     // The drawer sits 8px above the workspace's bottom (style.css).
-    h = Math.round(Math.min(85, Math.max(20, (r.bottom - 8 - e.clientY) / r.height * 100)));
+    const [lo, hi] = drawerRange();
+    h = Math.round(Math.min(hi, Math.max(lo, (r.bottom - 8 - e.clientY) / r.height * 100)));
     resizing = true;
     root.style.setProperty("--drawer", h + "%");
     g.dataset.tip = `Drawer · ${h}% of the height`;
   }, () => {
     resizing = false;
     g.dataset.tip = GRIP_TIP;
-    if (h !== null) act({ act: "drawer_height", percent: h });
+    if (h !== null) saveDrawer(h);
     h = null;
     fitShell();
   });
-  g.addEventListener("dblclick", () => act({ act: "drawer_height" }));
+  g.addEventListener("dblclick", () => saveDrawer());
 }
 
 // The `+` on the hovered line (`el.plus`), just past its text and centred on its first line. A click
@@ -715,7 +732,7 @@ function onLayout(m) {
   unseen.delete(m.focus);
   layout = m;
   // A drag keeps the height under the pointer until the release.
-  if (!resizing) root.style.setProperty("--drawer", m.drawer_height + "%");
+  if (!resizing && heldDrawer === null) root.style.setProperty("--drawer", m.drawer_height + "%");
   // The list closes with its last thread, or its pane.
   if (!pane(listOpen)?.threads) listOpen = null;
   if (!pane(moreOpen) || moreOpen === 0) moreOpen = null;
@@ -2442,6 +2459,7 @@ function connect() {
   sock.onclose = () => {
     if (ws !== sock) return;
     acts.length = 0;
+    heldDrawer = null;
     if (moved) return showOverlay(strings.moved, true);
     if (ended) {
       // `replace`: Back does not return to the workspace that ended.
