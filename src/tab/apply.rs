@@ -237,7 +237,7 @@ impl Tab {
             edit,
         } = msg
         else {
-            unreachable!("apply passes only Message::Open");
+            unreachable!("apply and open_file pass only Message::Open");
         };
         // A URL opens a browser pane. Its errors come first, one at a time; `--follow`
         // changes nothing, since the pane always shows the page live.
