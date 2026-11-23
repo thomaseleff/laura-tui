@@ -1279,6 +1279,51 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         assert!(t0.elapsed() < common::DEADLINE, "dimmed after laura ready");
         thread::sleep(Duration::from_millis(50));
     }
+
+    // #230: the user moves the focus to pane 2 and back to the shell under the lock, so the
+    // unlock leaves the focus on the shell. The agent's moves come in a frame, as a click's do.
+    let other = b.dir.path().join("b.rs");
+    std::fs::write(&other, "fn b() {}\n")?;
+    b.drive(&["open", &other.to_string_lossy()])?;
+    b.drive(&["focus", "1"])?;
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 1 && layout.panes.length === 3",
+        "no focus on pane 1 beside pane 2",
+    );
+    press(&mut ws, id, "F12", 123);
+    until(
+        &mut r,
+        &mut eval,
+        "ui.locked && layout.focus === 0",
+        "the lock doesn't move the focus to the shell",
+    );
+    b.drive(&["focus", "2"])?;
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 2",
+        "no focus on pane 2",
+    );
+    b.drive(&["focus", "0"])?;
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 0",
+        "no focus on the shell",
+    );
+    press(&mut ws, id, "F12", 123);
+    until(&mut r, &mut eval, "!ui.locked", "no unlock");
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(300) {
+        assert_eq!(
+            eval(&mut r, "layout.focus"),
+            0,
+            "the unlock gives pane 1 its focus back after a move to pane 2"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
     Ok(())
 }
 

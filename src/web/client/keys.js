@@ -3,7 +3,7 @@
 
 import { $, act, drawerOpen, focused, layout, mode, modes, MODIFIERS, pane, root, send, terms, toShell, ui } from "./state.js";
 import { fitShell, report } from "./term.js";
-import { focusPane, followFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
+import { focusPane, followFocus, lastFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
 import { answer } from "./browser-pane.js";
 import { paintHint, paintShellButton, toggleShell } from "./bottom.js";
 import { begin, closeDraft, confirmDraft, draftBox, paintPops, units } from "./review.js";
@@ -62,7 +62,8 @@ function lockKey(e) {
     focusPane(0);
   } else if (!ui.locked) {
     // shortcut: an unlock before the lock's reply (F12 F12 within one round trip) leaves the focus in the shell; track the move in flight if users hit it.
-    if (lockFrom !== null && layout.focus === 0 && pane(lockFrom)) focusPane(lockFrom);
+    // The user moved the focus to another pane and back to the shell: the focus stays.
+    if (lockFrom !== null && layout.focus === 0 && lastFocus === lockFrom && pane(lockFrom)) focusPane(lockFrom);
     lockFrom = null;
   }
   // An unlock sends no layout, so the drawer and the shell button repaint here.
