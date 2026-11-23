@@ -9,7 +9,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `state.js`: Laura's layout, the socket, `send` and `act`, the wait rule, `esc`, and `ui` with `mode()`. Every module imports `state.js`, and `state.js` imports nothing.
 - `term.js`: the shell's and each editor pane's xterm.js, `termKeys`, the shell's links (`PATH`), and the grid's cell.
 - `head.js`: the pane header.
-- `panes.js`: each pane's element, `onLayout`, the drawer and its grip, a browser pane's pointer, and `followFocus`.
+- `panes.js`: each pane's element, `onLayout`, the drawer and its grip, a browser pane's pointer, `focusPane` and `followFocus`.
 - `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
 - `bottom.js`: the notice, the hint line, the status bar and the shell button.
 - `review.js`: threads, the comment's box, the popovers and the draft.
@@ -18,6 +18,8 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `keys.js`: the keydown listener, one function for each mode and each kind of pane, and the window's paste, copy and resize.
 - `workspaces.js`: the workspace switcher, its menu, the browser tab, and the overlay.
 - `main.js`: `connect`, which hands each frame to its module, and the start.
+
+Every focus move the user makes calls `focusPane` (`panes.js`), which tells Laura. A route that moves only the DOM focus calls `followFocus`, which follows Laura's focus.
 
 `ui` holds the modes. `modes()` lists every mode that is on, first to last, and `mode()`, its first, takes a keystroke. The keydown listener and `termKeys` ask `mode()`. The hint line shows the first mode in `modes()` that has a hint, so under the help and the overlay the hint line shows the mode below them. A new mode is a field of `ui` and a case of `modes()`.
 

@@ -1111,7 +1111,14 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     waiting(&mut r, &mut eval, "the wait after the unlock", true);
     press(&mut ws, id, "F12", 123);
     waiting(&mut r, &mut eval, "F12 ends the wait", false);
+    // #230: the unlock gives the focus back to the file pane, where Esc moves it to the shell.
     press(&mut ws, id, "F12", 123);
+    until(
+        &mut r,
+        &mut eval,
+        "layout.focus === 1",
+        "the unlock keeps the shell's focus",
+    );
     press(&mut ws, id, "Escape", 27);
     // The move to the shell ends a wait: ring the bell after B's server moved the focus (the
     // layout comes from B's server) and the shell has the keystrokes.

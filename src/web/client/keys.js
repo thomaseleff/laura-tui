@@ -1,7 +1,7 @@
 // The keystrokes that Laura takes: one function for each mode (`mode`) and for each kind of
 // focused pane, the keystrokes for a browser pane's page, and the window's paste, copy and resize.
 
-import { $, act, drawerOpen, focused, layout, mode, MODIFIERS, pane, root, send, terms, ui } from "./state.js";
+import { $, act, drawerOpen, focused, layout, mode, modes, MODIFIERS, pane, root, send, terms, toShell, ui } from "./state.js";
 import { fitShell, report } from "./term.js";
 import { focusPane, followFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
 import { answer } from "./browser-pane.js";
@@ -46,10 +46,25 @@ function take(e) {
   e.stopPropagation();
 }
 
-// F12 turns the lock on or off.
+// The pane that the lock moved Laura's focus from (`lockKey`).
+let lockFrom = null;
+
+// F12 turns the lock on or off. From a file pane or a browser pane, the lock moves Laura's focus to
+// the shell, which takes the keystrokes, and the unlock moves it back, unless the user moved it.
+// Under another mode (the pane selector, the help, the quit question, a draft) the user hasn't
+// reached the shell, so the focus stays, and the wait rule ends the wait on the close.
 function lockKey(e) {
   take(e);
   ui.locked = !ui.locked;
+  // shortcut: a lock under another mode leaves Laura's focus on the pane after the close; move it in the close if users hit it.
+  if (modes().join() === "locked" && toShell() && layout.focus !== 0) {
+    lockFrom = layout.focus;
+    focusPane(0);
+  } else if (!ui.locked) {
+    // shortcut: an unlock before the lock's reply (F12 F12 within one round trip) leaves the focus in the shell; track the move in flight if users hit it.
+    if (lockFrom !== null && layout.focus === 0 && pane(lockFrom)) focusPane(lockFrom);
+    lockFrom = null;
+  }
   // An unlock sends no layout, so the drawer and the shell button repaint here.
   if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
   followFocus(true);
