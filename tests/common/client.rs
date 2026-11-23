@@ -15,7 +15,12 @@ use crate::browser_rig::Keystroke;
 use crate::common;
 use crate::rig::Rig;
 
+pub const F12: Keystroke = ("F12", "F12", 123, 0, "");
 pub const ENTER: Keystroke = ("Enter", "Enter", 13, 0, "\r");
+pub const ESCAPE: Keystroke = ("Escape", "Escape", 27, 0, "");
+pub const CTRL_P: Keystroke = ("p", "KeyP", 80, 2, "");
+pub const SHIFT_S: Keystroke = ("S", "KeyS", 83, 8, "S");
+pub const C: Keystroke = ("c", "KeyC", 67, 0, "c");
 
 /// Each error, unhandled rejection and `console.error` of the page, in `window.__errors`, from
 /// before the page's own scripts run.
@@ -161,5 +166,19 @@ impl Client {
     /// `s`, typed into the focused element as an input method types it.
     pub fn type_text(&self, s: &str) {
         self.call("Input.insertText", json!({"text": s}));
+    }
+
+    /// `Ctrl+P`, then pane `id`: the pane selector focuses the pane, in Laura and in the web app.
+    #[track_caller]
+    pub fn focus(&self, r: &mut Rig, id: u64) {
+        self.press(CTRL_P);
+        self.until(r, "the pane selector", "popup !== null");
+        self.type_text(&id.to_string());
+        self.until(
+            r,
+            "the focus",
+            &format!("popup === null && layout.focus === {id}"),
+        );
+        assert_eq!(r.tab.focus, id, "Laura's focus");
     }
 }
