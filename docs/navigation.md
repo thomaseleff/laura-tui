@@ -16,7 +16,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Makes the [drawer](#the-drawer) taller or shorter by 5% of the workspace while the drawer is open. |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
-| `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. While the drawer is in use, Laura shows the drawer until you press `F12` again. In an editor pane, Laura keeps the drawer closed, and `F12` sends the keystrokes to Neovim. From a file pane or a browser pane, Laura moves the focus to the shell, and back to that pane when you press `F12` again, unless you moved the focus to another pane while the lock was on. |
+| `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. While the drawer is in use, Laura shows the drawer until you press `F12` again. In an editor pane, Laura keeps the drawer closed, and `F12` sends the keystrokes to Neovim. From a file pane or a browser pane, Laura moves the focus to the shell, and back to that pane when you press `F12` again, unless you or the agent moved the focus to another pane while the lock was on. Under the pane selector, the help, the quit question or a draft, Laura keeps the focus on the pane. |
 | `Ctrl+Shift+V` | Pastes. Laura passes `Ctrl+V` itself to the shell, as a terminal does. |
 
 - Click a pane to focus it, and click a line in a file pane to move the cursor to it.
