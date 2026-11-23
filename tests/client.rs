@@ -12,8 +12,6 @@ mod common;
 #[allow(dead_code)] // each test crate uses part of the rig
 mod rig;
 
-use std::time::Instant;
-
 use anyhow::Result;
 use serde_json::{Value, json};
 
@@ -91,25 +89,116 @@ fn f12_from_a_file_pane_opens_the_drawer() -> Result<()> {
     Ok(())
 }
 
+/// On unix, the shell rings the terminal bell, and the workspace waits. Elsewhere the shell can't
+/// ring it, and the tests check the wait only on unix, as `tests/web/shell.rs` does.
+fn ring(r: &mut Rig, c: &Client) -> Result<()> {
+    if cfg!(unix) {
+        r.tab.pty.write(b"printf '\\007'\r")?;
+        c.until(r, "the wait", "layout.waiting");
+    }
+    Ok(())
+}
+
+/// #230: with a file pane focused and the shell waiting, `route` moves the focus to the shell.
+/// Laura's focus moves to the shell, and the wait ends.
+fn into_the_shell(
+    r: &mut Rig,
+    c: &Client,
+    route: impl FnOnce(&mut Rig),
+) -> Result<tempfile::TempDir> {
+    let dir = file_focused(r, c)?;
+    ring(r, c)?;
+    route(r);
+    c.until(
+        r,
+        "the shell's focus, with no wait",
+        "layout.focus === 0 && !layout.waiting",
+    );
+    assert_eq!(r.tab.focus, 0, "Laura's focus");
+    assert!(!r.tab.waiting, "the wait");
+    assert_eq!(c.errors(), json!([]));
+    Ok(dir)
+}
+
 #[test]
-#[ignore = "#230: F12 doesn't tell Laura the focus"]
 fn f12_from_a_file_pane_focuses_the_shell() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
-    let _dir = file_focused(&mut r, &c)?;
+    let _dir = into_the_shell(&mut r, &c, |_| c.press(F12))?;
+    Ok(())
+}
+
+#[test]
+fn a_second_f12_focuses_the_file_pane_again() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = into_the_shell(&mut r, &c, |_| c.press(F12))?;
     c.press(F12);
-    let t0 = Instant::now();
-    while r.tab.focus != 0 {
-        assert!(
-            t0.elapsed() < common::DEADLINE,
-            "Laura's focus stays on pane {}",
-            r.tab.focus
-        );
-        r.pump();
-    }
+    // `press` doesn't pump Laura, so the reply hasn't come yet.
+    assert_eq!(
+        c.eval("document.activeElement?.closest('#p0') == null"),
+        Ok(json!(true)),
+        "the shell has the keystrokes before Laura's reply"
+    );
+    c.until(
+        &mut r,
+        "the file pane's focus, with the drawer closed",
+        "layout.focus === 1 && !document.getElementById('p0').classList.contains('open')",
+    );
+    assert_eq!(r.tab.focus, 1, "Laura's focus");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+#[test]
+fn ctrl_backquote_focuses_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = into_the_shell(&mut r, &c, |_| c.press(CTRL_BACKQUOTE))?;
+    Ok(())
+}
+
+#[test]
+fn the_shell_button_focuses_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = into_the_shell(&mut r, &c, |_| {
+        c.eval("document.getElementById('sbtn').click()").unwrap();
+    })?;
+    Ok(())
+}
+
+#[test]
+fn esc_from_a_file_pane_focuses_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = into_the_shell(&mut r, &c, |_| c.press(ESCAPE))?;
+    Ok(())
+}
+
+#[test]
+fn the_pane_selector_focuses_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = into_the_shell(&mut r, &c, |r| c.focus(r, 0))?;
     Ok(())
 }
 

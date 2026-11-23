@@ -1,9 +1,9 @@
 // The keystrokes that Laura takes: one function for each mode (`mode`) and for each kind of
 // focused pane, the keystrokes for a browser pane's page, and the window's paste, copy and resize.
 
-import { $, act, drawerOpen, focused, layout, mode, MODIFIERS, pane, root, send, terms, ui } from "./state.js";
+import { $, act, drawerOpen, focused, layout, mode, modes, MODIFIERS, pane, root, send, terms, toShell, ui } from "./state.js";
 import { fitShell, report } from "./term.js";
-import { followFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
+import { focusPane, followFocus, lastFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
 import { answer } from "./browser-pane.js";
 import { paintHint, paintShellButton, toggleShell } from "./bottom.js";
 import { begin, closeDraft, confirmDraft, draftBox, paintPops, units } from "./review.js";
@@ -38,7 +38,6 @@ const FILE_KEYS = {
   N: p => ({ act: "jump_thread", pane: p, next: false }),
   x: p => ({ act: "close", pane: p }),
   h: p => ({ act: "clear_highlight", pane: p }),
-  Escape: () => ({ act: "focus", pane: 0 }),
 };
 
 // Ends a keystroke that Laura takes: the page and its other listeners don't see it.
@@ -47,13 +46,36 @@ function take(e) {
   e.stopPropagation();
 }
 
-// F12 turns the lock on or off.
+// The pane that the lock moved Laura's focus from (`lockKey`).
+let lockFrom = null;
+
+// F12 turns the lock on or off. From a file pane or a browser pane, the lock moves Laura's focus to
+// the shell, which takes the keystrokes, and the unlock moves it back, unless the user moved it.
+// Under the pane selector, the help or the quit question, the user hasn't reached the shell, and
+// the wait rule ends the wait on the close. A draft holds its pane. Either way, the focus stays.
 function lockKey(e) {
   take(e);
   ui.locked = !ui.locked;
+  let back = false;
+  // shortcut: a lock under another mode leaves Laura's focus on the pane after the close; move it in the close if users hit it.
+  if (modes().join() === "locked" && toShell() && layout.focus !== 0) {
+    lockFrom = layout.focus;
+    focusPane(0);
+  } else if (!ui.locked) {
+    // shortcut: an unlock before the lock's reply (F12 F12 within one round trip) leaves the focus in the shell; track the move in flight if users hit it.
+    // The user moved the focus to another pane and back to the shell: the focus stays.
+    back = lockFrom !== null && layout.focus === 0 && lastFocus === lockFrom && !!pane(lockFrom);
+    if (back) focusPane(lockFrom);
+    lockFrom = null;
+  }
   // An unlock sends no layout, so the drawer and the shell button repaint here.
   if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
-  followFocus(true);
+  // Laura's focus is still on the shell until the reply: the shell must not take the keystrokes meanwhile.
+  // shortcut: a keystroke between the unlock and Laura's reply goes to no pane; track the move in flight if users hit it.
+  if (back) {
+    terms.get(0)?.blur();
+    root.focus({ preventScroll: true });
+  } else followFocus(true);
   paintHint();
 }
 
@@ -184,7 +206,8 @@ function browserPaneKey(e, ctrl, k, id) {
     return begin(id, "comment", { act: "browser_pick", pane: id, x, y });
   }
   if (bare && e.key === "S") return take(e), begin(id, "review");
-  if (bare && ["x", "Escape", "n", "N", "r", "h"].includes(e.key)) return take(e), act(FILE_KEYS[e.key](id));
+  if (bare && e.key === "Escape") return take(e), focusPane(0);
+  if (bare && ["x", "n", "N", "r", "h"].includes(e.key)) return take(e), act(FILE_KEYS[e.key](id));
 }
 
 function filePaneKey(e, ctrl, k, id) {
@@ -193,7 +216,9 @@ function filePaneKey(e, ctrl, k, id) {
     return act({ act: "refresh", pane: id });
   }
   if (ctrl && k === "l") return take(e); // the browser's address bar
-  if (!ctrl && !e.altKey && !e.metaKey && (e.key === "c" || e.key === "S")) {
+  const bare = !ctrl && !e.altKey && !e.metaKey;
+  if (bare && e.key === "Escape") return take(e), focusPane(0);
+  if (bare && (e.key === "c" || e.key === "S")) {
     take(e);
     // A page with no element at the cursor has nothing to comment on: pick one.
     const fr = frameOf(id);
@@ -202,7 +227,7 @@ function filePaneKey(e, ctrl, k, id) {
   }
   // The arrows don't move the cursor in a page, which has no rows.
   if (e.key.startsWith("Arrow") && frameOf(id)) return;
-  const make = !ctrl && !e.altKey && !e.metaKey && FILE_KEYS[e.key];
+  const make = bare && FILE_KEYS[e.key];
   if (make) {
     take(e);
     act(make(id));

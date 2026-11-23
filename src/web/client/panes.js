@@ -40,7 +40,7 @@ function makePane(p) {
   const rows = el.querySelector(".rows"), btn = el.querySelector(".cbtn");
   btn.addEventListener("click", () => {
     if (ui.draft) return followFocus(true);
-    if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
+    focusPane(p.id);
     act({ act: "set_cursor", pane: p.id, line: +btn.dataset.line });
     begin(p.id, "comment");
   });
@@ -82,14 +82,14 @@ function makePane(p) {
   url.addEventListener("blur", () => ((url.value = pane(p.id)?.path ?? ""), paintHint()));
   el.addEventListener("mousedown", () => {
     const k = pane(p.id)?.kind;
-    if (!ui.draft && k && k !== "file" && layout.focus !== p.id) act({ act: "focus", pane: p.id });
+    if (!ui.draft && k && k !== "file") focusPane(p.id);
   });
   el.addEventListener("click", e => {
     if (!getSelection().isCollapsed) return;
     // A draft keeps its pane and line; a click only gives the draft its focus back.
     if (ui.draft) return followFocus(true);
     if (pane(p.id)?.kind !== "file") return;
-    if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
+    focusPane(p.id);
     const row = e.target.closest("[data-line]");
     if (row) act({ act: "set_cursor", pane: p.id, line: +row.dataset.line });
     const a = e.target.closest("a[data-href]");
@@ -374,6 +374,12 @@ function pointer(el, id) {
     later();
   }, { passive: false });
   c.addEventListener("contextmenu", e => e.preventDefault());
+}
+
+// The user's focus move: Laura moves the focus, ends a wait on a move to the shell, and replies
+// with a layout frame. Every focus move the user makes calls this.
+export function focusPane(id) {
+  if (layout.focus !== id) act({ act: "focus", pane: id });
 }
 
 // DOM focus follows the workspace's focus, only when it changes, so a title or resize frame doesn't

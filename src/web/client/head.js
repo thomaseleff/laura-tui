@@ -1,7 +1,7 @@
 // The pane header: its icons, its buttons and chips, and its fit in a narrow pane.
 
 import { $, act, layout, pane, ui } from "./state.js";
-import { followFocus } from "./panes.js";
+import { focusPane, followFocus } from "./panes.js";
 import { begin, confirmDraft, paintPops } from "./review.js";
 import { setCommentMode, toHighlight } from "./pages.js";
 import { strings } from "./main.js";
@@ -195,7 +195,7 @@ export function headClick(id, e) {
     if ((pane(id)?.kind === "editor") !== (a === "editor")) act({ act: "toggle_editor_view", pane: id });
     return;
   }
-  if (layout.focus !== id && a !== "close") act({ act: "focus", pane: id });
+  if (a !== "close") focusPane(id);
   if (a === "back" || a === "fwd") return act({ act: "browser_history", pane: id, delta: a === "back" ? -1 : 1 });
   if (a === "cm") return setCommentMode(ui.commentMode === id ? null : id);
   if (a === "comment" || a === "review") begin(id, a);
