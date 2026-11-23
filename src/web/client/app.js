@@ -2023,164 +2023,187 @@ const FILE_KEYS = {
   Escape: () => ({ act: "focus", pane: 0 }),
 };
 
-addEventListener("keydown", e => {
-  if (!layout || ended || !$("overlay").hidden || MODIFIERS.includes(e.key)) return;
-  const ctrl = e.ctrlKey && !e.altKey;
-  const k = e.key.length === 1 && ctrl ? e.key.toLowerCase() : e.key;
-  const take = () => (e.preventDefault(), e.stopPropagation());
-  if (e.key === "F12") {
-    take();
-    locked = !locked;
-    // An unlock sends no layout, so the drawer and the shell button repaint here.
-    if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
-    followFocus(true);
-    return paintHint();
+// Ends a keystroke that Laura takes: the page and its other listeners don't see it.
+function take(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+// F12 turns the lock on or off.
+function lockKey(e) {
+  take(e);
+  locked = !locked;
+  // An unlock sends no layout, so the drawer and the shell button repaint here.
+  if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
+  followFocus(true);
+  paintHint();
+}
+
+// The workspace switcher's menu takes every keystroke while it is open.
+function menuKey(e) {
+  take(e);
+  const items = [...$("menu").querySelectorAll(".mi[data-url]")], i = items.findIndex(m => m.classList.contains("on"));
+  const mark = n => items.forEach((m, j) => m.classList.toggle("on", j === n));
+  if (e.key === "ArrowDown") mark(Math.min(i + 1, items.length - 1));
+  else if (e.key === "ArrowUp") mark(Math.max(i - 1, 0));
+  else if (e.key === "Enter" && items[i]) (closeMenu(), go(items[i].dataset.url, e.ctrlKey || e.metaKey));
+  else if (e.key === "Escape" || e.key === "Tab") closeMenu();
+}
+
+// A click can open the pane selector under the lock; it still takes its keystrokes.
+function selectorKey(e, ctrl, k) {
+  // Ctrl+R/L/Q/H and Tab would reach the browser; every other keystroke goes to the input.
+  if (e.key === "Escape" || (ctrl && k === "p")) return take(e), closeSelector();
+  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    take(e);
+    popup += e.key === "ArrowDown" ? 1 : -1;
+    return paintSelector();
   }
-  // The workspace switcher's menu takes every keystroke while it is open.
-  if (!$("menu").hidden) {
-    take();
-    const items = [...$("menu").querySelectorAll(".mi[data-url]")], i = items.findIndex(m => m.classList.contains("on"));
-    const mark = n => items.forEach((m, j) => m.classList.toggle("on", j === n));
-    if (e.key === "ArrowDown") mark(Math.min(i + 1, items.length - 1));
-    else if (e.key === "ArrowUp") mark(Math.max(i - 1, 0));
-    else if (e.key === "Enter" && items[i]) (closeMenu(), go(items[i].dataset.url, e.ctrlKey || e.metaKey));
-    else if (e.key === "Escape" || e.key === "Tab") closeMenu();
-    return;
+  if (e.key === "Enter" && !e.isComposing) {
+    take(e);
+    // The headings are not rows: count only the rows.
+    return pickRow($("prows").querySelectorAll(".prow")[popup], e.ctrlKey || e.metaKey);
   }
-  if (help) return take(), toggleHelp();
-  // A click can open the pane selector under the lock; it still takes its keystrokes.
-  if (popup !== null) {
-    // Ctrl+R/L/Q/H and Tab would reach the browser; every other keystroke goes to the input.
-    if (e.key === "Escape" || (ctrl && k === "p")) return take(), closeSelector();
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-      take();
-      popup += e.key === "ArrowDown" ? 1 : -1;
-      return paintSelector();
-    }
-    if (e.key === "Enter" && !e.isComposing) {
-      take();
-      // The headings are not rows: count only the rows.
-      return pickRow($("prows").querySelectorAll(".prow")[popup], e.ctrlKey || e.metaKey);
-    }
-    if ((ctrl && "rlqh".includes(k)) || e.key === "Tab") return take();
-    if (document.activeElement !== pq) pq.focus();
-    return;
+  if ((ctrl && "rlqh".includes(k)) || e.key === "Tab") return take(e);
+  if (document.activeElement !== pq) pq.focus();
+}
+
+// The quit question: `y` quits, and any other keystroke closes the question.
+function quitKey(e) {
+  take(e);
+  confirmQuit = false;
+  if (e.key === "y") send({ quit: true });
+  paintHint();
+}
+
+function draftKey(e, ctrl, k) {
+  // Enter confirms; Shift+Enter falls through as a newline. Ctrl+R/L/P/Q and Tab would reach the browser.
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) return take(e), confirmDraft();
+  if (e.key === "Escape") return take(e), closeDraft();
+  if ((ctrl && "rlpq".includes(k)) || e.key === "Tab") return take(e);
+  const box = draftBox();
+  if (box && document.activeElement !== box) box.focus();
+}
+
+// The address field: Enter opens the typed URL in its pane, Esc puts the pane's URL back. True when
+// the field keeps the keystroke.
+function urlKey(e, ctrl, k, url) {
+  if (e.key === "Enter" && !e.isComposing) {
+    take(e);
+    if (url.value.trim()) act({ act: "browser_navigate", pane: +url.closest(".pane").id.slice(1), url: url.value });
+    return root.focus({ preventScroll: true }), true;
   }
-  if (locked) return;
-  if (confirmQuit) {
-    take();
-    confirmQuit = false;
-    if (e.key === "y") send({ quit: true });
-    return paintHint();
-  }
+  if (e.key === "Escape") return take(e), root.focus({ preventScroll: true }), true;
+  if (ctrl && "rl".includes(k)) return take(e), true; // the viewing browser's reload and address bar
+  return !(ctrl && ("pq".includes(k) || e.code === "Backquote")); // Ctrl+P, Ctrl+Q and Ctrl+` go on to Laura
+}
+
+// A keystroke that no mode takes: the workspace's keystrokes, then the focused pane's.
+function paneKey(e, ctrl, k) {
   const f = focused();
-  if (ctrl && k === "h") {
-    take();
-    return toggleHelp();
-  }
-  if (draft) {
-    // Enter confirms; Shift+Enter falls through as a newline. Ctrl+R/L/P/Q and Tab would reach the browser.
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) return take(), confirmDraft();
-    if (e.key === "Escape") return take(), closeDraft();
-    if ((ctrl && "rlpq".includes(k)) || e.key === "Tab") return take();
-    const box = draftBox();
-    if (box && document.activeElement !== box) box.focus();
-    return;
-  }
-  // The address field: Enter opens the typed URL in its pane, Esc puts the pane's URL back.
   const url = document.activeElement?.matches?.(".head .url") && document.activeElement;
-  if (url) {
-    if (e.key === "Enter" && !e.isComposing) {
-      take();
-      if (url.value.trim()) act({ act: "browser_navigate", pane: +url.closest(".pane").id.slice(1), url: url.value });
-      return root.focus({ preventScroll: true });
-    }
-    if (e.key === "Escape") return take(), root.focus({ preventScroll: true });
-    if (ctrl && "rl".includes(k)) return take(); // the viewing browser's reload and address bar
-    if (!(ctrl && ("pq".includes(k) || e.code === "Backquote"))) return; // Ctrl+P, Ctrl+Q and Ctrl+` go on to Laura
-  }
+  if (url && urlKey(e, ctrl, k, url)) return;
   if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) {
-    take();
+    take(e);
     listOpen = moreOpen = null;
     return paintPops();
   }
   // As the hint line: `Esc` leaves comment mode from a file or browser pane, after the pane's own dialog or field.
   // The shell and an editor pane's editor view keep `Esc` for their program.
   const b = f?.kind === "browser" && $("p" + f.id);
-  if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(), setCommentMode(null);
-  if (ctrl && k === "p") return take(), openSelector();
-  if (ctrl && e.code === "Backquote") return take(), toggleShell();
+  if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(e), setCommentMode(null);
+  if (ctrl && k === "p") return take(e), openSelector();
+  if (ctrl && e.code === "Backquote") return take(e), toggleShell();
   if (ctrl && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer && drawerOpen()) {
-    return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+    return take(e), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
   }
   // The focused grip: ↑ ↓ step the drawer's height, and Home resets it.
   if (document.activeElement?.matches?.("#p0 .grip") && !e.ctrlKey && !e.altKey && !e.metaKey) {
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") return take(), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
-    if (e.key === "Home") return take(), saveDrawer();
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") return take(e), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
+    if (e.key === "Home") return take(e), saveDrawer();
   }
   if (ctrl && k === "q") {
-    take();
+    take(e);
     return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));
   }
   if (ctrl && k === "l" && f && f.pty && f.id !== 0) {
-    take();
+    take(e);
     return act({ act: "toggle_editor_view", pane: f.id });
   }
-  if (f?.kind === "browser") {
-    const el = $("p" + f.id);
-    // The page's dialog takes Enter and Esc; a prompt's field takes the rest.
-    if (el.dialog) {
-      if (e.key === "Enter" && !e.isComposing) return take(), answer(f.id, true);
-      if (e.key === "Escape") return take(), answer(f.id, false);
-      return;
-    }
-    // A field in the page has the keystrokes, all but Esc. Ctrl+V (Cmd+V) goes on as a paste.
-    if (el.typing) {
-      if (e.key === "Escape") return take(), (el.typing = false), send({ act: "browser_blur", pane: f.id }), paintHint();
-      if ((ctrl || e.metaKey) && e.key.toLowerCase() === "v") return;
-      return take(), toPage(f.id, e);
-    }
-    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      return take(), act({ act: "browser_history", pane: f.id, delta: e.key === "ArrowLeft" ? -1 : 1 });
-    }
-    if (!mods(e) && SCROLL_KEYS.includes(e.key)) return take(), toPage(f.id, e);
-    if (ctrl && k === "r") return take(), act({ act: "refresh", pane: f.id });
-    if (ctrl && k === "l") return take(); // the browser's address bar
-    const bare = !ctrl && !e.altKey && !e.metaKey;
-    // `c` comments on the element under the pointer; off the page, it turns on comment mode.
-    // Before `laura ready`, the pick returns the notice that asks for it.
-    if (bare && e.key === "c") {
-      take();
-      // On a pin, `c` comments in the pin's thread.
-      if (el.pinAt) return act({ act: "set_cursor", pane: f.id, line: el.pinAt }), begin(f.id, "comment");
-      if (!el.at && layout.agent) return setCommentMode(f.id);
-      const { x, y } = el.at ?? { x: -1, y: -1 };
-      return begin(f.id, "comment", { act: "browser_pick", pane: f.id, x, y });
-    }
-    if (bare && e.key === "S") return take(), begin(f.id, "review");
-    if (bare && ["x", "Escape", "n", "N", "r", "h"].includes(e.key)) return take(), act(FILE_KEYS[e.key](f.id));
+  if (f?.kind === "browser") return browserPaneKey(e, ctrl, k, f.id);
+  if (f?.kind === "file") filePaneKey(e, ctrl, k, f.id);
+}
+
+function browserPaneKey(e, ctrl, k, id) {
+  const el = $("p" + id);
+  // The page's dialog takes Enter and Esc; a prompt's field takes the rest.
+  if (el.dialog) {
+    if (e.key === "Enter" && !e.isComposing) return take(e), answer(id, true);
+    if (e.key === "Escape") return take(e), answer(id, false);
     return;
   }
-  if (f?.kind !== "file") return;
-  if (ctrl && k === "r") {
-    take();
-    return act({ act: "refresh", pane: f.id });
+  // A field in the page has the keystrokes, all but Esc. Ctrl+V (Cmd+V) goes on as a paste.
+  if (el.typing) {
+    if (e.key === "Escape") return take(e), (el.typing = false), send({ act: "browser_blur", pane: id }), paintHint();
+    if ((ctrl || e.metaKey) && e.key.toLowerCase() === "v") return;
+    return take(e), toPage(id, e);
   }
-  if (ctrl && k === "l") return take(); // the browser's address bar
+  if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    return take(e), act({ act: "browser_history", pane: id, delta: e.key === "ArrowLeft" ? -1 : 1 });
+  }
+  if (!mods(e) && SCROLL_KEYS.includes(e.key)) return take(e), toPage(id, e);
+  if (ctrl && k === "r") return take(e), act({ act: "refresh", pane: id });
+  if (ctrl && k === "l") return take(e); // the browser's address bar
+  const bare = !ctrl && !e.altKey && !e.metaKey;
+  // `c` comments on the element under the pointer; off the page, it turns on comment mode.
+  // Before `laura ready`, the pick returns the notice that asks for it.
+  if (bare && e.key === "c") {
+    take(e);
+    // On a pin, `c` comments in the pin's thread.
+    if (el.pinAt) return act({ act: "set_cursor", pane: id, line: el.pinAt }), begin(id, "comment");
+    if (!el.at && layout.agent) return setCommentMode(id);
+    const { x, y } = el.at ?? { x: -1, y: -1 };
+    return begin(id, "comment", { act: "browser_pick", pane: id, x, y });
+  }
+  if (bare && e.key === "S") return take(e), begin(id, "review");
+  if (bare && ["x", "Escape", "n", "N", "r", "h"].includes(e.key)) return take(e), act(FILE_KEYS[e.key](id));
+}
+
+function filePaneKey(e, ctrl, k, id) {
+  if (ctrl && k === "r") {
+    take(e);
+    return act({ act: "refresh", pane: id });
+  }
+  if (ctrl && k === "l") return take(e); // the browser's address bar
   if (!ctrl && !e.altKey && !e.metaKey && (e.key === "c" || e.key === "S")) {
-    take();
+    take(e);
     // A page with no element at the cursor has nothing to comment on: pick one.
-    const fr = frameOf(f.id);
-    if (e.key === "c" && layout.agent && fr && !fr.rect) return setCommentMode(f.id);
-    return begin(f.id, e.key === "c" ? "comment" : "review");
+    const fr = frameOf(id);
+    if (e.key === "c" && layout.agent && fr && !fr.rect) return setCommentMode(id);
+    return begin(id, e.key === "c" ? "comment" : "review");
   }
   // The arrows don't move the cursor in a page, which has no rows.
-  if (e.key.startsWith("Arrow") && frameOf(f.id)) return;
+  if (e.key.startsWith("Arrow") && frameOf(id)) return;
   const make = !ctrl && !e.altKey && !e.metaKey && FILE_KEYS[e.key];
   if (make) {
-    take();
-    act(make(f.id));
+    take(e);
+    act(make(id));
   }
+}
+
+addEventListener("keydown", e => {
+  if (!layout || ended || !$("overlay").hidden || MODIFIERS.includes(e.key)) return;
+  const ctrl = e.ctrlKey && !e.altKey;
+  const k = e.key.length === 1 && ctrl ? e.key.toLowerCase() : e.key;
+  if (e.key === "F12") return lockKey(e);
+  if (!$("menu").hidden) return menuKey(e);
+  if (help) return take(e), toggleHelp();
+  if (popup !== null) return selectorKey(e, ctrl, k);
+  if (locked) return;
+  if (confirmQuit) return quitKey(e);
+  if (ctrl && k === "h") return take(e), toggleHelp();
+  if (draft) return draftKey(e, ctrl, k);
+  paneKey(e, ctrl, k);
 });
 
 // A browser pane's page takes a paste while a field has the keystrokes.
