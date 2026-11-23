@@ -237,7 +237,7 @@ fn the_shell_links_these_paths() -> Result<()> {
     let lines: Vec<&str> = LINKS.iter().map(|(l, _)| *l).collect();
     let got = c
         .eval(&format!("({PROVIDE_LINKS})({})", json!(lines)))
-        .expect("the links");
+        .unwrap_or_else(|e| panic!("the links: {e}"));
     let want: Vec<_> = LINKS.iter().map(|(_, links)| json!(links)).collect();
     for ((line, want), got) in lines
         .iter()

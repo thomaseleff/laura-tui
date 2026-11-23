@@ -2,8 +2,7 @@
 //! test presses the user's keys and reads what the web app shows. The page is the workspace's only
 //! view: a second view would take the workspace over. Included with `#[path]` by `tests/client.rs`.
 //!
-//! The rig's JS reads the client's top-level names `layout`, `terms` and `PATH` (`app.js`). A
-//! client that renames or hides them keeps them reachable on `globalThis` for these tests.
+//! The rig's JS reads the client's top-level names: see the note above them in `app.js`.
 
 use std::path::Path;
 use std::time::Instant;
@@ -103,8 +102,9 @@ impl Client {
             .unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// `js`'s value, awaited if `js` is a promise; `None` while the page loads or when `js` throws.
-    pub fn eval(&self, js: &str) -> Option<Value> {
+    /// `js`'s value, awaited if `js` is a promise; the exception's text when `js` throws, or CDP's
+    /// error while the page loads.
+    pub fn eval(&self, js: &str) -> Result<Value, String> {
         let v = self
             .browser
             .cdp
@@ -113,30 +113,38 @@ impl Client {
                 json!({"expression": js, "returnByValue": true, "awaitPromise": true}),
                 Some(&self.session),
             )
-            .ok()?;
-        if v.get("exceptionDetails").is_some() {
-            return None;
+            .map_err(|e| e.to_string())?;
+        if let Some(x) = v.get("exceptionDetails") {
+            let text = x["exception"]["description"]
+                .as_str()
+                .or(x["text"].as_str());
+            return Err(text.unwrap_or("an exception").into());
         }
-        Some(v["result"]["value"].clone())
+        Ok(v["result"]["value"].clone())
     }
 
     /// Pump `r` until `js` is truthy, and return its value; fail after `common::DEADLINE` with
-    /// `what` and the page's errors.
+    /// `what`, `js`'s last error and the page's errors.
     #[track_caller]
     pub fn until(&self, r: &mut Rig, what: &str, js: &str) -> Value {
         let t0 = Instant::now();
+        let mut last = String::new();
         loop {
             r.pump();
-            if let Some(v) = self.eval(js)
-                && !matches!(&v, Value::Null | Value::Bool(false))
-                && v != json!(0)
-                && v != json!("")
-            {
-                return v;
+            match self.eval(js) {
+                Ok(v)
+                    if !matches!(&v, Value::Null | Value::Bool(false))
+                        && v != json!(0)
+                        && v != json!("") =>
+                {
+                    return v;
+                }
+                Ok(_) => {}
+                Err(e) => last = e,
             }
             assert!(
                 t0.elapsed() < common::DEADLINE,
-                "timed out: {what}; the page's errors: {}",
+                "timed out: {what}; the last error: {last}; the page's errors: {}",
                 self.errors()
             );
         }
@@ -172,12 +180,16 @@ impl Client {
     #[track_caller]
     pub fn focus(&self, r: &mut Rig, id: u64) {
         self.press(CTRL_P);
-        self.until(r, "the pane selector", "popup !== null");
+        self.until(
+            r,
+            "the pane selector",
+            "!document.getElementById('popup').hidden",
+        );
         self.type_text(&id.to_string());
         self.until(
             r,
             "the focus",
-            &format!("popup === null && layout.focus === {id}"),
+            &format!("document.getElementById('popup').hidden && layout.focus === {id}"),
         );
         assert_eq!(r.tab.focus, id, "Laura's focus");
     }
