@@ -227,7 +227,7 @@ Laura also keeps `~/.laura/settings.lock`, an empty file, so that two workspaces
 
 | Key | What Laura does with the value | You set it with |
 |---|---|---|
-| `drawer` | Shows the drawer at this height, in % of the workspace, from 20 to 85. Without the key, the drawer is 54%. | [The drawer's grip](navigation.md#the-drawer) |
+| `drawer` | Shows the drawer at this height, in % of the workspace, from 20 to 85. Without the key, the drawer is 54%, or the start height over the start canvas (see [The drawer](navigation.md#the-drawer)). | [The drawer's grip](navigation.md#the-drawer) |
 | `editor_theme` | `laura` applies Laura's theme in editor panes, and `neovim` keeps your theme. Without the key, the TUI asks at start. | [The startup wizard](tui-navigation.md#lauras-theme) |
 
 An earlier Laura saved the theme in `~/.laura/editor-theme`. Laura moves the answer into `settings.json` at the next start. If Laura can't write `settings.json`, Laura uses the answer in `~/.laura/editor-theme` and moves the answer at a later start.
