@@ -403,6 +403,41 @@ fn the_shell_starts_in_the_drawer_over_the_canvas() -> Result<()> {
     Ok(())
 }
 
+/// #213: the start canvas is not a pane, so a click on its text leaves the keystrokes in the shell.
+#[test]
+fn a_click_on_the_canvas_keeps_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    // The center of the canvas's visible heading, which the drawer doesn't cover.
+    let at = c.until(
+        &mut r,
+        "the canvas's heading",
+        "!document.getElementById('canvas').hidden && (() => { \
+           const h = [...document.querySelectorAll('#canvas h1')].find(h => h.offsetParent); \
+           const b = h?.getBoundingClientRect(); \
+           return b?.width && document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)\
+             ?.closest('#canvas') && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "the shell's DOM focus",
+        "document.activeElement?.closest('#p0 .xterm')",
+    );
+    c.type_text("echo canvas-click");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the echo in the shell",
+        &format!("{SHELL_LINES}.some(l => l.trim() === 'canvas-click')"),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// Each line in the shell, and the links that the shell's link provider finds in it: each link's
 /// text and first column. From `PATH`'s comment in `term.js`.
 const LINKS: &[(&str, &[(&str, u64)])] = &[

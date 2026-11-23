@@ -175,6 +175,17 @@ impl Client {
         }
     }
 
+    /// A left click at `x`, `y` CSS px from the viewport's top left: press and release, so the
+    /// click moves the DOM focus as the user's click does.
+    pub fn click(&self, x: f64, y: f64) {
+        for kind in ["mousePressed", "mouseReleased"] {
+            self.call(
+                "Input.dispatchMouseEvent",
+                json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}),
+            );
+        }
+    }
+
     /// The page's viewport at `width`×`height` CSS px, as a window of that size shows it.
     pub fn resize(&self, width: u32, height: u32) {
         self.call(

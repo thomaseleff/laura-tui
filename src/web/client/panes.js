@@ -315,6 +315,11 @@ function paintCanvas(m) {
 // The steps of *Get started*, which the canvas and the help show.
 export const steps = () => $("steps").content.cloneNode(true);
 $("canvas").querySelector(".foot").before(steps());
+// The canvas is not a pane: a click on it gives the keystrokes back to the shell, except a click
+// on a button or one that selects text to copy.
+$("canvas").addEventListener("click", (e) => {
+  if (!e.target.closest("button") && !getSelection().toString()) followFocus(true);
+});
 
 // A browser pane's size in CSS pixels, with a whole number of device pixels each way, so a frame
 // draws 1:1. Laura's browser renders the page at this size.
