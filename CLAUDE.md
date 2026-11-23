@@ -65,6 +65,7 @@ The repository uses squash merge only. GitHub merges each PR into `main` as one 
 - Tests live in `tests/`, drive the real public surface: the `laura` CLI binary and the per-tab socket protocol. Use `assert_cmd` + `tempfile` to run the binary and inspect its effects.
 - Each test maps to a workstream's **Done when**, not to a function. "Feed an `open` message → pane state holds the file's content" — through the protocol, not by calling an internal fn.
 - The TUI render loop can't be driven interactively in CI: assert on **state** (app state after a message, pane content, socket round-trip) rather than pixels.
+- A client test (`tests/client.rs`) drives the real web app in Chrome, as the user does, so it is an integration test.
 - **The one exception** — pure logic a user can't reach through the CLI (DSR handshake reply from a byte stream, review-payload assembly, NDJSON framing). Test it through the smallest public entry point that reaches it; only if there's genuinely no such surface, a `#[cfg(test)]` check next to the code. Prefer exposing the seam over reaching into privates.
 
 Run before calling anything done: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`.

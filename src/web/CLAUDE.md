@@ -54,3 +54,14 @@ The web tests are one test binary, `tests/web/`, with one module for each featur
 
 - Add a web test to the module for its feature.
 - Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.
+
+### Client tests
+
+The client tests run `app.js` itself. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`:
+
+- `browser_rig::bare()` hosts the workspace in-process, so a test reads Laura's state through `r.tab` and calls the CLI with `r.drive`.
+- `Client::open` loads the web app in a headless Chrome of the test's. The page is the workspace's only view: don't `connect` a second view, which would take the workspace over.
+- `press` and `type_text` give the page the user's keys, and `focus` focuses a pane with the pane selector.
+- `until` pumps Laura until a JS expression on the page is truthy.
+
+The rig's JS reads the client's top-level names `layout`, `terms` and `PATH`. A change that moves them, such as a split of `app.js` into ES modules, keeps them on `globalThis` (for example, `globalThis.terms = terms`).
