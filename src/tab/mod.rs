@@ -316,7 +316,7 @@ pub struct Tab {
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
     /// The user showed the shell as a pane (**Show the shell as a pane**) in the web app, in place of the drawer.
-    pub docked: bool,
+    docked: bool,
     /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
     pub hold: bool,
     /// Editor panes' Neovim, by pane id. Each also has its file panel in `panels`.
