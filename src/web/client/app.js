@@ -26,8 +26,9 @@ const LIGHT = (() => {
   return t;
 })();
 
-// The client tests (tests/client.rs) read layout, terms and PATH. A module keeps them on globalThis,
-// with a getter for a name the client sets again: Object.defineProperty(globalThis, "layout", { get: () => layout }).
+// The client tests (tests/client.rs) read layout and terms, and take the shell's link provider as the last
+// of terms.get(0)'s link providers. A module keeps layout and terms on globalThis, with a getter for a name
+// the client sets again: Object.defineProperty(globalThis, "layout", { get: () => layout }).
 let ws, layout = null, strings = {}, cw = 0, ch = 0;
 let focusKey = "", locked = false, help = false, popup = null, confirmQuit = false, ended = false;
 let notice = "", noticeTimer = 0, noticePane;

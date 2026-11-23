@@ -57,12 +57,7 @@ The web tests are one test binary, `tests/web/`, with one module for each featur
 
 ### Client tests
 
-The client tests run `app.js` itself. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`:
-
-- `browser_rig::bare()` hosts the workspace in-process, so a test reads Laura's state through `r.tab` and calls the CLI with `r.drive`.
-- `Client::open` loads the web app in a headless Chrome of the test's. The page is the workspace's only view: don't `connect` a second view, which would take the workspace over.
-- `press` and `type_text` give the page the user's keys, and `focus` focuses a pane with the pane selector.
-- `until` pumps Laura until a JS expression on the page is truthy.
+The client tests run `app.js` itself. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`. The rig's `//!` paragraph and the docs of its methods tell how a test opens the page, presses keys and waits.
 
 A change to a keystroke, a focus move or a rule in the client adds a client test. A client test for a known bug is `#[ignore]`, and the reason names the issue that fixes the bug.
 
