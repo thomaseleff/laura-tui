@@ -45,6 +45,8 @@ _The beat headings count to 7. If `laura ready` did not print `web_app` as `true
 laura close --all
 ```
 
+_In the web app, your partner now sees the start canvas above the drawer, with this chat in the drawer. Beat 1's first pane takes the canvas's place._
+
 ---
 
 ### What Laura is

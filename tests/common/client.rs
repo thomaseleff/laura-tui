@@ -175,6 +175,14 @@ impl Client {
         }
     }
 
+    /// The page's viewport at `width`×`height` CSS px, as a window of that size shows it.
+    pub fn resize(&self, width: u32, height: u32) {
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width": width, "height": height, "deviceScaleFactor": 0, "mobile": false}),
+        );
+    }
+
     /// `s`, typed into the focused element as an input method types it.
     pub fn type_text(&self, s: &str) {
         self.call("Input.insertText", json!({"text": s}));

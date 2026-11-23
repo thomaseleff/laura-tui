@@ -142,11 +142,13 @@ export function paintShellButton() {
   const b = $("sbtn"), s = pane(0);
   b.hidden = !s?.drawer;
   if (b.hidden) return;
-  const open = drawerOpen(), t = `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
+  // On the canvas, the drawer stays open: `Ctrl+\`` and the button do nothing.
+  const open = drawerOpen(), t = layout.canvas ? s.name : `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
   b.classList.toggle("open", open);
   b.classList.toggle("wait", layout.waiting);
   b.querySelector(".say").hidden = !layout.waiting;
   b.querySelector("b").textContent = s.name;
+  for (const k of b.querySelectorAll("kbd")) k.hidden = !!layout.canvas;
   b.dataset.tip = t;
   b.setAttribute("aria-label", layout.waiting ? `${t} · Waiting for you` : t);
 }

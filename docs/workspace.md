@@ -32,7 +32,7 @@ The agent runs in the shell, pane `0`. Laura shows the shell in white, with Laur
 
 The pane header names the shell after the agent: the name that the agent gives with `laura ready --agent`, such as `claude`. Before the agent runs `laura ready`, the pane header shows `shell`. The pane selector shows the same name, also in the TUI.
 
-When the agent opens a pane, the panes fill the workspace, and Laura shows the shell in a drawer over the panes. Press ``Ctrl+` `` to open or close the drawer. To keep the shell beside the panes, click **Show the shell as a pane** in the drawer. See [The drawer](navigation.md#the-drawer).
+Laura shows the shell in a drawer. Before the agent opens a pane, Laura shows a start canvas above the drawer. When the agent opens a pane, the panes fill the workspace, and the drawer floats over the panes. Press ``Ctrl+` `` to open or close the drawer. To keep the shell beside the panes, click **Show the shell as a pane** in the drawer. See [The drawer](navigation.md#the-drawer).
 
 ## Know when the agent waits
 

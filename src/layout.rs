@@ -142,7 +142,7 @@ fn boxed_pty() -> Box<Layout> {
 }
 
 /// Split `area` into (first, second) by `dir`/`ratio`, matching what the renderer draws.
-fn split_rect(area: Rect, dir: Dir, ratio: u16) -> (Rect, Rect) {
+pub(crate) fn split_rect(area: Rect, dir: Dir, ratio: u16) -> (Rect, Rect) {
     let ratio = ratio.clamp(1, 99);
     match dir {
         Dir::Horizontal => {
@@ -183,9 +183,12 @@ pub fn workspace_fits(area: Rect) -> bool {
 
 /// True if every pane in `layout` at `area` clears `MIN_PANE`.
 pub fn all_panes_fit(layout: &Layout, area: Rect) -> bool {
-    rects(layout, area)
-        .values()
-        .all(|r| r.width >= MIN_PANE.0 && r.height >= MIN_PANE.1)
+    rects(layout, area).values().all(|r| pane_fits(*r))
+}
+
+/// True if a pane at `r` clears `MIN_PANE`.
+pub(crate) fn pane_fits(r: Rect) -> bool {
+    r.width >= MIN_PANE.0 && r.height >= MIN_PANE.1
 }
 
 /// Choose (target, dir, ratio, side) for an unspecified `open` — a dwindle: split the

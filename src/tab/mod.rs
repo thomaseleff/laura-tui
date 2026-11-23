@@ -19,10 +19,10 @@ use crate::browser::{self, Browser, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp};
-use crate::layout::{Layout, MIN_PANE, rects};
+use crate::layout::{Layout, MIN_PANE, rects, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::platform::runtime_dir;
-use crate::protocol::{self, Message, PTY_PANE, PaneId, Reply, Response};
+use crate::protocol::{self, Dir, Message, PTY_PANE, PaneId, Reply, Response};
 use crate::pty::PtyTab;
 
 mod act;
@@ -247,6 +247,9 @@ pub enum UserAction {
         pane: PaneId,
     },
 }
+
+/// The docked shell's share of the workspace's width, in %.
+const DOCK: u16 = 40;
 
 fn no_pane(pane: PaneId) -> String {
     format!("no pane #{pane}")
@@ -557,27 +560,37 @@ impl Tab {
         }
     }
 
-    /// The web app shows the shell in the drawer, over the other panes: the user didn't dock it,
-    /// and another pane is open. The TUI always shows the shell as a pane.
+    /// The web app shows the shell in the drawer, over the other panes or the start canvas: the
+    /// user didn't dock it. The TUI always shows the shell as a pane.
     pub fn drawer_in_use(&self) -> bool {
-        self.web && !self.docked && self.layout != Layout::Pane(PTY_PANE)
+        self.web && !self.docked
+    }
+
+    /// The web app shows the start canvas: no pane but the shell is open. The TUI has no canvas.
+    pub(crate) fn canvas_shown(&self) -> bool {
+        self.canvas_in(&self.layout)
+    }
+
+    /// Whether tree `l` leaves the canvas showing; `dry_run_open` and `fit_ratio` draw a probe tree.
+    fn canvas_in(&self, l: &Layout) -> bool {
+        self.web && *l == Layout::Pane(PTY_PANE)
     }
 
     /// The tree that `l` draws: without the shell's leaf while the shell is in the drawer. The
     /// shell's leaf stays in `layout`, so its rules hold.
     fn shown<'a>(&self, l: &'a Layout) -> Cow<'a, Layout> {
-        match (self.web && !self.docked)
-            .then(|| l.without(PTY_PANE))
-            .flatten()
-        {
+        match self.drawer_in_use().then(|| l.without(PTY_PANE)).flatten() {
             Some(rest) => Cow::Owned(rest),
             None => Cow::Borrowed(l),
         }
     }
 
     /// Each pane's rect in `l` at `area`. The drawer floats over the panes, so the shell gets the
-    /// whole area.
+    /// whole area. A docked shell alone takes its left `DOCK`%, beside the canvas.
     fn tree_rects(&self, l: &Layout, area: Rect) -> HashMap<PaneId, Rect> {
+        if self.docked && self.canvas_in(l) {
+            return HashMap::from([(PTY_PANE, split_rect(area, Dir::Horizontal, DOCK).0)]);
+        }
         let mut map = rects(&self.shown(l), area);
         map.entry(PTY_PANE).or_insert(area);
         map

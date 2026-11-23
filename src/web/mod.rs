@@ -33,7 +33,7 @@ use crate::{Panel, Rect, Tab, UserAction, view};
 
 mod frames;
 mod html;
-use frames::{layout_json, send_browsers, send_panes};
+use frames::{Canvas, layout_json, send_browsers, send_panes};
 use html::tag_lines;
 
 /// The workspace's size until a view reports one.
@@ -262,8 +262,11 @@ pub struct WebServer {
     watch: Option<Receiver<String>>,
     poke: Option<Sender<()>>,
     workspaces: Option<String>,
-    /// The drawer's height in % of the workspace's, from the settings at the start.
-    drawer: u8,
+    /// The drawer's height that the user set, in % of the workspace's, from the settings at the
+    /// start; `None`: the start height on the canvas, else `DRAWER`.
+    drawer: Option<u8>,
+    /// The canvas the view shows, which Laura picks again each time the canvas comes back.
+    canvas: Option<Canvas>,
 }
 
 impl WebServer {
@@ -304,7 +307,8 @@ impl WebServer {
             drawer: crate::settings::get("drawer")
                 .as_ref()
                 .and_then(Value::as_f64)
-                .map_or(DRAWER, drawer_pct),
+                .map(drawer_pct),
+            canvas: None,
         })
     }
 
@@ -619,7 +623,9 @@ impl WebServer {
         if dirty {
             reconcile(&mut self.bases, &self.files, &self.root, tab);
         }
-        let layout = layout_json(tab, &rects, area, &self.bases, self.drawer);
+        let canvas = pick_canvas(&mut self.canvas, tab);
+        let drawer = drawer_frame(self.drawer, canvas);
+        let layout = layout_json(tab, &rects, area, &self.bases, canvas, drawer);
         if v.layout != layout {
             v.send(Outbound::Text(layout.clone()));
             v.layout = layout;
@@ -720,17 +726,45 @@ impl WebServer {
 /// The drawer's height before the user drags its grip, in % of the workspace's.
 const DRAWER: u8 = 54;
 
+/// The drawer's height over the canvas, before the user drags its grip: at least `START_ROWS` of
+/// the shell, which hold an agent CLI's start screen, and at most `DRAWER`.
+const START_DRAWER: u8 = 36;
+const START_ROWS: u8 = 18;
+
+/// The drawer's height for the layout frame, and the rows of the shell that the web app fits it to
+/// (`null`: none). Only the canvas with no height from the user gets the start height.
+fn drawer_frame(saved: Option<u8>, canvas: Option<Canvas>) -> (u8, Value) {
+    match (saved, canvas) {
+        (None, Some(_)) => (START_DRAWER, json!({"rows": START_ROWS, "max": DRAWER})),
+        (h, _) => (h.unwrap_or(DRAWER), Value::Null),
+    }
+}
+
+/// The canvas while `tab` shows one, kept in `cache` until a pane opens.
+fn pick_canvas(cache: &mut Option<Canvas>, tab: &Tab) -> Option<Canvas> {
+    if !tab.canvas_shown() {
+        *cache = None;
+    } else if cache.is_none() {
+        *cache = Some(if crate::journal::reviewed() {
+            Canvas::Calm
+        } else {
+            Canvas::Start
+        });
+    }
+    *cache
+}
+
 /// A drawer height from the user or the file, within 20–85%.
 fn drawer_pct(p: f64) -> u8 {
     p.clamp(20.0, 85.0).round() as u8
 }
 
-/// Save the drawer's height, or remove it for `None`; the height to show.
-fn save_drawer(percent: Option<f64>) -> u8 {
+/// Save the drawer's height, or remove it for `None`; the height the user set.
+fn save_drawer(percent: Option<f64>) -> Option<u8> {
     let h = percent.map(drawer_pct);
     // Best-effort: an unwritable file keeps the height for this workspace only.
     let _ = crate::settings::set("drawer", h.map(Value::from));
-    h.unwrap_or(DRAWER)
+    h
 }
 
 /// The time now, in Unix ms.

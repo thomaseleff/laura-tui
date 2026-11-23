@@ -14,7 +14,7 @@ use crate::panel::Panel;
 use crate::protocol::{Dir, Message, PTY_PANE, PaneId, Response, Side};
 
 use super::report::{build_report, fit_rows, overflow_warning};
-use super::{Error, Tab, normalized, remove_if_temp};
+use super::{DOCK, Error, Tab, normalized, remove_if_temp};
 
 impl Tab {
     /// Build a panel for `path` (follow → highlight → diff, order preserved), insert it at `id`,
@@ -331,7 +331,14 @@ impl Tab {
     ) -> (PaneId, Dir, u16, Side) {
         let new = self.next_pane;
         let inferred = (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
-            .then(|| infer_split(&self.shown(&self.layout), area, new))
+            .then(|| {
+                if self.docked && self.canvas_shown() {
+                    // A docked shell alone: the new pane takes the canvas's place.
+                    Some((PTY_PANE, Dir::Horizontal, 100 - DOCK, Side::Second))
+                } else {
+                    infer_split(&self.shown(&self.layout), area, new)
+                }
+            })
             .flatten();
         let (target, dir, ratio, side) = match inferred {
             Some(t) => t,
@@ -679,7 +686,7 @@ impl Tab {
             &self.browsers,
             area,
             self.web,
-            self.web && !self.docked,
+            self.drawer_in_use(),
             self.shell_size.map(|(rows, _)| rows),
         ))
     }

@@ -6,13 +6,13 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::browser::{self, Page};
-use crate::layout::all_panes_fit;
+use crate::layout::{all_panes_fit, pane_fits, split_rect};
 use crate::panel::{Panel, bracketed_paste};
-use crate::protocol::{PTY_PANE, PaneId, Response};
+use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
 use super::{
-    Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab, UserAction,
-    no_pane,
+    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab,
+    UserAction, no_pane,
 };
 
 /// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
@@ -212,8 +212,14 @@ impl Tab {
             return Ok(());
         }
         let mut probe = self.layout.clone();
-        probe.dock_left(PTY_PANE, 40);
-        if !all_panes_fit(&probe, self.area) {
+        probe.dock_left(PTY_PANE, DOCK);
+        // Alone, the shell takes the left `DOCK`%, beside the canvas.
+        let fits = if self.canvas_shown() {
+            pane_fits(split_rect(self.area, Dir::Horizontal, DOCK).0)
+        } else {
+            all_panes_fit(&probe, self.area)
+        };
+        if !fits {
             return Err(NO_ROOM_TO_DOCK.into());
         }
         self.layout = probe;

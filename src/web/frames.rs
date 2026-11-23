@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use ratatui::text::Line;
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::panel::cursor::card_line;
@@ -17,12 +18,25 @@ use crate::{Panel, PanelRow, Rect, Tab, view};
 use super::html::{block_units, row_html};
 use super::{Bases, Outbound, View, content_hash};
 
+/// What the web app shows in the workspace while no pane but the shell is open (`Tab::canvas_shown`).
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum Canvas {
+    /// *Get started*: until the user's first submitted inline review, in any folder.
+    Start,
+    /// One sentence and the keystrokes, after that.
+    Calm,
+}
+
+/// `drawer`: the drawer's height in %, and the rows of the shell that the start height fits, or
+/// `null` (`WebServer::drawer_frame`).
 pub(super) fn layout_json(
     tab: &Tab,
     rects: &HashMap<PaneId, Rect>,
     area: Rect,
     bases: &Bases,
-    drawer: u8,
+    canvas: Option<Canvas>,
+    drawer: (u8, Value),
 ) -> String {
     let mut ids: Vec<_> = rects.keys().copied().collect();
     ids.sort();
@@ -61,7 +75,7 @@ pub(super) fn layout_json(
     });
     let (rows, cols) = tab.pty_size();
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
-           "drawer_height": drawer,
+           "drawer_height": drawer.0, "drawer_fit": drawer.1, "canvas": canvas,
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
            "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})

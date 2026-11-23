@@ -350,6 +350,59 @@ fn the_hint_line_keeps_the_modes_keystrokes_under_the_help() -> Result<()> {
     Ok(())
 }
 
+/// In a window `h` px high, once the shell's rows match `rows` (`>= 18`): the shell's rows, the
+/// drawer's height and the workspace's height.
+fn drawer_at(h: u32, rows: &str) -> String {
+    format!(
+        "innerHeight === {h} && terms.get(0).rows {rows} && [terms.get(0).rows, \
+         document.getElementById('p0').offsetHeight, document.getElementById('ws').clientHeight]"
+    )
+}
+
+/// #213: with no saved height, the shell starts in the drawer over the start canvas. The drawer
+/// shows 18 rows of the shell, which hold an agent CLI's start screen, within 54% of the workspace.
+/// In a laptop-high window (780 px), 54% holds fewer rows. The drawer stays open on `Ctrl+``, and
+/// the help shows *Get started*'s steps.
+#[test]
+fn the_shell_starts_in_the_drawer_over_the_canvas() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    // The shared home can hold another test's inline review, so either canvas can show.
+    c.until(
+        &mut r,
+        "the canvas's text",
+        "!document.getElementById('canvas').hidden && document.getElementById('canvas').innerText\
+         .includes({start: 'Welcome to Laura', calm: 'Ask your agent'}[layout.canvas])",
+    );
+    let share = |at: &Value| at[1].as_f64().unwrap_or(0.0) / at[2].as_f64().unwrap_or(1.0);
+    c.resize(1280, 1100);
+    let tall = c.until(&mut r, "18 rows", &drawer_at(1100, ">= 18"));
+    assert!(share(&tall) < 0.54, "{tall}");
+    c.resize(1280, 780);
+    let laptop = c.until(&mut r, "the 54% cap", &drawer_at(780, "< 18"));
+    assert!((share(&laptop) - 0.54).abs() < 0.01, "{laptop}");
+    c.press(CTRL_BACKQUOTE);
+    for _ in 0..10 {
+        r.pump();
+    }
+    assert_eq!(
+        c.eval("layout.focus === 0 && document.getElementById('p0').classList.contains('open')"),
+        Ok(json!(true)),
+        "Ctrl+` closed the drawer over the canvas"
+    );
+    c.press(CTRL_H);
+    c.until(
+        &mut r,
+        "the help's steps",
+        "!document.getElementById('help').hidden && document.querySelectorAll('#help .step').length === 3",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// Each line in the shell, and the links that the shell's link provider finds in it: each link's
 /// text and first column. From `PATH`'s comment in `term.js`.
 const LINKS: &[(&str, &[(&str, u64)])] = &[

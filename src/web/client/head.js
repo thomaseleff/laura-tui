@@ -148,7 +148,8 @@ export function paintHead(el, p) {
   show(".rec", browser && !!el.recording);
   show(".more", p.id !== 0);
   show("[data-act=dock]", p.drawer);
-  show("[data-act=drawer]", p.id === 0 && !p.drawer && layout.panes.length > 1);
+  // In the web app, the shell leaves the drawer only when the user docks it, also over the canvas.
+  show("[data-act=drawer]", p.id === 0 && !p.drawer);
   // An editor pane has no diff view (NO_DIFF_IN_EDITOR), and nor does a file with no changes.
   show(".tools [data-act=toggle_diff]", !p.pty && (p.added || p.removed || p.diff));
   q(".tools [data-act=toggle_diff]").classList.toggle("on", p.diff);

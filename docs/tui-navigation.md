@@ -6,6 +6,8 @@ In the TUI, `laura open <url>` returns `browser panes need the web app: start La
 
 In the TUI, a click on a file path in the shell doesn't open the file. To open the file, run `laura open <path>`.
 
+The TUI has no drawer and no start canvas. The TUI starts with the shell as the only pane, and shows the shell as a pane beside the other panes.
+
 The TUI does not show when the agent [waits for you](workspace.md#know-when-the-agent-waits). The workspace switcher, the pane selector and the Laura server's page do not list a TUI workspace.
 
 ## Pane borders

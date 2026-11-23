@@ -128,6 +128,14 @@ pub fn read_events(filters: &[(String, String)], since_ms: Option<u64>) -> Vec<V
     events
 }
 
+/// Whether the user ever submitted an inline review, in any folder: a `review` event without an
+/// `error`.
+pub(crate) fn reviewed() -> bool {
+    read_events(&[("type".into(), "review".into())], None)
+        .iter()
+        .any(|e| e.get("error").is_none())
+}
+
 fn ts(v: &Value) -> u64 {
     v["ts"].as_u64().unwrap_or(0)
 }
