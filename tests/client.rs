@@ -178,6 +178,29 @@ fn ctrl_p_opens_the_pane_selector() -> Result<()> {
     Ok(())
 }
 
+/// The hint line shows the quit question.
+const QUIT: &str =
+    "document.getElementById('hint').textContent.includes('quit? press y to confirm')";
+
+/// #229: the quit question takes the keystroke after F12, as the help and the pane selector do.
+/// Before, F12 turned on the lock under the question, and the question came back after the unlock.
+#[test]
+fn the_quit_question_takes_the_keystroke_after_f12() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.press(CTRL_Q);
+    c.until(&mut r, "the quit question", QUIT);
+    c.press(F12);
+    c.press(N);
+    c.press(F12);
+    c.until(&mut r, "the quit question closes", &format!("!({QUIT})"));
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// Each line in the shell, and the links that the shell's link provider finds in it: each link's
 /// text and first column. From `PATH`'s comment in `app.js`.
 const LINKS: &[(&str, &[(&str, u64)])] = &[

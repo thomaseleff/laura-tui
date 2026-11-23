@@ -26,28 +26,45 @@ const LIGHT = (() => {
   return t;
 })();
 
-// The client tests (tests/client.rs) read layout and terms, and take the shell's link provider as the last
-// of terms.get(0)'s link providers. A module keeps layout and terms on globalThis, with a getter for a name
+// The client tests (tests/client.rs) and the browser tests (tests/browser.rs) read layout, terms and ui,
+// and take the shell's link provider as the last of terms.get(0)'s link providers. A module keeps layout and terms on globalThis, with a getter for a name
 // the client sets again: Object.defineProperty(globalThis, "layout", { get: () => layout }).
 let ws, layout = null, strings = {}, cw = 0, ch = 0;
-let focusKey = "", locked = false, help = false, popup = null, confirmQuit = false, ended = false;
+let focusKey = "", ended = false;
+// The modes that take a keystroke before a pane (`mode`), and the state of the pane in use.
+const ui = {
+  // F12's lock, which sends a file pane's or a browser pane's keystrokes to the shell.
+  locked: false,
+  // The help sheet is open.
+  help: false,
+  // The pane selector's selected row, or `null` while the pane selector is closed.
+  popup: null,
+  // The quit question shows on the hint line.
+  confirmQuit: false,
+  // The open comment or review body: `{pane, line, kind, hint, busy, failed, text}`. A comment's box
+  // is `draftCard`, in its line's thread or below its line; a review body's is in the pane's popover.
+  draft: null,
+  // The pane whose thread list is open, and the pane whose **More** is open.
+  listOpen: null,
+  moreOpen: null,
+  // The page's pane in comment mode, where a click on the page picks an element to comment on.
+  commentMode: null,
+  // The user's last keystroke or mouse press, for the wait rule below `overlayOpen`.
+  press: null,
+  // The user drags a resize handle (`dragger`).
+  resizing: false,
+};
 let notice = "", noticeTimer = 0, noticePane;
 // The notice shows a failed submit, which closing the draft takes down.
 let noticeRetry = false;
-// `popup` is the pane selector's selected row, or `null` while the pane selector is closed.
 // Panes that reloaded or got a new highlight while another pane had the focus.
 const unseen = new Set();
-// The open comment or review body: `{pane, line, kind, hint, busy, failed, text}`. A comment's box
-// is `draftCard`, in its line's thread or below its line; a review body's is in the pane's popover.
-let draft = null, draftCard = null;
+// The comment's box (`ui.draft`).
+let draftCard = null;
 // The `workspaces` frame: the running workspaces, this workspace first, then the latest visit
 // first, and the Laura server's URL or null.
 // `leaving` is set by a switch to another workspace, which skips the leave question.
 let spaces = [], server = null, leaving = false;
-// The pane whose thread list is open, and the pane whose **More** is open.
-let listOpen = null, moreOpen = null;
-// The page's pane in comment mode, where a click on the page picks an element to comment on.
-let commentMode = null;
 // The last pane other than the shell that had the focus, where `Ctrl+\`` goes from the shell.
 let lastFocus = null;
 const terms = new Map(); // pane id → xterm, one per PTY pane
@@ -62,13 +79,9 @@ const frame = (id, bytes) => {
   out.set(bytes, 8);
   if (ws?.readyState === 1) ws.send(out);
 };
-// The user's last keystroke or mouse press, for the wait rule below `overlayOpen`.
-let press = null;
-// The user drags a resize handle (`dragger`).
-let resizing = false;
 function act(m, then) {
   // The user's press sent Laura an action: the server, not the wait rule below, decides the wait.
-  if (press && m.act !== "seen") press.acted = true;
+  if (ui.press && m.act !== "seen") ui.press.acted = true;
   if (ws?.readyState !== 1) return;
   acts.push({ then, pane: m.pane });
   send(m);
@@ -89,10 +102,21 @@ const browserKey = (pane, kind, e) => ({
 const pane = id => layout?.panes.find(p => p.id === id);
 const focused = () => pane(layout?.focus);
 // The lock sends a file pane's or a browser pane's keystrokes to the shell; an editor pane keeps them.
-const toShell = () => locked && focused()?.kind !== "editor";
+const toShell = () => ui.locked && focused()?.kind !== "editor";
 // The drawer shows while the shell has the focus or the lock's keystrokes.
 const drawerOpen = () => layout.focus === 0 || toShell();
-const overlayOpen = () => help || popup !== null || confirmQuit || !$("overlay").hidden || !$("menu").hidden;
+// The mode that takes a keystroke before any pane, first to last; null when the focused pane takes it.
+function mode() {
+  if (!$("overlay").hidden) return "overlay";
+  if (!$("menu").hidden) return "menu";
+  if (ui.help) return "help";
+  if (ui.popup !== null) return "selector";
+  if (ui.confirmQuit) return "quit";
+  if (ui.locked) return "locked";
+  if (ui.draft) return "draft";
+  return null;
+}
+const overlayOpen = () => ["overlay", "menu", "help", "selector", "quit"].includes(mode());
 const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
 // The user's keystroke or click that leaves the shell with the keystrokes ends the wait. The rule runs
 // after the event's handlers, so the close of the pane selector, the help or the menu counts, and the
@@ -102,14 +126,14 @@ const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
 // user's move to the shell: the focus moves only after the reply. `seen` names the wait shown at the
 // press, so a wait that began later stays. Not a focus listener: the agent's `laura focus` and a
 // return to the browser tab don't end the wait.
-const pressed = () => (press = { overlay: overlayOpen(), wait: layout?.wait, acted: false });
+const pressed = () => (ui.press = { overlay: overlayOpen(), wait: layout?.wait, acted: false });
 function seenAfter(p, counts) {
   setTimeout(() => counts && p?.wait !== undefined && !p.acted && layout?.waiting && !overlayOpen()
     && $("p0")?.contains(document.activeElement) && act({ act: "seen", wait: p.wait }));
 }
 addEventListener("mousedown", pressed, true);
-addEventListener("keydown", e => MODIFIERS.includes(e.key) || (pressed(), seenAfter(press, true)), true);
-addEventListener("click", e => seenAfter(press, press?.overlay || $("p0")?.contains(e.target)), true);
+addEventListener("keydown", e => MODIFIERS.includes(e.key) || (pressed(), seenAfter(ui.press, true)), true);
+addEventListener("click", e => seenAfter(ui.press, ui.press?.overlay || $("p0")?.contains(e.target)), true);
 
 function showNotice(text, secs, pane) {
   noticeRetry = false;
@@ -142,8 +166,13 @@ function paintHint() {
   const here = document.activeElement?.matches?.(".head .url") ? h.browser_url
     : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : typing ? h.browser_typing : h.pane;
   // As the keydown listener: comment mode's hint only over a file or browser pane's own plain hint.
-  const pairs = locked ? h.locked : confirmQuit ? h.quit : draft ? draft.hint
-    : !$("menu").hidden ? h.workspace : popup !== null ? ($("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes) : commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
+  const own = ui.commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
+  // The mode that takes the keystrokes shows its hint; the help, the overlay and no mode show the pane's.
+  const by = {
+    quit: h.quit, locked: h.locked, draft: ui.draft?.hint, menu: h.workspace,
+    selector: $("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes,
+  };
+  const m = mode(), pairs = m in by ? by[m] : own;
   const groups = (pairs ?? []).map(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
@@ -239,7 +268,7 @@ function makeProbe() {
 // `force` sends the size to a new connection.
 function fitShell(force) {
   // While the user drags a size, the agent redraws once, on release.
-  if (resizing) return;
+  if (ui.resizing) return;
   const t = terms.get(0), box = $("p0")?.querySelector(".term");
   const r = t?.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
   if (!r?.width || !box.clientWidth) return;
@@ -256,14 +285,13 @@ function fitShell(force) {
 
 // Laura's keys inside a terminal: false leaves the key to app.js, unsent.
 function termKeys(id, term, e) {
-  if (overlayOpen()) return false;
   if (e.key === "F12") return false;
-  if (locked) return true;
-  if (draft) return false;
+  const m = mode();
+  if (m) return m === "locked";
   // `code`, so a layout that types another character on that key still shows or hides the shell.
   if (e.ctrlKey && !e.altKey && e.code === "Backquote") return false;
   if (id === 0 && e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer) return false;
-  if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) return false;
+  if (e.key === "Escape" && (ui.listOpen ?? ui.moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
   if (e.ctrlKey && !e.altKey && (e.key === "l" || e.key === "L") && id !== 0) return false;
   if (id === 0 && (e.key === "PageUp" || e.key === "PageDown") && term.buffer.active.type === "normal") {
@@ -539,20 +567,20 @@ function headClick(id, e) {
   if (!b) return;
   e.stopPropagation();
   // **Retry submit** retries, as the review body's **Retry** does.
-  if (b.dataset.act === "review" && draft?.kind === "review" && draft.pane === id && draft.failed) return confirmDraft();
-  if (draft) return followFocus(true);
+  if (b.dataset.act === "review" && ui.draft?.kind === "review" && ui.draft.pane === id && ui.draft.failed) return confirmDraft();
+  if (ui.draft) return followFocus(true);
   const a = b.dataset.act;
   if (a === "more") {
-    moreOpen = moreOpen === id ? null : id;
-    listOpen = null;
+    ui.moreOpen = ui.moreOpen === id ? null : id;
+    ui.listOpen = null;
     return paintPops();
   }
-  if (moreOpen !== null) (moreOpen = null), paintPops();
+  if (ui.moreOpen !== null) (ui.moreOpen = null), paintPops();
   // Submit and the thread list work on the file view, as `Shift+S` and `n`/`N` do.
   if ((a === "review" || a === "list") && pane(id)?.kind === "editor") act({ act: "toggle_editor_view", pane: id });
   if (a === "highlight") return toHighlight(id);
   if (a === "list") {
-    listOpen = listOpen === id ? null : id;
+    ui.listOpen = ui.listOpen === id ? null : id;
     return paintPops();
   }
   if (a === "editor" || a === "file") {
@@ -561,7 +589,7 @@ function headClick(id, e) {
   }
   if (layout.focus !== id && a !== "close") act({ act: "focus", pane: id });
   if (a === "back" || a === "fwd") return act({ act: "browser_history", pane: id, delta: a === "back" ? -1 : 1 });
-  if (a === "cm") return setCommentMode(commentMode === id ? null : id);
+  if (a === "cm") return setCommentMode(ui.commentMode === id ? null : id);
   if (a === "comment" || a === "review") begin(id, a);
   else act({ act: a, pane: id });
 }
@@ -584,7 +612,7 @@ function makePane(p) {
   }
   const rows = el.querySelector(".rows"), btn = el.querySelector(".cbtn");
   btn.addEventListener("click", () => {
-    if (draft) return followFocus(true);
+    if (ui.draft) return followFocus(true);
     if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
     act({ act: "set_cursor", pane: p.id, line: +btn.dataset.line });
     begin(p.id, "comment");
@@ -627,12 +655,12 @@ function makePane(p) {
   url.addEventListener("blur", () => ((url.value = pane(p.id)?.path ?? ""), paintHint()));
   el.addEventListener("mousedown", () => {
     const k = pane(p.id)?.kind;
-    if (!draft && k && k !== "file" && layout.focus !== p.id) act({ act: "focus", pane: p.id });
+    if (!ui.draft && k && k !== "file" && layout.focus !== p.id) act({ act: "focus", pane: p.id });
   });
   el.addEventListener("click", e => {
     if (!getSelection().isCollapsed) return;
     // A draft keeps its pane and line; a click only gives the draft its focus back.
-    if (draft) return followFocus(true);
+    if (ui.draft) return followFocus(true);
     if (pane(p.id)?.kind !== "file") return;
     if (layout.focus !== p.id) act({ act: "focus", pane: p.id });
     const row = e.target.closest("[data-line]");
@@ -700,7 +728,7 @@ function stepDrawer(d) {
 // The drawer's grip on its top edge: a drag sets the drawer's height, which Laura saves for the
 // user; a double-click goes back to the default. A screen reader and the keyboard reach the grip as
 // a separator: `↑ ↓` step the height, and `Home` resets it. The window's keydown listener takes these
-// keystrokes, after the help, the pane selector, the lock and the quit confirmation.
+// keystrokes, after the modes that `mode` names.
 const GRIP_TIP = "Drag to resize the drawer · double-click to reset  Ctrl+Shift+↑ ↓";
 function grip(el) {
   const g = document.createElement("div");
@@ -719,11 +747,11 @@ function grip(el) {
     // The drawer sits 8px above the workspace's bottom (style.css).
     const [lo, hi] = drawerRange();
     h = Math.round(Math.min(hi, Math.max(lo, (r.bottom - 8 - e.clientY) / r.height * 100)));
-    resizing = true;
+    ui.resizing = true;
     showDrawer(h);
     g.dataset.tip = `Drawer · ${h}% of the height`;
   }, () => {
-    resizing = false;
+    ui.resizing = false;
     g.dataset.tip = GRIP_TIP;
     if (h !== null) saveDrawer(h);
     h = null;
@@ -740,7 +768,7 @@ function placePlus(id) {
   const u = h && rows.querySelector(`:scope > [data-row="${h.row}"]`);
   const t = h?.inner ? u?.querySelector(`[data-line="${h.line}"]`) : u;
   // No `+` while a comment is open, in the diff view, or before `laura ready`, which a comment needs.
-  const show = t && !draft && q?.kind === "file" && !q.diff && layout.agent;
+  const show = t && !ui.draft && q?.kind === "file" && !q.diff && layout.agent;
   btn.style.visibility = show ? "" : "hidden";
   if (!show) return;
   // A block's text, past its gutter and its padding.
@@ -764,10 +792,10 @@ function onLayout(m) {
   unseen.delete(m.focus);
   layout = m;
   // A drag keeps the height under the pointer until the release.
-  if (!resizing && heldDrawer === null) showDrawer(m.drawer_height);
+  if (!ui.resizing && heldDrawer === null) showDrawer(m.drawer_height);
   // The list closes with its last thread, or its pane.
-  if (!pane(listOpen)?.threads) listOpen = null;
-  if (!pane(moreOpen) || moreOpen === 0) moreOpen = null;
+  if (!pane(ui.listOpen)?.threads) ui.listOpen = null;
+  if (!pane(ui.moreOpen) || ui.moreOpen === 0) ui.moreOpen = null;
   const seen = new Set(), later = root.children.length > 0;
   for (const p of m.panes) {
     // A pane that opens after the first layout eases in.
@@ -792,7 +820,7 @@ function onLayout(m) {
     }
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
       + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "")
-      + (unseen.has(p.id) ? " unseen" : "") + (commentMode === p.id ? " comment-mode" : "");
+      + (unseen.has(p.id) ? " unseen" : "") + (ui.commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
     const t = p.id !== 0 && terms.get(p.id);
     // The header takes the border's top two rows, and the bottom border one (`Tab::inner`). The
@@ -805,7 +833,7 @@ function onLayout(m) {
   for (const el of [...root.children]) {
     if (seen.has(el.id)) continue;
     const id = +el.id.slice(1);
-    if (id === commentMode) commentMode = null;
+    if (id === ui.commentMode) ui.commentMode = null;
     terms.get(id)?.dispose();
     terms.delete(id);
     el.remove();
@@ -816,7 +844,7 @@ function onLayout(m) {
   paintTitle();
   paintNotice();
   // A pane that closes or freezes changes the pane selector's rows.
-  if (popup !== null) paintSelector();
+  if (ui.popup !== null) paintSelector();
 }
 
 // A browser pane's size in CSS pixels, with a whole number of device pixels each way, so a frame
@@ -860,10 +888,10 @@ function pointer(el, id) {
     el.move = el.wheel = null;
   };
   const later = () => (el.raf ||= requestAnimationFrame(flush));
-  const off = () => pane(id)?.kind !== "browser" || el.dialog || draft;
+  const off = () => pane(id)?.kind !== "browser" || el.dialog || ui.draft;
   // In comment mode, a click picks the element under it, and the page gets no press.
   c.addEventListener("pointerdown", e => {
-    if (off() || commentMode === id) return;
+    if (off() || ui.commentMode === id) return;
     // A browser counts a press within 500 ms and 5 px of the last as the next click.
     const p = at(e), last = el.press, now = performance.now();
     const again = last && now - last.t < 500 && Math.hypot(p.x - last.x, p.y - last.y) < 5 && last.button === e.button;
@@ -882,7 +910,7 @@ function pointer(el, id) {
   });
   c.addEventListener("pointerup", e => {
     if (off()) return;
-    if (commentMode === id && !el.held) {
+    if (ui.commentMode === id && !el.held) {
       const { x, y } = at(e);
       return begin(id, "comment", { act: "browser_pick", pane: id, x, y });
     }
@@ -1131,7 +1159,7 @@ function paintMarks(id) {
     pin.append(String(th.notes.length));
     pin.addEventListener("pointerenter", () => (el.pinAt = line));
     pin.addEventListener("pointerleave", () => (el.pinAt = null));
-    pin.addEventListener("click", () => (draft ? followFocus(true) : pinClick(id, line)));
+    pin.addEventListener("click", () => (ui.draft ? followFocus(true) : pinClick(id, line)));
   }
 }
 
@@ -1186,7 +1214,7 @@ function paintStatus() {
     return b;
   };
   const review = p => {
-    const d = draft?.pane === p.id && draft.kind === "review" ? draft : null;
+    const d = ui.draft?.pane === p.id && ui.draft.kind === "review" ? ui.draft : null;
     const state = d?.busy ? "submitting" : d?.failed ? "submission failed" : d ? "review body open" : "in progress";
     return item(p, "unsubmitted inline review", d?.failed ? "bad" : "acc", `Unsubmitted inline review: ${state}`);
   };
@@ -1212,7 +1240,7 @@ function paintShellButton() {
   b.setAttribute("aria-label", layout.waiting ? `${t} · Waiting for you` : t);
 }
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());
-$("sbtn").addEventListener("click", () => (draft ? followFocus(true) : toggleShell()));
+$("sbtn").addEventListener("click", () => (ui.draft ? followFocus(true) : toggleShell()));
 // The dot pulses for a second after each of the shell's frames.
 function shellBusy() {
   const b = $("sbtn");
@@ -1232,7 +1260,7 @@ $("sbar").addEventListener("mousedown", e => e.preventDefault());
 $("sbar").addEventListener("click", e => {
   const b = e.target.closest("[data-id]");
   if (!b) return;
-  if (draft) return followFocus(true);
+  if (ui.draft) return followFocus(true);
   act({ act: "focus", pane: +b.dataset.id });
 });
 
@@ -1292,7 +1320,7 @@ function cardHTML(p, t, on, drafting) {
 
 // The draft and the review popover keep the user's text in `draft.text`.
 function wireDraft(box) {
-  box.querySelector("textarea").addEventListener("input", e => draft && (draft.text = e.target.value));
+  box.querySelector("textarea").addEventListener("input", e => ui.draft && (ui.draft.text = e.target.value));
   box.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
 }
 
@@ -1301,13 +1329,13 @@ function wireDraft(box) {
 function makeDraftCard(reply) {
   const c = document.createElement("div"), edit = reply?.notes.at(-1)?.author === null;
   const verb = edit ? "Edit" : reply ? "Reply" : "Comment";
-  const lbl = [reply && verb, reply?.label ?? draft.anchor?.[1]].filter(Boolean).join(" · ");
-  const at = chip(draft.anchor?.[0], draft.line, 40);
+  const lbl = [reply && verb, reply?.label ?? ui.draft.anchor?.[1]].filter(Boolean).join(" · ");
+  const at = chip(ui.draft.anchor?.[0], ui.draft.line, 40);
   c.innerHTML = `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`
     + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on ${at}`}"></textarea>`
     + `<div class="holdnote">${HOLD}</div><div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
     + `<button class="btn pri" data-act="save">${edit ? "Save" : verb} <kbd>Enter</kbd></button></div>`;
-  c.querySelector("textarea").value = draft.text;
+  c.querySelector("textarea").value = ui.draft.text;
   wireDraft(c);
   c.addEventListener("click", e => {
     e.stopPropagation();
@@ -1337,7 +1365,7 @@ function paintThreads(id) {
   const el = $("p" + id), rows = el?.querySelector(".rows"), p = pane(id);
   if (!rows || !p) return;
   const f = frameOf(id), all = el.threads ?? [];
-  const d = draft?.pane === id && draft.kind === "comment" ? draft : null;
+  const d = ui.draft?.pane === id && ui.draft.kind === "comment" ? ui.draft : null;
   let ts = p.diff ? [] : all;
   if (f) ts = ts.filter(t => t.line === el.line && t.line !== el.shut && !t.collapsed && !t.lost);
   const us = [...units(rows)];
@@ -1355,7 +1383,7 @@ function paintThreads(id) {
   // A thread the pane doesn't show (the diff view) leaves the draft a card of its own.
   // A draft whose element the page lost, also mid-draft, goes in its thread's card in the thread list.
   const lost = d && all.find(t => t.line === d.line && t.lost);
-  if (lost) (listOpen = id), (el.lostOpen = lost.line);
+  if (lost) (ui.listOpen = id), (el.lostOpen = lost.line);
   const host = d && (ts.find(t => t.line === d.line) ?? lost);
   for (const t of ts) put(t.line, cardHTML(p, t, t.line === el.card && layout.focus === id, t === host));
   if (d) {
@@ -1401,15 +1429,15 @@ const REVIEW = '<div class="pop review"><div class="ph">Submit inline review <sp
 function paintPop(id) {
   const el = $("p" + id), p = pane(id);
   if (!el || !p) return;
-  const d = draft?.pane === id && draft.kind === "review" ? draft : null;
+  const d = ui.draft?.pane === id && ui.draft.kind === "review" ? ui.draft : null;
   const sb = el.querySelector(".head .submit");
   sb.innerHTML = d?.busy ? "Submitting…" : d?.failed ? 'Retry<span class="tl"> submit</span>' : 'Submit<span class="tl"> review</span>';
   sb.classList.toggle("submitting", !!d?.busy);
   sb.classList.toggle("failed", !!d?.failed);
   el.querySelector(".head .sfail").hidden = !d?.failed;
   // A lost thread's card closes with the list, or when the page shows the thread's element again.
-  if (listOpen !== id || !el.threads?.some(t => t.line === el.lostOpen && t.lost)) el.lostOpen = null;
-  const kind = d ? "review" : listOpen === id && p.threads ? "list" : moreOpen === id ? "more" : "";
+  if (ui.listOpen !== id || !el.threads?.some(t => t.line === el.lostOpen && t.lost)) el.lostOpen = null;
+  const kind = d ? "review" : ui.listOpen === id && p.threads ? "list" : ui.moreOpen === id ? "more" : "";
   el.querySelector(".head .threads").classList.toggle("on", kind === "list");
   el.querySelector(".head .more").classList.toggle("on", kind === "more");
   let wrap = el.querySelector(":scope > .popwrap");
@@ -1421,7 +1449,7 @@ function paintPop(id) {
     wrap.dataset.kind = kind;
     wrap.innerHTML = kind === "review" ? REVIEW : `<div class="pop ${kind}"></div>`;
     if (kind === "review") {
-      wrap.querySelector("textarea").value = draft.text;
+      wrap.querySelector("textarea").value = ui.draft.text;
       wireDraft(wrap);
     } else wrap.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
     wrap.addEventListener("click", e => popClick(id, e));
@@ -1433,12 +1461,12 @@ function paintPop(id) {
     q(".ph .mute").textContent = `· ${p.name}`;
     q("p.mute").innerHTML = `${n} thread${n === 1 ? "" : "s"}${p.frozen ? " on the snapshot" : ""}. Laura writes them into the chat`
       + ` as one <code>[laura review · pane #${p.id} · ${esc(p.path ?? p.name)}]</code> block, then clears the threads.`;
-    q(".err").hidden = !draft.failed;
+    q(".err").hidden = !ui.draft.failed;
     q(".err").textContent = strings.draft?.failed ?? "";
-    q("[data-act=save]").innerHTML = `${draft.busy ? "Submitting…" : draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
-    q("[data-act=save]").disabled = draft.busy;
+    q("[data-act=save]").innerHTML = `${ui.draft.busy ? "Submitting…" : ui.draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
+    q("[data-act=save]").disabled = ui.draft.busy;
     // The review body can't change while Laura submits it.
-    q("textarea").readOnly = draft.busy;
+    q("textarea").readOnly = ui.draft.busy;
     return;
   }
   if (kind === "more") {
@@ -1461,7 +1489,7 @@ function paintPop(id) {
     return;
   }
   // A lost thread's card, and its draft, open below its row (`el.lostOpen`).
-  const ts = el.threads ?? [], dl = draft?.pane === id && draft.kind === "comment" ? draft.line : null;
+  const ts = el.threads ?? [], dl = ui.draft?.pane === id && ui.draft.kind === "comment" ? ui.draft.line : null;
   const html = `<div class="ph">${ts.length} thread${ts.length === 1 ? "" : "s"} <span class="mute">· ${esc(p.name)}</span></div>`
     + ts.map(t => `<button class="trow${t.lost ? " lost" : ""}" data-th="${t.line}"><span class="anc">${chip(t.anchor, t.line, 24)}</span>${avs(authors(t))}`
       + `<span class="tx">${esc(t.notes.at(-1)?.body ?? "")}</span>`
@@ -1485,7 +1513,7 @@ function popClick(id, e) {
   const el = $("p" + id), c = b && e.target.closest(".card[data-th]");
   // While a draft is open, a row or a card doesn't move the cursor or close the draft's card, as on the page.
   // headClick and cardClick use the same guard, so the only list open during a draft is the draft's own.
-  if (draft && (c || b?.dataset.th)) return followFocus(true);
+  if (ui.draft && (c || b?.dataset.th)) return followFocus(true);
   // A lost thread's card in the list: **–** closes it; **Reply…**, **Edit…** and **Delete** act as on the page.
   if (c && b.dataset.act === "collapse") return (el.lostOpen = null), paintPop(id);
   if (c) return cardClick(id, e);
@@ -1494,7 +1522,7 @@ function popClick(id, e) {
     return paintPop(id);
   }
   if (b?.dataset.th) {
-    listOpen = null;
+    ui.listOpen = null;
     paintPop(id);
     if (layout.focus !== id) act({ act: "focus", pane: id });
     // The cursor may already be on the thread's line and send no frame, so the reply scrolls too.
@@ -1528,14 +1556,14 @@ function reveal(el, block) {
 }
 // A click outside the thread list or **More** closes it.
 addEventListener("mousedown", e => {
-  if (listOpen !== null && !e.target.closest(".pop.list, [data-act=list]") && !draftCard?.closest(".pop.list")) {
-    const id = listOpen;
-    listOpen = null;
+  if (ui.listOpen !== null && !e.target.closest(".pop.list, [data-act=list]") && !draftCard?.closest(".pop.list")) {
+    const id = ui.listOpen;
+    ui.listOpen = null;
     paintPop(id);
   }
-  if (moreOpen !== null && !e.target.closest(".pop.more, [data-act=more]")) {
-    const id = moreOpen;
-    moreOpen = null;
+  if (ui.moreOpen !== null && !e.target.closest(".pop.more, [data-act=more]")) {
+    const id = ui.moreOpen;
+    ui.moreOpen = null;
     paintPop(id);
   }
 }, true);
@@ -1547,7 +1575,7 @@ function cardClick(id, e) {
   const c = e.target.closest(".card[data-th]"), b = e.target.closest("[data-act]");
   if (!c || !b) return;
   e.stopPropagation();
-  if (draft) return followFocus(true);
+  if (ui.draft) return followFocus(true);
   if (layout.focus !== id) act({ act: "focus", pane: id });
   if (b.dataset.act === "delete") return act({ act: "comment", pane: id, line: +c.dataset.th, text: "" });
   if (b.dataset.act !== "reply") return act({ act: "toggle_thread", pane: id, line: +c.dataset.th });
@@ -1560,8 +1588,8 @@ function cardClick(id, e) {
 function begin(id, kind, msg) {
   act(msg ?? { act: kind === "comment" ? "begin_comment" : "begin_review", pane: id }, r => {
     if (!r.ok) return;
-    listOpen = null;
-    draft = { pane: id, line: r.line, anchor: r.anchor, kind, hint: r.hint, busy: false, failed: false, text: r.text ?? "" };
+    ui.listOpen = null;
+    ui.draft = { pane: id, line: r.line, anchor: r.anchor, kind, hint: r.hint, busy: false, failed: false, text: r.text ?? "" };
     paintThreads(id);
     paintPops();
     paintHint();
@@ -1572,7 +1600,7 @@ function begin(id, kind, msg) {
 
 // `Enter`: add or save the comment, or submit the inline review. A failure keeps the draft for a retry.
 function confirmDraft() {
-  const d = draft;
+  const d = ui.draft;
   if (d.busy) return;
   d.busy = true;
   d.failed = false;
@@ -1586,7 +1614,7 @@ function confirmDraft() {
         closeDraft();
         return goThread(d.pane);
       }
-      if (draft !== d) return;
+      if (ui.draft !== d) return;
       d.busy = false;
       d.failed = true;
       paintPop(d.pane);
@@ -1595,9 +1623,9 @@ function confirmDraft() {
 }
 
 function closeDraft() {
-  if (!draft) return;
-  const id = draft.pane;
-  draft = null;
+  if (!ui.draft) return;
+  const id = ui.draft.pane;
+  ui.draft = null;
   draftCard?.remove();
   draftCard = null;
   send({ hold: false });
@@ -1618,13 +1646,13 @@ function cursorEl(rows) {
 // take focus from anything else.
 function followFocus(force) {
   const f = focused();
-  const key = `${layout?.focus}:${f?.kind}:${locked}:${!!draft}`;
+  const key = `${layout?.focus}:${f?.kind}:${ui.locked}:${!!ui.draft}`;
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
   // A frame that moves the focus doesn't take the keystrokes from the pane selector.
-  if (popup !== null) return pq.focus();
+  if (ui.popup !== null) return pq.focus();
   const box = draftBox();
-  if (draft && !locked && box) return box.focus();
+  if (ui.draft && !ui.locked && box) return box.focus();
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
@@ -1639,7 +1667,7 @@ function onPane(m) {
   const el = $("p" + m.id), rows = el?.querySelector(".rows");
   if (!rows) return;
   // A page's `pane` frame is its diff view, which has no page to comment on.
-  if (commentMode === m.id) setCommentMode(null);
+  if (ui.commentMode === m.id) setCommentMode(null);
   el.querySelector(":scope > iframe")?.remove();
   // ponytail: compares text, so a reload that only changes a color doesn't flash
   let before = m.reloaded && m.t === "pane" && new Set([...units(rows)].map(unitText));
@@ -1754,7 +1782,7 @@ function onPage(m) {
   const threads = m.threads.map(t => ({ line: t.line, n: t.notes.length, who: pinWho(t) }));
   // A new frame loads after later frames came, so the jump stays until the cursor moves.
   const jump = m.jump || (!!f.state?.jump && f.state.cursor === m.cursor);
-  f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: commentMode === m.id, jump };
+  f.state = { cursor: m.cursor, line: m.line, threads, highlight: m.highlight, comment: ui.commentMode === m.id, jump };
   f.contentWindow?.postMessage(f.state, "*");
   // A too-small pane hides its page, which can't scroll; the `.narrow` observer scrolls again.
   if (m.jump && tooSmall(el)) el.hlLater = { jump: true };
@@ -1773,20 +1801,20 @@ function onPage(m) {
 // Turns comment mode on for page pane `id`, or off with `null`. Leaving it hides the cursor's
 // thread until the cursor moves, so the user can click what the card covered.
 function setCommentMode(id) {
-  const old = commentMode;
-  commentMode = id;
+  const old = ui.commentMode;
+  ui.commentMode = id;
   for (const i of [old, id]) {
     if (i === null) continue;
     const el = $("p" + i);
-    el?.classList.toggle("comment-mode", i === commentMode);
+    el?.classList.toggle("comment-mode", i === ui.commentMode);
     if (el) {
-      el.shut = i === commentMode ? null : el.line;
+      el.shut = i === ui.commentMode ? null : el.line;
       paintThreads(i);
     }
-    if (pane(i)?.kind === "browser") send({ act: "browser_comment_mode", pane: i, on: i === commentMode });
+    if (pane(i)?.kind === "browser") send({ act: "browser_comment_mode", pane: i, on: i === ui.commentMode });
     const f = frameOf(i);
     if (!f?.state) continue;
-    f.state.comment = i === commentMode;
+    f.state.comment = i === ui.commentMode;
     f.contentWindow?.postMessage(f.state, "*");
   }
   paintHint();
@@ -1819,7 +1847,7 @@ addEventListener("message", e => {
     f.rect = r.every(Number.isFinite) ? r : null;
     return place(id);
   }
-  if (draft) return followFocus(true);
+  if (ui.draft) return followFocus(true);
   if (m.laura === "line") {
     if (m.pin === true) return pinClick(id, m.line);
     if (layout.focus !== id) act({ act: "focus", pane: id });
@@ -1828,7 +1856,7 @@ addEventListener("message", e => {
     if (!m.editable) root.focus({ preventScroll: true });
     paintHint();
     // Only in comment mode, so a page's script can't open a comment box.
-    if (m.pick === true && commentMode === id && Number.isInteger(m.line)) begin(id, "comment");
+    if (m.pick === true && ui.commentMode === id && Number.isInteger(m.line)) begin(id, "comment");
   } else if (m.laura === "esc") {
     // The field takes `Esc` first: comment mode stays on until the next `Esc`.
     root.focus({ preventScroll: true });
@@ -1890,7 +1918,7 @@ function paintSelector() {
   const ps = matches(), q = pq.value.trim().toLowerCase();
   const others = spaces.filter(w => !w.current && `${spaceLabel(w)} ${w.root}`.toLowerCase().includes(q)).map(spaceRow);
   if (server && "new workspace".includes(q)) others.push(spaceRow());
-  popup = Math.max(0, Math.min(popup, ps.length + others.length - 1));
+  ui.popup = Math.max(0, Math.min(ui.popup, ps.length + others.length - 1));
   const head = text => {
     const h = document.createElement("div");
     h.className = "ph";
@@ -1928,17 +1956,17 @@ function paintSelector() {
   empty.className = "empty";
   empty.textContent = "Nothing matches.";
   const all = [...rows, ...others];
-  all[popup]?.classList.add("on");
+  all[ui.popup]?.classList.add("on");
   // The headings show only with a Workspaces section, so one workspace alone looks as before.
   const parts = others.length ? [...(rows.length ? [head("Panes"), ...rows] : []), head("Workspaces"), ...others] : rows;
   $("prows").replaceChildren(...(all.length ? parts : [empty]));
-  all[popup]?.scrollIntoView({ block: "nearest" });
+  all[ui.popup]?.scrollIntoView({ block: "nearest" });
   paintHint();
 }
 
 function openSelector() {
   pq.value = "";
-  popup = 0;
+  ui.popup = 0;
   paintSelector();
   veil.hidden = $("popup").hidden = false;
   pq.focus();
@@ -1947,7 +1975,7 @@ function openSelector() {
 
 // Closes the pane selector, focusing pane `id` if given.
 function closeSelector(id) {
-  popup = null;
+  ui.popup = null;
   veil.hidden = $("popup").hidden = true;
   if (id !== undefined) act({ act: "focus", pane: id });
   followFocus(true);
@@ -1962,7 +1990,7 @@ pq.addEventListener("input", () => {
     const more = layout.panes.some(p => (String(p.id) !== q && String(p.id).startsWith(q)) || p.name.startsWith(q));
     if (hit && !more) return closeSelector(hit.id);
   }
-  popup = 0;
+  ui.popup = 0;
   paintSelector();
 });
 // A pane's row focuses the pane. A workspace's row loads the workspace, in a new tab with `tab`.
@@ -1974,11 +2002,11 @@ function pickRow(b, tab) {
 }
 $("prows").addEventListener("click", e => pickRow(e.target.closest(".prow"), e.ctrlKey || e.metaKey));
 $("findbtn").addEventListener("mousedown", e => e.preventDefault());
-$("findbtn").addEventListener("click", () => (draft ? followFocus(true) : openSelector()));
+$("findbtn").addEventListener("click", () => (ui.draft ? followFocus(true) : openSelector()));
 
 function toggleHelp() {
-  help = !help;
-  veil.hidden = $("help").hidden = !help;
+  ui.help = !ui.help;
+  veil.hidden = $("help").hidden = !ui.help;
 }
 $("helpbtn").addEventListener("mousedown", e => e.preventDefault());
 $("helpbtn").addEventListener("click", toggleHelp);
@@ -1986,8 +2014,8 @@ $("helpbtn").addEventListener("click", toggleHelp);
 veil.addEventListener("mousedown", e => {
   if (e.target !== veil) return;
   e.preventDefault();
-  if (help) toggleHelp();
-  if (popup !== null) closeSelector();
+  if (ui.help) toggleHelp();
+  if (ui.popup !== null) closeSelector();
 });
 
 // The help sheet: a table of keystrokes per group.
@@ -2032,7 +2060,7 @@ function take(e) {
 // F12 turns the lock on or off.
 function lockKey(e) {
   take(e);
-  locked = !locked;
+  ui.locked = !ui.locked;
   // An unlock sends no layout, so the drawer and the shell button repaint here.
   if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
   followFocus(true);
@@ -2056,13 +2084,13 @@ function selectorKey(e, ctrl, k) {
   if (e.key === "Escape" || (ctrl && k === "p")) return take(e), closeSelector();
   if (e.key === "ArrowUp" || e.key === "ArrowDown") {
     take(e);
-    popup += e.key === "ArrowDown" ? 1 : -1;
+    ui.popup += e.key === "ArrowDown" ? 1 : -1;
     return paintSelector();
   }
   if (e.key === "Enter" && !e.isComposing) {
     take(e);
     // The headings are not rows: count only the rows.
-    return pickRow($("prows").querySelectorAll(".prow")[popup], e.ctrlKey || e.metaKey);
+    return pickRow($("prows").querySelectorAll(".prow")[ui.popup], e.ctrlKey || e.metaKey);
   }
   if ((ctrl && "rlqh".includes(k)) || e.key === "Tab") return take(e);
   if (document.activeElement !== pq) pq.focus();
@@ -2071,7 +2099,7 @@ function selectorKey(e, ctrl, k) {
 // The quit question: `y` quits, and any other keystroke closes the question.
 function quitKey(e) {
   take(e);
-  confirmQuit = false;
+  ui.confirmQuit = false;
   if (e.key === "y") send({ quit: true });
   paintHint();
 }
@@ -2103,15 +2131,15 @@ function paneKey(e, ctrl, k) {
   const f = focused();
   const url = document.activeElement?.matches?.(".head .url") && document.activeElement;
   if (url && urlKey(e, ctrl, k, url)) return;
-  if (e.key === "Escape" && (listOpen ?? moreOpen) !== null) {
+  if (e.key === "Escape" && (ui.listOpen ?? ui.moreOpen) !== null) {
     take(e);
-    listOpen = moreOpen = null;
+    ui.listOpen = ui.moreOpen = null;
     return paintPops();
   }
   // As the hint line: `Esc` leaves comment mode from a file or browser pane, after the pane's own dialog or field.
   // The shell and an editor pane's editor view keep `Esc` for their program.
   const b = f?.kind === "browser" && $("p" + f.id);
-  if (e.key === "Escape" && commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(e), setCommentMode(null);
+  if (e.key === "Escape" && ui.commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(e), setCommentMode(null);
   if (ctrl && k === "p") return take(e), openSelector();
   if (ctrl && e.code === "Backquote") return take(e), toggleShell();
   if (ctrl && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer && drawerOpen()) {
@@ -2124,7 +2152,7 @@ function paneKey(e, ctrl, k) {
   }
   if (ctrl && k === "q") {
     take(e);
-    return act({ act: "quit" }, m => m.ok && ((confirmQuit = true), paintHint()));
+    return act({ act: "quit" }, m => m.ok && ((ui.confirmQuit = true), paintHint()));
   }
   if (ctrl && k === "l" && f && f.pty && f.id !== 0) {
     take(e);
@@ -2192,24 +2220,25 @@ function filePaneKey(e, ctrl, k, id) {
 }
 
 addEventListener("keydown", e => {
-  if (!layout || ended || !$("overlay").hidden || MODIFIERS.includes(e.key)) return;
+  const m = mode();
+  if (!layout || ended || m === "overlay" || MODIFIERS.includes(e.key)) return;
   const ctrl = e.ctrlKey && !e.altKey;
   const k = e.key.length === 1 && ctrl ? e.key.toLowerCase() : e.key;
   if (e.key === "F12") return lockKey(e);
-  if (!$("menu").hidden) return menuKey(e);
-  if (help) return take(e), toggleHelp();
-  if (popup !== null) return selectorKey(e, ctrl, k);
-  if (locked) return;
-  if (confirmQuit) return quitKey(e);
+  if (m === "menu") return menuKey(e);
+  if (m === "help") return take(e), toggleHelp();
+  if (m === "selector") return selectorKey(e, ctrl, k);
+  if (m === "quit") return quitKey(e);
+  if (m === "locked") return;
   if (ctrl && k === "h") return take(e), toggleHelp();
-  if (draft) return draftKey(e, ctrl, k);
+  if (m === "draft") return draftKey(e, ctrl, k);
   paneKey(e, ctrl, k);
 });
 
 // A browser pane's page takes a paste while a field has the keystrokes.
 const typing = () => {
   const f = focused();
-  return !locked && !draft && !overlayOpen() && f?.kind === "browser" && $("p" + f.id).typing && !$("p" + f.id).dialog && f.id;
+  return mode() === null && f?.kind === "browser" && $("p" + f.id).typing && !$("p" + f.id).dialog && f.id;
 };
 addEventListener("keyup", e => {
   const id = sent.get(e.code);
@@ -2274,9 +2303,9 @@ addEventListener("beforeunload", e => ended || leaving || e.preventDefault());
 // comment box is open, so the comment is not lost. `<base target="_blank">` would open a new tab.
 function go(url, tab) {
   // The user leaves for another workspace.
-  if (press) press.acted = true;
+  if (ui.press) ui.press.acted = true;
   if (tab) return window.open(url, "_blank");
-  leaving = draft === null;
+  leaving = ui.draft === null;
   location.assign(url);
 }
 const folderName = root => root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
@@ -2329,7 +2358,7 @@ function paintSwitcher() {
   }
   if (!menu) closeMenu();
   else if (!$("menu").hidden) paintMenu();
-  if (popup !== null) paintSelector();
+  if (ui.popup !== null) paintSelector();
 }
 
 // A middle click opens a new tab through the `href`.
@@ -2427,7 +2456,7 @@ function connect() {
     el.first = true;
   }
   // Laura turned comment mode off for the new view; `send` is a no-op until the socket opens.
-  if (commentMode !== null) setCommentMode(null);
+  if (ui.commentMode !== null) setCommentMode(null);
   let laid = false, moved = false;
   const url = new URL("ws" + location.search, location);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -2456,12 +2485,12 @@ function connect() {
         break;
       case "layout":
         // A draft open when the socket dropped: hold again and refocus its pane, or close it.
-        if (!laid && draft) {
-          if (m.panes.some(p => p.id === draft.pane)) {
+        if (!laid && ui.draft) {
+          if (m.panes.some(p => p.id === ui.draft.pane)) {
             send({ hold: true });
-            act({ act: "focus", pane: draft.pane });
-            m.focus = draft.pane;
-            draft.busy = false;
+            act({ act: "focus", pane: ui.draft.pane });
+            m.focus = ui.draft.pane;
+            ui.draft.busy = false;
           } else closeDraft();
         }
         laid = true;
