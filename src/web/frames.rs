@@ -86,7 +86,7 @@ pub(super) fn layout_json(
                    "unsaved": editor.is_some_and(|e| e.modified())})
         })
         .collect();
-    // A page takes clicks, not the arrows (app.js); a page with no route shows rows.
+    // A page takes clicks, not the arrows (keys.js); a page with no route shows rows.
     let page = tab
         .panels
         .get(&tab.focus)

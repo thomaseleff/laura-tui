@@ -2,7 +2,7 @@
 //! test presses the user's keys and reads what the web app shows. The page is the workspace's only
 //! view: a second view would take the workspace over. Included with `#[path]` by `tests/client.rs`.
 //!
-//! The rig's JS reads the client's top-level names: see the note above them in `app.js`.
+//! The rig's JS reads the client's top-level names: see the note at the end of `state.js`.
 
 use std::path::Path;
 use std::time::Instant;
@@ -17,9 +17,12 @@ use crate::rig::Rig;
 pub const F12: Keystroke = ("F12", "F12", 123, 0, "");
 pub const ENTER: Keystroke = ("Enter", "Enter", 13, 0, "\r");
 pub const ESCAPE: Keystroke = ("Escape", "Escape", 27, 0, "");
+pub const CTRL_H: Keystroke = ("h", "KeyH", 72, 2, "");
 pub const CTRL_P: Keystroke = ("p", "KeyP", 80, 2, "");
+pub const CTRL_Q: Keystroke = ("q", "KeyQ", 81, 2, "");
 pub const SHIFT_S: Keystroke = ("S", "KeyS", 83, 8, "S");
 pub const C: Keystroke = ("c", "KeyC", 67, 0, "c");
+pub const N: Keystroke = ("n", "KeyN", 78, 0, "n");
 
 /// Each error, unhandled rejection and `console.error` of the page, in `window.__errors`, from
 /// before the page's own scripts run.

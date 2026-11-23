@@ -1,5 +1,5 @@
 /* The workspace and the shell are light; an editor view keeps Nord. The ANSI palette is the one
-   place colors live: app.js hands `:root`'s Nord set and `--term-*` to an editor pane's xterm.js,
+   place colors live: term.js hands `:root`'s Nord set and `--term-*` to an editor pane's xterm.js,
    and `.rows`' light set to the shell's; `src/web.rs` styles pane rows with `var(--ansi-N)`, which
    `.rows` overrides with the light set. */
 /* Bundled, so the cell grid measures one font on every machine. */
@@ -59,7 +59,7 @@ body { line-height: 1.5; }
 .hlc:has(.x:hover)::after { display: none; }
 
 /* The top bar lines up with the pane headers' contents, so the logo sits over the pane id: `--side`
-   is the grid's margin (`report` in app.js), a pane's card is inset 5px, and `.head` adds 1px plus
+   is the grid's margin (`report` in term.js), a pane's card is inset 5px, and `.head` adds 1px plus
    its padding (12px left, 8px right). The bottom line lines up with the cards' outer edges. */
 #top {
   position: absolute; top: 0; left: 0; right: 0; height: 44px; box-sizing: border-box;
@@ -211,7 +211,7 @@ a.brand[href]:hover .logo { opacity: .75; }
 .tool:hover { background: #f0f1f4; color: var(--fg); }
 .tool.on, .pane.comment-mode .tool[data-act=cm] { background: var(--acc-soft); color: var(--acc); }
 .head .more { display: none; }
-/* A narrow pane's header drops its parts in steps until it fits (`fitHead` in app.js sets
+/* A narrow pane's header drops its parts in steps until it fits (`fitHead` in head.js sets
    `data-fit`); every action stays one click away in **More**. */
 .pane:is([data-fit="1"], [data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) :is(.tl, .head > .ic) { display: none; }
 .pane:is([data-fit="2"], [data-fit="3"], [data-fit="4"], [data-fit="5"]) .head :is(.chips, .delta, .url, .spin, .live) { display: none; }
@@ -292,7 +292,7 @@ kbd {
   padding: 0 calc(var(--cw) - 6px);
   background: var(--term-bg);
 }
-/* The shell's white body fills the card below the header, with room around the text. app.js fits
+/* The shell's white body fills the card below the header, with room around the text. term.js fits
    xterm.js to this box, less the padding (`fitShell`). */
 .pane.shell .term { left: 6px; right: 6px; padding: 16px 20px; background: var(--pane); }
 /* The drawer: the shell above the bottom line, over the panes, while the shell has focus. The
@@ -417,7 +417,7 @@ kbd {
   height: calc(100% - 3 * var(--ch) - var(--bn, 0px));
 }
 .pane:not(.file) iframe { display: none; }
-/* The page's cursor thread or comment box floats below the cursor's element (`place` in app.js). */
+/* The page's cursor thread or comment box floats below the cursor's element (`place` in pages.js). */
 :is(.pane:has(> iframe), .pane.browser) .rows {
   top: var(--fy, 0px); left: var(--fx, 0px); right: auto; bottom: auto; z-index: 2;
   width: min(290px, calc(100% - 2 * var(--cw) - 16px)); max-height: calc(100% - 3 * var(--ch) - 16px);

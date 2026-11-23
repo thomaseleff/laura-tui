@@ -218,3 +218,37 @@ fn a_file_panes_threads_show_in_the_layout() -> Result<()> {
     rig.until(&mut ws, "one thread", threads(1));
     Ok(())
 }
+
+/// #229: the page loads its client as ES modules, so each module that the page and the modules
+/// import must come back as JavaScript. A module missing from Laura's files fails here.
+#[test]
+fn each_client_module_is_served_as_javascript() -> Result<()> {
+    let rig = Rig::new()?;
+    let page = get(rig.port, "/")?;
+    let main = page
+        .split(r#"<script type="module" src=""#)
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("a module script in the page");
+    let mut todo = vec![format!("/{main}")];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(path) = todo.pop() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let resp = get(rig.port, &path)?;
+        assert!(resp.starts_with("HTTP/1.1 200 OK"), "{path}: {resp:.80}");
+        assert!(
+            resp.contains("Content-Type: text/javascript"),
+            "{path}: {resp:.200}"
+        );
+        for part in resp.split("\"./").skip(1) {
+            let name = part.split('"').next().unwrap_or_default();
+            if name.ends_with(".js") && !name.contains(['/', ' ']) {
+                todo.push(format!("/{name}"));
+            }
+        }
+    }
+    assert!(seen.len() > 1, "the page imports no module: {seen:?}");
+    Ok(())
+}

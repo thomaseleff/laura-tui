@@ -177,7 +177,7 @@ $("stopYes").onclick = async () => {
   show("stopped");
 };
 
-// The logo stays put between this page and a workspace: the same `--side` as `report` in app.js,
+// The logo stays put between this page and a workspace: the same `--side` as `report` in term.js,
 // from the shell's 14px cell, which xterm snaps to whole device pixels.
 function side() {
   const s = el("span", "probe", "W".repeat(200));
