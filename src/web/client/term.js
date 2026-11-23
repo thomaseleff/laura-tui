@@ -2,7 +2,7 @@
 // shell's links, and the grid's cell, which the probe measures.
 
 import { $, act, frame, layout, mode, pane, root, send, terms, ui } from "./state.js";
-import { ariaDrawer } from "./panes.js";
+import { fitDrawer } from "./panes.js";
 
 const css = getComputedStyle(document.documentElement);
 const v = name => css.getPropertyValue(name).trim();
@@ -82,6 +82,13 @@ export function makeProbe() {
   probe.onRender(report);
 }
 
+// The shell's row height and its box's top in the drawer, which `fitShell` measures.
+let shellRow = 0, shellTop = 0;
+
+// The drawer's height in px that shows `n` rows of the shell: the header, the body's inset and
+// padding, and the rows. 0 before `fitShell` measures the shell.
+export const rowsPx = n => shellRow && Math.ceil(shellTop + 6 + 32 + n * shellRow);
+
 // The shell's size from its own cell, in its box less the padding (style.css) and the scrollbar.
 // `force` sends the size to a new connection.
 export function fitShell(force) {
@@ -93,9 +100,11 @@ export function fitShell(force) {
   // Laura's minimum (`cells` in src/web.rs), so xterm and the shell use one grid.
   const cols = Math.max(20, Math.floor((box.clientWidth - 40 - 10) / (r.width / t.cols)));
   const rows = Math.max(5, Math.floor((box.clientHeight - 32) / (r.height / t.rows)));
-  // The drawer's minimum shows those 5 rows: the header, the body's inset and padding, and the rows.
-  root.style.setProperty("--drawer-min", Math.ceil(box.offsetTop + 6 + 32 + 5 * r.height / t.rows) + "px");
-  ariaDrawer();
+  [shellRow, shellTop] = [r.height / t.rows, box.offsetTop];
+  // The drawer's minimum shows those 5 rows.
+  root.style.setProperty("--drawer-min", rowsPx(5) + "px");
+  // The start height needs the row height.
+  fitDrawer();
   if (cols === t.cols && rows === t.rows && !force) return;
   t.resize(cols, rows);
   send({ shell: { cols, rows } });

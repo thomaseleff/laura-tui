@@ -12,14 +12,16 @@ Start your coding agent in Laura:
 laura -- claude
 ```
 
-Laura opens the workspace in your browser, with your agent running in the shell:
+Laura opens the workspace in your browser. Your agent runs in the shell, in the drawer at the bottom. Above the drawer, Laura shows **Welcome to Laura**, with the three steps of this tutorial:
 
 ```
 +- ~/projects/app ------------------------- [ Find a pane ] [ ? ] -+
-| 0  shell                                                          |
-| > _                                                               |
+|  Welcome to Laura                                                 |
+|  [1 Ask to see something] [2 Comment on a line] [3 Submit review] |
 |                                                                   |
-|                                                                   |
+|   +- 0  shell ------------------------------------------------+   |
+|   | > _                                                       |   |
+|   +-----------------------------------------------------------+   |
 +-------------------------------------------------------------------+
 ```
 

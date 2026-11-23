@@ -1,8 +1,9 @@
-// The panes: each pane's element, the layout that places them, the drawer and its grip, a browser
-// pane's pointer, and the DOM focus, which follows the workspace's focus.
+// The panes: each pane's element, the layout that places them, the start canvas, the drawer with its
+// grip and start height, a browser pane's pointer, and the DOM focus, which follows the workspace's
+// focus.
 
 import { $, act, drawerOpen, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
-import { ch, fitShell, makeTerm } from "./term.js";
+import { ch, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
 import { paintHint, paintNotice, paintStatus } from "./bottom.js";
@@ -152,6 +153,22 @@ export function ariaDrawer(g = $("p0")?.querySelector(".grip")) {
 // Show the drawer at `h`%, and tell a screen reader.
 const showDrawer = h => (root.style.setProperty("--drawer", h + "%"), ariaDrawer());
 
+// The drawer's height in % from the layout: over the canvas with no height from the user, the
+// start height, which holds `drawer_fit.rows` of the shell (`rowsPx`), up to `drawer_fit.max`.
+function drawerHeight(m) {
+  const f = m.drawer_fit, px = f && rowsPx(f.rows);
+  if (!px) return m.drawer_height;
+  return Math.min(f.max, Math.max(m.drawer_height, Math.ceil(px / root.clientHeight * 100)));
+}
+
+// Show the layout's drawer height, unless the user drags the grip, Laura hasn't confirmed the
+// user's height, or the socket is closed: the new connection's layout brings Laura's height.
+// `fitShell` calls this again once it measures the shell's rows.
+export function fitDrawer() {
+  if (!layout || ui.resizing || heldDrawer !== null || ws?.readyState !== 1) return ariaDrawer();
+  showDrawer(drawerHeight(layout));
+}
+
 // `Ctrl+Shift+↑ ↓`, or `↑ ↓` on the grip: the drawer `d`% taller, within its range. The shell's
 // `ResizeObserver` fits the shell.
 export function stepDrawer(d) {
@@ -230,11 +247,12 @@ export function onLayout(m) {
   unseen.delete(m.focus);
   setLayout(m);
   // A drag keeps the height under the pointer until the release.
-  if (!ui.resizing && heldDrawer === null) showDrawer(m.drawer_height);
+  fitDrawer();
+  paintCanvas(m);
   // The list closes with its last thread, or its pane.
   if (!pane(ui.listOpen)?.threads) ui.listOpen = null;
   if (!pane(ui.moreOpen) || ui.moreOpen === 0) ui.moreOpen = null;
-  const seen = new Set(), later = root.children.length > 0;
+  const seen = new Set(), later = !!root.querySelector(":scope > .pane");
   for (const p of m.panes) {
     // A pane that opens after the first layout eases in.
     const fresh = !$("p" + p.id) && later;
@@ -268,7 +286,7 @@ export function onLayout(m) {
     paintThreads(p.id);
     sizeView(p.id);
   }
-  for (const el of [...root.children]) {
+  for (const el of root.querySelectorAll(":scope > .pane")) {
     if (seen.has(el.id)) continue;
     const id = +el.id.slice(1);
     if (id === ui.commentMode) ui.commentMode = null;
@@ -284,6 +302,26 @@ export function onLayout(m) {
   // A pane that closes or freezes changes the pane selector's rows.
   if (ui.popup !== null) paintSelector();
 }
+
+// The canvas while no pane but the shell is open: *Get started* or the calm canvas, under the
+// drawer or right of the docked shell. Not a pane: no id, no pane header.
+function paintCanvas(m) {
+  const c = $("canvas"), shell = pane(0);
+  c.hidden = !m.canvas;
+  if (!m.canvas) return;
+  c.dataset.c = m.canvas;
+  c.classList.toggle("docked", !shell?.drawer);
+  c.style.left = shell?.drawer ? "" : `calc(var(--cw) * ${shell?.w ?? 0})`;
+}
+
+// The steps of *Get started*, which the canvas and the help show.
+export const steps = () => $("steps").content.cloneNode(true);
+$("canvas").querySelector(".foot").before(steps());
+// The canvas is not a pane: a click on it gives the keystrokes back to the shell, except a click
+// on a button or one that selects text to copy.
+$("canvas").addEventListener("click", (e) => {
+  if (!e.target.closest("button") && !getSelection().toString()) followFocus(true);
+});
 
 // A browser pane's size in CSS pixels, with a whole number of device pixels each way, so a frame
 // draws 1:1. Laura's browser renders the page at this size.

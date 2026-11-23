@@ -350,6 +350,129 @@ fn the_hint_line_keeps_the_modes_keystrokes_under_the_help() -> Result<()> {
     Ok(())
 }
 
+/// In a window `h` px high, once the shell's rows match `rows` (`>= 18`): the shell's rows, the
+/// drawer's height and the workspace's height.
+fn drawer_at(h: u32, rows: &str) -> String {
+    format!(
+        "innerHeight === {h} && terms.get(0).rows {rows} && [terms.get(0).rows, \
+         document.getElementById('p0').offsetHeight, document.getElementById('ws').clientHeight]"
+    )
+}
+
+/// #213: with no saved height, the shell starts in the drawer over the start canvas. The drawer
+/// shows 18 rows of the shell, which hold an agent CLI's start screen, within 54% of the workspace.
+/// In a laptop-high window (780 px), 54% holds fewer rows. The drawer stays open on `Ctrl+``, and
+/// the help shows *Get started*'s steps.
+#[test]
+fn the_shell_starts_in_the_drawer_over_the_canvas() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    // The shared home can hold another test's inline review, so either canvas can show.
+    c.until(
+        &mut r,
+        "the canvas's text",
+        "!document.getElementById('canvas').hidden && document.getElementById('canvas').innerText\
+         .includes({start: 'Welcome to Laura', calm: 'Ask your agent'}[layout.canvas])",
+    );
+    let share = |at: &Value| at[1].as_f64().unwrap_or(0.0) / at[2].as_f64().unwrap_or(1.0);
+    c.resize(1280, 1100);
+    let tall = c.until(&mut r, "18 rows", &drawer_at(1100, ">= 18"));
+    assert!(share(&tall) < 0.54, "{tall}");
+    c.resize(1280, 780);
+    let laptop = c.until(&mut r, "the 54% cap", &drawer_at(780, "< 18"));
+    assert!((share(&laptop) - 0.54).abs() < 0.01, "{laptop}");
+    c.press(CTRL_BACKQUOTE);
+    for _ in 0..10 {
+        r.pump();
+    }
+    assert_eq!(
+        c.eval("layout.focus === 0 && document.getElementById('p0').classList.contains('open')"),
+        Ok(json!(true)),
+        "Ctrl+` closed the drawer over the canvas"
+    );
+    c.press(CTRL_H);
+    c.until(
+        &mut r,
+        "the help's steps",
+        "!document.getElementById('help').hidden && document.querySelectorAll('#help .step').length === 3",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #213: the start canvas is not a pane, so a click on its text leaves the keystrokes in the shell.
+#[test]
+fn a_click_on_the_canvas_keeps_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    // The center of the canvas's visible heading, which the drawer doesn't cover.
+    let at = c.until(
+        &mut r,
+        "the canvas's heading",
+        "!document.getElementById('canvas').hidden && (() => { \
+           const h = [...document.querySelectorAll('#canvas h1')].find(h => h.offsetParent); \
+           const b = h?.getBoundingClientRect(); \
+           return b?.width && document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)\
+             ?.closest('#canvas') && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "the shell's DOM focus",
+        "document.activeElement?.closest('#p0 .xterm')",
+    );
+    c.type_text("echo canvas-click");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the echo in the shell",
+        &format!("{SHELL_LINES}.some(l => l.trim() === 'canvas-click')"),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #213: a drawer step while the web app reconnects keeps its height. Until the new connection's
+/// layout, the old layout's start height must not take the drawer back.
+#[test]
+fn a_drawer_step_holds_while_the_web_app_reconnects() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.resize(1280, 1100);
+    c.until(&mut r, "the start height", &drawer_at(1100, ">= 18"));
+    let drawer = "parseFloat(document.getElementById('ws').style.getPropertyValue('--drawer'))";
+    let shown = c
+        .eval(&format!("Math.round({drawer})"))
+        .map_err(anyhow::Error::msg)?;
+    // Laura is out of reach, as in a network outage: the reconnect's socket never opens, so a slow
+    // runner can't reach the new connection before the check. `close` puts the socket in CLOSING.
+    c.eval("WebSocket = function () { return { readyState: 0 }; }; ws.close()")
+        .map_err(anyhow::Error::msg)?;
+    c.press(CTRL_SHIFT_UP);
+    // A turn of the shell's `ResizeObserver`.
+    let after = c
+        .eval(&format!(
+            "new Promise(r => setTimeout(() => r({drawer}), 100))"
+        ))
+        .map_err(anyhow::Error::msg)?;
+    assert_eq!(
+        after.as_f64(),
+        shown.as_f64().map(|h| h + 5.0),
+        "{shown} → {after}"
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// Each line in the shell, and the links that the shell's link provider finds in it: each link's
 /// text and first column. From `PATH`'s comment in `term.js`.
 const LINKS: &[(&str, &[(&str, u64)])] = &[

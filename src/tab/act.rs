@@ -6,13 +6,13 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::browser::{self, Page};
-use crate::layout::all_panes_fit;
+use crate::layout::{all_panes_fit, pane_fits, split_rect};
 use crate::panel::{Panel, bracketed_paste};
-use crate::protocol::{PTY_PANE, PaneId, Response};
+use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
 use super::{
-    Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab, UserAction,
-    no_pane,
+    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab,
+    UserAction, no_pane,
 };
 
 /// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
@@ -150,16 +150,7 @@ impl Tab {
                 let e = self.editors.get_mut(&pane).ok_or_else(|| no_pane(pane))?;
                 e.editor_view = !e.editor_view;
             }
-            A::Dock if self.web => {
-                let mut probe = self.layout.clone();
-                probe.dock_left(PTY_PANE, 40);
-                if !all_panes_fit(&probe, self.area) {
-                    return Err(NO_ROOM_TO_DOCK.into());
-                }
-                self.layout = probe;
-                self.docked = true;
-            }
-            A::Dock => {}
+            A::Dock => self.dock()?,
             A::Drawer => self.docked = false,
             A::DrawerHeight { .. } => {} // the web server saves it
             // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
@@ -212,6 +203,28 @@ impl Tab {
             A::BrowserReveal { pane } => self.page(pane)?.reveal(),
         }
         Ok(None)
+    }
+
+    /// **Show the shell as a pane**: the shell as the left-most pane, while every pane still fits
+    /// beside it. The TUI always shows the shell as a pane.
+    fn dock(&mut self) -> Result<(), Error> {
+        if !self.web {
+            return Ok(());
+        }
+        let mut probe = self.layout.clone();
+        probe.dock_left(PTY_PANE, DOCK);
+        // Alone, the shell takes the left `DOCK`%, beside the canvas.
+        let fits = if self.canvas_shown() {
+            pane_fits(split_rect(self.area, Dir::Horizontal, DOCK).0)
+        } else {
+            all_panes_fit(&probe, self.area)
+        };
+        if !fits {
+            return Err(NO_ROOM_TO_DOCK.into());
+        }
+        self.layout = probe;
+        self.docked = true;
+        Ok(())
     }
 
     /// Pane `pane`'s page in Laura's browser.

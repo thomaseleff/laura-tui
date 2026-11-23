@@ -2,7 +2,7 @@
 
 import { $, layout, ui } from "./state.js";
 import { ic } from "./head.js";
-import { focusPane, followFocus, unseen } from "./panes.js";
+import { focusPane, followFocus, steps, unseen } from "./panes.js";
 import { kbds, paintHint } from "./bottom.js";
 import { authors, avs } from "./review.js";
 import { go, spaceLabel } from "./workspaces.js";
@@ -142,6 +142,11 @@ $("helpbtn").addEventListener("mousedown", e => e.preventDefault());
 
 $("helpbtn").addEventListener("click", toggleHelp);
 
+// The calm canvas's `?`, as the top bar's; the shell keeps the focus.
+const canvasHelp = $("canvas").querySelector("[data-act=help]");
+canvasHelp.addEventListener("mousedown", e => e.preventDefault());
+canvasHelp.addEventListener("click", toggleHelp);
+
 // A click outside the help sheet or the pane selector closes it.
 veil.addEventListener("mousedown", e => {
   if (e.target !== veil) return;
@@ -150,12 +155,14 @@ veil.addEventListener("mousedown", e => {
   if (ui.popup !== null) closeSelector();
 });
 
-// The help sheet: a table of keystrokes per group.
+// The help sheet: *Get started*'s steps, then a table of keystrokes per group.
 export function paintHelp(groups, note) {
   const p = document.createElement("p");
   p.className = "mute sm note";
   p.textContent = note;
-  $("help").replaceChildren(...groups.flatMap(([group, keys]) => {
+  const start = document.createElement("h3");
+  start.textContent = "Get started";
+  $("help").replaceChildren(start, steps(), ...groups.flatMap(([group, keys]) => {
     const h = document.createElement("h3");
     h.textContent = group;
     const t = document.createElement("table");

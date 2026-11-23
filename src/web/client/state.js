@@ -98,8 +98,9 @@ addEventListener("click", e => seenAfter(ui.press, ui.press?.overlay || $("p0")?
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // The client tests (tests/client.rs) and the browser tests (tests/browser.rs) read layout, terms and
-// ui, call act, and take the shell's link provider as the last of terms.get(0)'s link providers. A
-// module's names are not globals, so these lines put them on globalThis: layout as a getter, since
-// the client sets layout again.
+// ui, call act, close ws, and take the shell's link provider as the last of terms.get(0)'s link
+// providers. A module's names are not globals, so these lines put them on globalThis: layout and ws
+// as getters, since the client sets them again.
 Object.defineProperty(globalThis, "layout", { get: () => layout });
+Object.defineProperty(globalThis, "ws", { get: () => ws });
 Object.assign(globalThis, { terms, ui, act });

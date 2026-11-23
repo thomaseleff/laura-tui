@@ -35,7 +35,16 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 ## The drawer
 
-When a file pane, a browser pane or an editor pane is open, the panes fill the workspace, and Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus.
+Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus. File panes, browser panes and editor panes fill the workspace.
+
+When the web app starts, no pane is open yet. Laura shows a start canvas above the drawer:
+
+- Until you submit your first inline review, Laura shows **Welcome to Laura**, with three steps: ask to see something, comment on a line, and submit your review. The help (`Ctrl+H`) shows the same steps.
+- After your first inline review, in any folder, Laura shows one sentence, `Ask your agent to show you something`, and a `?` button that opens the help.
+
+While the start canvas shows, the drawer stays open, and ``Ctrl+` `` and the shell button do nothing. The agent's first pane takes the place of the start canvas, and the drawer closes when that pane takes the focus. When you close the last pane, Laura shows the start canvas again.
+
+Over the start canvas, the drawer shows at least 18 rows of the shell, so the agent's start screen fits, and at most 54% of the workspace. When you set a height, Laura uses your height. After the first pane opens, the drawer goes back to your height, or to 54%.
 
 The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits), the shell button is amber and shows `Waiting for you`, and the browser tab's icon shows an amber dot.
 
@@ -51,11 +60,9 @@ To change the drawer's height, drag the grip on the drawer's top edge, or press 
 
 A screen reader names the grip **Drawer height**. When the grip has the focus, `↑` and `↓` change the height, and `Home` goes back to the default height.
 
-To show the shell as a pane, click **Show the shell as a pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width. The shell stays a pane when you open and close panes. To put the shell back in the drawer, click **Show the shell in a drawer** in the shell's pane header.
+To show the shell as a pane, click **Show the shell as a pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width. The shell stays a pane when you open and close panes. Over the start canvas, the start canvas takes the right of the workspace, and the agent's next pane takes the place of the start canvas. To put the shell back in the drawer, click **Show the shell in a drawer** in the shell's pane header.
 
 When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.` and keeps the shell in the drawer.
-
-When you close the last pane, the shell fills the workspace again.
 
 To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41, in the middle of the pane. When line 41 is already on screen, Laura moves only the cursor. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
 

@@ -19,6 +19,7 @@ pub const ENTER: Keystroke = ("Enter", "Enter", 13, 0, "\r");
 pub const ESCAPE: Keystroke = ("Escape", "Escape", 27, 0, "");
 pub const CTRL_H: Keystroke = ("h", "KeyH", 72, 2, "");
 pub const CTRL_BACKQUOTE: Keystroke = ("`", "Backquote", 192, 2, "");
+pub const CTRL_SHIFT_UP: Keystroke = ("ArrowUp", "ArrowUp", 38, 10, "");
 pub const CTRL_P: Keystroke = ("p", "KeyP", 80, 2, "");
 pub const CTRL_Q: Keystroke = ("q", "KeyQ", 81, 2, "");
 pub const SHIFT_S: Keystroke = ("S", "KeyS", 83, 8, "S");
@@ -173,6 +174,25 @@ impl Client {
                        "modifiers": mods, "text": if kind == "keyUp" { "" } else { text }}),
             );
         }
+    }
+
+    /// A left click at `x`, `y` CSS px from the viewport's top left: press and release, so the
+    /// click moves the DOM focus as the user's click does.
+    pub fn click(&self, x: f64, y: f64) {
+        for kind in ["mousePressed", "mouseReleased"] {
+            self.call(
+                "Input.dispatchMouseEvent",
+                json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}),
+            );
+        }
+    }
+
+    /// The page's viewport at `width`×`height` CSS px, as a window of that size shows it.
+    pub fn resize(&self, width: u32, height: u32) {
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width": width, "height": height, "deviceScaleFactor": 0, "mobile": false}),
+        );
     }
 
     /// `s`, typed into the focused element as an input method types it.

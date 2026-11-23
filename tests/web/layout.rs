@@ -1,5 +1,5 @@
-//! The layout frame: the panes' rects, the drawer and dock, the drawer's saved height, the fit of a
-//! split, the icons, the hint line and the help.
+//! The layout frame: the panes' rects, the drawer and dock, the start canvas, the drawer's saved
+//! and start heights, the fit of a split, the icons, the hint line and the help.
 
 use super::*;
 
@@ -67,14 +67,14 @@ fn cells(layout: &Value, id: u64) -> [u64; 4] {
     ["x", "y", "w", "h"].map(|k| p[k].as_u64().unwrap_or(u64::MAX))
 }
 
-/// #187: once a pane opens, the panes fill the workspace and the shell floats in the drawer. The
-/// drawer follows the focus in the web app.
+/// #187: the panes fill the workspace and the shell floats in the drawer, from the start (#213).
+/// The drawer follows the focus in the web app.
 #[test]
 fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     let first = layout_when(&mut rig, &mut ws, "layout", |_| true);
-    assert_eq!(pane_of(&first, 0)["drawer"], false, "{first}");
+    assert_eq!(pane_of(&first, 0)["drawer"], true, "{first}");
     let (_dir, path) = file("a.rs", &five_lines())?;
     rig.drive(&["open", &path]);
     let layout = layout_when(&mut rig, &mut ws, "pane 1", |v| v["focus"] == 1);
@@ -136,12 +136,12 @@ fn dock_shows_the_shell_as_a_pane_and_drawer_puts_it_back() -> Result<()> {
     assert_eq!(cells(&docked, 1), [w, 0, cols - w, rows], "{docked}");
     let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
     assert!(report["panes"][0].get("drawer").is_none(), "{report}");
-    // The choice outlasts the last pane.
+    // The choice outlasts the last pane, and the next pane takes the canvas's place.
     rig.drive(&["close", "1"]);
     rig.drive(&["open", &path]);
     let again = layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
     assert_eq!(pane_of(&again, 0)["drawer"], false, "{again}");
-    assert_eq!(cells(&again, 0)[2], cols / 2, "{again}");
+    assert_eq!(cells(&again, 0)[2], w, "{again}");
     rig.act(&mut ws, json!({"act": "drawer"}));
     let back = layout_when(&mut rig, &mut ws, "drawer", |v| {
         v["panes"][0]["drawer"] == true
@@ -185,8 +185,9 @@ fn the_drawer_height_is_saved_for_every_workspace() -> Result<()> {
     set(json!(5), 20);
     assert_eq!(saved(), 20);
 
-    // The reset also leaves the shared file clean for later runs.
-    set(Value::Null, 54);
+    // The reset also leaves the shared file clean for later runs. Over the canvas, the drawer
+    // goes back to the start height.
+    set(Value::Null, 36);
     assert_eq!(saved(), Value::Null);
 
     // A step and a reset in one loop end at the height that Laura showed: Laura sends the layout
@@ -194,8 +195,8 @@ fn the_drawer_height_is_saved_for_every_workspace() -> Result<()> {
     send(&mut ws, json!({"act": "drawer_height", "percent": 59}));
     send(&mut ws, json!({"act": "drawer_height", "percent": null}));
     thread::sleep(Duration::from_millis(100));
-    layout_when(&mut a, &mut ws, "the default height", |v| {
-        v["drawer_height"] == 54
+    layout_when(&mut a, &mut ws, "the start height", |v| {
+        v["drawer_height"] == 36
     });
     assert_eq!(saved(), Value::Null);
     Ok(())
@@ -247,7 +248,7 @@ fn raw_layout_when(ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Va
 }
 
 /// A `settings.json` that Laura can't parse, for example after a typo in a hand edit: Laura shows
-/// the default height, a drag applies to this workspace only, and the file keeps the user's keys.
+/// the start height, a drag applies to this workspace only, and the file keeps the user's keys.
 #[test]
 fn an_invalid_settings_file_stays_as_the_user_left_it() -> Result<()> {
     let home = tempfile::tempdir()?;
@@ -257,7 +258,7 @@ fn an_invalid_settings_file_stays_as_the_user_left_it() -> Result<()> {
     std::fs::write(dir.join("settings.json"), typo)?;
     let (_child, mut ws) = laura_web_in(home.path())?;
     let first = raw_layout_when(&mut ws, "a height", |v| !v["drawer_height"].is_null());
-    assert_eq!(first["drawer_height"], 54, "{first}");
+    assert_eq!(first["drawer_height"], 36, "{first}");
     send(&mut ws, json!({"act": "drawer_height", "percent": 40}));
     raw_layout_when(&mut ws, "the height 40", |v| v["drawer_height"] == 40);
     assert_eq!(std::fs::read_to_string(dir.join("settings.json"))?, typo);
@@ -302,6 +303,118 @@ fn a_save_waits_for_another_lauras_save() -> Result<()> {
     Ok(())
 }
 
+/// A `review` event in `home`'s journal; `error` makes it a failed submit.
+fn journal_review(home: &Path, error: bool) -> Result<()> {
+    let dir = home.join(".laura/sessions");
+    std::fs::create_dir_all(&dir)?;
+    let mut event = json!({"type": "review", "ts": 1, "pane": 1, "path": "a.rs"});
+    if error {
+        event["error"] = json!("the shell exited");
+    }
+    std::fs::write(dir.join("x.ndjson"), format!("{event}\n"))?;
+    Ok(())
+}
+
+/// The start height: 36% or 18 rows of the shell, at most 54%, which the web app measures.
+fn start_fit() -> Value {
+    json!({"rows": 18, "max": 54})
+}
+
+/// #213: a new web workspace shows the shell in the drawer over *Get started*, at the start height,
+/// until the user's first submitted inline review; a failed submit doesn't count. The first pane
+/// takes the canvas's place at the usual height, and the last close brings the canvas back.
+#[test]
+fn a_new_workspace_starts_in_the_drawer_over_the_start_canvas() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    journal_review(home.path(), true)?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    let first = raw_layout_when(&mut ws, "a layout", |_| true);
+    assert_eq!(pane_of(&first, 0)["drawer"], true, "{first}");
+    assert_eq!(first["canvas"], "start", "{first}");
+    assert_eq!(first["drawer_height"], 36, "{first}");
+    assert_eq!(first["drawer_fit"], start_fit(), "{first}");
+    // Over the canvas, the drawer stays open: no `Ctrl+`` to hide it.
+    assert_eq!(
+        first["hints"]["pane"][0],
+        json!(["Ctrl+Shift+↑ ↓", "drawer height"]),
+        "{first}"
+    );
+    // The user clicks a path in the shell.
+    std::fs::write(home.path().join("a.rs"), five_lines())?;
+    send(&mut ws, json!({"act": "open_path", "path": "a.rs"}));
+    let open = raw_layout_when(&mut ws, "pane 1", |v| !pane_of(v, 1).is_null());
+    assert_eq!(open["canvas"], Value::Null, "{open}");
+    assert_eq!(open["drawer_fit"], Value::Null, "{open}");
+    assert_eq!(open["drawer_height"], 54, "{open}");
+    send(&mut ws, json!({"act": "close", "pane": 1}));
+    let back = raw_layout_when(&mut ws, "the canvas", |v| pane_of(v, 1).is_null());
+    assert_eq!(back["canvas"], "start", "{back}");
+    assert_eq!(back["drawer_fit"], start_fit(), "{back}");
+    Ok(())
+}
+
+/// After the user's first submitted inline review, in any folder, a new workspace shows the calm
+/// canvas.
+#[test]
+fn a_workspace_after_a_review_starts_over_the_calm_canvas() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    journal_review(home.path(), false)?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    let first = raw_layout_when(&mut ws, "a layout", |_| true);
+    assert_eq!(first["canvas"], "calm", "{first}");
+    assert_eq!(first["drawer_fit"], start_fit(), "{first}");
+    Ok(())
+}
+
+/// A height the user set applies over the canvas too: no start height.
+#[test]
+fn a_saved_drawer_height_replaces_the_start_height() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join(".laura");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("settings.json"), r#"{"drawer":60}"#)?;
+    let (_child, mut ws) = laura_web_in(home.path())?;
+    let first = raw_layout_when(&mut ws, "a layout", |_| true);
+    assert_eq!(first["canvas"], "start", "{first}");
+    assert_eq!(first["drawer_height"], 60, "{first}");
+    assert_eq!(first["drawer_fit"], Value::Null, "{first}");
+    Ok(())
+}
+
+/// **Show the shell as a pane** works over the canvas: the shell takes the left 40%. The agent's
+/// next `open` without split flags puts the pane in the canvas's place, and `--dry-run` says so.
+#[test]
+fn dock_over_the_canvas_gives_the_next_pane_its_place() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let first = layout_when(&mut rig, &mut ws, "layout", |_| true);
+    let (cols, rows) = (
+        first["cols"].as_u64().unwrap_or(0),
+        first["rows"].as_u64().unwrap_or(0),
+    );
+    let acted = rig.act(&mut ws, json!({"act": "dock"}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let docked = layout_when(&mut rig, &mut ws, "docked", |v| {
+        v["panes"][0]["drawer"] == false
+    });
+    let w = cols * 40 / 100;
+    assert_eq!(cells(&docked, 0), [0, 0, w, rows], "{docked}");
+    assert!(!docked["canvas"].is_null(), "{docked}");
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    let dry: Value = serde_json::from_str(&rig.drive(&["open", &path, "--dry-run"]))?;
+    rig.drive(&["open", &path]);
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    let rect = |r: &Value, id: usize| r["panes"][id]["rect"].clone();
+    assert_eq!(
+        rect(&report, 1),
+        json!({"x": w, "y": 0, "width": cols - w, "height": rows}),
+        "{report}"
+    );
+    assert_eq!(rect(&dry, 1), rect(&report, 1), "{dry}");
+    assert_eq!(rect(&dry, 0), rect(&report, 0), "{dry}");
+    Ok(())
+}
+
 /// The shell docks only when every pane still fits beside the shell.
 #[test]
 fn dock_needs_room_for_every_pane() -> Result<()> {
@@ -328,7 +441,7 @@ fn dock_needs_room_for_every_pane() -> Result<()> {
 }
 
 /// A close doesn't open the drawer: Laura focuses the first other pane, and with none left the
-/// shell fills the workspace and takes the focus.
+/// shell takes the focus, in the drawer over the canvas.
 #[test]
 fn a_close_in_drawer_mode_focuses_another_pane() -> Result<()> {
     let mut rig = Rig::new()?;
@@ -348,7 +461,7 @@ fn a_close_in_drawer_mode_focuses_another_pane() -> Result<()> {
         v["panes"].as_array().is_some_and(|p| p.len() == 1)
     });
     assert_eq!(alone["focus"], 0, "{alone}");
-    assert_eq!(pane_of(&alone, 0)["drawer"], false, "{alone}");
+    assert_eq!(pane_of(&alone, 0)["drawer"], true, "{alone}");
     let whole = [
         0,
         0,

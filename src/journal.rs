@@ -107,15 +107,8 @@ impl Journal {
 /// the host may be mid-write.
 // ponytail: reads every journal in full per call; read the newest files first if session count makes it slow.
 pub fn read_events(filters: &[(String, String)], since_ms: Option<u64>) -> Vec<Value> {
-    let Ok(dir) = std::fs::read_dir(sessions_dir()) else {
-        return vec![]; // no sessions yet
-    };
     let cutoff = since_ms.map_or(0, |ms| now_ms().saturating_sub(ms));
-    let mut events: Vec<Value> = dir
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
-        .filter_map(|p| std::fs::read_to_string(p).ok())
+    let mut events: Vec<Value> = journals()
         .flat_map(|s| {
             s.lines()
                 .filter_map(|l| serde_json::from_str::<Value>(l).ok())
@@ -126,6 +119,29 @@ pub fn read_events(filters: &[(String, String)], since_ms: Option<u64>) -> Vec<V
         .collect();
     events.sort_by_key(ts);
     events
+}
+
+/// Whether the user ever submitted an inline review, in any folder: a `review` event without an
+/// `error`.
+/// Stops at the first one, and parses only the lines that can hold one.
+pub(crate) fn reviewed() -> bool {
+    journals().any(|s| {
+        s.lines()
+            .filter(|l| l.contains("\"review\""))
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .any(|e| e["type"] == "review" && e.get("error").is_none())
+    })
+}
+
+/// The text of each session's journal. An unreadable file is skipped: the host may be mid-write.
+fn journals() -> impl Iterator<Item = String> {
+    std::fs::read_dir(sessions_dir())
+        .into_iter() // no sessions yet: no journals
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
+        .filter_map(|p| std::fs::read_to_string(p).ok())
 }
 
 fn ts(v: &Value) -> u64 {

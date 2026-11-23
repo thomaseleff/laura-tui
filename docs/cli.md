@@ -144,7 +144,7 @@ Commands work only inside Laura. Laura sets `$LAURA_TAB` in each shell, and each
 
 `overflow_rows` counts the rows that don't fit in the pane. When it's above 0, or `clipped` is `true`, the content **overflows** the pane and the user has to scroll to read the full content. `laura open` also warns on stderr when a file's content overflows (`pane #N overflows: …`), and when the pane is too small to show any of it (`pane #N too small to render …`).
 
-Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output. While the web app shows the shell in the [drawer](navigation.md#the-drawer), the shell reports `"drawer": true`, and the other panes fill the workspace. See [the `layout` report](protocol.md#layout) for how `--split 0` works then.
+Editor panes report `"kind": "editor"` and `content_rows: null`, because Neovim sizes its own content. Browser panes report `"kind": "browser"`, the URL as `path`, the page's `title`, and `content_rows: null`. A pane that the user [paused](navigation.md#in-a-focused-pane) reports `"paused": true`, because the user doesn't see its new output. While the web app shows the shell in the [drawer](navigation.md#the-drawer), the shell reports `"drawer": true`, also when no other pane is open, and the other panes fill the workspace. See [the `layout` report](protocol.md#layout) for how `--split 0` works then.
 
 ## Experimental features
 
@@ -227,7 +227,7 @@ Laura also keeps `~/.laura/settings.lock`, an empty file, so that two workspaces
 
 | Key | What Laura does with the value | You set it with |
 |---|---|---|
-| `drawer` | Shows the drawer at this height, in % of the workspace, from 20 to 85. Without the key, the drawer is 54%. | [The drawer's grip](navigation.md#the-drawer) |
+| `drawer` | Shows the drawer at this height, in % of the workspace, from 20 to 85. Without the key, the drawer is 54%, or the start height over the start canvas (see [The drawer](navigation.md#the-drawer)). | [The drawer's grip](navigation.md#the-drawer) |
 | `editor_theme` | `laura` applies Laura's theme in editor panes, and `neovim` keeps your theme. Without the key, the TUI asks at start. | [The startup wizard](tui-navigation.md#lauras-theme) |
 
 An earlier Laura saved the theme in `~/.laura/editor-theme`. Laura moves the answer into `settings.json` at the next start. If Laura can't write `settings.json`, Laura uses the answer in `~/.laura/editor-theme` and moves the answer at a later start.

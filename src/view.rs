@@ -419,12 +419,14 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             ("", "Other keystrokes go to Neovim"),
         ],
         Hint::Pane => [
+            // On the canvas, the drawer stays open.
+            when(
+                tab.drawer_in_use() && !tab.canvas_shown(),
+                vec![("Ctrl+`", "hide the shell")],
+            ),
             when(
                 tab.drawer_in_use(),
-                vec![
-                    ("Ctrl+`", "hide the shell"),
-                    ("Ctrl+Shift+↑ ↓", "drawer height"),
-                ],
+                vec![("Ctrl+Shift+↑ ↓", "drawer height")],
             ),
             vec![
                 ("Ctrl+P", "find a pane"),
