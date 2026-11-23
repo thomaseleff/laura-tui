@@ -51,8 +51,8 @@ let lockFrom = null;
 
 // F12 turns the lock on or off. From a file pane or a browser pane, the lock moves Laura's focus to
 // the shell, which takes the keystrokes, and the unlock moves it back, unless the user moved it.
-// Under another mode (the pane selector, the help, the quit question, a draft) the user hasn't
-// reached the shell, so the focus stays, and the wait rule ends the wait on the close.
+// Under the pane selector, the help or the quit question, the user hasn't reached the shell, and
+// the wait rule ends the wait on the close. A draft holds its pane. Either way, the focus stays.
 function lockKey(e) {
   take(e);
   ui.locked = !ui.locked;

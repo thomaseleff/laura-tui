@@ -1117,7 +1117,7 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
         &mut r,
         &mut eval,
         "layout.focus === 1",
-        "the unlock keeps the shell's focus",
+        "the unlock doesn't give the file pane its focus back",
     );
     press(&mut ws, id, "Escape", 27);
     // The move to the shell ends a wait: ring the bell after B's server moved the focus (the
