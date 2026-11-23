@@ -1,8 +1,8 @@
 // The pane selector (`Ctrl+P`) and the help (`Ctrl+H`).
 
-import { $, act, layout, ui } from "./state.js";
+import { $, layout, ui } from "./state.js";
 import { ic } from "./head.js";
-import { followFocus, unseen } from "./panes.js";
+import { focusPane, followFocus, unseen } from "./panes.js";
 import { kbds, paintHint } from "./bottom.js";
 import { authors, avs } from "./review.js";
 import { go, spaceLabel } from "./workspaces.js";
@@ -102,7 +102,7 @@ export function openSelector() {
 export function closeSelector(id) {
   ui.popup = null;
   veil.hidden = $("popup").hidden = true;
-  if (id !== undefined) act({ act: "focus", pane: id });
+  if (id !== undefined) focusPane(id);
   followFocus(true);
   paintHint();
 }

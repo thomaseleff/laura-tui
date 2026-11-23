@@ -63,6 +63,7 @@ export function connect() {
         if (!laid && ui.draft) {
           if (m.panes.some(p => p.id === ui.draft.pane)) {
             send({ hold: true });
+            // Not the user's move, so not `focusPane`: `layout` is still the old frame here.
             act({ act: "focus", pane: ui.draft.pane });
             m.focus = ui.draft.pane;
             ui.draft.busy = false;

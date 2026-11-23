@@ -3,7 +3,7 @@
 
 import { $, act, drawerOpen, focused, layout, mode, MODIFIERS, pane, root, send, terms, ui } from "./state.js";
 import { fitShell, report } from "./term.js";
-import { followFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
+import { focusPane, followFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
 import { answer } from "./browser-pane.js";
 import { paintHint, paintShellButton, toggleShell } from "./bottom.js";
 import { begin, closeDraft, confirmDraft, draftBox, paintPops, units } from "./review.js";
@@ -38,7 +38,6 @@ const FILE_KEYS = {
   N: p => ({ act: "jump_thread", pane: p, next: false }),
   x: p => ({ act: "close", pane: p }),
   h: p => ({ act: "clear_highlight", pane: p }),
-  Escape: () => ({ act: "focus", pane: 0 }),
 };
 
 // Ends a keystroke that Laura takes: the page and its other listeners don't see it.
@@ -184,7 +183,8 @@ function browserPaneKey(e, ctrl, k, id) {
     return begin(id, "comment", { act: "browser_pick", pane: id, x, y });
   }
   if (bare && e.key === "S") return take(e), begin(id, "review");
-  if (bare && ["x", "Escape", "n", "N", "r", "h"].includes(e.key)) return take(e), act(FILE_KEYS[e.key](id));
+  if (bare && e.key === "Escape") return take(e), focusPane(0);
+  if (bare && ["x", "n", "N", "r", "h"].includes(e.key)) return take(e), act(FILE_KEYS[e.key](id));
 }
 
 function filePaneKey(e, ctrl, k, id) {
@@ -193,7 +193,9 @@ function filePaneKey(e, ctrl, k, id) {
     return act({ act: "refresh", pane: id });
   }
   if (ctrl && k === "l") return take(e); // the browser's address bar
-  if (!ctrl && !e.altKey && !e.metaKey && (e.key === "c" || e.key === "S")) {
+  const bare = !ctrl && !e.altKey && !e.metaKey;
+  if (bare && e.key === "Escape") return take(e), focusPane(0);
+  if (bare && (e.key === "c" || e.key === "S")) {
     take(e);
     // A page with no element at the cursor has nothing to comment on: pick one.
     const fr = frameOf(id);
@@ -202,7 +204,7 @@ function filePaneKey(e, ctrl, k, id) {
   }
   // The arrows don't move the cursor in a page, which has no rows.
   if (e.key.startsWith("Arrow") && frameOf(id)) return;
-  const make = !ctrl && !e.altKey && !e.metaKey && FILE_KEYS[e.key];
+  const make = bare && FILE_KEYS[e.key];
   if (make) {
     take(e);
     act(make(id));

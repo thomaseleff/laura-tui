@@ -1,9 +1,9 @@
 // The workspace's bottom line and corner: the notice, the hint line, the status bar and the shell
 // button.
 
-import { $, act, drawerOpen, focused, layout, modes, pane, send, ui } from "./state.js";
+import { $, drawerOpen, focused, layout, modes, pane, send, ui } from "./state.js";
 import { ch } from "./term.js";
-import { followFocus, lastFocus, unseen } from "./panes.js";
+import { focusPane, followFocus, lastFocus, unseen } from "./panes.js";
 import { frameOf } from "./pages.js";
 
 const hintEl = $("hint"), noticeEl = $("notice");
@@ -166,9 +166,9 @@ export function shellBusy() {
 // `Ctrl+\`` and the shell button: from the shell, back to the last pane that had the focus, or the
 // first other pane when that one closed; from any other pane, to the shell, which opens the drawer.
 export function toggleShell() {
-  if (layout.focus !== 0) return act({ act: "focus", pane: 0 });
+  if (layout.focus !== 0) return focusPane(0);
   const to = pane(lastFocus) ? lastFocus : layout.panes.find(p => p.id !== 0)?.id;
-  if (to !== undefined) act({ act: "focus", pane: to });
+  if (to !== undefined) focusPane(to);
 }
 
 $("sbar").addEventListener("mousedown", e => e.preventDefault());
@@ -177,7 +177,7 @@ $("sbar").addEventListener("click", e => {
   const b = e.target.closest("[data-id]");
   if (!b) return;
   if (ui.draft) return followFocus(true);
-  act({ act: "focus", pane: +b.dataset.id });
+  focusPane(+b.dataset.id);
 });
 
 // Laura reloaded the pane's file: **Reloaded** for a few seconds, and the unseen marker unless

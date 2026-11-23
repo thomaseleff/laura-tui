@@ -3,7 +3,7 @@
 
 import { $, act, layout, pane, root, send, ui } from "./state.js";
 import { tooSmall } from "./head.js";
-import { followFocus, placePlus } from "./panes.js";
+import { focusPane, followFocus, placePlus } from "./panes.js";
 import { emuFit, pinWho } from "./browser-pane.js";
 import { paintHint, reloaded } from "./bottom.js";
 import { begin, goThread, keepDraft, paintThreads, reveal, units } from "./review.js";
@@ -208,7 +208,7 @@ addEventListener("message", e => {
   if (ui.draft) return followFocus(true);
   if (m.laura === "line") {
     if (m.pin === true) return pinClick(id, m.line);
-    if (layout.focus !== id) act({ act: "focus", pane: id });
+    focusPane(id);
     if (Number.isInteger(m.line)) act({ act: "set_cursor", pane: id, line: m.line });
     // A text field or a selection keeps the keystrokes; anything else gives them back to Laura.
     if (!m.editable) root.focus({ preventScroll: true });
@@ -232,7 +232,7 @@ addEventListener("message", e => {
 export function pinClick(id, line) {
   const el = $("p" + id);
   if (!el || !Number.isInteger(line)) return;
-  if (layout.focus !== id) act({ act: "focus", pane: id });
+  focusPane(id);
   root.focus({ preventScroll: true });
   if (el.threads?.find(t => t.line === line)?.collapsed) return act({ act: "toggle_thread", pane: id, line });
   if (line === el.line) {

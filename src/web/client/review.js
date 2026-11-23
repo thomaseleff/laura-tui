@@ -4,7 +4,7 @@
 
 import { $, act, esc, layout, pane, send, ui } from "./state.js";
 import { headClick, ic, tip, TOOLS } from "./head.js";
-import { followFocus } from "./panes.js";
+import { focusPane, followFocus } from "./panes.js";
 import { clearRetryNotice, paintHint, paintStatus } from "./bottom.js";
 import { frameOf } from "./pages.js";
 import { strings } from "./main.js";
@@ -259,7 +259,7 @@ function popClick(id, e) {
   if (b?.dataset.th) {
     ui.listOpen = null;
     paintPop(id);
-    if (layout.focus !== id) act({ act: "focus", pane: id });
+    focusPane(id);
     // The cursor may already be on the thread's line and send no frame, so the reply scrolls too.
     const line = +b.dataset.th;
     el.goTh = { th: b.dataset.th, block: "center" };
@@ -314,7 +314,7 @@ export function cardClick(id, e) {
   if (!c || !b) return;
   e.stopPropagation();
   if (ui.draft) return followFocus(true);
-  if (layout.focus !== id) act({ act: "focus", pane: id });
+  focusPane(id);
   if (b.dataset.act === "delete") return act({ act: "comment", pane: id, line: +c.dataset.th, text: "" });
   if (b.dataset.act !== "reply") return act({ act: "toggle_thread", pane: id, line: +c.dataset.th });
   act({ act: "set_cursor", pane: id, line: +c.dataset.th });
