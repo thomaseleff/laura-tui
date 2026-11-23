@@ -29,6 +29,8 @@ const LIGHT = (() => {
 let ws, layout = null, strings = {}, cw = 0, ch = 0;
 let focusKey = "", locked = false, help = false, popup = null, confirmQuit = false, ended = false;
 let notice = "", noticeTimer = 0, noticePane;
+// The notice shows a failed submit, which closing the draft takes down.
+let noticeRetry = false;
 // `popup` is the pane selector's selected row, or `null` while the pane selector is closed.
 // Panes that reloaded or got a new highlight while another pane had the focus.
 const unseen = new Set();
@@ -107,6 +109,7 @@ addEventListener("keydown", e => MODIFIERS.includes(e.key) || (pressed(), seenAf
 addEventListener("click", e => seenAfter(press, press?.overlay || $("p0")?.contains(e.target)), true);
 
 function showNotice(text, secs, pane) {
+  noticeRetry = false;
   notice = text;
   noticePane = pane;
   clearTimeout(noticeTimer);
@@ -1595,7 +1598,7 @@ function closeDraft() {
   draftCard?.remove();
   draftCard = null;
   send({ hold: false });
-  if (notice === strings.draft.failed) (notice = ""), paintNotice();
+  if (noticeRetry) (notice = ""), (noticeRetry = false), paintNotice();
   paintThreads(id);
   paintHint();
   paintStatus();
@@ -2475,7 +2478,7 @@ function connect() {
       }
       case "acted": {
         const a = acts.shift();
-        if (!m.ok) showNotice(m.text, 5, a?.pane);
+        if (!m.ok) showNotice(m.text, 5, a?.pane), (noticeRetry = !!m.retry);
         a?.then?.(m);
         break;
       }

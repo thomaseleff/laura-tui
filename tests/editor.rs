@@ -557,13 +557,15 @@ fn the_shell_exit_waits_for_unsaved_edits() -> Result<()> {
         .get_mut(&2)
         .unwrap()
         .author_note("keep me".into());
-    let no_shell = Err(NO_SHELL.to_string());
-    assert_eq!(tab.act(UserAction::BeginReview { pane: 2 }), no_shell);
+    assert_eq!(
+        tab.act(UserAction::BeginReview { pane: 2 }),
+        Err(NO_SHELL.into())
+    );
     let submit = UserAction::Submit {
         pane: 2,
         body: String::new(),
     };
-    assert_eq!(tab.act(submit), no_shell);
+    assert_eq!(tab.act(submit), Err(NO_SHELL.into()));
     assert_eq!(tab.panels[&2].thread_count(), 1);
     std::fs::remove_file(dirty(2))?;
     assert!(tab.shell_done());
@@ -617,7 +619,7 @@ fn user_actions_respect_an_editor_pane() -> Result<()> {
     std::fs::remove_file(&dirty)?;
     assert!(
         quit.as_ref()
-            .is_err_and(|m| m.starts_with("pane #1 has unsaved edits")),
+            .is_err_and(|m| m.to_string().starts_with("pane #1 has unsaved edits")),
         "{quit:?}"
     );
     Ok(())

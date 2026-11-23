@@ -11,7 +11,8 @@ use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{PTY_PANE, PaneId, Response};
 
 use super::{
-    NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab, UserAction, no_pane,
+    Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab, UserAction,
+    no_pane,
 };
 
 /// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
@@ -46,14 +47,14 @@ fn only_hover(mut b: &[u8]) -> bool {
 }
 
 impl Tab {
-    /// Apply one user action. `Ok(Some(text))` only from `BeginComment`; `Err` carries the notice
-    /// text. Every field is untrusted.
-    pub fn act(&mut self, action: UserAction) -> Result<Option<String>, String> {
+    /// Apply one user action. `Ok(Some(text))` only from `BeginComment`; `Err` carries the notice.
+    /// Every field is untrusted.
+    pub fn act(&mut self, action: UserAction) -> Result<Option<String>, Error> {
         use UserAction as A;
         match action {
             A::Focus { pane } => {
                 if pane != PTY_PANE && !self.panels.contains_key(&pane) {
-                    return Err(no_pane(pane));
+                    return Err(no_pane(pane).into());
                 }
                 self.focus = pane;
                 // The user's move into the shell: the user sees the agent.
@@ -138,7 +139,7 @@ impl Tab {
             A::Close { pane } => {
                 let from = self.focus;
                 if let Response::Error { message } = self.close_pane(Some(pane)) {
-                    return Err(message);
+                    return Err(message.into());
                 }
                 // The user's close that moves the focus to the shell: the user sees the agent.
                 if from != PTY_PANE && self.focus == PTY_PANE {
@@ -184,7 +185,7 @@ impl Tab {
             }
             A::Quit => {
                 if let Some(message) = self.unsaved_edits() {
-                    return Err(message);
+                    return Err(message.into());
                 }
             }
             A::BrowserMouse { pane, mouse } => self.page(pane)?.mouse(&mouse, Instant::now()),

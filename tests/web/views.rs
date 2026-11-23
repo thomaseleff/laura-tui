@@ -57,6 +57,16 @@ fn first_frames_carry_the_layout_and_the_replay() -> Result<()> {
 }
 
 #[test]
+fn a_view_says_neovim_is_missing_when_editor_panes_are_on() -> Result<()> {
+    let mut rig = Rig::new()?;
+    rig.tab.editor = Err(laura::editor::Error::NoNvim);
+    let mut ws = rig.connect();
+    let notice = rig.until(&mut ws, "notice", |f| f.is("notice")).json();
+    assert_eq!(notice["text"], format!("⚠ {}", laura::editor::NO_NVIM));
+    Ok(())
+}
+
+#[test]
 fn open_focuses_the_new_pane_and_sends_its_lines_once() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

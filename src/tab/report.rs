@@ -1,6 +1,5 @@
 //! The layout report that `laura layout` and the agent's `open` replies carry: each pane's rect,
-//! its content and visible rows, and its overflow, with the texts for a pane that overflows or a
-//! split too small to render.
+//! its content and visible rows, and its overflow, with the text for a pane that overflows.
 
 use std::collections::HashMap;
 
@@ -8,7 +7,6 @@ use ratatui::layout::Rect;
 
 use crate::browser::Page;
 use crate::editor::Nvim;
-use crate::layout::MIN_PANE;
 use crate::panel::Panel;
 use crate::protocol::{LayoutReport, PTY_PANE, PaneId, PaneKind, PaneReport};
 
@@ -106,15 +104,6 @@ pub fn overflow_warning(p: &PaneReport) -> Option<String> {
     } else {
         None
     }
-}
-
-/// The agent's error when a split leaves a pane below `MIN_PANE`.
-pub(super) fn split_too_small() -> String {
-    format!(
-        "split would shrink a pane below {}×{} — too small to render; \
-         close a pane or lower --ratio",
-        MIN_PANE.0, MIN_PANE.1
-    )
 }
 
 impl Tab {

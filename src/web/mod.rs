@@ -396,9 +396,7 @@ impl WebServer {
             if let Some(p) = &self.poke {
                 let _ = p.send(());
             }
-            if let Err(e) = &tab.editor
-                && e == crate::editor::NO_NVIM
-            {
+            if let Err(e @ crate::editor::Error::NoNvim) = &tab.editor {
                 v.text(json!({"t": "notice", "text": format!("⚠ {e}")}));
             }
             self.view = Some(v);
@@ -428,7 +426,7 @@ impl WebServer {
                                 let _ = tab.act(a);
                                 continue;
                             }
-                            r => r.map_err(|e| e.to_string()),
+                            r => r.map_err(|e| crate::tab::Error::Text(e.to_string())),
                         };
                         let res = res.and_then(|a| {
                             let comment = match a {
@@ -491,14 +489,11 @@ impl WebServer {
                                 json!({"t": "acted", "ok": true, "text": seed, "line": line,
                                        "anchor": anchor, "hint": hint})
                             }
-                            Err(e) => {
-                                let e = if e == crate::tab::SUBMIT_FAILED {
-                                    crate::tab::SUBMIT_FAILED_WEB.to_string()
-                                } else {
-                                    e
-                                };
-                                json!({"t": "acted", "ok": false, "text": e})
+                            Err(crate::tab::Error::SubmitFailed) => {
+                                json!({"t": "acted", "ok": false,
+                                       "text": crate::tab::SUBMIT_FAILED_WEB, "retry": true})
                             }
+                            Err(e) => json!({"t": "acted", "ok": false, "text": e.to_string()}),
                         });
                     } else if msg.get("visit") == Some(&Value::Bool(true)) {
                         self.visited = now_ms();
@@ -539,7 +534,7 @@ impl WebServer {
                         // Again, after the user's `y`: edits made since still block it.
                         match tab.act(UserAction::Quit) {
                             Ok(_) => quit = true,
-                            Err(e) => v.text(json!({"t": "notice", "text": e})),
+                            Err(e) => v.text(json!({"t": "notice", "text": e.to_string()})),
                         }
                     }
                 }

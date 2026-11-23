@@ -13,8 +13,8 @@ use crate::layout::{Layout, all_panes_fit, infer_split};
 use crate::panel::Panel;
 use crate::protocol::{Dir, Message, PTY_PANE, PaneId, Response, Side};
 
-use super::report::{build_report, fit_rows, overflow_warning, split_too_small};
-use super::{Tab, normalized, remove_if_temp};
+use super::report::{build_report, fit_rows, overflow_warning};
+use super::{Error, Tab, normalized, remove_if_temp};
 
 impl Tab {
     /// Build a panel for `path` (follow → highlight → diff, order preserved), insert it at `id`,
@@ -108,10 +108,9 @@ impl Tab {
 
     /// Start Neovim on `path` in pane `id`, sized to the pane's inner rect.
     fn attach_editor(&mut self, id: PaneId, path: &str, area: Rect) -> Result<(), Response> {
-        let nvim = self
-            .editor
-            .clone()
-            .map_err(|message| Response::Error { message })?;
+        let nvim = self.editor.clone().map_err(|e| Response::Error {
+            message: e.to_string(),
+        })?;
         // Drop the old Neovim first: its Drop deletes the same bootstrap files the new one writes.
         let was = self.editors.remove(&id).map(|e| e.editor_view);
         let inner = self
@@ -219,141 +218,136 @@ impl Tab {
         Response::Opened { pane: id, warnings }
     }
 
+    /// Open a file or URL in a new pane, or in pane `panel` in place. `Ok` holds the `Response`
+    /// of a helper that answers the agent itself, an error included.
+    pub(super) fn open(&mut self, msg: Message, area: Rect) -> Result<Response, Error> {
+        let Message::Open {
+            path,
+            split,
+            dir,
+            ratio,
+            side,
+            focus,
+            follow,
+            tail,
+            dry_run,
+            highlight,
+            diff,
+            panel,
+            edit,
+        } = msg
+        else {
+            unreachable!("apply and open_file pass only Message::Open");
+        };
+        // A URL opens a browser pane. Its errors come first, one at a time; `--follow`
+        // changes nothing, since the pane always shows the page live.
+        let url = browser::is_url(&path);
+        if url {
+            self.browser_gate()?;
+            let flag = [
+                (highlight.is_some(), browser::NO_HIGHLIGHT),
+                (diff, browser::NO_DIFF),
+                (edit, browser::NO_EDIT),
+            ];
+            if let Some((_, message)) = flag.into_iter().find(|(on, _)| *on) {
+                return Err(message.into());
+            }
+        }
+        if edit && let Err(e) = &self.editor {
+            return Err(e.to_string().into());
+        }
+        if edit && (highlight.is_some() || diff) {
+            return Err(editor::SHOWS_NEITHER.into());
+        }
+        // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
+        // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
+        // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
+        if let Some(id) = panel {
+            return Ok(self.replace_panel(id, path, follow, highlight, diff, edit, area));
+        }
+        let new = self.next_pane;
+        let inferred = (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
+            .then(|| infer_split(&self.shown(&self.layout), area, new))
+            .flatten();
+        let (target, dir, ratio, side) = match inferred {
+            Some(t) => t,
+            None => (
+                split.unwrap_or(self.focus),
+                dir.unwrap_or_default(),
+                ratio.unwrap_or(50),
+                side.unwrap_or_default(),
+            ),
+        };
+        // A split never targets the hidden shell: the focus there is the open drawer.
+        let target = if target == PTY_PANE && self.drawer_in_use() {
+            self.fallback_focus()
+        } else {
+            target
+        };
+        // A stacked pane gets only the rows its file needs, up to half.
+        let ratio =
+            if inferred.is_some() && dir == Dir::Vertical && !(edit || diff || follow || url) {
+                self.fit_ratio(&path, target, side, new, area)
+            } else {
+                ratio
+            };
+        if dry_run {
+            return Ok(self.dry_run_open(&path, target, dir, ratio, side, area));
+        }
+        let mut probe = self.layout.clone();
+        if probe.split(target, dir, ratio, side, new).is_ok()
+            && !all_panes_fit(&self.shown(&probe), area)
+        {
+            return Err(Error::SplitTooSmall);
+        }
+        // Open the page before the split, so a page that won't open adds no pane.
+        let page = url.then(|| self.open_page(new, &path)).transpose()?;
+        match self.layout.split(target, dir, ratio, side, new) {
+            Ok(()) => {
+                self.next_pane += 1;
+                if edit && let Err(e) = self.attach_editor(new, &path, area) {
+                    let _ = self.layout.remove(new);
+                    return Ok(e);
+                }
+                let dup = self.already_open(&path, new);
+                let mut warnings = self.install_panel(new, &path, follow, highlight, diff, area);
+                if let Some(p) = self.panels.get_mut(&new) {
+                    p.tail = tail;
+                }
+                if let Some(page) = page {
+                    self.browsers.insert(new, page);
+                }
+                warnings.extend(dup);
+                let mut event = json!({"type": "open", "pane": new, "path": path});
+                if edit {
+                    event["edit"] = true.into();
+                }
+                self.log_event(event);
+                if let Some((start, end)) = highlight {
+                    self.log_event(
+                        json!({"type": "highlight", "pane": new, "start": start, "end": end}),
+                    );
+                }
+                // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
+                if focus && !edit {
+                    self.pending_focus = Some(new);
+                }
+                Ok(Response::Opened {
+                    pane: new,
+                    warnings,
+                })
+            }
+            Err(message) => Err(message.into()),
+        }
+    }
+
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
         match msg {
-            Message::Open {
-                path,
-                split,
-                dir,
-                ratio,
-                side,
-                focus,
-                follow,
-                tail,
-                dry_run,
-                highlight,
-                diff,
-                panel,
-                edit,
-            } => {
-                // A URL opens a browser pane. Its errors come first, one at a time; `--follow`
-                // changes nothing, since the pane always shows the page live.
-                let url = browser::is_url(&path);
-                if url {
-                    if let Err(message) = self.browser_gate() {
-                        return Response::Error { message };
-                    }
-                    let flag = [
-                        (highlight.is_some(), browser::NO_HIGHLIGHT),
-                        (diff, browser::NO_DIFF),
-                        (edit, browser::NO_EDIT),
-                    ];
-                    if let Some((_, message)) = flag.into_iter().find(|(on, _)| *on) {
-                        return Response::Error {
-                            message: message.into(),
-                        };
-                    }
-                }
-                if edit && let Err(message) = &self.editor {
-                    return Response::Error {
-                        message: message.clone(),
-                    };
-                }
-                if edit && (highlight.is_some() || diff) {
-                    return Response::Error {
-                        message: editor::SHOWS_NEITHER.into(),
-                    };
-                }
-                // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
-                // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
-                // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
-                if let Some(id) = panel {
-                    return self.replace_panel(id, path, follow, highlight, diff, edit, area);
-                }
-                let new = self.next_pane;
-                let inferred =
-                    (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
-                        .then(|| infer_split(&self.shown(&self.layout), area, new))
-                        .flatten();
-                let (target, dir, ratio, side) = match inferred {
-                    Some(t) => t,
-                    None => (
-                        split.unwrap_or(self.focus),
-                        dir.unwrap_or_default(),
-                        ratio.unwrap_or(50),
-                        side.unwrap_or_default(),
-                    ),
-                };
-                // A split never targets the hidden shell: the focus there is the open drawer.
-                let target = if target == PTY_PANE && self.drawer_in_use() {
-                    self.fallback_focus()
-                } else {
-                    target
-                };
-                // A stacked pane gets only the rows its file needs, up to half.
-                let ratio = if inferred.is_some()
-                    && dir == Dir::Vertical
-                    && !(edit || diff || follow || url)
-                {
-                    self.fit_ratio(&path, target, side, new, area)
-                } else {
-                    ratio
-                };
-                if dry_run {
-                    return self.dry_run_open(&path, target, dir, ratio, side, area);
-                }
-                let mut probe = self.layout.clone();
-                if probe.split(target, dir, ratio, side, new).is_ok()
-                    && !all_panes_fit(&self.shown(&probe), area)
-                {
-                    return Response::Error {
-                        message: split_too_small(),
-                    };
-                }
-                // Open the page before the split, so a page that won't open adds no pane.
-                let page = match url.then(|| self.open_page(new, &path)).transpose() {
-                    Ok(page) => page,
-                    Err(message) => return Response::Error { message },
-                };
-                match self.layout.split(target, dir, ratio, side, new) {
-                    Ok(()) => {
-                        self.next_pane += 1;
-                        if edit && let Err(e) = self.attach_editor(new, &path, area) {
-                            let _ = self.layout.remove(new);
-                            return e;
-                        }
-                        let dup = self.already_open(&path, new);
-                        let mut warnings =
-                            self.install_panel(new, &path, follow, highlight, diff, area);
-                        if let Some(p) = self.panels.get_mut(&new) {
-                            p.tail = tail;
-                        }
-                        if let Some(page) = page {
-                            self.browsers.insert(new, page);
-                        }
-                        warnings.extend(dup);
-                        let mut event = json!({"type": "open", "pane": new, "path": path});
-                        if edit {
-                            event["edit"] = true.into();
-                        }
-                        self.log_event(event);
-                        if let Some((start, end)) = highlight {
-                            self.log_event(
-                                json!({"type": "highlight", "pane": new, "start": start, "end": end}),
-                            );
-                        }
-                        // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
-                        if focus && !edit {
-                            self.pending_focus = Some(new);
-                        }
-                        Response::Opened {
-                            pane: new,
-                            warnings,
-                        }
-                    }
-                    Err(message) => Response::Error { message },
-                }
+            msg @ Message::Open { .. } => {
+                self.open(msg, area).unwrap_or_else(|e| Response::Error {
+                    message: e.to_string(),
+                })
             }
             Message::Close { pane, all } => {
                 if all {
