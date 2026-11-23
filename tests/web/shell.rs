@@ -226,7 +226,7 @@ fn closing_the_last_pane_ends_the_wait() -> Result<()> {
     Ok(())
 }
 
-/// #190: before `laura ready`, the web app's hint line keeps `c` and `Shift+S`, which `app.js`
+/// #190: before `laura ready`, the web app's hint line keeps `c` and `Shift+S`, which the client
 /// dims, and has no `laura ready` note.
 #[cfg(unix)]
 #[test]

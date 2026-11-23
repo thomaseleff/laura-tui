@@ -2,7 +2,7 @@
 //! test presses the user's keys and reads what the web app shows. The page is the workspace's only
 //! view: a second view would take the workspace over. Included with `#[path]` by `tests/client.rs`.
 //!
-//! The rig's JS reads the client's top-level names: see the note above them in `app.js`.
+//! The rig's JS reads the client's top-level names: see the note at the end of `state.js`.
 
 use std::path::Path;
 use std::time::Instant;

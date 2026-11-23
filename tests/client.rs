@@ -202,7 +202,7 @@ fn the_quit_question_takes_the_keystroke_after_f12() -> Result<()> {
 }
 
 /// Each line in the shell, and the links that the shell's link provider finds in it: each link's
-/// text and first column. From `PATH`'s comment in `app.js`.
+/// text and first column. From `PATH`'s comment in `term.js`.
 const LINKS: &[(&str, &[(&str, u64)])] = &[
     ("src/tab.rs:41", &[("src/tab.rs:41", 1)]),
     ("src/foo.test.ts", &[("src/foo.test.ts", 1)]),

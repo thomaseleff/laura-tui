@@ -2,13 +2,34 @@
 
 Rules for `src/web/`: the web app's server (`mod.rs`, `frames.rs`, `html.rs`) and its client (`client/`). The root [`CLAUDE.md`](../../CLAUDE.md) holds the rules for all of Laura.
 
+## Client modules
+
+The client is ES modules with no build step. `index.html` loads `main.js` as `type="module"`, and Laura serves each module from `ASSETS` (`mod.rs`). The vendor scripts (`xterm.js`, its addons and `idiomorph.js`) stay classic scripts with their globals.
+
+- `state.js`: Laura's layout, the socket, `send` and `act`, the wait rule, `esc`, and `ui` with `mode()`. Every module imports `state.js`, and `state.js` imports nothing.
+- `term.js`: the shell's and each editor pane's xterm.js, `termKeys`, the shell's links (`PATH`), and the grid's cell.
+- `head.js`: the pane header.
+- `panes.js`: each pane's element, `onLayout`, the drawer and its grip, a browser pane's pointer, and `followFocus`.
+- `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
+- `bottom.js`: the notice, the hint line, the status bar and the shell button.
+- `review.js`: threads, the comment's box, the popovers and the draft.
+- `pages.js`: a file pane's rows and pages, comment mode, and a page's pins.
+- `selector.js`: the pane selector and the help.
+- `keys.js`: the keydown listener, one function for each mode and each kind of pane, and the window's paste, copy and resize.
+- `workspaces.js`: the workspace switcher, its menu, the browser tab, and the overlay.
+- `main.js`: `connect`, which hands each frame to its module, and the start.
+
+`ui` holds the modes, and `mode()` tells which mode takes a keystroke, first to last. The keydown listener, `termKeys` and the hint line all ask `mode()`. A new mode is a field of `ui` and a case of `mode()`.
+
+A top-level `let` lives in the module that assigns it, and other modules read it through an import. When another module must change it, the owner exports a small function for that change, such as `setLayout`. Top-level code must not call an imported `const` function: a module in an import cycle can run before that function exists.
+
 ## Frames
 
 Laura and the web app talk over one websocket per view. Each text frame is a JSON object, and its `t` names the frame.
 
 Laura sends these frames to the view:
 
-| Frame (`t`) | What Laura sends it for | Who sends it | What `app.js` paints with it |
+| Frame (`t`) | What Laura sends it for | Who sends it | What the client paints with it |
 |---|---|---|---|
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
@@ -29,7 +50,7 @@ The view sends these frames to Laura, and `sync` reads each one in its inbound b
 
 ## Escaping
 
-The client puts each string into the DOM through `esc` (`app.js`). Only the HTML of Laura's `pane` and `rows` frames goes in as markup. `html.rs` builds that HTML, and escapes the file text with `render::escape`.
+The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames goes in as markup. `html.rs` builds that HTML, and escapes the file text with `render::escape`.
 
 ## Parity
 
@@ -57,10 +78,10 @@ The web tests are one test binary, `tests/web/`, with one module for each featur
 
 ### Client tests
 
-The client tests run `app.js` itself. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`. The rig's `//!` paragraph and the docs of its methods tell how a test opens the page, presses keys and waits.
+The client tests run the web app's client. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`. The rig's `//!` paragraph and the docs of its methods tell how a test opens the page, presses keys and waits.
 
 A change to a keystroke, a focus move or a rule in the client adds a client test. A client test for a known bug is `#[ignore]`, and the reason names the issue that fixes the bug.
 
 `LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
 
-The rig's JS reads some of the client's top-level names. The note above `let ws, layout` in `app.js` names them, and tells how a change that moves them keeps them reachable.
+The rig's JS, and the browser tests' JS (`tests/browser.rs`), read some of the client's names. A module's names are not globals, so `state.js` puts these names on `globalThis`, and the note above those lines names them. A test that needs another name reads the DOM, or adds the name to that note and those lines.

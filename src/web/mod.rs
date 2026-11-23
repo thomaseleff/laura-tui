@@ -46,9 +46,64 @@ const OUTBOUND_BOUND: usize = 1024;
 pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
     ("/", "text/html", include_bytes!("client/index.html")),
     (
-        "/app.js",
+        "/state.js",
         "text/javascript",
-        include_bytes!("client/app.js"),
+        include_bytes!("client/state.js"),
+    ),
+    (
+        "/term.js",
+        "text/javascript",
+        include_bytes!("client/term.js"),
+    ),
+    (
+        "/head.js",
+        "text/javascript",
+        include_bytes!("client/head.js"),
+    ),
+    (
+        "/panes.js",
+        "text/javascript",
+        include_bytes!("client/panes.js"),
+    ),
+    (
+        "/browser-pane.js",
+        "text/javascript",
+        include_bytes!("client/browser-pane.js"),
+    ),
+    (
+        "/bottom.js",
+        "text/javascript",
+        include_bytes!("client/bottom.js"),
+    ),
+    (
+        "/review.js",
+        "text/javascript",
+        include_bytes!("client/review.js"),
+    ),
+    (
+        "/pages.js",
+        "text/javascript",
+        include_bytes!("client/pages.js"),
+    ),
+    (
+        "/selector.js",
+        "text/javascript",
+        include_bytes!("client/selector.js"),
+    ),
+    (
+        "/keys.js",
+        "text/javascript",
+        include_bytes!("client/keys.js"),
+    ),
+    (
+        "/workspaces.js",
+        "text/javascript",
+        include_bytes!("client/workspaces.js"),
+    ),
+    (
+        "/main.js",
+        "text/javascript",
+        include_bytes!("client/main.js"),
     ),
     ("/style.css", "text/css", include_bytes!("client/style.css")),
     (
