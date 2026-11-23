@@ -1,5 +1,6 @@
-// The panes: each pane's element, the layout that places them, the drawer and its grip, a browser
-// pane's pointer, and the DOM focus, which follows the workspace's focus.
+// The panes: each pane's element, the layout that places them, the start canvas, the drawer with its
+// grip and start height, a browser pane's pointer, and the DOM focus, which follows the workspace's
+// focus.
 
 import { $, act, drawerOpen, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
 import { ch, fitShell, makeTerm, rowsPx } from "./term.js";
