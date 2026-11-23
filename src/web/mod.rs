@@ -489,15 +489,11 @@ impl WebServer {
                                 json!({"t": "acted", "ok": true, "text": seed, "line": line,
                                        "anchor": anchor, "hint": hint})
                             }
-                            Err(e) => {
-                                let e = match e {
-                                    crate::tab::Error::SubmitFailed => {
-                                        crate::tab::SUBMIT_FAILED_WEB.to_string()
-                                    }
-                                    e => e.to_string(),
-                                };
-                                json!({"t": "acted", "ok": false, "text": e})
+                            Err(crate::tab::Error::SubmitFailed) => {
+                                json!({"t": "acted", "ok": false,
+                                       "text": crate::tab::SUBMIT_FAILED_WEB, "retry": true})
                             }
+                            Err(e) => json!({"t": "acted", "ok": false, "text": e.to_string()}),
                         });
                     } else if msg.get("visit") == Some(&Value::Bool(true)) {
                         self.visited = now_ms();

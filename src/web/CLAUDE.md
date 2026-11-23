@@ -18,7 +18,7 @@ Laura sends these frames to the view:
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |
 | `browser` | A browser pane's URL and state | `send_browsers` (`frames.rs`) | `onBrowser` |
 | `editable`, `agent`, `screenshot`, `copy`, `rect`, `marks` | Events in a browser pane | `browser.rs`, through `take_out`; `sync` adds the pane `id` | their `case` in `connect` |
-| `acted` | The reply to each `act`: `ok`, and the text of an error | `WebServer::sync` | the `acts` queue |
+| `acted` | The reply to each `act`: `ok`, the text of an error, and `retry` for a failed submit | `WebServer::sync` | the `acts` queue |
 | `notice` | A notice, on a pane when the frame has `pane` | `WebServer::sync` | `showNotice` |
 | `moved` | A newer view took over the workspace | `WebServer::sync` | the overlay on close |
 | `exit` | The workspace ended | `WebServer::close` | the overlay on close |
