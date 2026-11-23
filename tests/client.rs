@@ -453,10 +453,12 @@ fn a_drawer_step_holds_while_the_web_app_reconnects() -> Result<()> {
     let shown = c
         .eval(&format!("Math.round({drawer})"))
         .map_err(anyhow::Error::msg)?;
-    // `close` puts the socket in CLOSING at once; the client reconnects after 500 ms.
-    c.eval("ws.close()").map_err(anyhow::Error::msg)?;
+    // Laura is out of reach, as in a network outage: the reconnect's socket never opens, so a slow
+    // runner can't reach the new connection before the check. `close` puts the socket in CLOSING.
+    c.eval("WebSocket = function () { return { readyState: 0 }; }; ws.close()")
+        .map_err(anyhow::Error::msg)?;
     c.press(CTRL_SHIFT_UP);
-    // A turn of the shell's `ResizeObserver`, with no pump: Laura sends no new layout.
+    // A turn of the shell's `ResizeObserver`.
     let after = c
         .eval(&format!(
             "new Promise(r => setTimeout(() => r({drawer}), 100))"
