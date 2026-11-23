@@ -35,6 +35,35 @@ Put these items in the `## Trail` section of each plan, under the reference note
 - The step that the plan is for, and the next step.
 - This instruction, with the values filled in: "This work is part of a trail. Before you edit code, invoke the trail skill: `/trail <change URL>`. Continue the trail from step <next step>. Do all of the work in the worktree `<path>`." Before step 13, use `/trail <N>`. In each plan that you write after step 29, add: "Do not do the final review again. After step 28, go to step 33."
 
+### Fit
+
+Add a `## Fit` section to the plan, after the `## Trail` section. In the Fit section, find each change that you must make so that the code you touch follows the conventions in `CLAUDE.md`.
+
+1. Write the Fit section before you plan the commits. To find the callers and the dependents of each symbol that you change, use `entire graph impact` and `entire graph neighbors`.
+2. Write the result of each check in a table, with one row for each check. If you find nothing in a check, write "None".
+3. Plan the commits from the Fit section. Put the work for each result in a commit: a cleanup commit before the feature commit, or the feature commit. Write that commit in the "Commit" column.
+
+| Check | Result | Commit |
+|---|---|---|
+| Domains | … | … |
+| Rules | … | … |
+| Cleanup | … | … |
+| Docs | … | … |
+| Open issues | … | … |
+
+Do these five checks:
+
+1. **Domains.** For each new state, find the module that owns the state. Plan the state as a field on the struct of that module, behind its methods. If you find no module that owns the state, plan a new module.
+2. **Rules.** Find each rule that you add, and each place that must follow the rule. Plan the rule as one function in the module that owns the state, and plan a call to that function from each of those places. If you change the web app, find out if you must make the same change to the TUI. If so, plan the TUI change too.
+3. **Cleanup.** In each function that you change, find each break of the "Coding" and "Code organization" rules in `CLAUDE.md`. Plan each fix as a cleanup commit before the feature commit. If you must change code in another domain to make a fix, or if the fix is larger than the feature, plan an issue for the fix. Name that issue in the PR body.
+4. **Docs.** For each fact that you add, find the one doc for that fact ("Document each fact in one place" in `CLAUDE.md`). In each doc that you change, find each sentence that is not true of the code. Plan each doc change in the same commit as its code change.
+5. **Open issues.** Search the open issues for the files and the symbols that you change: `gh issue list --search "<file or symbol>"`. If you can close an issue with a small change to the scope, add the issue to the trail:
+   - Plan the commits for the issue.
+   - Record a decision for the issue (step 3).
+   - Add a `Closes #<n>` line to the PR body (step 12).
+
+   If you cannot close an issue with a small change, write the issue number and the reason.
+
 ## Workflow
 
 Each time you start or continue a trail, run these commands in the checkout where you work, before you read code:
@@ -49,7 +78,7 @@ The index command builds Graph's code index for the current commit in about 5 se
 ### Start
 
 1. Read the issue with `gh issue view <N>`.
-2. Switch into plan mode. Write the plan with the "Plans" conventions in `CLAUDE.md`. Add the `## Trail` section (see "Plans").
+2. Switch into plan mode. Write the plan with the "Plans" conventions in `CLAUDE.md`. Add the `## Trail` section and the `## Fit` section (see "Plans").
 3. Record each decision that changes the *Done when* of the issue. The trail body must show each such decision.
 4. Create a worktree for the branch.
 
@@ -87,7 +116,7 @@ The index command builds Graph's code index for the current commit in about 5 se
 11. Push the branch: `git push -u origin <branch>`.
 12. Open the PR as a draft: `gh pr create --draft --base main --title "…" --body-file <file>`.
     - Write the title with the "Commits & PRs" conventions in `CLAUDE.md`. Do not put `#N` in the title.
-    - Put `Closes #N` in the body.
+    - Put `Closes #N` in the body. Add one `Closes #<n>` line for each issue that you added to the trail in the Fit section.
     - Add each dismissed finding to a `Dismissed findings` list in the body (step 19).
 13. Get the trail that Entire created for the PR: `entire trail show --branch <branch> --json` gives the trail number `<P>` in `number` and the change URL in `changes[].url`. If the command finds no trail, wait 10 seconds and run the command again.
     - Set the trail with `entire trail update <P> --title "<Thing> (#N)" --type <bug|feature|task> --body "…"`. Write the body with step 6, and include `GitHub PR: <URL>`.
@@ -160,7 +189,7 @@ Do not review your own PR. A subagent does the first review, before the Entire r
 34. When the user says "Approve", approve the trail: `entire trail approve <repo>/<n> -m "<what the user approved>"`. Do not approve the trail before the user says "Approve".
 35. Record the head commit of the PR: `gh pr view <n> --json headRefOid -q .headRefOid`. Then run `entire trail merge <repo>/<n> --dry-run` again. If a gate fails, tell the user the name of the gate and the cause of the failure, and do not merge. If the `Head:` line of the dry run is not the start of the head commit, do not merge, and do step 35 again.
 36. When the user tells you to merge the PR, do step 35 again. If the dry run passes, squash-merge the PR: `gh pr merge <n> --squash --match-head-commit <head commit from step 35>`. If `gh pr merge` fails because the head commit changed, stop and brief the user.
-37. Make sure that GitHub closed the issue: `gh issue view <N> --json state`.
+37. Make sure that GitHub closed each issue in the PR body: `gh issue view <N> --json state`.
 38. Do not close the trail.
 39. Go back to the main checkout. Remove the worktree, and update `main`:
 

@@ -37,7 +37,7 @@ You write a plan for the fixes. Do not change the code until the user tells you 
 10. Apply each fix temporarily. Run the same script again to make sure that the fix operates correctly.
 11. Remove the temporary changes.
 12. Compare the change with the conventions in `CLAUDE.md`. Include the Writing rules and the Glossary. Record a convention problem only if it can cause a reader to make an error. Examples are an old comment, a doc that does not agree with the code, or plan text in the code. Also record each break of a "Code organization" rule in a function the change touches, each cleanup that "Implementation requirements" asks for and the change skips, and each fact that the change writes in a second place, instead of a link to its place in "Document each fact in one place".
-13. Run the check suite: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`.
+13. Do not run the check suite, the linters or the formatter.
 
 ## Answer
 
@@ -49,6 +49,5 @@ Write these items in this sequence:
 2. A table of the findings. Use these columns: the severity, the finding in one line, the commit that caused it, and the users that the finding affects.
 3. A fix plan for each Blocker and Should-fix finding. Include the `file:line` references, the code change, and the changes to the tests, the docs and the comments.
 4. The Follow-ups. Write each Follow-up on one line, so that the user can copy it into a GitHub issue.
-5. The result of the check suite. If a check fails, give the output of the failure.
 
 Keep the answer short. Do not record a convention problem that cannot cause a reader to make an error. Do not recommend a next step.

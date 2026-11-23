@@ -176,7 +176,7 @@ The following glossary defines the vocabulary for Laura's components and interac
   > numbers are references only; explore the current code and write an implementation plan for
   > your task before editing code.
 
-- **Conventions section.** `file:line` pointers to the codebase patterns the implementer must
+- **Conventions section.** `file` → `symbol` pointers to the codebase patterns the implementer must
   follow, each with a one-line description.
 
 ## Entire
