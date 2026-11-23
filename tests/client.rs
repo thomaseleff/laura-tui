@@ -438,6 +438,39 @@ fn a_click_on_the_canvas_keeps_the_shell() -> Result<()> {
     Ok(())
 }
 
+/// #213: a drawer step while the web app reconnects keeps its height. Until the new connection's
+/// layout, the old layout's start height must not take the drawer back.
+#[test]
+fn a_drawer_step_holds_while_the_web_app_reconnects() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.resize(1280, 1100);
+    c.until(&mut r, "the start height", &drawer_at(1100, ">= 18"));
+    let drawer = "parseFloat(document.getElementById('ws').style.getPropertyValue('--drawer'))";
+    let shown = c
+        .eval(&format!("Math.round({drawer})"))
+        .map_err(anyhow::Error::msg)?;
+    // `close` puts the socket in CLOSING at once; the client reconnects after 500 ms.
+    c.eval("ws.close()").map_err(anyhow::Error::msg)?;
+    c.press(CTRL_SHIFT_UP);
+    // A turn of the shell's `ResizeObserver`, with no pump: Laura sends no new layout.
+    let after = c
+        .eval(&format!(
+            "new Promise(r => setTimeout(() => r({drawer}), 100))"
+        ))
+        .map_err(anyhow::Error::msg)?;
+    assert_eq!(
+        after.as_f64(),
+        shown.as_f64().map(|h| h + 5.0),
+        "{shown} → {after}"
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// Each line in the shell, and the links that the shell's link provider finds in it: each link's
 /// text and first column. From `PATH`'s comment in `term.js`.
 const LINKS: &[(&str, &[(&str, u64)])] = &[

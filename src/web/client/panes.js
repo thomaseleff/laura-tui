@@ -161,10 +161,11 @@ function drawerHeight(m) {
   return Math.min(f.max, Math.max(m.drawer_height, Math.ceil(px / root.clientHeight * 100)));
 }
 
-// Show the layout's drawer height, unless the user drags the grip or Laura hasn't confirmed the
-// user's height. `fitShell` calls this again once it measures the shell's rows.
+// Show the layout's drawer height, unless the user drags the grip, Laura hasn't confirmed the
+// user's height, or the socket is closed: the new connection's layout brings Laura's height.
+// `fitShell` calls this again once it measures the shell's rows.
 export function fitDrawer() {
-  if (!layout || ui.resizing || heldDrawer !== null) return ariaDrawer();
+  if (!layout || ui.resizing || heldDrawer !== null || ws?.readyState !== 1) return ariaDrawer();
   showDrawer(drawerHeight(layout));
 }
 
