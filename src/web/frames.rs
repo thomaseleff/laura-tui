@@ -28,63 +28,7 @@ pub(super) fn layout_json(
     ids.sort();
     let panes: Vec<Value> = ids
         .iter()
-        .map(|id| {
-            let r = rects[id];
-            let editor = tab.editors.get(id);
-            let p = tab.panels.get(id);
-            let kind = match (p, editor) {
-                (None, _) => "shell",
-                (Some(p), _) if p.browser => "browser",
-                (_, Some(e)) if e.editor_view => "editor",
-                _ => "file",
-            };
-            // `pty`: the pane streams a terminal, in either view, so the browser keeps its xterm.
-            let pty = *id == PTY_PANE || editor.is_some();
-            let name = p.map_or_else(
-                || tab.shell_name(),
-                |p| {
-                    if p.browser {
-                        // A page without a title, or not loaded yet, goes by its URL.
-                        return tab
-                            .browsers
-                            .get(id)
-                            .map(|b| b.title())
-                            .filter(|t| !t.is_empty())
-                            .unwrap_or(&p.path)
-                            .to_string();
-                    }
-                    Path::new(&p.path)
-                        .file_name()
-                        .map_or_else(|| p.path.clone(), |n| n.to_string_lossy().into_owned())
-                },
-            );
-            let (added, removed) = p.map_or((0, 0), |p| p.diff_stat);
-            let icon = match p {
-                Some(p) if p.browser => Some("globe"),
-                Some(p) if is_page(p) => Some("page"),
-                Some(p) if p.tail => Some("log"),
-                _ => None,
-            };
-            json!({"id": id, "x": r.x, "y": r.y, "w": r.width, "h": r.height,
-                   "kind": kind, "pty": pty, "name": name, "icon": icon,
-                   // The web app places the drawer by CSS, not by its cells.
-                   "drawer": *id == PTY_PANE && tab.drawer_in_use(),
-                   "path": p.map(|p| view::display_path(&p.path)),
-                   "added": added, "removed": removed,
-                   "highlight": p.and_then(|p| match p.highlight {
-                       // A browser pane's highlight names its element.
-                       Some((row, _)) if p.browser => {
-                           p.anchors.get(row).map(|a| json!(view::cut_left(&a.selector, 24)))
-                       }
-                       _ => p.highlight_lines().map(|l| json!(l)),
-                   }),
-                   "diff": p.is_some_and(|p| p.diff_view),
-                   "frozen": p.is_some_and(|p| p.source_changed),
-                   // `null`: the pane can't pause.
-                   "paused": p.filter(|p| p.pausable()).map(|p| p.paused),
-                   "threads": p.map_or(0, Panel::thread_count),
-                   "unsaved": editor.is_some_and(|e| e.modified())})
-        })
+        .map(|id| pane_json(tab, *id, rects[id]))
         .collect();
     // A page takes clicks, not the arrows (keys.js); a page with no route shows rows.
     let page = tab
@@ -122,6 +66,64 @@ pub(super) fn layout_json(
            "shell": {"cols": cols, "rows": rows},
            "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})
     .to_string()
+}
+
+/// Pane `id`'s entry in the layout frame, at rect `r`.
+fn pane_json(tab: &Tab, id: PaneId, r: Rect) -> Value {
+    let editor = tab.editors.get(&id);
+    let p = tab.panels.get(&id);
+    let kind = match (p, editor) {
+        (None, _) => "shell",
+        (Some(p), _) if p.browser => "browser",
+        (_, Some(e)) if e.editor_view => "editor",
+        _ => "file",
+    };
+    // `pty`: the pane streams a terminal, in either view, so the browser keeps its xterm.
+    let pty = id == PTY_PANE || editor.is_some();
+    let name = p.map_or_else(
+        || tab.shell_name(),
+        |p| {
+            if p.browser {
+                // A page without a title, or not loaded yet, goes by its URL.
+                return tab
+                    .browsers
+                    .get(&id)
+                    .map(|b| b.title())
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(&p.path)
+                    .to_string();
+            }
+            Path::new(&p.path)
+                .file_name()
+                .map_or_else(|| p.path.clone(), |n| n.to_string_lossy().into_owned())
+        },
+    );
+    let (added, removed) = p.map_or((0, 0), |p| p.diff_stat);
+    let icon = match p {
+        Some(p) if p.browser => Some("globe"),
+        Some(p) if is_page(p) => Some("page"),
+        Some(p) if p.tail => Some("log"),
+        _ => None,
+    };
+    json!({"id": id, "x": r.x, "y": r.y, "w": r.width, "h": r.height,
+           "kind": kind, "pty": pty, "name": name, "icon": icon,
+           // The web app places the drawer by CSS, not by its cells.
+           "drawer": id == PTY_PANE && tab.drawer_in_use(),
+           "path": p.map(|p| view::display_path(&p.path)),
+           "added": added, "removed": removed,
+           "highlight": p.and_then(|p| match p.highlight {
+               // A browser pane's highlight names its element.
+               Some((row, _)) if p.browser => {
+                   p.anchors.get(row).map(|a| json!(view::cut_left(&a.selector, 24)))
+               }
+               _ => p.highlight_lines().map(|l| json!(l)),
+           }),
+           "diff": p.is_some_and(|p| p.diff_view),
+           "frozen": p.is_some_and(|p| p.source_changed),
+           // `null`: the pane can't pause.
+           "paused": p.filter(|p| p.pausable()).map(|p| p.paused),
+           "threads": p.map_or(0, Panel::thread_count),
+           "unsaved": editor.is_some_and(|e| e.modified())})
 }
 
 /// Send each browser pane's URL, title, whether its page is live (Laura's browser runs it), and
