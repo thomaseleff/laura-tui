@@ -212,19 +212,26 @@ const LINKS: &[(&str, &[(&str, u64)])] = &[
 ];
 
 /// Each of `lines`, alone in the shell's xterm, and its links from the shell's link provider. The
-/// test writes into xterm, not into the shell, so the shell's own output stays out of the rows.
-/// xterm has no public way to ask a link provider, so the JS reads xterm's private `_core`, where
-/// Laura's provider comes after xterm's own (OSC 8).
+/// test writes into xterm, not into the shell. The shell's replay and prompt can reach xterm at any
+/// time, so the JS turns off the shell's writes to xterm and lets xterm finish the bytes it holds
+/// before the first row. xterm has no public way to ask a link provider, so the JS reads xterm's
+/// private `_core`, where Laura's provider comes after xterm's own (OSC 8).
 const PROVIDE_LINKS: &str = "async lines => {
-  const t = terms.get(0), p = t._core?._linkProviderService?.linkProviders?.at(-1);
+  const t = terms.get(0), write = t.write.bind(t), p = t._core?._linkProviderService?.linkProviders?.at(-1);
   if (!p) return 'xterm has no term._core._linkProviderService.linkProviders';
-  const out = [];
-  for (const line of lines) {
-    t.reset();
-    await new Promise(done => t.write(line, done));
-    out.push(await new Promise(done => p.provideLinks(1, ls => done((ls ?? []).map(l => [l.text, l.range.start.x])))));
+  t.write = () => {};
+  try {
+    await new Promise(done => write('', done));
+    const out = [];
+    for (const line of lines) {
+      t.reset();
+      await new Promise(done => write(line, done));
+      out.push(await new Promise(done => p.provideLinks(1, ls => done((ls ?? []).map(l => [l.text, l.range.start.x])))));
+    }
+    return out;
+  } finally {
+    delete t.write;
   }
-  return out;
 }";
 
 #[test]
