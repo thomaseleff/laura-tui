@@ -140,6 +140,12 @@ fn a_second_f12_focuses_the_file_pane_again() -> Result<()> {
     let c = Client::open(&mut r, &path);
     let _dir = into_the_shell(&mut r, &c, |_| c.press(F12))?;
     c.press(F12);
+    // `press` doesn't pump Laura, so the reply hasn't come yet.
+    assert_eq!(
+        c.eval("document.activeElement?.closest('#p0') == null"),
+        Ok(json!(true)),
+        "the shell has the keystrokes before Laura's reply"
+    );
     c.until(
         &mut r,
         "the file pane's focus, with the drawer closed",

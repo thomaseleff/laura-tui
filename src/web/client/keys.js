@@ -56,6 +56,7 @@ let lockFrom = null;
 function lockKey(e) {
   take(e);
   ui.locked = !ui.locked;
+  let back = false;
   // shortcut: a lock under another mode leaves Laura's focus on the pane after the close; move it in the close if users hit it.
   if (modes().join() === "locked" && toShell() && layout.focus !== 0) {
     lockFrom = layout.focus;
@@ -63,12 +64,18 @@ function lockKey(e) {
   } else if (!ui.locked) {
     // shortcut: an unlock before the lock's reply (F12 F12 within one round trip) leaves the focus in the shell; track the move in flight if users hit it.
     // The user moved the focus to another pane and back to the shell: the focus stays.
-    if (lockFrom !== null && layout.focus === 0 && lastFocus === lockFrom && pane(lockFrom)) focusPane(lockFrom);
+    back = lockFrom !== null && layout.focus === 0 && lastFocus === lockFrom && !!pane(lockFrom);
+    if (back) focusPane(lockFrom);
     lockFrom = null;
   }
   // An unlock sends no layout, so the drawer and the shell button repaint here.
   if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
-  followFocus(true);
+  // Laura's focus is still on the shell until the reply: the shell must not take the keystrokes meanwhile.
+  // shortcut: a keystroke between the unlock and Laura's reply goes to no pane; track the move in flight if users hit it.
+  if (back) {
+    terms.get(0)?.blur();
+    root.focus({ preventScroll: true });
+  } else followFocus(true);
   paintHint();
 }
 
