@@ -266,31 +266,8 @@ impl Tab {
             return Ok(self.replace_panel(id, path, follow, highlight, diff, edit, area));
         }
         let new = self.next_pane;
-        let inferred = (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
-            .then(|| infer_split(&self.shown(&self.layout), area, new))
-            .flatten();
-        let (target, dir, ratio, side) = match inferred {
-            Some(t) => t,
-            None => (
-                split.unwrap_or(self.focus),
-                dir.unwrap_or_default(),
-                ratio.unwrap_or(50),
-                side.unwrap_or_default(),
-            ),
-        };
-        // A split never targets the hidden shell: the focus there is the open drawer.
-        let target = if target == PTY_PANE && self.drawer_in_use() {
-            self.fallback_focus()
-        } else {
-            target
-        };
-        // A stacked pane gets only the rows its file needs, up to half.
-        let ratio =
-            if inferred.is_some() && dir == Dir::Vertical && !(edit || diff || follow || url) {
-                self.fit_ratio(&path, target, side, new, area)
-            } else {
-                ratio
-            };
+        let fit = (!(edit || diff || follow || url)).then_some(path.as_str());
+        let (target, dir, ratio, side) = self.place(split, dir, ratio, side, fit, area);
         if dry_run {
             return Ok(self.dry_run_open(&path, target, dir, ratio, side, area));
         }
@@ -339,6 +316,46 @@ impl Tab {
             }
             Err(message) => Err(message.into()),
         }
+    }
+
+    /// Where `open` puts the next pane: the agent's split flags, else an inferred split. `fit`: the
+    /// file whose rows an inferred stacked split fits, `None` for a pane that fills its rect.
+    fn place(
+        &self,
+        split: Option<PaneId>,
+        dir: Option<Dir>,
+        ratio: Option<u16>,
+        side: Option<Side>,
+        fit: Option<&str>,
+        area: Rect,
+    ) -> (PaneId, Dir, u16, Side) {
+        let new = self.next_pane;
+        let inferred = (dir.is_none() && ratio.is_none() && side.is_none() && split.is_none())
+            .then(|| infer_split(&self.shown(&self.layout), area, new))
+            .flatten();
+        let (target, dir, ratio, side) = match inferred {
+            Some(t) => t,
+            None => (
+                split.unwrap_or(self.focus),
+                dir.unwrap_or_default(),
+                ratio.unwrap_or(50),
+                side.unwrap_or_default(),
+            ),
+        };
+        // A split never targets the hidden shell: the focus there is the open drawer.
+        let target = if target == PTY_PANE && self.drawer_in_use() {
+            self.fallback_focus()
+        } else {
+            target
+        };
+        // A stacked pane gets only the rows its file needs, up to half.
+        let ratio = match fit {
+            Some(path) if inferred.is_some() && dir == Dir::Vertical => {
+                self.fit_ratio(path, target, side, new, area)
+            }
+            _ => ratio,
+        };
+        (target, dir, ratio, side)
     }
 
     /// Apply one request to layout/panel state and produce its response.
