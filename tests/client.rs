@@ -15,7 +15,7 @@ mod rig;
 use std::time::Instant;
 
 use anyhow::Result;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use browser_rig::{bare, chrome};
 use client_rig::*;
@@ -197,6 +197,66 @@ fn the_quit_question_takes_the_keystroke_after_f12() -> Result<()> {
     c.press(N);
     c.press(F12);
     c.until(&mut r, "the quit question closes", &format!("!({QUIT})"));
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// The hint line's text.
+const HINT: &str = "document.getElementById('hint').textContent";
+
+/// Opens the help with `open`, resizes the window, which repaints the hint line, and closes the help.
+/// The hint line shows `hint` all along.
+fn help_keeps_the_hint(r: &mut Rig, c: &Client, open: impl Fn(), hint: &Value) {
+    open();
+    c.until(r, "the help", "!document.getElementById('help').hidden");
+    c.eval("dispatchEvent(new Event('resize'))").unwrap();
+    assert_eq!(&c.eval(HINT).unwrap(), hint, "the hint line under the help");
+    c.press(ESCAPE);
+    c.until(
+        r,
+        "the help closes",
+        "document.getElementById('help').hidden",
+    );
+    assert_eq!(&c.eval(HINT).unwrap(), hint, "the hint line after the help");
+}
+
+#[test]
+fn the_hint_line_keeps_the_modes_keystrokes_under_the_help() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    let pane = c.eval(HINT).unwrap();
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.querySelector('.draft textarea')",
+    );
+    let draft = c.eval(HINT).unwrap();
+    assert_ne!(draft, pane, "the draft's hint");
+    help_keeps_the_hint(&mut r, &c, || c.press(CTRL_H), &draft);
+
+    c.press(ESCAPE);
+    c.until(
+        &mut r,
+        "the draft closes",
+        "!document.querySelector('.draft textarea')",
+    );
+    c.press(F12);
+    let locked = c.until(
+        &mut r,
+        "the lock's hint",
+        &format!("{HINT}.includes('🔒 locked') && {HINT}"),
+    );
+    let click = || {
+        c.eval("document.getElementById('helpbtn').click()")
+            .unwrap();
+    };
+    help_keeps_the_hint(&mut r, &c, click, &locked);
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

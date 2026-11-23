@@ -1,7 +1,7 @@
 // The workspace's bottom line and corner: the notice, the hint line, the status bar and the shell
 // button.
 
-import { $, act, drawerOpen, focused, layout, mode, pane, send, ui } from "./state.js";
+import { $, act, drawerOpen, focused, layout, modes, pane, send, ui } from "./state.js";
 import { ch } from "./term.js";
 import { followFocus, lastFocus, unseen } from "./panes.js";
 import { frameOf } from "./pages.js";
@@ -50,12 +50,13 @@ export function paintHint() {
     : b?.dialog ? (b.dialog.type === "beforeunload" ? h.browser_leave : h.browser_dialog) : typing ? h.browser_typing : h.pane;
   // As the keydown listener: comment mode's hint only over a file or browser pane's own plain hint.
   const own = ui.commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
-  // The mode that takes the keystrokes shows its hint; the help, the overlay and no mode show the pane's.
+  // The first mode with a hint shows it, so under the help and the overlay the hint line shows the
+  // mode below them; with no such mode, the hint line shows the pane's.
   const by = {
     quit: h.quit, locked: h.locked, draft: ui.draft?.hint, menu: h.workspace,
     selector: $("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes,
   };
-  const m = mode(), pairs = m in by ? by[m] : own;
+  const m = modes().find(k => k in by), pairs = m ? by[m] : own;
   const groups = (pairs ?? []).map(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;

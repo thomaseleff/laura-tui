@@ -19,7 +19,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `workspaces.js`: the workspace switcher, its menu, the browser tab, and the overlay.
 - `main.js`: `connect`, which hands each frame to its module, and the start.
 
-`ui` holds the modes, and `mode()` tells which mode takes a keystroke, first to last. The keydown listener, `termKeys` and the hint line all ask `mode()`. A new mode is a field of `ui` and a case of `mode()`.
+`ui` holds the modes. `modes()` lists every mode that is on, first to last, and `mode()`, its first, takes a keystroke. The keydown listener and `termKeys` ask `mode()`. The hint line shows the first mode in `modes()` that has a hint, so under the help and the overlay the hint line shows the mode below them. A new mode is a field of `ui` and a case of `modes()`.
 
 A top-level `let` lives in the module that assigns it, and other modules read it through an import. When another module must change it, the owner exports a small function for that change, such as `setLayout`. Top-level code must not call an imported `const` function: a module in an import cycle can run before that function exists.
 

@@ -65,16 +65,16 @@ export const focused = () => pane(layout?.focus);
 export const toShell = () => ui.locked && focused()?.kind !== "editor";
 // The drawer shows while the shell has the focus or the lock's keystrokes.
 export const drawerOpen = () => layout.focus === 0 || toShell();
-// The mode that takes a keystroke before any pane, first to last; null when the focused pane takes it.
+// The modes on now, first to last: the first takes a keystroke before any pane.
+export function modes() {
+  return [
+    !$("overlay").hidden && "overlay", !$("menu").hidden && "menu", ui.help && "help",
+    ui.popup !== null && "selector", ui.confirmQuit && "quit", ui.locked && "locked", !!ui.draft && "draft",
+  ].filter(Boolean);
+}
+// The mode that takes a keystroke; null when the focused pane takes it.
 export function mode() {
-  if (!$("overlay").hidden) return "overlay";
-  if (!$("menu").hidden) return "menu";
-  if (ui.help) return "help";
-  if (ui.popup !== null) return "selector";
-  if (ui.confirmQuit) return "quit";
-  if (ui.locked) return "locked";
-  if (ui.draft) return "draft";
-  return null;
+  return modes()[0] ?? null;
 }
 const overlayOpen = () => ["overlay", "menu", "help", "selector", "quit"].includes(mode());
 export const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
