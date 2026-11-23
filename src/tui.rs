@@ -219,8 +219,11 @@ pub fn spawn_tab(program: &[String], rows: u16, cols: u16, web: bool) -> Result<
     Ok(tab)
 }
 
+/// A bottom-right toast: its text, its expiry, and the error it shows.
+type Toast = (String, Instant, Option<laura::tab::Error>);
+
 /// The toast shows a failed submit, which a retry or `Esc` takes down.
-fn submit_failed(toast: &Option<(String, Instant, Option<laura::tab::Error>)>) -> bool {
+fn submit_failed(toast: &Option<Toast>) -> bool {
     matches!(toast, Some((_, _, Some(laura::tab::Error::SubmitFailed))))
 }
 
@@ -242,7 +245,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     // A transient bottom-right toast (message + expiry + the error it shows, which a failed submit
     // sets); armed by a queued notice, and once if `git` is missing. The user turned editor panes on, so a missing `nvim` is said at startup,
     // not left to a refused `--edit`.
-    let mut toast: Option<(String, Instant, Option<laura::tab::Error>)> = tab
+    let mut toast: Option<Toast> = tab
         .editor
         .as_ref()
         .err()
