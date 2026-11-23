@@ -177,3 +177,75 @@ fn ctrl_p_opens_the_pane_selector() -> Result<()> {
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
+
+/// Each line in the shell, and the links that the shell's link provider finds in it: each link's
+/// text and first column. From `PATH`'s comment in `app.js`.
+const LINKS: &[(&str, &[(&str, u64)])] = &[
+    ("src/tab.rs:41", &[("src/tab.rs:41", 1)]),
+    ("src/foo.test.ts", &[("src/foo.test.ts", 1)]),
+    // No `/` or `\`: a word, not a path.
+    ("foo.test.ts", &[]),
+    ("app/[slug]/page.tsx", &[("app/[slug]/page.tsx", 1)]),
+    ("app/(group)/page.tsx", &[("app/(group)/page.tsx", 1)]),
+    (
+        "packages/@scope/pkg/index.ts",
+        &[("packages/@scope/pkg/index.ts", 1)],
+    ),
+    ("Update(src/a.rs)", &[("src/a.rs", 8)]),
+    ("**src/a.rs**", &[("src/a.rs", 3)]),
+    ("src/**/a.rs", &[]),
+    ("**/a.rs", &[]),
+    ("https://x.com/@a/b.js", &[]),
+    ("~/a/b.rs", &[]),
+    ("foo.test.js/index", &[]),
+    ("logs/app.log.1", &[]),
+    (r"C:\src\main.rs:12", &[(r"C:\src\main.rs:12", 1)]),
+    ("./a/b.rs", &[("./a/b.rs", 1)]),
+    ("../x/y.py:3", &[("../x/y.py:3", 1)]),
+    ("see src/a.rs.", &[("src/a.rs", 5)]),
+    (
+        "src/a.rs and lib/b.py",
+        &[("src/a.rs", 1), ("lib/b.py", 14)],
+    ),
+    // The emoji takes two columns.
+    ("🚀 src/a.rs", &[("src/a.rs", 4)]),
+];
+
+/// Each of `lines`, alone in the shell's xterm, and its links from the shell's link provider. The
+/// test writes into xterm, not into the shell, so the shell's own output stays out of the rows.
+/// xterm has no public way to ask a link provider, so the JS reads xterm's private `_core`, where
+/// Laura's provider comes after xterm's own (OSC 8).
+const PROVIDE_LINKS: &str = "async lines => {
+  const t = terms.get(0), p = t._core?._linkProviderService?.linkProviders?.at(-1);
+  if (!p) return 'xterm has no term._core._linkProviderService.linkProviders';
+  const out = [];
+  for (const line of lines) {
+    t.reset();
+    await new Promise(done => t.write(line, done));
+    out.push(await new Promise(done => p.provideLinks(1, ls => done((ls ?? []).map(l => [l.text, l.range.start.x])))));
+  }
+  return out;
+}";
+
+#[test]
+fn the_shell_links_these_paths() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let lines: Vec<&str> = LINKS.iter().map(|(l, _)| *l).collect();
+    let got = c
+        .eval(&format!("({PROVIDE_LINKS})({})", json!(lines)))
+        .expect("the links");
+    let want: Vec<_> = LINKS.iter().map(|(_, links)| json!(links)).collect();
+    for ((line, want), got) in lines
+        .iter()
+        .zip(&want)
+        .zip(got.as_array().into_iter().flatten())
+    {
+        assert_eq!(got, want, "{line}");
+    }
+    assert_eq!(got.as_array().map(Vec::len), Some(lines.len()), "{got}");
+    Ok(())
+}

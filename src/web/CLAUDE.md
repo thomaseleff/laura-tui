@@ -66,4 +66,6 @@ The client tests run `app.js` itself. They are one test binary, `tests/client.rs
 
 A change to a keystroke, a focus move or a rule in the client adds a client test. A client test for a known bug is `#[ignore]`, and the reason names the issue that fixes the bug.
 
+`LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
+
 The rig's JS reads the client's top-level names `layout`, `terms` and `PATH`. A change that moves them, such as a split of `app.js` into ES modules, keeps them on `globalThis` (for example, `globalThis.terms = terms`).
