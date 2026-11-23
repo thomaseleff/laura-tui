@@ -54,3 +54,13 @@ The web tests are one test binary, `tests/web/`, with one module for each featur
 
 - Add a web test to the module for its feature.
 - Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.
+
+### Client tests
+
+The client tests run `app.js` itself. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`. The rig's `//!` paragraph and the docs of its methods tell how a test opens the page, presses keys and waits.
+
+A change to a keystroke, a focus move or a rule in the client adds a client test. A client test for a known bug is `#[ignore]`, and the reason names the issue that fixes the bug.
+
+`LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
+
+The rig's JS reads some of the client's top-level names. The note above `let ws, layout` in `app.js` names them, and tells how a change that moves them keeps them reachable.
