@@ -517,6 +517,10 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
                     "Lock every keystroke to the shell or the editor pane",
                 ),
                 ("drag", "Select text in a pane and copy it on release"),
+                (
+                    "drag",
+                    "On the line between panes: resize them; double-click to give the size back to Laura",
+                ),
                 ("Ctrl+Q", "Quit, then y"),
             ],
         ),
@@ -555,6 +559,14 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
         groups[0]
             .1
             .insert(2, ("Ctrl+Shift+↑ ↓", "Make the drawer taller or shorter"));
+        // After the line between panes.
+        groups[0].1.insert(
+            7,
+            (
+                "← → ↑ ↓ Home",
+                "On a focused line: move the line 5%, or give the size back to Laura",
+            ),
+        );
         groups.push((
             "Comment mode on an HTML page",
             vec![

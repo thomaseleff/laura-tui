@@ -838,3 +838,36 @@ fn docking_again_drops_a_size_that_no_longer_fits() -> Result<()> {
     assert_eq!(docked["splits"][0]["pinned"], false, "{docked}");
     Ok(())
 }
+
+/// #211: the help names the line between panes in both front-ends, and its keystrokes in the web
+/// app, where the keyboard reaches the line.
+#[test]
+fn the_help_names_the_line_between_panes() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let strings = rig.until(&mut ws, "strings", |f| f.is("strings")).json();
+    let workspace = strings["help"]
+        .as_array()
+        .and_then(|gs| gs.iter().find(|g| g[0] == "Workspace"))
+        .expect("a Workspace group");
+    let line = |keys: &[(&str, &str)]| {
+        keys.iter()
+            .any(|&(k, d)| k == "drag" && d.starts_with("On the line between panes"))
+    };
+    let web: Vec<(&str, &str)> = workspace[1]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|k| Some((k[0].as_str()?, k[1].as_str()?)))
+        .collect();
+    assert!(line(&web), "{workspace}");
+    assert!(web.iter().any(|&(k, _)| k == "← → ↑ ↓ Home"), "{workspace}");
+    let tui = laura::view::help(false);
+    assert!(line(&tui[0].1), "{:?}", tui[0]);
+    assert!(
+        !tui[0].1.iter().any(|&(k, _)| k == "← → ↑ ↓ Home"),
+        "{:?}",
+        tui[0]
+    );
+    Ok(())
+}
