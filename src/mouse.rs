@@ -11,8 +11,15 @@ use ratatui::style::Modifier;
 use laura::PaneId;
 use vt100::MouseProtocolMode;
 
-/// An in-progress (or just-finished) drag selection, in absolute buffer coords. A drag can't span a
-/// tab switch, so this is a `run()` local — `Tab` stays untouched.
+/// The TUI's pointer state across mouse events. A drag can't span a tab switch, so this is a
+/// `run()` local — `Tab` stays untouched.
+#[derive(Default)]
+pub struct Pointer {
+    /// An in-progress left-drag selection.
+    pub selection: Option<Selection>,
+}
+
+/// An in-progress (or just-finished) drag selection, in absolute buffer coords.
 pub struct Selection {
     /// The pane the drag started in; the head is clamped to this pane for the whole drag.
     pub pane: PaneId,

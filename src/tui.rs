@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use portable_pty::CommandBuilder;
 use ratatui::backend::Backend;
+use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{
-    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::{Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -28,7 +29,7 @@ use laura::view::{self, Hint};
 use laura::{PaneId, Panel, PtyTab, Tab, UserAction};
 
 use crate::keys::key_to_bytes;
-use crate::mouse::{self, Selection};
+use crate::mouse::{self, Pointer, Selection};
 
 /// Windows delivers a paste as a burst of key events (no `Event::Paste`). Given the first key of a
 /// suspected burst, drain everything already queued and fold it into one paste. A real paste is text
@@ -240,8 +241,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     // Draft captures typing for a comment or the review body.
     let mut draft: Option<Draft> = None;
     let mut help = false;
-    // An in-progress left-drag selection.
-    let mut selection: Option<Selection> = None;
+    let mut pointer = Pointer::default();
     // A transient bottom-right toast (message + expiry + the error it shows, which a failed submit
     // sets); armed by a queued notice, and once if `git` is missing. The user turned editor panes on, so a missing `nvim` is said at startup,
     // not left to a refused `--edit`.
@@ -398,7 +398,7 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                 );
             }
             // Reverse-video the drag selection over whatever was just drawn (PTY or panel, one path).
-            if let Some(sel) = &selection
+            if let Some(sel) = &pointer.selection
                 && let Some(rect) = rect_map.get(&sel.pane)
             {
                 let inner = rect.inner(Margin::new(1, 1));
@@ -407,7 +407,10 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
         })?;
         // The post-draw buffer swap resets `current_buffer`, so copy-on-release must read the frame
         // that just showed the selection — snapshot it here while a drag is live, not the empty next one.
-        let drag_frame = selection.is_some().then(|| completed.buffer.clone());
+        let drag_frame = pointer
+            .selection
+            .is_some()
+            .then(|| completed.buffer.clone());
 
         // The shell exiting quits Laura, once no Neovim has unsaved edits.
         if tab.shell_done() {
@@ -668,102 +671,117 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     }
                     // Popups / focused panel without a draft / help / confirm — paste is meaningless, drop it.
                 }
-                // Mouse: a child in SGR mouse mode gets real events; else the wheel scrolls
-                // history/cursor and a plain left drag selects within the pane. Shift+drag is the
-                // terminal's own reserved gesture (native, whole-window selection).
-                Event::Mouse(m) => {
-                    let over = pane_at_point(&rect_map, m.column, m.row);
-                    let left = matches!(
-                        m.kind,
-                        MouseEventKind::Down(MouseButton::Left)
-                            | MouseEventKind::Drag(MouseButton::Left)
-                            | MouseEventKind::Up(MouseButton::Left)
-                    );
-
-                    let capture = over.and_then(|id| {
-                        let pty = tab.pane_pty(id)?;
-                        Some((id, pty, pty.mouse_capture()?))
-                    });
-                    if let Some((id, pty, mode)) = capture {
-                        // Forward to the child; no `to_live` — forwarding mustn't disturb the view.
-                        let inner = rect_map
-                            .get(&id)
-                            .map_or(pty_inner, |r| r.inner(Margin::new(1, 1)));
-                        if let Some(bytes) = mouse::sgr_mouse_bytes(&m, inner, mode) {
-                            let _ = pty.write(&bytes);
-                        }
-                    } else {
-                        match m.kind {
-                            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-                                let step: isize = if matches!(m.kind, MouseEventKind::ScrollUp) {
-                                    -3
-                                } else {
-                                    3
-                                };
-                                match over {
-                                    Some(PTY_PANE) | None => tab.pty.scroll(-step),
-                                    // Neovim without mouse mode drops the wheel: the panel under it is hidden.
-                                    Some(id) => {
-                                        if tab.pane_pty(id).is_none()
-                                            && let Some(p) = tab.panels.get_mut(&id)
-                                        {
-                                            p.scroll_view(step);
-                                        }
-                                    }
-                                }
-                            }
-                            _ if left => {
-                                mouse::update_selection(&mut selection, &m, over, &rect_map)
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    // Finish a selection on release: copy its glyphs (OSC 52 to our own stdout), then clear.
-                    if matches!(m.kind, MouseEventKind::Up(MouseButton::Left))
-                        && let Some(sel) = selection.take()
-                        && sel.anchor != sel.head
-                        && let Some(buf) = &drag_frame
-                        && let Some(rect) = rect_map.get(&sel.pane)
-                    {
-                        let inner = rect.inner(Margin::new(1, 1));
-                        // Panels draw a gutter + wrap the source, so copy source-aware; the PTY owns
-                        // its own glyphs (no gutter, child wraps) → scrape as-is.
-                        let panel = tab
-                            .panels
-                            .get(&sel.pane)
-                            .filter(|_| tab.pane_pty(sel.pane).is_none());
-                        let text = match panel {
-                            Some(panel) => {
-                                let layout = panel.layout(inner.width as usize);
-                                let off = panel.scroll_offset(&layout, inner.height as usize);
-                                let line_at: Vec<Option<usize>> = layout
-                                    .rows
-                                    .iter()
-                                    .map(|r| (!r.comment).then_some(r.line))
-                                    .collect();
-                                let gutter = layout.gutter_width as u16 + 5;
-                                mouse::extract_panel(
-                                    buf, inner, gutter, off, &line_at, sel.anchor, sel.head,
-                                )
-                            }
-                            None => mouse::extract(buf, inner, sel.anchor, sel.head),
-                        };
-                        if !text.is_empty() {
-                            use std::io::Write;
-                            let mut out = std::io::stdout();
-                            let _ = out.write_all(&mouse::osc52(&text));
-                            let _ = out.flush();
-                            #[cfg(target_os = "macos")]
-                            mouse::pbcopy_in_order(text);
-                        }
-                    }
-                }
+                Event::Mouse(m) => on_mouse(
+                    &mut tab,
+                    m,
+                    &rect_map,
+                    pty_inner,
+                    &mut pointer,
+                    drag_frame.as_ref(),
+                ),
                 _ => {}
             }
         }
     }
     Ok(())
+}
+
+/// Mouse: a child in SGR mouse mode gets real events; else the wheel scrolls history/cursor and a
+/// plain left drag selects within the pane. Shift+drag is the terminal's own reserved gesture
+/// (native, whole-window selection). `drag_frame`: the frame that showed the selection.
+fn on_mouse(
+    tab: &mut Tab,
+    m: MouseEvent,
+    rect_map: &HashMap<PaneId, Rect>,
+    pty_inner: Rect,
+    pointer: &mut Pointer,
+    drag_frame: Option<&Buffer>,
+) {
+    let over = pane_at_point(rect_map, m.column, m.row);
+    let left = matches!(
+        m.kind,
+        MouseEventKind::Down(MouseButton::Left)
+            | MouseEventKind::Drag(MouseButton::Left)
+            | MouseEventKind::Up(MouseButton::Left)
+    );
+
+    let capture = over.and_then(|id| {
+        let pty = tab.pane_pty(id)?;
+        Some((id, pty, pty.mouse_capture()?))
+    });
+    if let Some((id, pty, mode)) = capture {
+        // Forward to the child; no `to_live` — forwarding mustn't disturb the view.
+        let inner = rect_map
+            .get(&id)
+            .map_or(pty_inner, |r| r.inner(Margin::new(1, 1)));
+        if let Some(bytes) = mouse::sgr_mouse_bytes(&m, inner, mode) {
+            let _ = pty.write(&bytes);
+        }
+    } else {
+        match m.kind {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let step: isize = if matches!(m.kind, MouseEventKind::ScrollUp) {
+                    -3
+                } else {
+                    3
+                };
+                match over {
+                    Some(PTY_PANE) | None => tab.pty.scroll(-step),
+                    // Neovim without mouse mode drops the wheel: the panel under it is hidden.
+                    Some(id) => {
+                        if tab.pane_pty(id).is_none()
+                            && let Some(p) = tab.panels.get_mut(&id)
+                        {
+                            p.scroll_view(step);
+                        }
+                    }
+                }
+            }
+            _ if left => mouse::update_selection(&mut pointer.selection, &m, over, rect_map),
+            _ => {}
+        }
+    }
+
+    // Finish a selection on release: copy its glyphs (OSC 52 to our own stdout), then clear.
+    if matches!(m.kind, MouseEventKind::Up(MouseButton::Left))
+        && let Some(sel) = pointer.selection.take()
+        && sel.anchor != sel.head
+        && let Some(buf) = drag_frame
+        && let Some(rect) = rect_map.get(&sel.pane)
+    {
+        copy_selection(tab, &sel, buf, rect.inner(Margin::new(1, 1)));
+    }
+}
+
+/// Copy the glyphs `sel` covers in `buf` to the clipboard. Panels draw a gutter + wrap the
+/// source, so copy source-aware; the PTY owns its own glyphs (no gutter, child wraps) → scrape as-is.
+fn copy_selection(tab: &Tab, sel: &Selection, buf: &Buffer, inner: Rect) {
+    let panel = tab
+        .panels
+        .get(&sel.pane)
+        .filter(|_| tab.pane_pty(sel.pane).is_none());
+    let text = match panel {
+        Some(panel) => {
+            let layout = panel.layout(inner.width as usize);
+            let off = panel.scroll_offset(&layout, inner.height as usize);
+            let line_at: Vec<Option<usize>> = layout
+                .rows
+                .iter()
+                .map(|r| (!r.comment).then_some(r.line))
+                .collect();
+            let gutter = layout.gutter_width as u16 + 5;
+            mouse::extract_panel(buf, inner, gutter, off, &line_at, sel.anchor, sel.head)
+        }
+        None => mouse::extract(buf, inner, sel.anchor, sel.head),
+    };
+    if !text.is_empty() {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        let _ = out.write_all(&mouse::osc52(&text));
+        let _ = out.flush();
+        #[cfg(target_os = "macos")]
+        mouse::pbcopy_in_order(text);
+    }
 }
 
 /// A bordered draft input box pinned to the bottom of `area` (the shell pane). Grows 2..=6 rows,
