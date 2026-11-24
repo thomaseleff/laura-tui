@@ -53,6 +53,14 @@ fn a_collapsed_thread_says_so() -> Result<()> {
     rig.until(&mut ws, "a collapsed thread", |f| {
         matches!(f, Frame::Json(v) if v["id"] == 1 && v["threads"][0]["collapsed"] == true && v["card"].is_null())
     });
+    // The rows show no caret, and not the TUI's minimized card: the browser draws its own.
+    let mut ws = rig.connect();
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(!html.contains('▸') && !html.contains('▾'), "{html}");
+    assert!(!html.contains("1 comment"), "{html}");
     Ok(())
 }
 

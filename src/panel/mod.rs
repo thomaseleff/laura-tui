@@ -21,9 +21,9 @@ use crate::gitdiff::{ChangeKind, DiffOutcome};
 use crate::protocol::PaneId;
 use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
 
-/// The gutter's cells between the line number and the text: sep · change · sep · caret · sep
+/// The gutter's cells between the line number and the text: sep · change · sep
 /// (`view::panel_lines`).
-pub(crate) const DECOR: usize = 5;
+pub(crate) const DECOR: usize = 3;
 
 /// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
 pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
@@ -142,7 +142,7 @@ impl Note {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thread {
     pub line: usize,
-    /// Card show/hide and gutter-caret shape. Starts expanded.
+    /// The card shows in full, or minimized to one row. Starts expanded.
     pub collapsed: bool,
     pub root: Note,
     /// Newest last, one level deep.
@@ -853,11 +853,6 @@ impl Panel {
                     // Bar runs every wrapped row of the changed paragraph; row_change folds
                     // the block's source range, identical for each row of line i (#35).
                     change: self.row_change(i),
-                    // Caret only on the line's first row; carries collapse shape.
-                    review: (k == 0)
-                        .then(|| self.thread_at(i))
-                        .flatten()
-                        .map(|t| t.collapsed),
                 });
             }
             // The EOF gap sits between the last line and its card, as the web app orders them.
@@ -939,7 +934,6 @@ impl Panel {
                             spans: vec![Span::styled(chunk, red)],
                             comment: false,
                             change: None,
-                            review: None,
                         });
                     }
                 }
@@ -967,7 +961,6 @@ impl Panel {
                     spans: vec![span],
                     comment: false,
                     change: None,
-                    review: None,
                 });
             }
         }
@@ -1113,9 +1106,6 @@ pub struct PanelRow {
     /// Gutter-bar change, folded from the row's source range; `None` on continuation/comment/gap
     /// rows and in diff-view. The renderer keys the bar off this (#32).
     pub change: Option<ChangeKind>,
-    /// Review caret on the line's first row: `Some(collapsed)` = a thread here, shape carries
-    /// collapse (`▸`/`▾`) (#45).
-    pub review: Option<bool>,
 }
 
 impl PanelRow {
@@ -1146,8 +1136,8 @@ impl PanelLayout {
 fn gap_row(n: usize, line: usize, tw: usize) -> PanelRow {
     let word = if n == 1 { "line" } else { "lines" };
     let mut label = format!("── {n} {word} removed ");
-    // +2 so the separator still reaches the pane edge from the caret-aligned indent (+3, not +5).
-    let dashes = (tw + 2).saturating_sub(label.chars().count());
+    // The row's indent is the gutter's, so the dashes reach the pane edge at the text width.
+    let dashes = tw.saturating_sub(label.chars().count());
     label.push_str(&"─".repeat(dashes));
     PanelRow {
         line,
@@ -1158,7 +1148,6 @@ fn gap_row(n: usize, line: usize, tw: usize) -> PanelRow {
         )],
         comment: true,
         change: None,
-        review: None,
     }
 }
 

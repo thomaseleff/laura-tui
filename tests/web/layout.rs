@@ -531,8 +531,8 @@ fn web_layout_counts_the_gutter_column() -> Result<()> {
     let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
     let w = report["panes"][1]["rect"]["width"].as_u64().expect("width") as usize;
     // Fills the TUI's text width exactly: the border's two columns, then a one-digit line number
-    // and the gutter's five cells (`Panel::layout`).
-    std::fs::write(&path, format!("{}\n", "y".repeat(w - 2 - 6)))?;
+    // and the gutter's three cells (`Panel::layout`).
+    std::fs::write(&path, format!("{}\n", "y".repeat(w - 2 - 4)))?;
     let start = Instant::now();
     while !rig.tab.panels[&1].content.contains('y') {
         assert!(

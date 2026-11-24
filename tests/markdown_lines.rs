@@ -719,7 +719,7 @@ fn fenced_block_stays_one_rectangle_when_clipped() -> Result<()> {
         "x".repeat(100)
     ))?;
     let layout = Panel::open(p).layout(80);
-    let tw = 80 - (layout.gutter_width + 5); // 1-digit gutter → 74
+    let tw = 80 - layout.text_col(); // 1-digit gutter → 76
     let code: Vec<&PanelRow> = layout.rows.iter().filter(|r| is_code_row(r)).collect();
     assert_eq!(code.len(), 4, "all four code lines stay boxed");
     let w0 = row_width(code[0]);

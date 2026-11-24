@@ -93,38 +93,57 @@ fn card_labels_human_as_you_and_titlecases_unnamed_agent() -> Result<()> {
 }
 
 #[test]
-fn layout_carets_and_collapses_threads() -> Result<()> {
+fn a_collapsed_thread_shows_a_minimized_card() -> Result<()> {
     let mut file = tempfile::NamedTempFile::new()?;
     write!(file, "line 0\nline 1\nline 2")?;
     file.flush()?;
     let mut panel = Panel::open(file.path().to_str().unwrap().to_string());
     panel.move_cursor(1);
     panel.author_note("note".into());
+    panel
+        .agent_note(2, Some("reply".into()), Some("claude".into()))
+        .unwrap(); // a reply on the user's thread, line 2
     drop(file);
+    let text = |panel: &Panel, w: usize| -> Vec<String> {
+        let layout = panel.layout(w);
+        // The gutter has no caret cell: no row shows a caret.
+        assert!(
+            layout
+                .rows
+                .iter()
+                .all(|r| !r.text().contains('▸') && !r.text().contains('▾'))
+        );
+        layout
+            .rows
+            .iter()
+            .filter(|r| r.comment)
+            .map(|r| r.text())
+            .collect()
+    };
 
-    // Expanded: the line's body row carries an expanded caret and the card renders.
-    let layout = panel.layout(40);
-    let body = layout
-        .rows
-        .iter()
-        .find(|r| r.gutter == Some(2))
-        .expect("body row for line 1");
-    assert_eq!(body.review, Some(false), "expanded");
-    assert!(layout.rows.iter().any(|r| r.comment), "card is drawn");
-
-    // Collapsed: caret flips and no card rows survive.
-    panel.toggle_collapsed(1);
-    let layout = panel.layout(40);
-    let body = layout
-        .rows
-        .iter()
-        .find(|r| r.gutter == Some(2))
-        .expect("body row for line 1");
-    assert_eq!(body.review, Some(true), "collapsed");
+    // Expanded: the full card, both comments.
+    let card = text(&panel, 40).join("\n");
     assert!(
-        !layout.rows.iter().any(|r| r.comment),
-        "collapsed thread draws no card"
+        card.contains("You · note") && card.contains("claude · reply"),
+        "{card}"
     );
+
+    // Collapsed: one row with the line, the authors in order, and the count.
+    panel.toggle_collapsed(1);
+    let card = text(&panel, 40);
+    assert_eq!(card.len(), 1, "{card:?}");
+    assert_eq!(card[0].trim(), "L2 · You, claude · 2 comments");
+
+    // A narrow pane cuts the card with `…` inside the text column.
+    let w = 20;
+    let layout = panel.layout(w);
+    let row = layout
+        .rows
+        .iter()
+        .find(|r| r.comment)
+        .expect("the card row");
+    assert!(row.text().ends_with('…'), "{}", row.text());
+    assert!(layout.text_col() + row.text().chars().count() <= w);
     Ok(())
 }
 
@@ -191,7 +210,7 @@ fn layout_wraps_long_lines_within_width() -> Result<()> {
     assert!(layout.rows[1..].iter().all(|r| r.gutter.is_none()));
 
     // gutter (`gw` digits + space) + text never exceeds the text area.
-    let budget = inner_w - (layout.gutter_width + 5);
+    let budget = inner_w - layout.text_col();
     for r in &layout.rows {
         assert!(
             r.text().chars().count() <= budget,
@@ -229,10 +248,9 @@ fn markdown_rows_fit_the_pane_width() -> Result<()> {
     for w in [40, 60, 80, 101, 120] {
         let layout = panel.layout(w);
         for r in &layout.rows {
-            // Card rows get the 3-cell indent `view::panel_lines` adds; body rows the full 5-cell gutter.
-            let deco = if r.comment { 3 } else { 5 };
+            // Card rows and body rows both start at the text column.
             assert!(
-                layout.gutter_width + deco + r.text().chars().count() <= w,
+                layout.text_col() + r.text().chars().count() <= w,
                 "row overflows w={w}: {:?}",
                 r.text()
             );

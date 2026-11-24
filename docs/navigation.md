@@ -155,6 +155,7 @@ An inline review is a **call and response**. Your comments and the agent's comme
 ### Threads and inline reviews
 
 - Laura shows each thread below its line. Click **Reply…** to add a comment. On a thread that ends with your comment, click **Edit…** or **Delete**.
+- Laura shows a collapsed thread as one row below its line, with the line number, the authors of the comments and the number of comments. Click the row to expand the thread.
 - Click the thread count in the pane header to list the pane's threads, then click a thread to move the cursor to it.
 - While you type a comment or a review body, Laura holds the agent's commands until you press `Enter` or `Esc`, close the browser tab, or open the workspace in another tab.
 - When a submit fails, Laura keeps the threads and the review body. Click **Retry submit** or press `Enter` to try again.

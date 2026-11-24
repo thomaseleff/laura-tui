@@ -6,6 +6,7 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 
 use crate::editor::Nvim;
+use crate::panel::DECOR;
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::CODE_BG;
 use crate::{ChangeKind, Panel, PanelLayout, PanelRow, Tab};
@@ -168,8 +169,8 @@ pub fn panel_lines(
                 None => format!("{:>gw$}", ""),
             };
             if r.comment {
-                // Card/gap rows emit at column 0; blank number + 3 lands the card border under the caret.
-                let mut spans = vec![Span::raw(number), Span::raw(" ".repeat(3))];
+                // Card/gap rows emit at column 0; the blank gutter lands them under the code.
+                let mut spans = vec![Span::raw(number), Span::raw(" ".repeat(DECOR))];
                 spans.extend(r.spans.iter().cloned());
                 Line::from(spans)
             } else {
@@ -225,8 +226,8 @@ pub fn panel_lines(
         .collect()
 }
 
-/// A text row's gutter, `DECOR` cells past the number: number · sep · change · sep · caret · sep.
-/// The change cell is a `▌` half-block in higher-contrast diff colors; the caret carries thread state.
+/// A text row's gutter, `DECOR` cells past the number: number · sep · change · sep.
+/// The change cell is a `▌` half-block in higher-contrast diff colors.
 fn gutter_spans(r: &PanelRow, number: String, highlighted: bool) -> Vec<Span<'static>> {
     let number = if highlighted {
         Span::styled(number, Style::default().fg(HL_NUMBER))
@@ -246,18 +247,7 @@ fn gutter_spans(r: &PanelRow, number: String, highlighted: bool) -> Vec<Span<'st
             )
         })
         .unwrap_or_else(|| Span::raw(" "));
-    let caret = match r.review {
-        Some(collapsed) => Span::raw(if collapsed { "▸" } else { "▾" }),
-        None => Span::raw(" "),
-    };
-    vec![
-        number,
-        Span::raw(" "),
-        change,
-        Span::raw(" "),
-        caret,
-        Span::raw(" "),
-    ]
+    vec![number, Span::raw(" "), change, Span::raw(" ")]
 }
 
 /// What the hint line describes.

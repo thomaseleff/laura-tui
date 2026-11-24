@@ -203,8 +203,7 @@ pub(super) fn block_units(
             .enumerate()
         {
             if !row.comment {
-                // The highlighted number, the change cell and the caret show if any row of the block
-                // has one. A stop's caret shows on the stop instead.
+                // The highlighted number and the change cell show if any row of the block has one.
                 // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
                 if panel
                     .highlight
@@ -213,15 +212,11 @@ pub(super) fn block_units(
                 {
                     n.style = s.style;
                 }
-                // The first non-blank span wins, except that an open caret wins over a closed one.
-                let stop = b.stops().iter().any(|&(r, _)| r == row.line);
-                for k in [2, 4].into_iter().filter(|&k| k == 2 || !stop) {
-                    if let Some(g) = gutter.get_mut(k)
-                        && let Some(s) = line.spans.get(k).filter(|s| !blank(s))
-                        && (blank(g) || (k == 4 && s.content == "▾"))
-                    {
-                        *g = s.clone();
-                    }
+                // The first non-blank change cell wins.
+                if let Some(g) = gutter.get_mut(2).filter(|g| blank(g))
+                    && let Some(s) = line.spans.get(2).filter(|s| !blank(s))
+                {
+                    *g = s.clone();
                 }
             } else if first + i > layout.starts[row.line] {
                 continue;
@@ -229,7 +224,7 @@ pub(super) fn block_units(
                 units.push(row_html(panel, row, line));
             }
         }
-        let md = mark_stops(panel, b, b.html().replace('\0', base));
+        let md = mark_cursor_stop(panel, b, b.html().replace('\0', base));
         let has_cursor = b.rows.contains(&panel.cursor);
         let cur = focused && has_cursor && !on_card(panel, b) && !on_stop(panel, b);
         let hl = panel
@@ -254,16 +249,10 @@ pub(super) fn block_units(
             }
             _ => String::new(),
         };
-        // The gutter's caret column, where a stop's caret shows, past `GAP`.
-        let caret: usize = 1 + gutter
-            .iter()
-            .take(4)
-            .map(|s| s.content.chars().count())
-            .sum::<usize>();
         let mut h = String::with_capacity(md.len() + 200);
         let _ = write!(
             h,
-            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}" style="--caret:{caret}"{at}>{GAP}"#,
+            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}"{at}>{GAP}"#,
             if hl { " hl" } else { "" },
             panel.row_source_line(&layout.rows[first]),
             b.rows.start
@@ -279,24 +268,18 @@ pub(super) fn block_units(
     (units, cursor)
 }
 
-/// `md`, a block's HTML, with a class on each of the block's [`Block::stops`] that has the cursor
-/// or a thread. Marked focused or not, so the browser's scroll target doesn't change with focus.
+/// `md`, a block's HTML, with `class="cur"` on the one of the block's [`Block::stops`] that has
+/// the cursor. Marked focused or not, so the browser's scroll target doesn't change with focus.
 /// The file's text can't fake ` data-line="N">`: every `>` in it is escaped.
-fn mark_stops(panel: &Panel, b: &Block, mut md: String) -> String {
-    for &(row, n) in b.stops() {
-        let thread = panel.threads.iter().find(|t| t.line == row);
-        let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
-            (true, Some(false)) => "cur th",
-            (true, Some(true)) => "cur th shut",
-            (true, None) => "cur",
-            (false, Some(false)) => "th",
-            (false, Some(true)) => "th shut",
-            (false, None) => continue,
-        };
-        let attr = format!(r#" data-line="{n}">"#);
-        md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
-    }
-    md
+fn mark_cursor_stop(panel: &Panel, b: &Block, md: String) -> String {
+    let Some(&(_, n)) = b.stops().iter().find(|&&(row, _)| row == panel.cursor) else {
+        return md;
+    };
+    md.replacen(
+        &format!(r#" data-line="{n}">"#),
+        &format!(r#" data-line="{n}" class="cur">"#),
+        1,
+    )
 }
 
 fn spans_html(h: &mut String, spans: &[Span]) {
