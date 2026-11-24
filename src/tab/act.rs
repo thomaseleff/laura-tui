@@ -6,13 +6,13 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::browser::{self, Page};
-use crate::layout::{all_panes_fit, pane_fits, split_rect};
+use crate::layout::{all_panes_fit, pane_fits, resize_fits, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
 use super::{
     DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK,
-    NO_ROOM_TO_RESIZE, Tab, UserAction, no_pane,
+    NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_SPLIT, Tab, UserAction, no_pane,
 };
 
 /// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
@@ -230,15 +230,20 @@ impl Tab {
     }
 
     /// Pin the split between panes `a` and `b` at `ratio`, or give it back to Laura's ratio with
-    /// `None`, while every pane still fits.
+    /// `None`, while `resize_fits` allows it.
     fn resize(&mut self, a: PaneId, b: PaneId, ratio: Option<u16>) -> Result<(), Error> {
         let mut probe = self.layout.clone();
-        match ratio {
-            Some(r) => probe.set_ratio(a, b, r)?,
-            None => probe.unpin(a, b)?,
-        }
-        if !all_panes_fit(&self.shown(&probe), self.area) {
-            return Err(NO_ROOM_TO_RESIZE.into());
+        let found = match ratio {
+            Some(r) => probe.set_ratio(a, b, r),
+            None => probe.unpin(a, b),
+        };
+        found.ok_or(NO_SPLIT)?;
+        if !resize_fits(&self.shown(&self.layout), &self.shown(&probe), self.area) {
+            return Err(match ratio {
+                Some(_) => NO_ROOM_TO_RESIZE,
+                None => NO_ROOM_TO_UNPIN,
+            }
+            .into());
         }
         self.layout = probe;
         Ok(())

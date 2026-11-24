@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow};
 use assert_cmd::Command;
 use laura::UserAction;
-use laura::tab::{NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, NO_ROOM_TO_RESIZE};
+use laura::tab::{NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, NO_ROOM_TO_RESIZE, NO_SPLIT};
 use serde_json::{Value, json};
 use tungstenite::Message;
 

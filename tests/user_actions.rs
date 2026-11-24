@@ -10,7 +10,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
-use laura::tab::{NEEDS_READY, NO_COMMENT_IN_DIFF, NO_THREADS};
+use laura::tab::{
+    NEEDS_READY, NO_COMMENT_IN_DIFF, NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_THREADS,
+};
 use laura::{Rect, Tab, UserAction};
 
 /// `act` errors are `String`s; a boxed error takes those, `io` and `anyhow` alike.
@@ -533,5 +535,62 @@ fn a_resize_in_the_tui_pins_the_split() -> Result<()> {
     tab.act(UserAction::Unpin { a: 0, b: 1 })?;
     assert_eq!(tab.rects(area()), before);
     assert!(!tab.handles(area())[0].pinned);
+    Ok(())
+}
+
+/// #211: a window that got narrower leaves a pane below the smallest size. The user can still
+/// make that pane larger, but not smaller, and Laura's own size, which doesn't fit, stays off.
+#[test]
+fn a_too_small_pane_can_still_grow() -> Result<()> {
+    let (mut tab, dir, _) = tab_with("a.md", &five_lines())?;
+    let b = dir.path().join("b.md");
+    std::fs::write(&b, five_lines())?;
+    let b = b.to_string_lossy();
+    drive(
+        &mut tab,
+        &[
+            "open",
+            "--no-focus",
+            &b,
+            "--split",
+            "1",
+            "--dir",
+            "h",
+            "--ratio",
+            "10",
+        ],
+    );
+    let narrow = Rect::new(0, 0, 40, 40);
+    tab.drain(narrow);
+    assert_eq!(tab.rects(narrow)[&2].width, 2);
+    let line = |tab: &Tab| {
+        tab.handles(narrow)
+            .into_iter()
+            .find(|h| h.first == [1] && h.second == [2])
+            .expect("the line between panes 1 and 2")
+    };
+    let h = line(&tab);
+    assert!(h.min < 90 && h.max < 95, "{h:?}");
+    // The other lines still move.
+    let root = &tab.handles(narrow)[0];
+    assert!(root.min < root.ratio && root.ratio < root.max, "{root:?}");
+    tab.act(UserAction::Resize {
+        a: 0,
+        b: 1,
+        ratio: root.ratio + 2,
+    })?;
+
+    let resize = |ratio| UserAction::Resize { a: 1, b: 2, ratio };
+    assert_eq!(tab.act(resize(95)), Err(NO_ROOM_TO_RESIZE.into()));
+    assert_eq!(tab.rects(narrow)[&2].width, 2);
+    tab.act(resize(50))?;
+    assert!(tab.rects(narrow)[&2].width >= 3);
+
+    let grown = tab.rects(narrow);
+    assert_eq!(
+        tab.act(UserAction::Unpin { a: 1, b: 2 }),
+        Err(NO_ROOM_TO_UNPIN.into())
+    );
+    assert_eq!(tab.rects(narrow), grown);
     Ok(())
 }

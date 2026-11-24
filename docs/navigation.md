@@ -83,11 +83,13 @@ When the workspace has no room for another pane, Laura shows `⚠ No room for an
 
 To make a pane larger, drag the line between that pane and the pane beside it. While you drag, Laura shows each side's share of the space, such as `Pane 1 · 60%   Panes 2, 3 · 40%`. Laura stops the line where a pane would get too small.
 
+When the window gets smaller, a pane can become too small. You can still drag a line to make that pane larger, but Laura doesn't make that pane smaller.
+
 Laura keeps the size that you set. When the agent opens another pane, the line stays where you put it.
 
 To give the size back to Laura, double-click the line. Laura puts the line back where Laura had it. When you point at the line, Laura shows `Drag to resize · double-click to give the size back to Laura`.
 
-Laura shows no line between the shell and the start canvas.
+Laura shows no line between the shell and the start canvas. When you show the shell as a pane again, Laura keeps the size that you set for the shell's line.
 
 ## Switch workspaces
 
@@ -212,6 +214,8 @@ Laura shows a notice in the bottom-right corner of its pane, or of the workspace
 | `⚠ An editor pane does not show the diff view.` | Ask the agent to show the diff in a file pane. |
 | `⚠ Laura did not submit the inline review, but kept its threads and review body.` | Click **Retry submit** or press `Enter`. |
 | `⚠ A pane can't get any smaller.` | Make the window larger, or close a pane, then [resize the panes](#resize-panes) again. |
+| `⚠ Laura's size doesn't fit in this window. Make the window larger, then double-click the line again.` | Make the window larger, then double-click the line again. |
+| `⚠ A pane closed while you moved the line.` | [Resize the panes](#resize-panes) again. |
 
 ## Markdown files
 

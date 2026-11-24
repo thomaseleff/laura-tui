@@ -757,5 +757,45 @@ fn a_dragged_split_keeps_its_size() -> Result<()> {
         json!({"act": "resize", "a": 1, "b": 2, "ratio": min}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
+    // A pane closed while the user dragged: the line is gone.
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "resize", "a": 1, "b": 9, "ratio": 50}),
+    );
+    assert_eq!(acted["ok"], false, "{acted}");
+    assert_eq!(acted["text"], NO_SPLIT, "{acted}");
+    Ok(())
+}
+
+/// #211: the user sizes the docked shell, puts the shell back in the drawer and docks it again:
+/// Laura keeps the user's size for the shell's line.
+#[test]
+fn docking_again_keeps_the_shells_size() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &path]);
+    let layout = layout_when(&mut rig, &mut ws, "pane 1", |v| v["focus"] == 1);
+    let cols = layout["cols"].as_u64().unwrap_or(0);
+    assert_eq!(rig.act(&mut ws, json!({"act": "dock"}))["ok"], true);
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "resize", "a": 0, "b": 1, "ratio": 25}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let sized = layout_when(&mut rig, &mut ws, "pinned", |v| {
+        v["splits"][0]["pinned"] == true
+    });
+    assert_eq!(cells(&sized, 0)[2], cols * 25 / 100, "{sized}");
+    rig.act(&mut ws, json!({"act": "drawer"}));
+    layout_when(&mut rig, &mut ws, "drawer", |v| {
+        v["panes"][0]["drawer"] == true
+    });
+    assert_eq!(rig.act(&mut ws, json!({"act": "dock"}))["ok"], true);
+    let again = layout_when(&mut rig, &mut ws, "docked again", |v| {
+        v["panes"][0]["drawer"] == false
+    });
+    assert_eq!(cells(&again, 0), cells(&sized, 0), "{again}");
+    assert_eq!(again["splits"][0]["pinned"], true, "{again}");
     Ok(())
 }

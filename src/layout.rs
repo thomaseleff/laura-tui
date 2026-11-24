@@ -103,13 +103,23 @@ impl Layout {
     }
 
     /// Move `pane`'s leaf to the left of the other panes, at the full height, with `ratio` percent
-    /// of the width. With one leaf, nothing changes.
+    /// of the width. With one leaf, nothing changes. When `pane` is already there, its line keeps
+    /// the user's size.
     pub fn dock_left(&mut self, pane: PaneId, ratio: u16) {
+        let pinned = match self {
+            Layout::Split {
+                dir: Dir::Horizontal,
+                first,
+                pinned,
+                ..
+            } if **first == Layout::Pane(pane) => *pinned,
+            _ => None,
+        };
         if let Some(rest) = self.without(pane) {
             *self = Layout::Split {
                 dir: Dir::Horizontal,
                 ratio,
-                pinned: None,
+                pinned,
                 first: Box::new(Layout::Pane(pane)),
                 second: Box::new(rest),
             };
@@ -136,21 +146,22 @@ impl Layout {
         }
     }
 
-    /// Pin the split between panes `a` and `b` at `ratio` percent for `a`'s side, 1..=99.
-    pub(crate) fn set_ratio(&mut self, a: PaneId, b: PaneId, ratio: u16) -> Result<(), String> {
-        let pinned = self.between(a, b).ok_or_else(|| no_split(a, b))?;
-        *pinned = Some(ratio.clamp(1, 99));
-        Ok(())
+    /// Pin the split between panes `a` and `b` at `ratio` percent for `a`'s side, 1..=99. `None`
+    /// when no split lies between them.
+    pub(crate) fn set_ratio(&mut self, a: PaneId, b: PaneId, ratio: u16) -> Option<()> {
+        *self.between(a, b)? = Some(ratio.clamp(1, 99));
+        Some(())
     }
 
-    /// Give the split between panes `a` and `b` back to Laura's ratio.
-    pub(crate) fn unpin(&mut self, a: PaneId, b: PaneId) -> Result<(), String> {
-        *self.between(a, b).ok_or_else(|| no_split(a, b))? = None;
-        Ok(())
+    /// Give the split between panes `a` and `b` back to Laura's ratio. `None` when no split lies
+    /// between them.
+    pub(crate) fn unpin(&mut self, a: PaneId, b: PaneId) -> Option<()> {
+        *self.between(a, b)? = None;
+        Some(())
     }
 
-    /// Each split's line at `area`, outer splits first, with the ratios at which every pane still
-    /// clears `MIN_PANE`. The front-ends clamp a drag to that range.
+    /// Each split's line at `area`, outer splits first, with the ratios that `resize_fits` allows.
+    /// The front-ends clamp a drag to that range, which lets a too-small pane grow.
     pub(crate) fn handles(&self, area: Rect) -> Vec<Handle> {
         let mut out = vec![];
         self.fill_handles(area, &mut out);
@@ -158,7 +169,8 @@ impl Layout {
             // Brute force, as `Tab::fit_ratio`: `split_rect` floors, so the range isn't a formula.
             let fits = |r| {
                 let mut probe = self.clone();
-                probe.set_ratio(h.first[0], h.second[0], r).is_ok() && all_panes_fit(&probe, area)
+                probe.set_ratio(h.first[0], h.second[0], r).is_some()
+                    && resize_fits(self, &probe, area)
             };
             let min = (1..=99).find(|&r| fits(r));
             let max = (1..=99).rev().find(|&r| fits(r));
@@ -253,13 +265,9 @@ pub struct Handle {
     /// The panes on each side, in order.
     pub first: Vec<PaneId>,
     pub second: Vec<PaneId>,
-    /// The lowest and highest ratio at which every pane clears `MIN_PANE`.
+    /// The lowest and highest ratio that `resize_fits` allows.
     pub min: u16,
     pub max: u16,
-}
-
-fn no_split(a: PaneId, b: PaneId) -> String {
-    format!("no split between pane #{a} and pane #{b}")
 }
 
 /// A boxed `Pane(PTY)` used as a throwaway placeholder in `mem::replace`.
@@ -310,6 +318,16 @@ pub fn workspace_fits(area: Rect) -> bool {
 /// True if every pane in `layout` at `area` clears `MIN_PANE`.
 pub fn all_panes_fit(layout: &Layout, area: Rect) -> bool {
     rects(layout, area).values().all(|r| pane_fits(*r))
+}
+
+/// True if the user may resize `before` to `after` at `area`: each pane's width and height clears
+/// `MIN_PANE` or doesn't shrink, so the user can always make a too-small pane larger.
+pub(crate) fn resize_fits(before: &Layout, after: &Layout, area: Rect) -> bool {
+    let before = rects(before, area);
+    rects(after, area).iter().all(|(id, r)| {
+        let was = before.get(id).map_or(MIN_PANE, |b| (b.width, b.height));
+        r.width >= MIN_PANE.0.min(was.0) && r.height >= MIN_PANE.1.min(was.1)
+    })
 }
 
 /// True if a pane at `r` clears `MIN_PANE`.

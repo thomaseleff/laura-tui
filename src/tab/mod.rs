@@ -52,6 +52,10 @@ pub const NO_ROOM_TO_DOCK: &str =
     "⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.";
 /// A drag of the line between two panes would make a pane too small.
 pub const NO_ROOM_TO_RESIZE: &str = "⚠ A pane can't get any smaller.";
+/// A double-click on the line between two panes, when Laura's size would make a pane too small.
+pub const NO_ROOM_TO_UNPIN: &str = "⚠ Laura's size doesn't fit in this window. Make the window larger, then double-click the line again.";
+/// A resize of a line that a pane's close took away while the user dragged it.
+pub const NO_SPLIT: &str = "⚠ A pane closed while you moved the line.";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
