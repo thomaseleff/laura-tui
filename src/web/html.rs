@@ -8,8 +8,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::panel::cursor::{on_card, on_stop};
-use crate::panel::{DIFF_ADD, DIFF_DEL, PanelLayout};
-use crate::render::escape;
+use crate::panel::{DECOR, DIFF_ADD, DIFF_DEL, PanelLayout};
+use crate::render::{Block, escape};
 use crate::{Panel, PanelRow};
 
 /// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
@@ -146,8 +146,8 @@ pub(super) fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
             ..line.style
         })
     );
-    // `panel_lines`' gutter: 6 spans, 2 on a comment row.
-    let gutter = (if row.comment { 2 } else { 6 }).min(line.spans.len());
+    // `panel_lines`' gutter: the number and a span per `DECOR` cell, 2 on a comment row.
+    let gutter = (if row.comment { 2 } else { DECOR + 1 }).min(line.spans.len());
     spans_html(&mut h, &line.spans[..gutter]);
     h.push_str("</span>");
     spans_html(&mut h, &line.spans[gutter..]);
@@ -196,7 +196,7 @@ pub(super) fn block_units(
             .position(|r| r.line >= b.rows.end)
             .map_or(layout.rows.len(), |k| first + k)
             .min(layout.eof.start);
-        let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
+        let mut gutter: Vec<Span> = lines[first].spans.iter().take(DECOR + 1).cloned().collect();
         for (i, (row, line)) in layout.rows[first..end]
             .iter()
             .zip(&lines[first..end])
@@ -229,23 +229,7 @@ pub(super) fn block_units(
                 units.push(row_html(panel, row, line));
             }
         }
-        // A stop with the cursor or a thread is marked inside the block, focused or not, so the
-        // browser's scroll target doesn't change with focus. The file's text can't fake
-        // ` data-line="N">`: every `>` in it is escaped.
-        let mut md = b.html().replace('\0', base);
-        for &(row, n) in b.stops() {
-            let thread = panel.threads.iter().find(|t| t.line == row);
-            let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
-                (true, Some(false)) => "cur th",
-                (true, Some(true)) => "cur th shut",
-                (true, None) => "cur",
-                (false, Some(false)) => "th",
-                (false, Some(true)) => "th shut",
-                (false, None) => continue,
-            };
-            let attr = format!(r#" data-line="{n}">"#);
-            md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
-        }
+        let md = mark_stops(panel, b, b.html().replace('\0', base));
         let has_cursor = b.rows.contains(&panel.cursor);
         let cur = focused && has_cursor && !on_card(panel, b) && !on_stop(panel, b);
         let hl = panel
@@ -293,6 +277,26 @@ pub(super) fn block_units(
     }
     rows(next..layout.rows.len(), &mut units, &mut cursor);
     (units, cursor)
+}
+
+/// `md`, a block's HTML, with a class on each of the block's [`Block::stops`] that has the cursor
+/// or a thread. Marked focused or not, so the browser's scroll target doesn't change with focus.
+/// The file's text can't fake ` data-line="N">`: every `>` in it is escaped.
+fn mark_stops(panel: &Panel, b: &Block, mut md: String) -> String {
+    for &(row, n) in b.stops() {
+        let thread = panel.threads.iter().find(|t| t.line == row);
+        let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
+            (true, Some(false)) => "cur th",
+            (true, Some(true)) => "cur th shut",
+            (true, None) => "cur",
+            (false, Some(false)) => "th",
+            (false, Some(true)) => "th shut",
+            (false, None) => continue,
+        };
+        let attr = format!(r#" data-line="{n}">"#);
+        md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
+    }
+    md
 }
 
 fn spans_html(h: &mut String, spans: &[Span]) {
