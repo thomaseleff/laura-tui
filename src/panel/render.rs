@@ -78,33 +78,6 @@ impl Block {
         matches!(self.kind, BlockKind::Html)
     }
 
-    /// The block's level and text when it is a heading: ATX (`## Data`) or setext (a line under
-    /// `===` or `---`).
-    pub(crate) fn heading(&self) -> Option<(usize, &str)> {
-        let mut lines = self.md.trim_start_matches(['\r', '\n']).lines();
-        let line = lines.next()?;
-        // Up to 3 spaces may indent an ATX heading; 4 make a code block.
-        let indent = line.len() - line.trim_start_matches(' ').len();
-        let line = if indent <= 3 { &line[indent..] } else { line };
-        let level = line.bytes().take_while(|&b| b == b'#').count();
-        if level == 0 && matches!(self.kind, BlockKind::Prose) {
-            let under = lines.next()?.trim();
-            let level = match under.as_bytes().first()? {
-                b'=' => 1,
-                b'-' => 2,
-                _ => return None,
-            };
-            return under
-                .bytes()
-                .all(|b| b == under.as_bytes()[0])
-                .then(|| (level, line.trim()));
-        }
-        let text = line[level..].strip_prefix([' ', '\t'])?.trim();
-        (1..=6)
-            .contains(&level)
-            .then(|| (level, text.trim_end_matches('#').trim_end()))
-    }
-
     /// `(row, 1-based line)` for each line inside the block with its own row and its own
     /// `data-line`: a code line, a table body row or a list item. The first row isn't one.
     pub(crate) fn stops(&self) -> &[(usize, u32)] {

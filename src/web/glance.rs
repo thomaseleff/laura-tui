@@ -1,5 +1,5 @@
 //! The project at a glance: the start canvas after the user's first submitted inline review. It
-//! shows three cards for the folder Laura started in: the README's first section, the changes on
+//! shows three cards for the folder Laura started in: the README, the changes on
 //! the branch or the latest commit, and the recent sessions in the folder. A card with nothing to
 //! show is left out.
 
@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::gitdiff::{self, Project};
 use crate::http;
 use crate::journal::{self, Recent};
-use crate::render::{self, Block};
+use crate::render;
 
 /// The most sessions the canvas lists.
 const SESSIONS: usize = 3;
@@ -23,12 +23,11 @@ pub(super) struct Glance {
     sessions: Vec<Recent>,
 }
 
-/// The README's file name, its first section as HTML, and the level-2 headings after it.
+/// The README's file name and its blocks as HTML.
 #[derive(Serialize)]
 struct Readme {
     name: String,
     html: String,
-    more: Vec<String>,
 }
 
 impl Glance {
@@ -53,8 +52,8 @@ impl Glance {
     }
 }
 
-/// The blocks of `root`'s README (`README.md` in any case) up to its second heading of level 1
-/// or 2, without its HTML blocks, which would show as source. The card scrolls, as a file pane does.
+/// The blocks of `root`'s README (`README.md` in any case), without its HTML blocks, which would
+/// show as source. The card scrolls, as a file pane does.
 fn readme(root: &Path, base: &str) -> Option<Readme> {
     let name = std::fs::read_dir(root)
         .ok()?
@@ -66,15 +65,8 @@ fn readme(root: &Path, base: &str) -> Option<Readme> {
         return None;
     }
     let r = render::render(&path.to_string_lossy());
-    let top = |b: &Block| b.heading().is_some_and(|(level, _)| level <= 2);
-    let end = r
+    let html = r
         .blocks
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| top(b))
-        .nth(1)
-        .map_or(r.blocks.len(), |(i, _)| i);
-    let html = r.blocks[..end]
         .iter()
         .filter(|b| !b.is_html())
         .map(|b| b.html().replace('\0', base))
@@ -85,11 +77,5 @@ fn readme(root: &Path, base: &str) -> Option<Readme> {
             "data-href=\"#",
             &format!("data-href=\"{}#", http::pct_encode(&name)),
         );
-    let more = r.blocks[end..]
-        .iter()
-        .filter_map(Block::heading)
-        .filter(|&(level, _)| level == 2)
-        .map(|(_, text)| text.to_string())
-        .collect();
-    (!html.is_empty()).then_some(Readme { name, html, more })
+    (!html.is_empty()).then_some(Readme { name, html })
 }

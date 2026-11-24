@@ -167,6 +167,7 @@ function drawerHeight(m) {
 export function fitDrawer() {
   if (!layout || ui.resizing || heldDrawer !== null || ws?.readyState !== 1) return ariaDrawer();
   showDrawer(drawerHeight(layout));
+  if (layout.drawer_fit) holdCanvas();
 }
 
 // `Ctrl+Shift+↑ ↓`, or `↑ ↓` on the grip: the drawer `d`% taller, within its range. The shell's
@@ -306,12 +307,20 @@ export function onLayout(m) {
 // The canvas while no pane but the shell is open: *Get started*, the project at a glance or the calm canvas, under the
 // drawer or right of the docked shell. Not a pane: no id, no pane header.
 function paintCanvas(m) {
-  const c = $("canvas"), shell = pane(0);
+  const c = $("canvas"), shell = pane(0), had = !c.hidden;
   c.hidden = !m.canvas;
   if (!m.canvas) return;
   c.dataset.c = m.canvas;
   c.classList.toggle("docked", !shell?.drawer);
   c.style.left = shell?.drawer ? "" : `calc(var(--cw) * ${shell?.w ?? 0})`;
+  if (!had) holdCanvas();
+}
+
+// The canvas's height: the room above the drawer when the canvas shows, or at the drawer's start
+// height. A drag of the drawer's grip doesn't move the canvas: the drawer floats over it.
+function holdCanvas() {
+  root.style.setProperty("--canvas-drawer", root.style.getPropertyValue("--drawer"));
+  sizeGlance();
 }
 
 // The steps of *Get started*, which the canvas and the help show.
@@ -323,25 +332,39 @@ $("canvas").addEventListener("click", (e) => {
   if (!e.target.closest("button, [data-href]") && !getSelection().toString()) followFocus(true);
 });
 
-// The project at a glance: the README's first section, the changes or the latest commit, and the
+// The project at a glance: the README, the changes or the latest commit, and the
 // recent sessions in the folder. Laura leaves out a card with nothing to show.
 export function paintGlance(m) {
   const cards = [];
   if (m.readme) {
-    const more = m.readme.more.length ? `<p class="more">${m.readme.more.map(esc).join(" · ")}</p>` : "";
     // The README's HTML is Laura's, as in a `pane` frame.
     cards.push(`<div class="gcard"><h3>${esc(m.readme.name)}<span class="sp"></span><button class="lnk" data-path="${esc(m.readme.name)}">Open as a pane</button></h3>`
-      + `<div class="md">${m.readme.html}</div>${more}</div>`);
+      + `<div class="md">${m.readme.html}</div></div>`);
   }
   const col = [];
   if (m.project) col.push(projectCard(m.project));
-  if (m.sessions.length) col.push(`<div class="gcard"><h3>Recently in this folder</h3>${m.sessions.map(sessionRow).join("")}</div>`);
+  if (m.sessions.length) col.push(`<div class="gcard"><h3>Recently in this folder</h3><div class="sess">${m.sessions.map(sessionRow).join("")}</div></div>`);
   if (col.length) cards.push(`<div class="col">${col.join("")}</div>`);
   glance.innerHTML = cards.join("");
   glance.classList.toggle("one", cards.length === 1);
+  sizeGlance();
 }
 
 const glance = $("canvas").querySelector(".glance");
+// The least height of the glance, which keeps a few rows of each card readable: on a short
+// window, the canvas scrolls.
+const GLANCE_MIN = 440;
+
+// The glance's height (`--h`): its cards' own height, at most the canvas's and at least
+// `GLANCE_MIN`. The canvas holds still while the user drags the drawer's grip.
+function sizeGlance() {
+  const c = $("canvas"), cs = getComputedStyle(c);
+  if (c.hidden || c.dataset.c !== "glance" || !glance.firstChild) return;
+  const room = c.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  glance.style.removeProperty("--h");
+  glance.style.setProperty("--h", Math.min(glance.offsetHeight, Math.max(room, GLANCE_MIN)) + "px");
+}
+addEventListener("resize", sizeGlance);
 const KINDS = { M: "m", A: "a", D: "d", "?": "u" };
 const ago = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "narrow" });
 const UNITS = [["year", 31536e3], ["month", 2592e3], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60]];

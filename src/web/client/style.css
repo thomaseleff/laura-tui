@@ -144,10 +144,11 @@ a.brand[href]:hover .logo { opacity: .75; }
 #ws { position: absolute; inset: 0; outline: none; }
 
 /* The start canvas, while no pane but the shell is open. Not a pane: no id, no pane header. Above
-   the drawer, which sits 8px above the bottom, or right of the docked shell (`paintCanvas`). A size
-   container, so a short canvas drops the steps' pictures. */
+   the drawer as it was when the canvas showed (`holdCanvas`), which sits 8px above the bottom, or
+   right of the docked shell (`paintCanvas`): a drag of the drawer's grip doesn't move the canvas. A
+   size container, so a short canvas drops the steps' pictures. */
 #canvas {
-  position: absolute; inset: 0 0 calc(max(var(--drawer, 54%), var(--drawer-min, 0px)) + 8px);
+  position: absolute; inset: 0 0 calc(max(var(--canvas-drawer, var(--drawer, 54%)), var(--drawer-min, 0px)) + 8px);
   display: flex; padding: 24px 40px; box-sizing: border-box; overflow: auto; container-type: size;
 }
 #canvas[hidden], #canvas:not([data-c=calm]) .calm, #canvas:not([data-c=start]) .welcome,
@@ -187,20 +188,28 @@ a.brand[href]:hover .logo { opacity: .75; }
 @container (height < 380px) { .mini { display: none; } }
 /* The project at a glance: the README beside a column of the changes and the recent sessions. One
    column beside the docked shell, or on a narrow canvas. */
-.glance { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; width: min(1000px, 100%); align-items: start; }
+.glance { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; width: min(1000px, 100%); }
 .glance.one { width: min(640px, 100%); grid-template-columns: 1fr; }
 #canvas.docked .glance { grid-template-columns: 1fr; }
 @container (width < 700px) { .glance { grid-template-columns: 1fr; } }
-.glance .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.glance .col { display: grid; gap: 14px; min-width: 0; }
 .gcard {
   background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 18px; min-width: 0;
-  display: flex; flex-direction: column; box-sizing: border-box;
+  display: flex; flex-direction: column; box-sizing: border-box; min-height: 0;
 }
-/* The README card and the column beside it fit the canvas: a long README section or file list
-   scrolls inside its card, and the file list takes the room the sessions card leaves. */
-.glance > .gcard, .glance .col { max-height: 100cqh; }
-.gcard:has(> .md, > .files) { min-height: 0; }
-.gcard .md, .gcard .files { min-height: 0; overflow-y: auto; }
+/* Side by side, the glance is `--h` tall (`sizeGlance`), and the README card and the column fill
+   it. The column's two cards share it: a card taller than its half scrolls, a shorter one keeps its
+   height. The README section, the file list and the sessions scroll inside their cards. */
+.glance { height: var(--h, auto); grid-template-rows: minmax(0, 1fr); }
+.glance .col { grid-auto-rows: minmax(0, auto); min-height: 0; }
+.gcard .md, .gcard .files, .gcard .sess { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Stacked, the cards keep their own height and the canvas scrolls. */
+#canvas.docked .glance:not(.one) { height: auto; grid-template-rows: none; }
+#canvas.docked .glance:not(.one) :is(.md, .files, .sess) { max-height: 360px; }
+@container (width < 700px) {
+  .glance:not(.one) { height: auto; grid-template-rows: none; }
+  .glance:not(.one) :is(.md, .files, .sess) { max-height: 360px; }
+}
 .gcard h3 {
   margin: 0 0 8px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
   color: var(--mute); display: flex; align-items: baseline; gap: 6px;
@@ -213,7 +222,6 @@ a.brand[href]:hover .logo { opacity: .75; }
 .gcard .md { font: 16px/1.5 var(--sans); zoom: .875; overflow-wrap: anywhere; }
 /* The card's blocks share one .md, with no .blk padding, so a heading gets the pane's space above it. */
 .gcard .md > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 24px; }
-.gcard .more { margin: 0; color: var(--faint); font-size: 12.5px; }
 .frow {
   display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; width: 100%;
   padding: 5px 6px; border: 0; border-radius: 7px; background: none; color: var(--fg); text-align: left; font: 12.5px var(--mono);
