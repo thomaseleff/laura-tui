@@ -607,42 +607,7 @@ impl Tab {
                 session,
                 agent,
                 title,
-            } => {
-                self.agent = true;
-                // A blank `--title` would show an empty session label; treat it as no `--title`.
-                let title = title
-                    .map(|t| t.trim().to_string())
-                    .filter(|t| !t.is_empty());
-                let session =
-                    session.unwrap_or_else(|| format!("laura-{}-{}", std::process::id(), self.seq));
-                // A re-`ready` of the same session (to set a title) keeps its agent name.
-                let agent = agent.or_else(|| {
-                    self.journal
-                        .as_ref()
-                        .filter(|j| j.path() == session_path(&session))
-                        .and_then(Journal::agent)
-                });
-                let journal = Journal::open(&session, agent);
-                let path = journal.path().to_string_lossy().into_owned();
-                journal.log(json!({"type": "ready", "pid": std::process::id(), "title": title}));
-                self.journal = Some(journal);
-                if title.is_some() {
-                    self.title = title;
-                }
-                let experimental = self
-                    .editor
-                    .is_ok()
-                    .then(|| "editor".to_string())
-                    .into_iter()
-                    .collect();
-                Response::Ready {
-                    journal: path,
-                    experimental,
-                    layout: Some(self.report(area)),
-                    browser_url: self.browser_port.map(browser::endpoint),
-                    web_app: self.web,
-                }
-            }
+            } => self.ready(session, agent, title, area),
             Message::Feedback { sentiment, body } => {
                 let pane = (self.focus != PTY_PANE).then_some(self.focus);
                 self.log_event(json!({
@@ -654,6 +619,50 @@ impl Tab {
                 Response::Ok
             }
             Message::Update { .. } => Response::Ok, // reserved; not yet emitted
+        }
+    }
+
+    /// `ready`: the agent names its session, so the journal opens and the session label may change.
+    fn ready(
+        &mut self,
+        session: Option<String>,
+        agent: Option<String>,
+        title: Option<String>,
+        area: Rect,
+    ) -> Response {
+        self.agent = true;
+        // A blank `--title` would show an empty session label; treat it as no `--title`.
+        let title = title
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty());
+        let session =
+            session.unwrap_or_else(|| format!("laura-{}-{}", std::process::id(), self.seq));
+        // A re-`ready` of the same session (to set a title) keeps its agent name.
+        let agent = agent.or_else(|| {
+            self.journal
+                .as_ref()
+                .filter(|j| j.path() == session_path(&session))
+                .and_then(Journal::agent)
+        });
+        let journal = Journal::open(&session, agent);
+        let path = journal.path().to_string_lossy().into_owned();
+        journal.log(json!({"type": "ready", "pid": std::process::id(), "title": title}));
+        self.journal = Some(journal);
+        if title.is_some() {
+            self.title = title;
+        }
+        let experimental = self
+            .editor
+            .is_ok()
+            .then(|| "editor".to_string())
+            .into_iter()
+            .collect();
+        Response::Ready {
+            journal: path,
+            experimental,
+            layout: Some(self.report(area)),
+            browser_url: self.browser_port.map(browser::endpoint),
+            web_app: self.web,
         }
     }
 
