@@ -6,13 +6,13 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::browser::{self, Page};
-use crate::layout::{all_panes_fit, pane_fits, split_rect};
+use crate::layout::{Layout, all_panes_fit, pane_fits, resize_fits, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
 use super::{
-    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab,
-    UserAction, no_pane,
+    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK,
+    NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_SPLIT, Tab, UserAction, no_pane,
 };
 
 /// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
@@ -152,6 +152,8 @@ impl Tab {
             }
             A::Dock => self.dock()?,
             A::Drawer => self.docked = false,
+            A::Resize { a, b, ratio } => self.resize(a, b, Some(ratio))?,
+            A::Unpin { a, b } => self.resize(a, b, None)?,
             A::DrawerHeight { .. } => {} // the web server saves it
             // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
             // after the wait ended does nothing, so the answered count never goes down.
@@ -206,7 +208,8 @@ impl Tab {
     }
 
     /// **Show the shell as a pane**: the shell as the left-most pane, while every pane still fits
-    /// beside it. The TUI always shows the shell as a pane.
+    /// beside it. The shell keeps the user's size while the panes fit, else takes Laura's. The TUI
+    /// always shows the shell as a pane.
     fn dock(&mut self) -> Result<(), Error> {
         if !self.web {
             return Ok(());
@@ -214,16 +217,46 @@ impl Tab {
         let mut probe = self.layout.clone();
         probe.dock_left(PTY_PANE, DOCK);
         // Alone, the shell takes the left `DOCK`%, beside the canvas.
-        let fits = if self.canvas_shown() {
-            pane_fits(split_rect(self.area, Dir::Horizontal, DOCK).0)
-        } else {
-            all_panes_fit(&probe, self.area)
+        let fits = |probe: &Layout| {
+            if self.canvas_shown() {
+                pane_fits(split_rect(self.area, Dir::Horizontal, DOCK).0)
+            } else {
+                all_panes_fit(probe, self.area)
+            }
         };
-        if !fits {
-            return Err(NO_ROOM_TO_DOCK.into());
+        if !fits(&probe) {
+            if let Some(b) = probe.order().into_iter().find(|&p| p != PTY_PANE) {
+                probe.unpin(PTY_PANE, b);
+            }
+            if !fits(&probe) {
+                return Err(NO_ROOM_TO_DOCK.into());
+            }
         }
         self.layout = probe;
         self.docked = true;
+        Ok(())
+    }
+
+    /// Pin the split between panes `a` and `b` at `ratio`, or give it back to Laura's ratio with
+    /// `None`, while `resize_fits` allows it.
+    fn resize(&mut self, a: PaneId, b: PaneId, ratio: Option<u16>) -> Result<(), Error> {
+        let mut probe = self.layout.clone();
+        let found = match ratio {
+            Some(r) => probe.set_ratio(a, b, r),
+            None => probe.unpin(a, b),
+        };
+        found.ok_or(NO_SPLIT)?;
+        if !resize_fits(&self.shown(&self.layout), &self.shown(&probe), self.area) {
+            return Err(match ratio {
+                Some(_) => NO_ROOM_TO_RESIZE,
+                None => NO_ROOM_TO_UNPIN,
+            }
+            .into());
+        }
+        self.layout = probe;
+        if ratio.is_some() {
+            self.dragged = Some(Instant::now());
+        }
         Ok(())
     }
 

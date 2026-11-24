@@ -25,6 +25,8 @@ pub const CTRL_Q: Keystroke = ("q", "KeyQ", 81, 2, "");
 pub const SHIFT_S: Keystroke = ("S", "KeyS", 83, 8, "S");
 pub const C: Keystroke = ("c", "KeyC", 67, 0, "c");
 pub const N: Keystroke = ("n", "KeyN", 78, 0, "n");
+pub const ARROW_RIGHT: Keystroke = ("ArrowRight", "ArrowRight", 39, 0, "");
+pub const HOME: Keystroke = ("Home", "Home", 36, 0, "");
 
 /// Each error, unhandled rejection and `console.error` of the page, in `window.__errors`, from
 /// before the page's own scripts run.
@@ -190,6 +192,49 @@ impl Client {
                 "Input.dispatchMouseEvent",
                 json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}),
             );
+        }
+    }
+
+    /// A left drag from `from` to `to`, in CSS px from the viewport's top left, in one move: a
+    /// resize the client sends during the drag can't land after the release's.
+    pub fn drag(&self, from: (f64, f64), to: (f64, f64)) {
+        self.drag_hold(from, to);
+        self.release(to);
+    }
+
+    /// `drag` without the release: the user still holds the button at `to`.
+    pub fn drag_hold(&self, from: (f64, f64), to: (f64, f64)) {
+        // The pointer comes to the point first, as the user's does.
+        self.mouse("mouseMoved", from, 0);
+        self.mouse("mousePressed", from, 1);
+        self.mouse("mouseMoved", to, 1);
+    }
+
+    /// The release of a [`Client::drag_hold`] at `to`.
+    pub fn release(&self, to: (f64, f64)) {
+        self.mouse("mouseReleased", to, 0);
+    }
+
+    fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8) {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1}),
+        );
+    }
+
+    /// A left double-click at `x`, `y` CSS px from the viewport's top left.
+    pub fn double_click(&self, x: f64, y: f64) {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type": "mouseMoved", "x": x, "y": y}),
+        );
+        for count in [1, 2] {
+            for kind in ["mousePressed", "mouseReleased"] {
+                self.call(
+                    "Input.dispatchMouseEvent",
+                    json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": count}),
+                );
+            }
         }
     }
 

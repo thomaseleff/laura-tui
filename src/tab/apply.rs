@@ -694,16 +694,7 @@ impl Tab {
         };
         let mut refs = self.panel_refs();
         refs.insert(new, &temp);
-        Response::Report(build_report(
-            self.tree_rects(&layout, area),
-            &refs,
-            &self.editors,
-            &self.browsers,
-            area,
-            self.web,
-            self.drawer_in_use(),
-            self.shell_size.map(|(rows, _)| rows),
-        ))
+        Response::Report(build_report(self, &layout, &refs, area))
     }
 
     /// The smallest ratio, up to 50, at which a stacked split of `target` gives `new` the rows

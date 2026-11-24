@@ -79,6 +79,20 @@ When the file doesn't exist, or the path names a folder, Laura shows `⚠ The li
 
 When the workspace has no room for another pane, Laura shows `⚠ No room for another pane. Close a pane, then click the link again.` in the drawer.
 
+## Resize panes
+
+To make a pane larger, drag the line between that pane and the pane beside it. While you drag, Laura shows each side's share of the space, such as `Pane 1 · 60%   Panes 2, 3 · 40%`. Laura stops the line where a pane would get too small. While you drag, the shell and editor panes keep their size. Laura fits them when you stop.
+
+When the window gets smaller, a pane can become too small. You can still drag a line to make that pane larger, but Laura doesn't make that pane smaller.
+
+Laura keeps the size that you set. When the agent opens another pane, the line stays where you put it.
+
+To give the size back to Laura, double-click the line. Laura puts the line back where Laura had it. When you point at a line between side-by-side panes, Laura shows `Drag or press ← → to resize · double-click or Home to give the size back to Laura`, and `↑ ↓` for a line between stacked panes.
+
+A screen reader names the line **Size of Pane 1 and Pane 2**, with the names of the panes on each side. When the line has the focus, `←` and `→` move a line between side-by-side panes, and `↑` and `↓` move a line between stacked panes, 5% at a time. `Home` gives the size back to Laura.
+
+Laura shows no line between the shell and the start canvas. When you show the shell as a pane again, Laura keeps the size that you set for the shell's line, if the other panes still fit beside the shell. If they don't fit, Laura uses its own size.
+
 ## Switch workspaces
 
 The workspace switcher is at the left of the top bar. The workspace switcher shows the session label and the folder of the workspace. Before the agent sets a session label, the workspace switcher shows the folder name in grey.
@@ -201,6 +215,9 @@ Laura shows a notice in the bottom-right corner of its pane, or of the workspace
 | `⚠ Press d to close the diff view before you comment.` | Press `d`, then comment. |
 | `⚠ An editor pane does not show the diff view.` | Ask the agent to show the diff in a file pane. |
 | `⚠ Laura did not submit the inline review, but kept its threads and review body.` | Click **Retry submit** or press `Enter`. |
+| `⚠ A pane can't get any smaller.` | Make the window larger, or close a pane, then [resize the panes](#resize-panes) again. |
+| `⚠ Laura's size doesn't fit in this window. Make the window larger, then double-click the line again.` | Make the window larger, then double-click the line again. |
+| `⚠ A pane closed while you moved the line.` | [Resize the panes](#resize-panes) again. |
 
 ## Markdown files
 

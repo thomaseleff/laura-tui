@@ -10,6 +10,7 @@ use ratatui::text::Line;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::layout::Handle;
 use crate::panel::cursor::card_line;
 use crate::panel::{Author, Thread, is_page};
 use crate::protocol::{PTY_PANE, PaneId};
@@ -76,12 +77,20 @@ pub(super) fn layout_json(
         "browser_leave": view::hint(tab, view::Hint::BrowserLeave),
     });
     let (rows, cols) = tab.pty_size();
+    let splits: Vec<Value> = tab.handles(area).iter().map(split_json).collect();
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
            "drawer_height": drawer.0, "drawer_fit": drawer.1, "canvas": canvas,
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
-           "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes})
+           "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes, "splits": splits})
     .to_string()
+}
+
+/// A split's line in the layout frame: `at` cells into its rect, with the ratios a drag may reach.
+fn split_json(h: &Handle) -> Value {
+    json!({"dir": h.dir, "x": h.area.x, "y": h.area.y, "w": h.area.width, "h": h.area.height,
+           "at": h.at, "ratio": h.ratio, "pinned": h.pinned, "min": h.min, "max": h.max,
+           "first": h.first, "second": h.second})
 }
 
 /// Pane `id`'s entry in the layout frame, at rect `r`.

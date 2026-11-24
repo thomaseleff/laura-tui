@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
@@ -19,7 +20,7 @@ use crate::browser::{self, Browser, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp};
-use crate::layout::{Layout, MIN_PANE, rects, split_rect};
+use crate::layout::{Handle, Layout, MIN_PANE, rects, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::platform::runtime_dir;
 use crate::protocol::{self, Dir, Message, PTY_PANE, PaneId, Reply, Response};
@@ -50,6 +51,12 @@ pub const SUBMIT_FAILED_WEB: &str =
 /// **Show the shell as a pane** when a pane would get too small beside the shell.
 pub const NO_ROOM_TO_DOCK: &str =
     "⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.";
+/// A drag of the line between two panes would make a pane too small.
+pub const NO_ROOM_TO_RESIZE: &str = "⚠ A pane can't get any smaller.";
+/// A double-click on the line between two panes, when Laura's size would make a pane too small.
+pub const NO_ROOM_TO_UNPIN: &str = "⚠ Laura's size doesn't fit in this window. Make the window larger, then double-click the line again.";
+/// A resize of a line that a pane's close took away while the user dragged it.
+pub const NO_SPLIT: &str = "⚠ A pane closed while you moved the line.";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
@@ -185,6 +192,18 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
+    /// The user dragged the line between panes `a` and `b`: `ratio` percent for `a`'s side, which
+    /// Laura keeps (pins) until the user unpins it.
+    Resize {
+        a: PaneId,
+        b: PaneId,
+        ratio: u16,
+    },
+    /// The user double-clicked the line between panes `a` and `b`: Laura's own ratio again.
+    Unpin {
+        a: PaneId,
+        b: PaneId,
+    },
     /// The drawer's height in % of the workspace's, which the web app saves for the user; `None`
     /// resets it. The TUI ignores it.
     DrawerHeight {
@@ -253,6 +272,9 @@ pub enum UserAction {
 
 /// The docked shell's share of the workspace's width, in %.
 const DOCK: u16 = 40;
+
+/// How long after the user's last drag step Laura fits the terminals to their panes.
+const RESIZE_SETTLE: Duration = Duration::from_millis(200);
 
 fn no_pane(pane: PaneId) -> String {
     format!("no pane #{pane}")
@@ -372,6 +394,9 @@ pub struct Tab {
     pty_size: (u16, u16),
     /// The last draw area `drain` saw; `OpenLink` splits against it.
     area: Rect,
+    /// The user's last drag step on a line between panes: until `RESIZE_SETTLE` after it, the
+    /// shell and editor panes keep their terminal size, so a program doesn't redraw at each step.
+    dragged: Option<Instant>,
 }
 
 impl Tab {
@@ -427,6 +452,7 @@ impl Tab {
             listener: Some(listener),
             pty_size: (rows, cols),
             area: Rect::default(),
+            dragged: None,
         })
     }
 
@@ -525,7 +551,8 @@ impl Tab {
     }
 
     /// Per-frame upkeep before drawing `content`: take `pending_focus`, move focus off a closed
-    /// pane, resize the shell and each editor pane's Neovim to its rect. Returns the rects.
+    /// pane, resize the shell and each editor pane's Neovim to its rect once the user's drag
+    /// settled. Returns the rects.
     pub fn tick(&mut self, content: Rect) -> HashMap<PaneId, Rect> {
         if let Some(id) = self.pending_focus.take() {
             self.focus = id;
@@ -534,6 +561,9 @@ impl Tab {
             self.focus = self.fallback_focus();
         }
         let rect_map = self.rects(content);
+        if !self.settled() {
+            return rect_map;
+        }
         let pty_inner = self.inner(rect_map.get(&PTY_PANE).copied().unwrap_or(content));
         let (rows, cols) = self
             .shell_size
@@ -546,6 +576,11 @@ impl Tab {
             }
         }
         rect_map
+    }
+
+    /// No drag step on a line between panes within `RESIZE_SETTLE`.
+    fn settled(&self) -> bool {
+        self.dragged.is_none_or(|t| t.elapsed() >= RESIZE_SETTLE)
     }
 
     /// Inside pane rect `r`'s border. The web app's pane header takes two rows, so there the
@@ -597,6 +632,15 @@ impl Tab {
         let mut map = rects(&self.shown(l), area);
         map.entry(PTY_PANE).or_insert(area);
         map
+    }
+
+    /// The lines between the panes that the workspace shows at `area`, which the user drags. None
+    /// beside the start canvas, which isn't a pane.
+    pub fn handles(&self, area: Rect) -> Vec<Handle> {
+        if self.canvas_shown() {
+            return vec![];
+        }
+        self.shown(&self.layout).handles(area)
     }
 
     /// Each pane's rect at `area`: the one source of geometry for drawing and for overflow.

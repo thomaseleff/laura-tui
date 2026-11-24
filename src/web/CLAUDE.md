@@ -9,7 +9,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `state.js`: Laura's layout, the socket, `send` and `act`, the wait rule, `esc`, and `ui` with `mode()`. Every module imports `state.js`, and `state.js` imports nothing.
 - `term.js`: the shell's and each editor pane's xterm.js, `termKeys`, the shell's links (`PATH`), and the grid's cell.
 - `head.js`: the pane header.
-- `panes.js`: each pane's element, `onLayout`, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
+- `panes.js`: each pane's element, `onLayout`, the lines between panes, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
 - `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
 - `bottom.js`: the notice, the hint line, the status bar and the shell button.
 - `review.js`: threads, the comment's box, the popovers and the draft.
@@ -35,7 +35,7 @@ Laura sends these frames to the view:
 |---|---|---|---|
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
-| `layout` | The panes, their rects, the focus, the hint line, the status bar, the `canvas` while no pane but the shell is open, and the drawer's height with its `drawer_fit` | `layout_json` (`frames.rs`) | `onLayout` |
+| `layout` | The panes, their rects, the focus, the hint line, the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
 | `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |

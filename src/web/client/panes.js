@@ -1,9 +1,9 @@
-// The panes: each pane's element, the layout that places them, the start canvas, the drawer with its
-// grip and start height, a browser pane's pointer, and the DOM focus, which follows the workspace's
-// focus.
+// The panes: each pane's element, the layout that places them, the lines between panes, the start
+// canvas, the drawer with its grip and start height, a browser pane's pointer, and the DOM focus, which
+// follows the workspace's focus.
 
 import { $, act, drawerOpen, esc, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
-import { ch, fitShell, makeTerm, rowsPx } from "./term.js";
+import { ch, cw, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
 import { paintHint, paintNotice, paintStatus } from "./bottom.js";
@@ -108,12 +108,16 @@ function dragger(el, move, done) {
     el.setPointerCapture(e.pointerId);
     el.classList.add("on");
     // After `pointerup`, `pointercancel`, or any other loss of the capture, so a drag always ends.
+    // `el.drop`: a removed element gets no `lostpointercapture` (Chrome sends it to `document`), so
+    // `paintSplits` ends the drag before it removes the line.
     const up = () => {
+      el.drop = null;
       el.removeEventListener("pointermove", move);
       el.removeEventListener("lostpointercapture", up);
       el.classList.remove("on");
       done();
     };
+    el.drop = up;
     el.addEventListener("pointermove", move);
     el.addEventListener("lostpointercapture", up);
   });
@@ -212,8 +216,112 @@ function grip(el) {
     if (h !== null) saveDrawer(h);
     h = null;
     fitShell();
+    fitTerms();
   });
   g.addEventListener("dblclick", () => saveDrawer());
+}
+
+// The line between two panes (`Tab::handles`): a drag sets the split's ratio, which Laura keeps
+// (pins); a double-click gives the size back to Laura. A drag stays in the split's `min`..`max`.
+// A screen reader and the keyboard reach the line as a separator (`splitKey`), as the drawer's grip.
+const splitTip = s => s.dir === "horizontal"
+  ? "Drag or press ← → to resize · double-click or Home to give the size back to Laura"
+  : "Drag or press ↑ ↓ to resize · double-click or Home to give the size back to Laura";
+const sideName = ids => (ids.length > 1 ? "Panes " : "Pane ") + ids.join(", ");
+
+// One element per split, kept by its key, so a drag's pointer capture survives each new layout. The
+// line sits on the cell where `split_rect` puts it, `at` cells into the split's rect.
+function paintSplits(m) {
+  const keep = new Set();
+  for (const s of m.splits ?? []) {
+    const key = `${s.dir}:${s.first[0]}:${s.second[0]}`;
+    keep.add(key);
+    const el = root.querySelector(`:scope > .split[data-key="${key}"]`) ?? makeSplit(key);
+    const h = s.dir === "horizontal";
+    el.s = s;
+    // Laura sends `acted` before the layout, and an earlier press's layout can come between two presses.
+    if (el.want === s.ratio) el.want = null;
+    el.classList.toggle("h", h);
+    el.classList.toggle("v", !h);
+    if (!ui.resizing) el.dataset.tip = splitTip(s);
+    for (const [k, v] of Object.entries({ "aria-orientation": h ? "vertical" : "horizontal",
+      "aria-valuenow": s.ratio, "aria-valuemin": s.min, "aria-valuemax": s.max,
+      "aria-label": `Size of ${sideName(s.first)} and ${sideName(s.second)}`,
+      "aria-valuetext": `${sideName(s.first)} · ${s.ratio}%` })) el.setAttribute(k, v);
+    Object.assign(el.style, h ? {
+      left: `calc(var(--cw) * ${s.x + s.at})`, top: `calc(var(--ch) * ${s.y})`, width: "", height: `calc(var(--ch) * ${s.h})`,
+    } : {
+      left: `calc(var(--cw) * ${s.x})`, top: `calc(var(--ch) * ${s.y + s.at})`, width: `calc(var(--cw) * ${s.w})`, height: "",
+    });
+  }
+  for (const el of root.querySelectorAll(":scope > .split")) if (!keep.has(el.dataset.key)) {
+    el.drop?.();
+    el.remove();
+  }
+}
+
+function makeSplit(key) {
+  const el = root.appendChild(document.createElement("div"));
+  el.className = "split";
+  el.dataset.key = key;
+  el.tabIndex = 0;
+  el.setAttribute("role", "separator");
+  // The workspace's own handlers would take the focus.
+  for (const t of ["mousedown", "click"]) el.addEventListener(t, e => e.stopPropagation());
+  const ids = () => ({ a: el.s.first[0], b: el.s.second[0] });
+  // `ratio`: the drag's last ratio; `frame`: a resize waits for the next animation frame.
+  let ratio = null, frame = 0;
+  const resize = () => (frame = 0, act({ act: "resize", ...ids(), ratio }));
+  dragger(el, e => {
+    const s = el.s, h = s.dir === "horizontal", r = root.getBoundingClientRect();
+    const [px, start, size] = h ? [e.clientX - r.left, s.x * cw, s.w * cw] : [e.clientY - r.top, s.y * ch, s.h * ch];
+    ratio = Math.min(s.max, Math.max(s.min, Math.round((px - start) / size * 100)));
+    ui.resizing = true;
+    el.dataset.tip = `${sideName(s.first)} · ${ratio}%   ${sideName(s.second)} · ${100 - ratio}%`;
+    frame ||= requestAnimationFrame(resize);
+  }, () => {
+    cancelAnimationFrame(frame);
+    if (ratio !== null) resize();
+    ratio = null;
+    ui.resizing = false;
+    el.dataset.tip = splitTip(el.s);
+    fitShell();
+    fitTerms();
+  });
+  el.addEventListener("dblclick", () => act({ act: "unpin", ...ids() }));
+  return el;
+}
+
+// Laura holds the terminals' sizes until this long after the last step (`RESIZE_SETTLE` in src/tab/mod.rs).
+const SETTLE = 200;
+let settle = 0;
+
+// The focused line between two panes: the arrows along its axis move it 5 points within its range,
+// and `Home` gives the size back to Laura. True when the line takes the keystroke.
+export function splitKey(e) {
+  const el = document.activeElement;
+  if (!el?.matches?.("#ws > .split") || e.ctrlKey || e.altKey || e.metaKey) return false;
+  const s = el.s, h = s.dir === "horizontal", ids = { a: s.first[0], b: s.second[0] };
+  const step = { [h ? "ArrowLeft" : "ArrowUp"]: -5, [h ? "ArrowRight" : "ArrowDown"]: 5 }[e.key];
+  if (step) {
+    // `want`: the ratio sent and not yet in a layout (`paintSplits`), so fast presses add up.
+    el.want = Math.min(s.max, Math.max(s.min, (el.want ?? s.ratio) + step));
+    act({ act: "resize", ...ids, ratio: el.want }, m => m.ok || (el.want = null));
+    // A step holds the terminals as a drag does, until Laura fits them; a drag that started since keeps them.
+    ui.resizing = true;
+    clearTimeout(settle);
+    settle = setTimeout(() => {
+      if (document.querySelector(".split.on, .grip.on")) return;
+      ui.resizing = false;
+      el.dataset.tip = splitTip(el.s);
+      fitShell();
+      fitTerms();
+    }, SETTLE);
+  } else if (e.key === "Home") {
+    el.want = null;
+    act({ act: "unpin", ...ids });
+  } else return false;
+  return true;
 }
 
 // The `+` on the hovered line (`el.plus`), just past its text and centred on its first line. A click
@@ -239,6 +347,15 @@ export function placePlus(id) {
   btn.dataset.line = t.dataset.line;
 }
 
+// Each editor pane's xterm at its pane's size. The header takes the border's top two rows, and the
+// bottom border one (`Tab::inner`). The shell sizes itself (`fitShell`).
+function fitTerms() {
+  for (const p of layout?.panes ?? []) {
+    const t = p.id !== 0 && terms.get(p.id);
+    if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 3)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 3));
+  }
+}
+
 export function onLayout(m) {
   if (m.focus !== 0) lastFocus = m.focus;
   for (const p of m.panes) {
@@ -250,6 +367,7 @@ export function onLayout(m) {
   // A drag keeps the height under the pointer until the release.
   fitDrawer();
   paintCanvas(m);
+  paintSplits(m);
   // The list closes with its last thread, or its pane.
   if (!pane(ui.listOpen)?.threads) ui.listOpen = null;
   if (!pane(ui.moreOpen) || ui.moreOpen === 0) ui.moreOpen = null;
@@ -279,14 +397,12 @@ export function onLayout(m) {
       + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "")
       + (unseen.has(p.id) ? " unseen" : "") + (ui.commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
-    const t = p.id !== 0 && terms.get(p.id);
-    // The header takes the border's top two rows, and the bottom border one (`Tab::inner`). The
-    // shell sizes itself (`fitShell`).
-    if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 3)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 3));
     // The focus, the diff view and a freeze change how threads show.
     paintThreads(p.id);
     sizeView(p.id);
   }
+  // Laura holds an editor's size during a drag (`Tab::tick`), so its xterm waits for the release.
+  if (!ui.resizing) fitTerms();
   for (const el of root.querySelectorAll(":scope > .pane")) {
     if (seen.has(el.id)) continue;
     const id = +el.id.slice(1);

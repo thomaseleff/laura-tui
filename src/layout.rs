@@ -1,4 +1,5 @@
-//! Geometry/split-tree: a tab's recursive pane arrangement and the rects it draws to.
+//! Geometry/split-tree: a tab's recursive pane arrangement, the rects it draws to, and the lines
+//! between panes that the user drags to resize them (a pinned split).
 
 use std::collections::HashMap;
 
@@ -12,8 +13,11 @@ pub enum Layout {
     Pane(PaneId),
     Split {
         dir: Dir,
-        /// Percent of the split given to `first`, 1..=99.
+        /// Percent of the split given to `first`, 1..=99, as Laura set it.
         ratio: u16,
+        /// The user's percent for `first`, from a drag. It overrides `ratio` until the user gives
+        /// the size back to Laura, who then draws `ratio` again.
+        pinned: Option<u16>,
         first: Box<Layout>,
         second: Box<Layout>,
     },
@@ -44,6 +48,7 @@ impl Layout {
                 *self = Layout::Split {
                     dir,
                     ratio: first_ratio.clamp(1, 99),
+                    pinned: None,
                     first: Box::new(first),
                     second: Box::new(second),
                 };
@@ -98,15 +103,125 @@ impl Layout {
     }
 
     /// Move `pane`'s leaf to the left of the other panes, at the full height, with `ratio` percent
-    /// of the width. With one leaf, nothing changes.
+    /// of the width. With one leaf, nothing changes. When `pane` is already there, its line keeps
+    /// the user's size.
     pub fn dock_left(&mut self, pane: PaneId, ratio: u16) {
+        let pinned = match self {
+            Layout::Split {
+                dir: Dir::Horizontal,
+                first,
+                pinned,
+                ..
+            } if **first == Layout::Pane(pane) => *pinned,
+            _ => None,
+        };
         if let Some(rest) = self.without(pane) {
             *self = Layout::Split {
                 dir: Dir::Horizontal,
                 ratio,
+                pinned,
                 first: Box::new(Layout::Pane(pane)),
                 second: Box::new(rest),
             };
+        }
+    }
+
+    /// The user's ratio of the split between panes `a` and `b`: the lowest split with `a` under
+    /// `first` and `b` under `second`.
+    fn between(&mut self, a: PaneId, b: PaneId) -> Option<&mut Option<u16>> {
+        let Layout::Split {
+            pinned,
+            first,
+            second,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        match (first.contains(a), second.contains(b)) {
+            (true, true) => Some(pinned),
+            (true, false) if first.contains(b) => first.between(a, b),
+            (false, true) if second.contains(a) => second.between(a, b),
+            _ => None,
+        }
+    }
+
+    /// Pin the split between panes `a` and `b` at `ratio` percent for `a`'s side, 1..=99. `None`
+    /// when no split lies between them.
+    pub(crate) fn set_ratio(&mut self, a: PaneId, b: PaneId, ratio: u16) -> Option<()> {
+        *self.between(a, b)? = Some(ratio.clamp(1, 99));
+        Some(())
+    }
+
+    /// Give the split between panes `a` and `b` back to Laura's ratio. `None` when no split lies
+    /// between them.
+    pub(crate) fn unpin(&mut self, a: PaneId, b: PaneId) -> Option<()> {
+        *self.between(a, b)? = None;
+        Some(())
+    }
+
+    /// Each split's line at `area`, outer splits first, with the ratios that `resize_fits` allows.
+    /// The front-ends clamp a drag to that range, which lets a too-small pane grow.
+    pub(crate) fn handles(&self, area: Rect) -> Vec<Handle> {
+        let mut out = vec![];
+        self.fill_handles(area, &mut out);
+        for h in &mut out {
+            // Brute force, as `Tab::fit_ratio`: `split_rect` floors, so the range isn't a formula.
+            let fits = |r| {
+                let mut probe = self.clone();
+                probe.set_ratio(h.first[0], h.second[0], r).is_some()
+                    && resize_fits(self, &probe, area)
+            };
+            let min = (1..=99).find(|&r| fits(r));
+            let max = (1..=99).rev().find(|&r| fits(r));
+            (h.min, h.max) = min.zip(max).unwrap_or((h.ratio, h.ratio));
+        }
+        out
+    }
+
+    fn fill_handles(&self, area: Rect, out: &mut Vec<Handle>) {
+        let Layout::Split {
+            dir,
+            ratio,
+            pinned,
+            first,
+            second,
+        } = self
+        else {
+            return;
+        };
+        let drawn = pinned.unwrap_or(*ratio);
+        let (a, b) = split_rect(area, *dir, drawn);
+        out.push(Handle {
+            dir: *dir,
+            area,
+            at: match dir {
+                Dir::Horizontal => a.width,
+                Dir::Vertical => a.height,
+            },
+            ratio: drawn,
+            pinned: pinned.is_some(),
+            first: first.order(),
+            second: second.order(),
+            min: drawn,
+            max: drawn,
+        });
+        first.fill_handles(a, out);
+        second.fill_handles(b, out);
+    }
+
+    /// Every pane under a split the user pinned.
+    pub(crate) fn pinned_panes(&self) -> Vec<PaneId> {
+        match self {
+            Layout::Pane(_) => vec![],
+            Layout::Split {
+                pinned: Some(_), ..
+            } => self.order(),
+            Layout::Split { first, second, .. } => {
+                let mut out = first.pinned_panes();
+                out.extend(second.pinned_panes());
+                out
+            }
         }
     }
 
@@ -134,6 +249,25 @@ impl Layout {
             }
         }
     }
+}
+
+/// The line between a split's two sides, which the user drags to resize them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Handle {
+    pub dir: Dir,
+    /// The split's whole rect.
+    pub area: Rect,
+    /// `first`'s width (horizontal) or height (vertical) in cells: the line's offset in `area`.
+    pub at: u16,
+    /// The percent for `first` that Laura draws: the user's while pinned, else Laura's.
+    pub ratio: u16,
+    pub pinned: bool,
+    /// The panes on each side, in order.
+    pub first: Vec<PaneId>,
+    pub second: Vec<PaneId>,
+    /// The lowest and highest ratio that `resize_fits` allows.
+    pub min: u16,
+    pub max: u16,
 }
 
 /// A boxed `Pane(PTY)` used as a throwaway placeholder in `mem::replace`.
@@ -184,6 +318,16 @@ pub fn workspace_fits(area: Rect) -> bool {
 /// True if every pane in `layout` at `area` clears `MIN_PANE`.
 pub fn all_panes_fit(layout: &Layout, area: Rect) -> bool {
     rects(layout, area).values().all(|r| pane_fits(*r))
+}
+
+/// True if the user may resize `before` to `after` at `area`: each pane's width and height clears
+/// `MIN_PANE` or doesn't shrink, so the user can always make a too-small pane larger.
+pub(crate) fn resize_fits(before: &Layout, after: &Layout, area: Rect) -> bool {
+    let before = rects(before, area);
+    rects(after, area).iter().all(|(id, r)| {
+        let was = before.get(id).map_or(MIN_PANE, |b| (b.width, b.height));
+        r.width >= MIN_PANE.0.min(was.0) && r.height >= MIN_PANE.1.min(was.1)
+    })
 }
 
 /// True if a pane at `r` clears `MIN_PANE`.
@@ -246,10 +390,11 @@ fn fill_rects(layout: &Layout, area: Rect, map: &mut HashMap<PaneId, Rect>) {
         Layout::Split {
             dir,
             ratio,
+            pinned,
             first,
             second,
         } => {
-            let (a, b) = split_rect(area, *dir, *ratio);
+            let (a, b) = split_rect(area, *dir, pinned.unwrap_or(*ratio));
             fill_rects(first, a, map);
             fill_rects(second, b, map);
         }

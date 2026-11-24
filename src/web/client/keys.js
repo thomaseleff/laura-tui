@@ -3,7 +3,7 @@
 
 import { $, act, drawerOpen, focused, layout, mode, modes, MODIFIERS, pane, root, send, terms, toShell, ui } from "./state.js";
 import { fitShell, report } from "./term.js";
-import { focusPane, followFocus, lastFocus, saveDrawer, sizeView, stepDrawer } from "./panes.js";
+import { focusPane, followFocus, lastFocus, saveDrawer, sizeView, splitKey, stepDrawer } from "./panes.js";
 import { answer } from "./browser-pane.js";
 import { paintHint, paintShellButton, toggleShell } from "./bottom.js";
 import { begin, closeDraft, confirmDraft, draftBox, paintPops, units } from "./review.js";
@@ -162,6 +162,7 @@ function paneKey(e, ctrl, k) {
     if (e.key === "ArrowUp" || e.key === "ArrowDown") return take(e), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
     if (e.key === "Home") return take(e), saveDrawer();
   }
+  if (splitKey(e)) return take(e);
   if (ctrl && k === "q") {
     take(e);
     return act({ act: "quit" }, m => m.ok && ((ui.confirmQuit = true), paintHint()));

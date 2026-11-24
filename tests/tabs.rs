@@ -119,6 +119,7 @@ fn overflow_warning_covers_overflow_too_small_and_fit() {
         title: None,
         paused: false,
         drawer: false,
+        pinned: false,
     };
 
     let over = laura::PaneReport {

@@ -10,7 +10,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
-use laura::tab::{NEEDS_READY, NO_COMMENT_IN_DIFF, NO_THREADS};
+use laura::tab::{
+    NEEDS_READY, NO_COMMENT_IN_DIFF, NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_THREADS,
+};
 use laura::{Rect, Tab, UserAction};
 
 /// `act` errors are `String`s; a boxed error takes those, `io` and `anyhow` alike.
@@ -494,5 +496,129 @@ fn a_file_path_that_is_not_a_file_returns_the_link_notice() -> Result<()> {
         Err("⚠ The link target src is a folder.".into())
     );
     assert!(tab.panels.is_empty());
+    Ok(())
+}
+
+/// #211: in the TUI, a drag of the border between two panes pins their split, as in the web app.
+/// `Tab::handles` gives the TUI each border and the range a drag may reach; the mouse can't be
+/// driven here, so this sends the action the drag sends.
+#[test]
+fn a_resize_in_the_tui_pins_the_split() -> Result<()> {
+    let (mut tab, dir, _) = tab_with("a.md", &five_lines())?;
+    let b = dir.path().join("b.md");
+    std::fs::write(&b, five_lines())?;
+    drive(&mut tab, &["open", "--no-focus", &b.to_string_lossy()]);
+    tab.drain(area());
+    let before = tab.rects(area());
+    let handles = tab.handles(area());
+    assert_eq!(handles.len(), 2, "{handles:?}");
+    let root = &handles[0];
+    assert_eq!((&root.first[..], &root.second[..]), (&[0][..], &[1, 2][..]));
+    assert!(!root.pinned && root.min < 30 && 30 < root.max, "{root:?}");
+
+    tab.act(UserAction::Resize {
+        a: 0,
+        b: 1,
+        ratio: 30,
+    })?;
+    let report: serde_json::Value = serde_json::from_str(&drive(&mut tab, &["layout"]))?;
+    assert_eq!(
+        report["panes"][0]["rect"]["width"],
+        120 * 30 / 100,
+        "{report}"
+    );
+    for id in 0..=2 {
+        assert_eq!(report["panes"][id]["pinned"], true, "{report}");
+    }
+    assert!(tab.handles(area())[0].pinned);
+
+    tab.act(UserAction::Unpin { a: 0, b: 1 })?;
+    assert_eq!(tab.rects(area()), before);
+    assert!(!tab.handles(area())[0].pinned);
+    Ok(())
+}
+
+/// #211: a window that got narrower leaves a pane below the smallest size. The user can still
+/// make that pane larger, but not smaller, and Laura's own size, which doesn't fit, stays off.
+#[test]
+fn a_too_small_pane_can_still_grow() -> Result<()> {
+    let (mut tab, dir, _) = tab_with("a.md", &five_lines())?;
+    let b = dir.path().join("b.md");
+    std::fs::write(&b, five_lines())?;
+    let b = b.to_string_lossy();
+    drive(
+        &mut tab,
+        &[
+            "open",
+            "--no-focus",
+            &b,
+            "--split",
+            "1",
+            "--dir",
+            "h",
+            "--ratio",
+            "10",
+        ],
+    );
+    let narrow = Rect::new(0, 0, 40, 40);
+    tab.drain(narrow);
+    assert_eq!(tab.rects(narrow)[&2].width, 2);
+    let line = |tab: &Tab| {
+        tab.handles(narrow)
+            .into_iter()
+            .find(|h| h.first == [1] && h.second == [2])
+            .expect("the line between panes 1 and 2")
+    };
+    let h = line(&tab);
+    assert!(h.min < 90 && h.max < 95, "{h:?}");
+    // The other lines still move.
+    let root = &tab.handles(narrow)[0];
+    assert!(root.min < root.ratio && root.ratio < root.max, "{root:?}");
+    tab.act(UserAction::Resize {
+        a: 0,
+        b: 1,
+        ratio: root.ratio + 2,
+    })?;
+
+    let resize = |ratio| UserAction::Resize { a: 1, b: 2, ratio };
+    assert_eq!(tab.act(resize(95)), Err(NO_ROOM_TO_RESIZE.into()));
+    assert_eq!(tab.rects(narrow)[&2].width, 2);
+    tab.act(resize(50))?;
+    assert!(tab.rects(narrow)[&2].width >= 3);
+    // Pane 2 fits now, so the line's range shrinks: a drag reads the range again at each step.
+    let after = line(&tab);
+    assert!(after.max < h.max, "{h:?} → {after:?}");
+
+    let grown = tab.rects(narrow);
+    assert_eq!(
+        tab.act(UserAction::Unpin { a: 1, b: 2 }),
+        Err(NO_ROOM_TO_UNPIN.into())
+    );
+    assert_eq!(tab.rects(narrow), grown);
+    Ok(())
+}
+
+/// #211: while the user drags the line beside the shell, the shell keeps its terminal size, so the
+/// program in it doesn't redraw at each step. Laura fits the shell once the user stops.
+#[test]
+fn the_shell_keeps_its_size_while_the_user_drags() -> Result<()> {
+    let (mut tab, _dir, _) = tab_with("a.md", &five_lines())?;
+    tab.tick(area());
+    let before = tab.pty_size();
+    tab.act(UserAction::Resize {
+        a: 0,
+        b: 1,
+        ratio: 30,
+    })?;
+    tab.tick(area());
+    assert_eq!(tab.pty_size(), before);
+    let want = tab.rects(area())[&0].width - 2;
+    assert_ne!(before.1, want);
+    let start = Instant::now();
+    while tab.pty_size().1 != want {
+        assert!(start.elapsed() < common::DEADLINE, "the shell never fit");
+        thread::sleep(Duration::from_millis(20));
+        tab.tick(area());
+    }
     Ok(())
 }

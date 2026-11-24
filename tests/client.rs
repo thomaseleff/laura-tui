@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use browser_rig::{bare, chrome};
 use client_rig::*;
-use rig::Rig;
+use rig::{Rig, fake_nvim};
 
 /// A file of five lines, `line 1` to `line 5`, open in pane 1.
 fn open_five(r: &mut Rig) -> Result<tempfile::TempDir> {
@@ -583,5 +583,223 @@ fn the_shell_links_these_paths() -> Result<()> {
         assert_eq!(got, want, "{line}");
     }
     assert_eq!(got.as_array().map(Vec::len), Some(lines.len()), "{got}");
+    Ok(())
+}
+
+/// The center of the line between two panes, in CSS px, once the web app shows it.
+fn split_center(r: &mut Rig, c: &Client) -> (f64, f64) {
+    let at = c.until(
+        r,
+        "the line between the panes",
+        "(() => { const b = document.querySelector('#ws > .split')?.getBoundingClientRect(); \
+           return b?.height && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    (at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0))
+}
+
+/// #211: a drag on the line between two panes resizes them, and Laura keeps the size; a
+/// double-click on the line gives the size back to Laura.
+#[test]
+fn a_drag_on_a_split_resizes_the_panes() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--split", "1", "--dir", "h"]);
+    let c = Client::open(&mut r, &path);
+    // Ratios, not widths: the first layout can come before the page's size.
+    c.until(&mut r, "one split at 50%", "layout.splits[0]?.ratio === 50");
+    let (x, y) = split_center(&mut r, &c);
+    c.drag((x, y), (x + 200.0, y));
+    let w = c.until(
+        &mut r,
+        "a pinned split, wider for pane 1",
+        "layout.splits[0].pinned && layout.splits[0].ratio > 50 \
+           && layout.panes.find(p => p.id === 1).w",
+    );
+    let report: Value = serde_json::from_str(&r.drive(&["layout"]))?;
+    assert_eq!(report["panes"][1]["pinned"], true, "{report}");
+    assert_eq!(report["panes"][1]["rect"]["width"], w, "{report}");
+    let (x, y) = split_center(&mut r, &c);
+    c.double_click(x, y);
+    c.until(
+        &mut r,
+        "Laura's ratio again",
+        "!layout.splits[0].pinned && layout.splits[0].ratio === 50",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #211: a screen reader and the keyboard reach the line between two panes: `→` moves it 5 points,
+/// and `Home` gives the size back to Laura.
+#[test]
+fn the_keyboard_moves_the_line_between_panes() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--split", "1", "--dir", "h"]);
+    let c = Client::open(&mut r, &path);
+    c.until(
+        &mut r,
+        "a separator at 50%",
+        "(() => { const s = document.querySelector('#ws > .split'); \
+           return s?.getAttribute('role') === 'separator' \
+             && s.getAttribute('aria-valuenow') === '50' \
+             && s.getAttribute('aria-orientation') === 'vertical'; })()",
+    );
+    c.eval("document.querySelector('#ws > .split').focus()")
+        .map_err(anyhow::Error::msg)?;
+    c.press(ARROW_RIGHT);
+    c.until(
+        &mut r,
+        "a pinned split at 55%",
+        "layout.splits[0].pinned && layout.splits[0].ratio === 55 \
+           && document.querySelector('#ws > .split').getAttribute('aria-valuenow') === '55'",
+    );
+    c.press(HOME);
+    c.until(
+        &mut r,
+        "Laura's ratio again",
+        "!layout.splits[0].pinned && layout.splits[0].ratio === 50",
+    );
+    // Three presses before the next layout: each one steps from the last, not from the layout.
+    for _ in 0..3 {
+        c.press(ARROW_RIGHT);
+    }
+    c.until(&mut r, "a split at 65%", "layout.splits[0].ratio === 65");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #211: a pane that closes while the user drags a line ends the drag, so the shell fits again.
+#[test]
+fn a_pane_that_closes_during_a_drag_ends_the_drag() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--split", "1", "--dir", "h"]);
+    let c = Client::open(&mut r, &path);
+    c.until(&mut r, "one split at 50%", "layout.splits[0]?.ratio === 50");
+    let (x, y) = split_center(&mut r, &c);
+    c.drag_hold((x, y), (x + 100.0, y));
+    c.until(&mut r, "a drag", "ui.resizing");
+    r.drive(&["close", "2"]);
+    c.until(
+        &mut r,
+        "the drag's end",
+        "!ui.resizing && !document.querySelector('#ws > .split')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A stand-in Neovim in pane 2, beside pane 1, with one split at 50%: the client, the editor's
+/// xterm's columns at its pane's size, and the folders of the two files.
+fn editor_beside(
+    r: &mut Rig,
+    chrome: &std::path::Path,
+) -> Result<(Client, Value, [tempfile::TempDir; 2])> {
+    r.tab.editor = Ok(fake_nvim());
+    let five = open_five(r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&[
+        "open",
+        "--edit",
+        &b.to_string_lossy(),
+        "--split",
+        "1",
+        "--dir",
+        "h",
+    ]);
+    let c = Client::open(r, chrome);
+    let cols = c.until(
+        r,
+        "one split at 50%, with the editor's xterm at its pane's size",
+        "layout.splits[0]?.ratio === 50 \
+           && terms.get(2)?.cols === layout.panes.find(p => p.id === 2).w - 2 && terms.get(2).cols",
+    );
+    Ok((c, cols, [five, dir]))
+}
+
+/// #211: while the user drags a line, an editor pane's xterm keeps Neovim's size, which Laura holds
+/// until the drag ends; after the release, the xterm takes the pane's new size.
+#[test]
+fn an_editor_pane_keeps_its_size_during_a_drag() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let (c, cols, _dirs) = editor_beside(&mut r, &path)?;
+    let (x, y) = split_center(&mut r, &c);
+    c.drag_hold((x, y), (x + 100.0, y));
+    c.until(
+        &mut r,
+        "a drag's layout",
+        "ui.resizing && layout.splits[0].ratio > 50",
+    );
+    assert_eq!(
+        c.eval("terms.get(2).cols"),
+        Ok(cols.clone()),
+        "the editor's xterm during the drag"
+    );
+    c.release((x + 100.0, y));
+    let after = c.until(
+        &mut r,
+        "the editor's xterm at the pane's new size",
+        "!ui.resizing && terms.get(2).cols === layout.panes.find(p => p.id === 2).w - 2 \
+           && terms.get(2).cols",
+    );
+    assert_ne!(after, cols, "the editor's xterm after the drag");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #211: after a keyboard step on a line, an editor pane's xterm keeps Neovim's size until Laura
+/// fits the terminals (`RESIZE_SETTLE`, 200 ms), as after a drag. The times make the test
+/// independent of the runner's speed.
+#[test]
+fn an_editor_pane_keeps_its_size_after_a_keyboard_step() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let (c, _cols, _dirs) = editor_beside(&mut r, &path)?;
+    c.eval(
+        "window.__resized = []; \
+         terms.get(2).onResize(() => __resized.push(performance.now())); \
+         document.querySelector('#ws > .split').focus(); \
+         window.__key = performance.now()",
+    )
+    .map_err(anyhow::Error::msg)?;
+    c.press(ARROW_RIGHT);
+    c.until(
+        &mut r,
+        "the editor's xterm at the pane's new size",
+        "layout.splits[0].ratio === 55 && __resized.length \
+           && terms.get(2).cols === layout.panes.find(p => p.id === 2).w - 2",
+    );
+    let waited = c.eval("__resized[0] - __key").map_err(anyhow::Error::msg)?;
+    assert!(
+        waited.as_f64().is_some_and(|ms| ms >= 195.0),
+        "the editor's xterm resized {waited} ms after the keystroke"
+    );
+    assert_eq!(c.errors(), json!([]));
     Ok(())
 }
