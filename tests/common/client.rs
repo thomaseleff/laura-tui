@@ -5,7 +5,7 @@
 //! The rig's JS reads the client's top-level names: see the note at the end of `state.js`.
 
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use laura::browser::Browser;
 use serde_json::{Value, json};
@@ -56,9 +56,15 @@ impl Client {
         let t0 = Instant::now();
         let browser = loop {
             if let Some(res) = start.poll() {
-                break res.unwrap_or_else(|e| panic!("Chrome didn't start: {}", e.reason));
+                break res.unwrap_or_else(|e| {
+                    panic!("Chrome didn't start: {:#}\n{}", e.reason, e.output)
+                });
             }
-            assert!(t0.elapsed() < common::DEADLINE, "Chrome didn't start");
+            // Past Laura's own 60 s limit, so a failed start reports its cause and Chrome's output.
+            assert!(
+                t0.elapsed() < Duration::from_secs(75),
+                "Chrome didn't start"
+            );
             r.pump();
         };
         let cdp = &browser.cdp;
