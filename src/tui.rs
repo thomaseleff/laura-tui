@@ -776,12 +776,17 @@ fn on_split(
             if pointer.press_line((a, b), Instant::now()) {
                 return Some(tab.act(UserAction::Unpin { a, b }).map(drop));
             }
-            pointer.split = Some(h.clone());
+            pointer.split = Some((a, b));
             Some(Ok(()))
         }
         MouseEventKind::Drag(MouseButton::Left) => {
-            let h = pointer.split.as_ref()?;
-            let (a, b) = (h.first[0], h.second[0]);
+            let (a, b) = pointer.split?;
+            let handles = tab.handles(content);
+            // A pane closed during the drag: the line is gone, so the drag ends, as in the web app.
+            let Some(h) = handles.iter().find(|h| (h.first[0], h.second[0]) == (a, b)) else {
+                pointer.split = None;
+                return Some(Ok(()));
+            };
             let ratio = mouse::ratio_at(h, m.column, m.row);
             pointer.moved_line();
             Some(tab.act(UserAction::Resize { a, b, ratio }).map(drop))

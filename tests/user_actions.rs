@@ -585,6 +585,9 @@ fn a_too_small_pane_can_still_grow() -> Result<()> {
     assert_eq!(tab.rects(narrow)[&2].width, 2);
     tab.act(resize(50))?;
     assert!(tab.rects(narrow)[&2].width >= 3);
+    // Pane 2 fits now, so the line's range shrinks: a drag reads the range again at each step.
+    let after = line(&tab);
+    assert!(after.max < h.max, "{h:?} → {after:?}");
 
     let grown = tab.rects(narrow);
     assert_eq!(

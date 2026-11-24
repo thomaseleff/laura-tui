@@ -21,8 +21,9 @@ use vt100::MouseProtocolMode;
 pub struct Pointer {
     /// An in-progress left-drag selection.
     pub selection: Option<Selection>,
-    /// The split whose line the user drags, from the press to the release.
-    pub split: Option<Handle>,
+    /// The line the user drags, by its two sides' first panes, from the press to the release. Each
+    /// step finds the line again, so the drag follows the line's current range.
+    pub split: Option<(PaneId, PaneId)>,
     /// The last press on a line, with the line's two panes: a second press within
     /// `DOUBLE_CLICK` is a double-click.
     last_down: Option<(Instant, (PaneId, PaneId))>,
