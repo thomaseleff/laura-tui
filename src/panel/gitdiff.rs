@@ -84,8 +84,9 @@ pub fn hunks(path: &str) -> DiffOutcome {
     }
 }
 
-/// The most files the start canvas lists; the rest is a count.
-const FILES: usize = 8;
+/// The most files the start canvas lists; the rest is a count. A cap for the frame and the DOM, as
+/// an untracked tree can hold thousands of files.
+const FILES: usize = 200;
 
 /// A changed file on the start canvas: `M`, `A`, `D` (a rename is a `D` and an `A`), or `?` for an
 /// untracked file. Its path is relative to Laura's folder; the counts are `None` for a binary or

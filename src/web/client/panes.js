@@ -361,8 +361,9 @@ function fileRow(f, diff) {
 }
 
 function projectCard(p) {
-  const rows = p.files.map(f => fileRow(f, p.kind === "changes" && f.status !== "?")).join("")
-    + (p.more ? `<div class="frow"><span></span><span class="n">and ${p.more} more</span></div>` : "");
+  // The rows scroll inside the card, below the commit line.
+  const rows = `<div class="files">${p.files.map(f => fileRow(f, p.kind === "changes" && f.status !== "?")).join("")}`
+    + (p.more ? `<div class="frow"><span></span><span class="n">and ${p.more} more</span></div>` : "") + "</div>";
   if (p.kind === "changes") return `<div class="gcard"><h3>Changes on <span class="br">${esc(p.branch)}</span></h3>${rows}</div>`;
   return `<div class="gcard"><h3>Latest on <span class="br">${esc(p.branch)}</span><span class="sp"></span><span class="br">No changes</span></h3>`
     + `<div class="commit"><b>${esc(p.subject)}</b><div class="n">${esc(p.hash)} · ${esc(p.author)} · ${age(p.ts)}</div></div>${rows}</div>`;

@@ -13,8 +13,6 @@ use crate::http;
 use crate::journal::{self, Recent};
 use crate::render::{self, Block};
 
-/// The most README blocks the canvas shows.
-const README_BLOCKS: usize = 6;
 /// The most sessions the canvas lists.
 const SESSIONS: usize = 3;
 
@@ -56,7 +54,7 @@ impl Glance {
 }
 
 /// The blocks of `root`'s README (`README.md` in any case) up to its second heading of level 1
-/// or 2, at most `README_BLOCKS`, without its HTML blocks, which would show as source.
+/// or 2, without its HTML blocks, which would show as source. The card scrolls, as a file pane does.
 fn readme(root: &Path, base: &str) -> Option<Readme> {
     let name = std::fs::read_dir(root)
         .ok()?
@@ -79,7 +77,6 @@ fn readme(root: &Path, base: &str) -> Option<Readme> {
     let html = r.blocks[..end]
         .iter()
         .filter(|b| !b.is_html())
-        .take(README_BLOCKS)
         .map(|b| b.html().replace('\0', base))
         .collect::<String>()
         // The canvas has no README pane, so a bare `#heading` names the README. File text can't

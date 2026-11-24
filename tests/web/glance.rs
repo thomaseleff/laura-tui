@@ -125,10 +125,13 @@ fn a_merge_commit_lists_its_files() -> Result<()> {
 fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
     let home = tempfile::tempdir()?;
     let dir = tempfile::tempdir()?;
-    // Any case of the name, a setext title, HTML that a page would show as its source, and an
-    // indented heading.
-    let readme = "<p align=\"center\">x</p>\n\nRidgeline\n=========\n\nPlan a day hike. [d](#data)\n\n  \
-                  ## Data\n\nThe tracks.\n\n## Deploy\n";
+    // Any case of the name, a setext title, HTML that a page would show as its source, a first
+    // section longer than a few blocks, and an indented heading.
+    let steps: String = (1..=7).map(|i| format!("Step {i}.\n\n")).collect();
+    let readme = format!(
+        "<p align=\"center\">x</p>\n\nRidgeline\n=========\n\nPlan a day hike. [d](#data)\n\n{steps}  \
+         ## Data\n\nThe tracks.\n\n## Deploy\n"
+    );
     std::fs::write(dir.path().join("Readme.md"), readme)?;
     let (_child, g) = glance_in(dir.path(), home.path())?;
     assert_eq!(g["readme"]["name"], "Readme.md", "{g}");
@@ -138,6 +141,7 @@ fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
         "{g}"
     );
     assert!(!html.contains("&lt;p") && !html.contains("<p align"), "{g}");
+    assert!(html.contains("Step 7."), "the whole first section: {g}");
     // The canvas has no README pane, so a heading link names the README.
     assert!(html.contains(r#"data-href="Readme.md#data""#), "{g}");
     assert!(!html.contains("The tracks."), "only the first section: {g}");
