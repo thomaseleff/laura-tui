@@ -330,7 +330,7 @@ export function paintGlance(m) {
   if (m.readme) {
     const more = m.readme.more.length ? `<p class="more">${m.readme.more.map(esc).join(" · ")}</p>` : "";
     // The README's HTML is Laura's, as in a `pane` frame.
-    cards.push(`<div class="gcard"><h3>README.md<span class="sp"></span><button class="lnk" data-path="README.md">Open as a pane</button></h3>`
+    cards.push(`<div class="gcard"><h3>${esc(m.readme.name)}<span class="sp"></span><button class="lnk" data-path="${esc(m.readme.name)}">Open as a pane</button></h3>`
       + `<div class="md">${m.readme.html}</div>${more}</div>`);
   }
   const col = [];

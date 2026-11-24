@@ -41,7 +41,7 @@ When the web app starts, no pane is open yet. Laura shows a start canvas above t
 
 - Until you submit your first inline review, Laura shows **Welcome to Laura**, with three steps: ask to see something, comment on a line, and submit your review. The help (`Ctrl+H`) shows the same steps.
 - After your first inline review, in any folder, Laura shows the project at a glance: up to three cards about the folder that Laura started in. Laura leaves out a card that has nothing to show.
-  - **README.md** shows the first section of the folder's `README.md`, and the names of the sections that follow. Click **Open as a pane** to open the README in a file pane. Click a link in the README to open its file at the heading.
+  - **README.md** shows the first section of the folder's `README.md`, without its HTML, and the names of the sections that follow. Click **Open as a pane** to open the README in a file pane. Click a link in the README to open its file at the heading.
   - **Changes on `<branch>`** lists the files that changed since the last commit, with the lines added and removed, and `?` for a new file that git doesn't track yet. When nothing changed, the card is **Latest on `<branch>`**: the last commit's subject, hash, author and age, and its files.
   - **Recently in this folder** lists your last three sessions in the folder, each with its session label, its age, its inline reviews and the files the agent opened.
 

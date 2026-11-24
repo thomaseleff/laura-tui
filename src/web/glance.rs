@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::gitdiff::{self, Project};
+use crate::http;
 use crate::journal::{self, Recent};
 use crate::render::{self, Block};
 
@@ -24,9 +25,10 @@ pub(super) struct Glance {
     sessions: Vec<Recent>,
 }
 
-/// The README's first section as HTML, and the level-2 headings after it.
+/// The README's file name, its first section as HTML, and the level-2 headings after it.
 #[derive(Serialize)]
 struct Readme {
+    name: String,
     html: String,
     more: Vec<String>,
 }
@@ -53,9 +55,15 @@ impl Glance {
     }
 }
 
-/// `root/README.md`'s blocks up to its second heading of level 1 or 2, at most `README_BLOCKS`.
+/// The blocks of `root`'s README (`README.md` in any case) up to its second heading of level 1
+/// or 2, at most `README_BLOCKS`, without its HTML blocks, which would show as source.
 fn readme(root: &Path, base: &str) -> Option<Readme> {
-    let path = root.join("README.md");
+    let name = std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.eq_ignore_ascii_case("README.md"))?;
+    let path = root.join(&name);
     if !path.is_file() {
         return None;
     }
@@ -70,17 +78,21 @@ fn readme(root: &Path, base: &str) -> Option<Readme> {
         .map_or(r.blocks.len(), |(i, _)| i);
     let html = r.blocks[..end]
         .iter()
+        .filter(|b| !b.is_html())
         .take(README_BLOCKS)
         .map(|b| b.html().replace('\0', base))
         .collect::<String>()
         // The canvas has no README pane, so a bare `#heading` names the README. File text can't
         // fake `data-href="`: `render` escapes its `"`.
-        .replace("data-href=\"#", "data-href=\"README.md#");
+        .replace(
+            "data-href=\"#",
+            &format!("data-href=\"{}#", http::pct_encode(&name)),
+        );
     let more = r.blocks[end..]
         .iter()
         .filter_map(Block::heading)
         .filter(|&(level, _)| level == 2)
         .map(|(_, text)| text.to_string())
         .collect();
-    (!html.is_empty()).then_some(Readme { html, more })
+    (!html.is_empty()).then_some(Readme { name, html, more })
 }

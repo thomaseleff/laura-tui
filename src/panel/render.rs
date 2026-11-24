@@ -61,6 +61,7 @@ pub(crate) struct Block {
     /// Each 0-based source line a row maps to alone, with its first row.
     own: Vec<(usize, usize)>,
     defs: Option<Arc<str>>,
+    kind: BlockKind,
     /// The HTML and its stops.
     html: OnceCell<(String, Vec<(usize, u32)>)>,
 }
@@ -72,10 +73,29 @@ impl Block {
         &self.built().0
     }
 
-    /// The block's level and text when it is an ATX heading (`## Data`).
+    /// Whether the block is raw HTML, which a page shows as its source.
+    pub(crate) fn is_html(&self) -> bool {
+        matches!(self.kind, BlockKind::Html)
+    }
+
+    /// The block's level and text when it is a heading: ATX (`## Data`) or setext (a line under
+    /// `===` or `---`).
     pub(crate) fn heading(&self) -> Option<(usize, &str)> {
-        let line = self.md.trim_start_matches(['\r', '\n']).lines().next()?;
+        let mut lines = self.md.trim_start_matches(['\r', '\n']).lines();
+        let line = lines.next()?;
         let level = line.bytes().take_while(|&b| b == b'#').count();
+        if level == 0 && matches!(self.kind, BlockKind::Prose) {
+            let under = lines.next()?.trim();
+            let level = match under.as_bytes().first()? {
+                b'=' => 1,
+                b'-' => 2,
+                _ => return None,
+            };
+            return under
+                .bytes()
+                .all(|b| b == under.as_bytes()[0])
+                .then(|| (level, line.trim()));
+        }
         let text = line[level..].strip_prefix([' ', '\t'])?.trim();
         (1..=6)
             .contains(&level)
@@ -348,7 +368,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
     let mut source: Vec<(usize, usize)> = vec![];
     let mut out_blocks: Vec<Block> = vec![];
     let mut push_block =
-        |source: &[(usize, usize)], rows: Range<usize>, l0: usize, md: &str, linked: bool| {
+        |source: &[(usize, usize)], rows: Range<usize>, l0: usize, md: &str, kind: BlockKind| {
             if rows.is_empty() {
                 return;
             }
@@ -364,7 +384,8 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                 md: md.to_string(),
                 l0,
                 own,
-                defs: linked.then(|| defs.clone()),
+                defs: kind.linked().then(|| defs.clone()),
+                kind,
                 html: OnceCell::new(),
             });
         };
@@ -404,7 +425,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                         styled.push(row);
                         source.push(range);
                     }
-                    push_block(&source, first..styled.len(), s, &item, true);
+                    push_block(&source, first..styled.len(), s, &item, BlockKind::List);
                     for j in e + 1..=end {
                         styled.push(Line::default());
                         source.push((j, j));
@@ -415,9 +436,9 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             }
             // else: empty item scan → fall through, tagging the whole block (today's honest collapse).
         }
-        // Code and HTML hold no links, and an unclosed one would swallow the defs. An unclosed one
-        // also runs to the end of the file: cut its trailing blank lines, which the gap-fill shows (#103).
-        let linked = !matches!(kind, BlockKind::Code { .. } | BlockKind::Html);
+        // An unclosed code or HTML block runs to the end of the file: cut its trailing blank lines,
+        // which the gap-fill shows (#103).
+        let linked = kind.linked();
         let body = if linked {
             md[b0..b1].to_string()
         } else {
@@ -446,7 +467,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                 styled.push(row);
                 source.push(range);
             }
-            push_block(&source, first..styled.len(), l0, &md[b0..b1], linked);
+            push_block(&source, first..styled.len(), l0, &md[b0..b1], kind);
             if styled.len() > first {
                 cursor = cursor.max(l1 + 1);
             }
@@ -470,7 +491,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             styled.push(line);
             source.push(range);
         }
-        push_block(&source, first..styled.len(), l0, &body, linked);
+        push_block(&source, first..styled.len(), l0, &body, kind);
         if styled.len() > first {
             cursor = cursor.max(l1 + 1);
         }
@@ -835,6 +856,13 @@ enum BlockKind {
     Html,
     List,
     Table,
+}
+
+impl BlockKind {
+    /// Code and HTML hold no links, and an unclosed one would swallow the reference definitions.
+    fn linked(self) -> bool {
+        !matches!(self, BlockKind::Code { .. } | BlockKind::Html)
+    }
 }
 
 /// Top-level block byte ranges + kind: a depth-0→0 Start/End span (nesting via +1/−1), plus any
