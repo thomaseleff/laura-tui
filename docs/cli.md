@@ -255,7 +255,7 @@ Each event's fields:
 
 | `type` | Fields |
 |---|---|
-| `ready` | `pid` (Laura's process id), `title` |
+| `ready` | `pid` (Laura's process id), `title`, `root` (the folder Laura started in) |
 | `open` | `pane`, `path`, `replaced`, `edit` |
 | `close` | `pane`, or `all` |
 | `focus` | `pane` |
@@ -266,7 +266,7 @@ Each event's fields:
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |
 | `browser` | `error` (why Laura's browser didn't start), `output` (the last 10 lines of Chrome's output) |
 
-Every event also carries `ts`, `version`, `session`, and `agent` when `ready --agent` named one. `edit` and `replaced` appear only when true; `ready`'s `title` is `null` when omitted or blank, `feedback`'s `body` is `null` when omitted, and `feedback`'s `pane` is `null` when the shell has focus.
+Every event also carries `ts`, `version`, `session`, and `agent` when `ready --agent` named one. `edit` and `replaced` appear only when true; `ready`'s `title` is `null` when omitted or blank, `ready`'s `root` is missing from a journal that an older Laura wrote, `feedback`'s `body` is `null` when omitted, and `feedback`'s `pane` is `null` when the shell has focus.
 
 ## Global
 

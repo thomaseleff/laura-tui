@@ -646,7 +646,11 @@ impl Tab {
         });
         let journal = Journal::open(&session, agent);
         let path = journal.path().to_string_lossy().into_owned();
-        journal.log(json!({"type": "ready", "pid": std::process::id(), "title": title}));
+        let root = crate::platform::folder()
+            .ok()
+            .map(crate::platform::strip_verbatim);
+        journal
+            .log(json!({"type": "ready", "pid": std::process::id(), "title": title, "root": root}));
         self.journal = Some(journal);
         if title.is_some() {
             self.title = title;

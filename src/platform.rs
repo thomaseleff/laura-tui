@@ -102,6 +102,11 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// The folder Laura started in, canonical, so a path from git or the journal compares with it.
+pub(crate) fn folder() -> std::io::Result<PathBuf> {
+    std::env::current_dir()?.canonicalize()
+}
+
 /// The folder Laura started in, for the top bar: under the home folder as `~/…`, with `/` between
 /// names on every OS.
 pub(crate) fn shown_root(root: &Path) -> String {

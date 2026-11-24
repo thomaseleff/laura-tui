@@ -276,7 +276,7 @@ impl WebServer {
         let port = listener.local_addr()?.port();
         let token = nonce(32)?;
         let url = format!("http://127.0.0.1:{port}/?t={token}");
-        let root = std::env::current_dir()?.canonicalize()?;
+        let root = crate::platform::folder()?;
         let files = Files::default();
         let (join, conns) = channel();
         let shared = files.clone();
