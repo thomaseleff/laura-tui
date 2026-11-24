@@ -100,7 +100,7 @@ impl Tab {
             A::ClearHighlight { pane } => self.panel_mut(pane)?.clear_highlight(),
             A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
             A::OpenLink { pane, href } => self.open_link(pane, &href)?,
-            A::OpenPath { path, line } => self.open_path(&path, line)?,
+            A::OpenPath { path, line, diff } => self.open_path(&path, line, diff)?,
             A::BeginComment { pane } => {
                 if !self.agent {
                     return Err(NEEDS_READY.into());

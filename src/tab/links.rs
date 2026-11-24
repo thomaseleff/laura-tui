@@ -48,7 +48,7 @@ impl Tab {
             if !file.is_file() {
                 return Err(missing());
             }
-            target = self.open_file(file.to_string_lossy().into_owned())?;
+            target = self.open_file(file.to_string_lossy().into_owned(), false)?;
         }
         // Not `panel_mut`: an editor pane in its editor view keeps the heading for its file view.
         let p = self
@@ -72,13 +72,14 @@ impl Tab {
         Ok(())
     }
 
-    /// Focus the pane already showing the absolute `file`, else open it as `laura open` would.
-    fn open_file(&mut self, file: String) -> Result<PaneId, String> {
+    /// Focus the pane already showing the absolute `file`, else open it as `laura open` would,
+    /// in the diff view when `diff`.
+    fn open_file(&mut self, file: String, diff: bool) -> Result<PaneId, String> {
         if let Some(id) = self.showing(&file, PTY_PANE) {
             self.focus = id;
             return Ok(id);
         }
-        let msg = serde_json::from_value(json!({"type": "open", "path": file}))
+        let msg = serde_json::from_value(json!({"type": "open", "path": file, "diff": diff}))
             .expect("a path-only open always parses");
         match self.open(msg, self.area) {
             Ok(Response::Opened { pane, .. }) => Ok(pane),
@@ -90,8 +91,13 @@ impl Tab {
         }
     }
 
-    /// Open `path` (relative to Laura's folder) and put the cursor on `line`.
-    pub(super) fn open_path(&mut self, path: &str, line: Option<u32>) -> Result<(), String> {
+    /// Open `path` (relative to Laura's folder), in the diff view when `diff`, and put the cursor on `line`.
+    pub(super) fn open_path(
+        &mut self,
+        path: &str,
+        line: Option<u32>,
+        diff: bool,
+    ) -> Result<(), String> {
         let missing = || format!("⚠ The link target {path} does not exist.");
         let file = std::path::absolute(path).map_err(|_| missing())?;
         if file.is_dir() {
@@ -100,7 +106,7 @@ impl Tab {
         if !file.is_file() {
             return Err(missing());
         }
-        let id = self.open_file(file.to_string_lossy().into_owned())?;
+        let id = self.open_file(file.to_string_lossy().into_owned(), diff)?;
         // Not `panel_mut`: an editor pane in its editor view keeps the line for its file view.
         if let (Some(l), Some(p)) = (line, self.panels.get_mut(&id)) {
             p.jump_to_line(l);

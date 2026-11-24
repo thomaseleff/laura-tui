@@ -169,6 +169,24 @@ fn a_diff_row_names_its_change() -> Result<()> {
 }
 
 #[test]
+fn open_path_with_diff_opens_the_diff_view() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_a, a) = changed_file("a.txt", "keep\nold\n", "keep\nnew\n")?;
+    let (_b, b) = changed_file("b.txt", "keep\nold\n", "keep\nnew\n")?;
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "open_path", "path": a, "diff": true}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    assert!(rig.tab.panels[&1].diff_view);
+    let acted = rig.act(&mut ws, json!({"act": "open_path", "path": b}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    assert!(!rig.tab.panels[&2].diff_view);
+    Ok(())
+}
+
+#[test]
 fn a_code_pane_shows_light_colors() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();

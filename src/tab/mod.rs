@@ -158,11 +158,14 @@ pub enum UserAction {
         pane: PaneId,
         href: String,
     },
-    /// A file path the user clicked in the shell. `line` is 1-based source.
+    /// A file path the user clicked in the shell or on the start canvas. `line` is 1-based
+    /// source; `diff` opens a changed file in the diff view.
     OpenPath {
         path: String,
         #[serde(default)]
         line: Option<u32>,
+        #[serde(default)]
+        diff: bool,
     },
     /// Keys to the shell, or an editor pane's Neovim in its editor view. The web app sends these
     /// as binary frames, not JSON.
