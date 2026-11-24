@@ -48,6 +48,10 @@ fn ready_names_a_session_and_open_is_journaled() -> Result<()> {
         std::env::set_var("USERPROFILE", dir.path());
     }
 
+    // Laura's folder: the cwd Laura starts in, which `ready` logs as `root`.
+    let folder = tempfile::tempdir()?;
+    std::env::set_current_dir(folder.path())?;
+
     let file = tempfile::NamedTempFile::new()?;
     let path = file.path().to_str().unwrap();
 
@@ -67,6 +71,12 @@ fn ready_names_a_session_and_open_is_journaled() -> Result<()> {
         body.contains(r#""type":"ready""#),
         "ready event missing: {body}"
     );
+    let ready: serde_json::Value = serde_json::from_str(body.lines().next().unwrap())?;
+    assert_eq!(
+        ready["root"].as_str().map(std::path::PathBuf::from),
+        Some(laura_root(folder.path())),
+        "ready names Laura's folder: {body}"
+    );
     assert!(
         body.contains(r#""type":"open""#),
         "open event missing: {body}"
@@ -82,4 +92,11 @@ fn ready_names_a_session_and_open_is_journaled() -> Result<()> {
         "version not stamped: {body}"
     );
     Ok(())
+}
+
+/// `path` as `ready` logs it: canonical, without Windows' `\\?\` prefix.
+fn laura_root(path: &std::path::Path) -> std::path::PathBuf {
+    let p = path.canonicalize().unwrap();
+    let s = p.to_string_lossy();
+    std::path::PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(&s))
 }

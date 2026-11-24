@@ -10,7 +10,7 @@
 //! - [`editor`] — an editor pane's Neovim (experimental) and the startup gate.
 //! - [`tab`] — one workspace tab tying the above together over its socket; with `apply`, `act`, `links`, `browsers` and `report`.
 //! - [`view`] — pane titles, file pane rows, and the hint, help, and notice text a front-end draws.
-//! - [`web`] — the web app: serves a workspace to the browser; with `frames` and `html`.
+//! - [`web`] — the web app: serves a workspace to the browser; with `frames`, `html` and `glance`.
 //! - [`serve`] — the Laura server: one address that lists the workspaces and starts new ones.
 //! - [`http`] — HTTP for the web app, the Laura server and the CDP proxy: heads, responses, tokens, origins.
 //! - [`platform`] — Laura's folders, private files, and the opener for the user's browser.

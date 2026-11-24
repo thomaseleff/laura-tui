@@ -417,6 +417,7 @@ fn a_file_path_in_the_shell_opens_in_a_pane() -> Result<()> {
     let open = |path: String| UserAction::OpenPath {
         path,
         line: Some(3),
+        diff: false,
     };
     tab.act(open("src/lib.rs".into()))?;
     tab.tick(area());
@@ -451,6 +452,7 @@ fn a_file_path_in_the_shell_centers_its_line_once() -> Result<()> {
     let open = |line| UserAction::OpenPath {
         path: file.to_string_lossy().into_owned(),
         line: Some(line),
+        diff: false,
     };
     tab.act(open(300))?;
     tab.tick(area());
@@ -481,6 +483,7 @@ fn a_file_path_that_is_not_a_file_returns_the_link_notice() -> Result<()> {
     let open = |path: &str| UserAction::OpenPath {
         path: path.into(),
         line: None,
+        diff: false,
     };
     assert_eq!(
         tab.act(open("src/nope.rs")),

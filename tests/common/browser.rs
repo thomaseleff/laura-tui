@@ -399,8 +399,7 @@ pub fn serve() -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-/// `Rig::new` without its isolated home: Chrome on Windows doesn't start with `USERPROFILE` moved.
-/// No test here runs `ready`, so nothing writes the journal.
+/// `Rig::new` with browser panes off.
 pub fn bare() -> Result<Rig> {
     hosted(Err(browser::NO_BROWSER.into()))
 }

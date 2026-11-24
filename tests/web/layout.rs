@@ -225,28 +225,6 @@ fn an_earlier_editor_theme_moves_into_the_settings() -> Result<()> {
     }
 }
 
-/// `laura --web` with its own `home`, and a view connected to it.
-fn laura_web_in(home: &Path) -> Result<(Kill, Ws)> {
-    let (child, url) = laura_start(home, &["--web", "--", PROGRAM], Some(home))?;
-    let (port, token) = port_token(&url);
-    let origin = format!("http://localhost:{port}");
-    Ok((child, connect_to(port, Some(&token), Some(&origin))?))
-}
-
-/// The first `layout` frame on a raw view that `want` accepts.
-fn raw_layout_when(ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
-    let start = Instant::now();
-    loop {
-        if let Some(Frame::Json(v)) = read(ws)
-            && v["t"] == "layout"
-            && want(&v)
-        {
-            return v;
-        }
-        assert!(start.elapsed() < common::DEADLINE, "no layout with {what}");
-    }
-}
-
 /// A `settings.json` that Laura can't parse, for example after a typo in a hand edit: Laura shows
 /// the start height, a drag applies to this workspace only, and the file keeps the user's keys.
 #[test]
@@ -303,18 +281,6 @@ fn a_save_waits_for_another_lauras_save() -> Result<()> {
     Ok(())
 }
 
-/// A `review` event in `home`'s journal; `error` makes it a failed submit.
-fn journal_review(home: &Path, error: bool) -> Result<()> {
-    let dir = home.join(".laura/sessions");
-    std::fs::create_dir_all(&dir)?;
-    let mut event = json!({"type": "review", "ts": 1, "pane": 1, "path": "a.rs"});
-    if error {
-        event["error"] = json!("the shell exited");
-    }
-    std::fs::write(dir.join("x.ndjson"), format!("{event}\n"))?;
-    Ok(())
-}
-
 /// The start height: 36% or 18 rows of the shell, at most 54%, which the web app measures.
 fn start_fit() -> Value {
     json!({"rows": 18, "max": 54})
@@ -360,9 +326,9 @@ fn a_workspace_after_a_review_starts_over_the_calm_canvas() -> Result<()> {
     let home = tempfile::tempdir()?;
     journal_review(home.path(), false)?;
     let (_child, mut ws) = laura_web_in(home.path())?;
-    let first = raw_layout_when(&mut ws, "a layout", |_| true);
-    assert_eq!(first["canvas"], "calm", "{first}");
-    assert_eq!(first["drawer_fit"], start_fit(), "{first}");
+    // The first layout can show the glance while Laura reads the folder.
+    let calm = raw_layout_when(&mut ws, "the calm canvas", |l| l["canvas"] == "calm");
+    assert_eq!(calm["drawer_fit"], start_fit(), "{calm}");
     Ok(())
 }
 

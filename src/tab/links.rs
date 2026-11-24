@@ -15,7 +15,8 @@ use super::{Error, NO_ROOM, Tab, no_pane};
 impl Tab {
     /// Open `href`'s file, without its `?query`, beside pane `pane`'s, as `laura open` would, or move to the pane already
     /// showing it, and put the cursor on its `#heading`. A bare `#heading` moves pane `pane`'s
-    /// cursor. A missing heading is a notice for the pane that shows the file.
+    /// cursor. From the shell (the start canvas), `href` is relative to Laura's folder, and a bare
+    /// `#heading` has no pane to move. A missing heading is a notice for the pane that shows the file.
     pub(super) fn open_link(&mut self, pane: PaneId, href: &str) -> Result<(), String> {
         let missing = || format!("⚠ The link target {href} does not exist.");
         let (path, heading) = href.split_once('#').unwrap_or((href, ""));
@@ -25,10 +26,17 @@ impl Tab {
             http::pct_decode(heading).ok_or_else(missing)?,
         );
         let mut target = pane;
-        let dir = Path::new(&self.panel_mut(pane)?.path)
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
+        let dir = if pane == PTY_PANE {
+            if path.is_empty() {
+                return Err(missing());
+            }
+            Default::default()
+        } else {
+            Path::new(&self.panel_mut(pane)?.path)
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default()
+        };
         if !path.is_empty() {
             // A root or drive (`/x`, `//host/share`, `C:x`) would replace the folder in `join`.
             let rel = Path::new(&path);
@@ -48,7 +56,7 @@ impl Tab {
             if !file.is_file() {
                 return Err(missing());
             }
-            target = self.open_file(file.to_string_lossy().into_owned())?;
+            target = self.open_file(file.to_string_lossy().into_owned(), false)?;
         }
         // Not `panel_mut`: an editor pane in its editor view keeps the heading for its file view.
         let p = self
@@ -72,13 +80,14 @@ impl Tab {
         Ok(())
     }
 
-    /// Focus the pane already showing the absolute `file`, else open it as `laura open` would.
-    fn open_file(&mut self, file: String) -> Result<PaneId, String> {
+    /// Focus the pane already showing the absolute `file`, else open it as `laura open` would,
+    /// in the diff view when `diff`.
+    fn open_file(&mut self, file: String, diff: bool) -> Result<PaneId, String> {
         if let Some(id) = self.showing(&file, PTY_PANE) {
             self.focus = id;
             return Ok(id);
         }
-        let msg = serde_json::from_value(json!({"type": "open", "path": file}))
+        let msg = serde_json::from_value(json!({"type": "open", "path": file, "diff": diff}))
             .expect("a path-only open always parses");
         match self.open(msg, self.area) {
             Ok(Response::Opened { pane, .. }) => Ok(pane),
@@ -90,8 +99,13 @@ impl Tab {
         }
     }
 
-    /// Open `path` (relative to Laura's folder) and put the cursor on `line`.
-    pub(super) fn open_path(&mut self, path: &str, line: Option<u32>) -> Result<(), String> {
+    /// Open `path` (relative to Laura's folder), in the diff view when `diff`, and put the cursor on `line`.
+    pub(super) fn open_path(
+        &mut self,
+        path: &str,
+        line: Option<u32>,
+        diff: bool,
+    ) -> Result<(), String> {
         let missing = || format!("⚠ The link target {path} does not exist.");
         let file = std::path::absolute(path).map_err(|_| missing())?;
         if file.is_dir() {
@@ -100,7 +114,7 @@ impl Tab {
         if !file.is_file() {
             return Err(missing());
         }
-        let id = self.open_file(file.to_string_lossy().into_owned())?;
+        let id = self.open_file(file.to_string_lossy().into_owned(), diff)?;
         // Not `panel_mut`: an editor pane in its editor view keeps the line for its file view.
         if let (Some(l), Some(p)) = (line, self.panels.get_mut(&id)) {
             p.jump_to_line(l);

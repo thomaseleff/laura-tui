@@ -23,6 +23,7 @@ Read and summarize the feedback and inline reviews in the journals. Laura writes
 
 - `feedback` events carry `{sentiment,body,pane}`, with `sentiment` either `+` or `-`.
 - `review` events carry `{path,comments,body}`, plus `error` when Laura couldn't write the inline review into the chat.
+- `ready` events carry `{title,root}`: the session label, and the folder Laura started in. A journal from an older Laura has no `root`.
 
 `FIELD=VALUE` matches a top-level field. Repeat a field to match any of its values; different fields must all match. `-n <N>` keeps the newest N matches (default 50). When `laura journal` leaves out matches, it warns `showing N of M events; pass -n for more` on stderr. Raise `-n` to see more.
 
@@ -48,4 +49,7 @@ laura journal type=review
 
 # One session only
 laura journal session=<session-id>
+
+# The sessions in one folder (then read each session with session=<session-id>)
+laura journal type=ready root=<folder>
 ```

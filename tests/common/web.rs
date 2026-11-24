@@ -27,6 +27,12 @@ pub fn isolate_home() {
     ONCE.call_once(|| unsafe {
         std::env::set_var("HOME", env!("CARGO_TARGET_TMPDIR"));
         std::env::set_var("USERPROFILE", env!("CARGO_TARGET_TMPDIR"));
+        // Windows's known folders follow USERPROFILE, and Chrome stalls when they don't exist.
+        #[cfg(windows)]
+        for dir in [r"AppData\Local", r"AppData\Roaming"] {
+            std::fs::create_dir_all(std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(dir))
+                .expect("the test home is writable");
+        }
     });
 }
 
@@ -154,7 +160,6 @@ impl Rig {
     }
 
     pub fn with(cmd: portable_pty::CommandBuilder) -> Result<Rig> {
-        isolate_home();
         // As `laura` starts it, with browser panes off.
         Rig::host(Tab::spawn_web(
             cmd,
@@ -166,6 +171,7 @@ impl Rig {
 
     /// `tab`, hosted by a new web server.
     pub fn host(tab: Tab) -> Result<Rig> {
+        isolate_home();
         let web = WebServer::bind(0)?;
         let (port, token) = port_token(web.url());
         Ok(Rig {

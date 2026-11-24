@@ -61,6 +61,7 @@ pub(crate) struct Block {
     /// Each 0-based source line a row maps to alone, with its first row.
     own: Vec<(usize, usize)>,
     defs: Option<Arc<str>>,
+    kind: BlockKind,
     /// The HTML and its stops.
     html: OnceCell<(String, Vec<(usize, u32)>)>,
 }
@@ -70,6 +71,11 @@ impl Block {
     /// with the pane's file route. A panic in `md_html` shows the source as escaped text instead.
     pub(crate) fn html(&self) -> &str {
         &self.built().0
+    }
+
+    /// Whether the block is raw HTML, which a page shows as its source.
+    pub(crate) fn is_html(&self) -> bool {
+        matches!(self.kind, BlockKind::Html)
     }
 
     /// `(row, 1-based line)` for each line inside the block with its own row and its own
@@ -338,7 +344,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
     let mut source: Vec<(usize, usize)> = vec![];
     let mut out_blocks: Vec<Block> = vec![];
     let mut push_block =
-        |source: &[(usize, usize)], rows: Range<usize>, l0: usize, md: &str, linked: bool| {
+        |source: &[(usize, usize)], rows: Range<usize>, l0: usize, md: &str, kind: BlockKind| {
             if rows.is_empty() {
                 return;
             }
@@ -354,7 +360,8 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                 md: md.to_string(),
                 l0,
                 own,
-                defs: linked.then(|| defs.clone()),
+                defs: kind.linked().then(|| defs.clone()),
+                kind,
                 html: OnceCell::new(),
             });
         };
@@ -394,7 +401,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                         styled.push(row);
                         source.push(range);
                     }
-                    push_block(&source, first..styled.len(), s, &item, true);
+                    push_block(&source, first..styled.len(), s, &item, BlockKind::List);
                     for j in e + 1..=end {
                         styled.push(Line::default());
                         source.push((j, j));
@@ -405,9 +412,9 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             }
             // else: empty item scan → fall through, tagging the whole block (today's honest collapse).
         }
-        // Code and HTML hold no links, and an unclosed one would swallow the defs. An unclosed one
-        // also runs to the end of the file: cut its trailing blank lines, which the gap-fill shows (#103).
-        let linked = !matches!(kind, BlockKind::Code { .. } | BlockKind::Html);
+        // An unclosed code or HTML block runs to the end of the file: cut its trailing blank lines,
+        // which the gap-fill shows (#103).
+        let linked = kind.linked();
         let body = if linked {
             md[b0..b1].to_string()
         } else {
@@ -436,7 +443,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
                 styled.push(row);
                 source.push(range);
             }
-            push_block(&source, first..styled.len(), l0, &md[b0..b1], linked);
+            push_block(&source, first..styled.len(), l0, &md[b0..b1], kind);
             if styled.len() > first {
                 cursor = cursor.max(l1 + 1);
             }
@@ -460,7 +467,7 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
             styled.push(line);
             source.push(range);
         }
-        push_block(&source, first..styled.len(), l0, &body, linked);
+        push_block(&source, first..styled.len(), l0, &body, kind);
         if styled.len() > first {
             cursor = cursor.max(l1 + 1);
         }
@@ -825,6 +832,13 @@ enum BlockKind {
     Html,
     List,
     Table,
+}
+
+impl BlockKind {
+    /// Code and HTML hold no links, and an unclosed one would swallow the reference definitions.
+    fn linked(self) -> bool {
+        !matches!(self, BlockKind::Code { .. } | BlockKind::Html)
+    }
 }
 
 /// Top-level block byte ranges + kind: a depth-0→0 Start/End span (nesting via +1/−1), plus any

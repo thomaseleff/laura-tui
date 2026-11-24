@@ -6,9 +6,10 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::platform::{data_dir, runtime_dir};
+use crate::platform::{data_dir, runtime_dir, strip_verbatim};
 
 /// Where every session's journal lives.
 pub fn sessions_dir() -> PathBuf {
@@ -130,6 +131,86 @@ pub(crate) fn reviewed() -> bool {
             .filter(|l| l.contains("\"review\""))
             .filter_map(|l| serde_json::from_str::<Value>(l).ok())
             .any(|e| e["type"] == "review" && e.get("error").is_none())
+    })
+}
+
+/// A session in a folder, for the start canvas: its session label, its newest event in Unix ms,
+/// the files it opened or reviewed that still exist, newest first, and its submitted inline reviews.
+#[derive(Serialize)]
+pub(crate) struct Recent {
+    label: Option<String>,
+    ts: u64,
+    files: Vec<String>,
+    reviews: usize,
+}
+
+/// The most files a recent session lists.
+const RECENT_FILES: usize = 4;
+
+/// The `n` newest sessions in the canonical folder `root`. A session belongs to `root` when its
+/// last `ready` names `root`, or, from an older Laura without `root`, when it opened or reviewed a
+/// file below `root`.
+// shortcut: reads every journal in full, as `read_events` does; read the newest files first if session count makes it slow.
+pub(crate) fn recent(root: &Path, n: usize) -> Vec<Recent> {
+    let root = strip_verbatim(root.to_path_buf());
+    let mut sessions: Vec<Recent> = journals().filter_map(|s| session_in(&s, &root)).collect();
+    sessions.sort_by_key(|r| std::cmp::Reverse(r.ts));
+    sessions.truncate(n);
+    sessions
+}
+
+/// One journal's session, when it belongs to `root`.
+fn session_in(text: &str, root: &Path) -> Option<Recent> {
+    let events: Vec<Value> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(Value::is_object)
+        .collect();
+    let kind = |e: &Value, t: &[&str]| t.iter().any(|t| e["type"] == *t);
+    let ready = events.iter().rev().find(|e| kind(e, &["ready"]))?;
+    // Before any `canonicalize`: a session in another folder costs no file system call.
+    if ready["root"].as_str().is_some_and(|r| Path::new(r) != root) {
+        return None;
+    }
+    // Each file below `root`, relative, newest first, and whether it still exists. A file that is
+    // gone since is below `root` when its folder is, so the session still belongs to `root`.
+    let below = |e: &Value| {
+        let p = Path::new(e["path"].as_str()?);
+        let full = p
+            .canonicalize()
+            .ok()
+            .or_else(|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?)))?;
+        let rel = strip_verbatim(full).strip_prefix(root).ok()?.to_path_buf();
+        Some((rel.to_string_lossy().replace('\\', "/"), p.exists()))
+    };
+    let opened: Vec<(String, bool)> = events
+        .iter()
+        .rev()
+        .filter(|e| kind(e, &["open", "review"]))
+        .filter_map(below)
+        .collect();
+    // A journal from before `root` belongs to the folder where it opened a file.
+    if ready["root"].as_str().is_none() && opened.is_empty() {
+        return None;
+    }
+    let mut files: Vec<String> = vec![];
+    for (f, _) in opened.into_iter().filter(|(_, exists)| *exists) {
+        if !files.contains(&f) && files.len() < RECENT_FILES {
+            files.push(f);
+        }
+    }
+    Some(Recent {
+        label: events
+            .iter()
+            .rev()
+            .find_map(|e| kind(e, &["ready"]).then(|| e["title"].as_str()).flatten())
+            .map(str::to_string),
+        ts: events.iter().map(ts).max().unwrap_or(0),
+        files,
+        reviews: events
+            .iter()
+            .filter(|e| kind(e, &["review"]) && e.get("error").is_none())
+            .count(),
     })
 }
 

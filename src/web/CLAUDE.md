@@ -1,6 +1,6 @@
 # The web app
 
-Rules for `src/web/`: the web app's server (`mod.rs`, `frames.rs`, `html.rs`) and its client (`client/`). The root [`CLAUDE.md`](../../CLAUDE.md) holds the rules for all of Laura.
+Rules for `src/web/`: the web app's server (`mod.rs`, `frames.rs`, `html.rs`, `glance.rs`) and its client (`client/`). The root [`CLAUDE.md`](../../CLAUDE.md) holds the rules for all of Laura.
 
 ## Client modules
 
@@ -9,7 +9,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `state.js`: Laura's layout, the socket, `send` and `act`, the wait rule, `esc`, and `ui` with `mode()`. Every module imports `state.js`, and `state.js` imports nothing.
 - `term.js`: the shell's and each editor pane's xterm.js, `termKeys`, the shell's links (`PATH`), and the grid's cell.
 - `head.js`: the pane header.
-- `panes.js`: each pane's element, `onLayout`, the start canvas, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
+- `panes.js`: each pane's element, `onLayout`, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
 - `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
 - `bottom.js`: the notice, the hint line, the status bar and the shell button.
 - `review.js`: threads, the comment's box, the popovers and the draft.
@@ -36,6 +36,7 @@ Laura sends these frames to the view:
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
 | `layout` | The panes, their rects, the focus, the hint line, the status bar, the `canvas` while no pane but the shell is open, and the drawer's height with its `drawer_fit` | `layout_json` (`frames.rs`) | `onLayout` |
+| `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |
@@ -52,7 +53,7 @@ The view sends these frames to Laura, and `sync` reads each one in its inbound b
 
 ## Escaping
 
-The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames goes in as markup. `html.rs` builds that HTML, and escapes the file text with `render::escape`.
+The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames, and the README's HTML in the `glance` frame, goes in as markup. `html.rs` and `render.rs` build that HTML, and escape the file text.
 
 ## Parity
 
@@ -73,7 +74,7 @@ Before a change to the web app, ask: does the TUI need the same change?
 
 Assert on frames, not pixels.
 
-The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `file_panes`, `markdown`, `pages`, `review`, `start` and `links`. The `//!` paragraph of each module tells what the module covers.
+The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `file_panes`, `markdown`, `pages`, `review`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
 
 - Add a web test to the module for its feature.
 - Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.

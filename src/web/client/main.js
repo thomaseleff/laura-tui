@@ -3,7 +3,7 @@
 
 import { $, act, acts, pane, root, send, setWs, terms, ui, ws } from "./state.js";
 import { fitShell, makeProbe, measure, report } from "./term.js";
-import { forgetDrawer, onLayout, resetFocus } from "./panes.js";
+import { forgetDrawer, onLayout, paintGlance, resetFocus } from "./panes.js";
 import { onAgent, onBrowser, onFrame, onShot, paintMarks } from "./browser-pane.js";
 import { paintHint, shellBusy, showNotice, visit } from "./bottom.js";
 import { closeDraft } from "./review.js";
@@ -71,6 +71,9 @@ export function connect() {
         }
         laid = true;
         onLayout(m);
+        break;
+      case "glance":
+        paintGlance(m);
         break;
       case "pane":
       case "rows":
