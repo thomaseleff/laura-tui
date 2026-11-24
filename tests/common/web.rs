@@ -154,7 +154,6 @@ impl Rig {
     }
 
     pub fn with(cmd: portable_pty::CommandBuilder) -> Result<Rig> {
-        isolate_home();
         // As `laura` starts it, with browser panes off.
         Rig::host(Tab::spawn_web(
             cmd,
@@ -166,6 +165,7 @@ impl Rig {
 
     /// `tab`, hosted by a new web server.
     pub fn host(tab: Tab) -> Result<Rig> {
+        isolate_home();
         let web = WebServer::bind(0)?;
         let (port, token) = port_token(web.url());
         Ok(Rig {
