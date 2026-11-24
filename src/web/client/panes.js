@@ -216,6 +216,7 @@ function grip(el) {
     if (h !== null) saveDrawer(h);
     h = null;
     fitShell();
+    fitTerms();
   });
   g.addEventListener("dblclick", () => saveDrawer());
 }
@@ -285,6 +286,7 @@ function makeSplit(key) {
     ui.resizing = false;
     el.dataset.tip = splitTip(el.s);
     fitShell();
+    fitTerms();
   });
   el.addEventListener("dblclick", () => act({ act: "unpin", ...ids() }));
   return el;
@@ -331,6 +333,15 @@ export function placePlus(id) {
   btn.dataset.line = t.dataset.line;
 }
 
+// Each editor pane's xterm at its pane's size. The header takes the border's top two rows, and the
+// bottom border one (`Tab::inner`). The shell sizes itself (`fitShell`).
+function fitTerms() {
+  for (const p of layout?.panes ?? []) {
+    const t = p.id !== 0 && terms.get(p.id);
+    if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 3)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 3));
+  }
+}
+
 export function onLayout(m) {
   if (m.focus !== 0) lastFocus = m.focus;
   for (const p of m.panes) {
@@ -372,14 +383,12 @@ export function onLayout(m) {
       + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "")
       + (unseen.has(p.id) ? " unseen" : "") + (ui.commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
-    const t = p.id !== 0 && terms.get(p.id);
-    // The header takes the border's top two rows, and the bottom border one (`Tab::inner`). The
-    // shell sizes itself (`fitShell`).
-    if (t && (t.cols !== p.w - 2 || t.rows !== p.h - 3)) t.resize(Math.max(1, p.w - 2), Math.max(1, p.h - 3));
     // The focus, the diff view and a freeze change how threads show.
     paintThreads(p.id);
     sizeView(p.id);
   }
+  // Laura holds an editor's size during a drag (`Tab::tick`), so its xterm waits for the release.
+  if (!ui.resizing) fitTerms();
   for (const el of root.querySelectorAll(":scope > .pane")) {
     if (seen.has(el.id)) continue;
     const id = +el.id.slice(1);

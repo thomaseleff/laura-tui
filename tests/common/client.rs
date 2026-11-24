@@ -199,7 +199,7 @@ impl Client {
     /// resize the client sends during the drag can't land after the release's.
     pub fn drag(&self, from: (f64, f64), to: (f64, f64)) {
         self.drag_hold(from, to);
-        self.mouse("mouseReleased", to, 0);
+        self.release(to);
     }
 
     /// `drag` without the release: the user still holds the button at `to`.
@@ -208,6 +208,11 @@ impl Client {
         self.mouse("mouseMoved", from, 0);
         self.mouse("mousePressed", from, 1);
         self.mouse("mouseMoved", to, 1);
+    }
+
+    /// The release of a [`Client::drag_hold`] at `to`.
+    pub fn release(&self, to: (f64, f64)) {
+        self.mouse("mouseReleased", to, 0);
     }
 
     fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8) {

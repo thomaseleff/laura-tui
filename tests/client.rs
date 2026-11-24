@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use browser_rig::{bare, chrome};
 use client_rig::*;
-use rig::Rig;
+use rig::{Rig, fake_nvim};
 
 /// A file of five lines, `line 1` to `line 5`, open in pane 1.
 fn open_five(r: &mut Rig) -> Result<tempfile::TempDir> {
@@ -704,6 +704,59 @@ fn a_pane_that_closes_during_a_drag_ends_the_drag() -> Result<()> {
         "the drag's end",
         "!ui.resizing && !document.querySelector('#ws > .split')",
     );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #211: while the user drags a line, an editor pane's xterm keeps Neovim's size, which Laura holds
+/// until the drag ends; after the release, the xterm takes the pane's new size.
+#[test]
+fn an_editor_pane_keeps_its_size_during_a_drag() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.editor = Ok(fake_nvim());
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&[
+        "open",
+        "--edit",
+        &b.to_string_lossy(),
+        "--split",
+        "1",
+        "--dir",
+        "h",
+    ]);
+    let c = Client::open(&mut r, &path);
+    let cols = c.until(
+        &mut r,
+        "one split at 50%, with the editor's xterm at its pane's size",
+        "layout.splits[0]?.ratio === 50 \
+           && terms.get(2)?.cols === layout.panes.find(p => p.id === 2).w - 2 && terms.get(2).cols",
+    );
+    let (x, y) = split_center(&mut r, &c);
+    c.drag_hold((x, y), (x + 100.0, y));
+    c.until(
+        &mut r,
+        "a drag's layout",
+        "ui.resizing && layout.splits[0].ratio > 50",
+    );
+    assert_eq!(
+        c.eval("terms.get(2).cols"),
+        Ok(cols.clone()),
+        "the editor's xterm during the drag"
+    );
+    c.release((x + 100.0, y));
+    let after = c.until(
+        &mut r,
+        "the editor's xterm at the pane's new size",
+        "!ui.resizing && terms.get(2).cols === layout.panes.find(p => p.id === 2).w - 2 \
+           && terms.get(2).cols",
+    );
+    assert_ne!(after, cols, "the editor's xterm after the drag");
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
