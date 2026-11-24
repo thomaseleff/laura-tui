@@ -144,6 +144,15 @@ fn a_collapsed_thread_shows_a_minimized_card() -> Result<()> {
         .expect("the card row");
     assert!(row.text().ends_with('…'), "{}", row.text());
     assert!(layout.text_col() + row.text().chars().count() <= w);
+
+    // A pane with no text column shows the card row empty, with no `…` past the gutter.
+    let layout = panel.layout(layout.text_col());
+    let row = layout
+        .rows
+        .iter()
+        .find(|r| r.comment)
+        .expect("the card row");
+    assert_eq!(row.text(), "");
     Ok(())
 }
 

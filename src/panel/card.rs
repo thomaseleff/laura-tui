@@ -112,11 +112,10 @@ impl Panel {
             authors.join(", "),
             if n == 1 { "" } else { "s" }
         );
-        let text = if text.chars().count() > w {
-            let cut: String = text.chars().take(w.saturating_sub(1)).collect();
-            format!("{cut}…")
-        } else {
-            text
+        let text = match w {
+            _ if text.chars().count() <= w => text,
+            0 => String::new(),
+            _ => format!("{}…", text.chars().take(w - 1).collect::<String>()),
         };
         card_row(at, vec![Span::styled(text, CHIP)])
     }
