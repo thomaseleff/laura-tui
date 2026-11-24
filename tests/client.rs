@@ -708,16 +708,14 @@ fn a_pane_that_closes_during_a_drag_ends_the_drag() -> Result<()> {
     Ok(())
 }
 
-/// #211: while the user drags a line, an editor pane's xterm keeps Neovim's size, which Laura holds
-/// until the drag ends; after the release, the xterm takes the pane's new size.
-#[test]
-fn an_editor_pane_keeps_its_size_during_a_drag() -> Result<()> {
-    let Some((path, _one)) = chrome() else {
-        return Ok(());
-    };
-    let mut r = bare()?;
+/// A stand-in Neovim in pane 2, beside pane 1, with one split at 50%: the client, the editor's
+/// xterm's columns at its pane's size, and the folders of the two files.
+fn editor_beside(
+    r: &mut Rig,
+    chrome: &std::path::Path,
+) -> Result<(Client, Value, [tempfile::TempDir; 2])> {
     r.tab.editor = Ok(fake_nvim());
-    let _five = open_five(&mut r)?;
+    let five = open_five(r)?;
     let dir = tempfile::tempdir()?;
     let b = dir.path().join("b.txt");
     std::fs::write(&b, "b\n")?;
@@ -730,13 +728,25 @@ fn an_editor_pane_keeps_its_size_during_a_drag() -> Result<()> {
         "--dir",
         "h",
     ]);
-    let c = Client::open(&mut r, &path);
+    let c = Client::open(r, chrome);
     let cols = c.until(
-        &mut r,
+        r,
         "one split at 50%, with the editor's xterm at its pane's size",
         "layout.splits[0]?.ratio === 50 \
            && terms.get(2)?.cols === layout.panes.find(p => p.id === 2).w - 2 && terms.get(2).cols",
     );
+    Ok((c, cols, [five, dir]))
+}
+
+/// #211: while the user drags a line, an editor pane's xterm keeps Neovim's size, which Laura holds
+/// until the drag ends; after the release, the xterm takes the pane's new size.
+#[test]
+fn an_editor_pane_keeps_its_size_during_a_drag() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let (c, cols, _dirs) = editor_beside(&mut r, &path)?;
     let (x, y) = split_center(&mut r, &c);
     c.drag_hold((x, y), (x + 100.0, y));
     c.until(
@@ -757,6 +767,39 @@ fn an_editor_pane_keeps_its_size_during_a_drag() -> Result<()> {
            && terms.get(2).cols",
     );
     assert_ne!(after, cols, "the editor's xterm after the drag");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #211: after a keyboard step on a line, an editor pane's xterm keeps Neovim's size until Laura
+/// fits the terminals (`RESIZE_SETTLE`, 200 ms), as after a drag. The times make the test
+/// independent of the runner's speed.
+#[test]
+fn an_editor_pane_keeps_its_size_after_a_keyboard_step() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let (c, _cols, _dirs) = editor_beside(&mut r, &path)?;
+    c.eval(
+        "window.__resized = []; \
+         terms.get(2).onResize(() => __resized.push(performance.now())); \
+         document.querySelector('#ws > .split').focus(); \
+         window.__key = performance.now()",
+    )
+    .map_err(anyhow::Error::msg)?;
+    c.press(ARROW_RIGHT);
+    c.until(
+        &mut r,
+        "the editor's xterm at the pane's new size",
+        "layout.splits[0].ratio === 55 && __resized.length \
+           && terms.get(2).cols === layout.panes.find(p => p.id === 2).w - 2",
+    );
+    let waited = c.eval("__resized[0] - __key").map_err(anyhow::Error::msg)?;
+    assert!(
+        waited.as_f64().is_some_and(|ms| ms >= 195.0),
+        "the editor's xterm resized {waited} ms after the keystroke"
+    );
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

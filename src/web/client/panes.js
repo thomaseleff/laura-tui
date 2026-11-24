@@ -1,6 +1,6 @@
-// The panes: each pane's element, the layout that places them, the start canvas, the drawer with its
-// grip and start height, a browser pane's pointer, and the DOM focus, which follows the workspace's
-// focus.
+// The panes: each pane's element, the layout that places them, the lines between panes, the start
+// canvas, the drawer with its grip and start height, a browser pane's pointer, and the DOM focus, which
+// follows the workspace's focus.
 
 import { $, act, drawerOpen, esc, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
 import { ch, cw, fitShell, makeTerm, rowsPx } from "./term.js";
@@ -292,6 +292,10 @@ function makeSplit(key) {
   return el;
 }
 
+// Laura holds the terminals' sizes until this long after the last step (`RESIZE_SETTLE` in src/tab/mod.rs).
+const SETTLE = 200;
+let settle = 0;
+
 // The focused line between two panes: the arrows along its axis move it 5 points within its range,
 // and `Home` gives the size back to Laura. True when the line takes the keystroke.
 export function splitKey(e) {
@@ -303,6 +307,16 @@ export function splitKey(e) {
     // `want`: the ratio sent and not yet in a layout (`paintSplits`), so fast presses add up.
     el.want = Math.min(s.max, Math.max(s.min, (el.want ?? s.ratio) + step));
     act({ act: "resize", ...ids, ratio: el.want }, m => m.ok || (el.want = null));
+    // A step holds the terminals as a drag does, until Laura fits them; a drag that started since keeps them.
+    ui.resizing = true;
+    clearTimeout(settle);
+    settle = setTimeout(() => {
+      if (document.querySelector(".split.on, .grip.on")) return;
+      ui.resizing = false;
+      el.dataset.tip = splitTip(el.s);
+      fitShell();
+      fitTerms();
+    }, SETTLE);
   } else if (e.key === "Home") {
     el.want = null;
     act({ act: "unpin", ...ids });
