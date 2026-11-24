@@ -11,8 +11,8 @@ use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
 use super::{
-    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK, Tab,
-    UserAction, no_pane,
+    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK,
+    NO_ROOM_TO_RESIZE, Tab, UserAction, no_pane,
 };
 
 /// Whether `b` holds only reports of pointer motion with no button, SGR (`\e[<b;x;yM`) or X10
@@ -152,6 +152,8 @@ impl Tab {
             }
             A::Dock => self.dock()?,
             A::Drawer => self.docked = false,
+            A::Resize { a, b, ratio } => self.resize(a, b, Some(ratio))?,
+            A::Unpin { a, b } => self.resize(a, b, None)?,
             A::DrawerHeight { .. } => {} // the web server saves it
             // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
             // after the wait ended does nothing, so the answered count never goes down.
@@ -224,6 +226,21 @@ impl Tab {
         }
         self.layout = probe;
         self.docked = true;
+        Ok(())
+    }
+
+    /// Pin the split between panes `a` and `b` at `ratio`, or give it back to Laura's ratio with
+    /// `None`, while every pane still fits.
+    fn resize(&mut self, a: PaneId, b: PaneId, ratio: Option<u16>) -> Result<(), Error> {
+        let mut probe = self.layout.clone();
+        match ratio {
+            Some(r) => probe.set_ratio(a, b, r)?,
+            None => probe.unpin(a, b)?,
+        }
+        if !all_panes_fit(&self.shown(&probe), self.area) {
+            return Err(NO_ROOM_TO_RESIZE.into());
+        }
+        self.layout = probe;
         Ok(())
     }
 

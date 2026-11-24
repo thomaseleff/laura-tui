@@ -24,6 +24,7 @@ pub(super) fn build_report(
 ) -> LayoutReport {
     let (web, drawer) = (tab.web, tab.drawer_in_use());
     let shell_rows = tab.shell_size.map(|(rows, _)| rows);
+    let pinned = tab.shown(layout).pinned_panes();
     let mut panes: Vec<PaneReport> = tab
         .tree_rects(layout, area)
         .into_iter()
@@ -67,6 +68,7 @@ pub(super) fn build_report(
                 title,
                 paused: panels.get(&id).is_some_and(|p| p.paused),
                 drawer: drawer && id == PTY_PANE,
+                pinned: pinned.contains(&id),
             }
         })
         .collect();

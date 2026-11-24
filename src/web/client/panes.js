@@ -3,7 +3,7 @@
 // focus.
 
 import { $, act, drawerOpen, esc, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
-import { ch, fitShell, makeTerm, rowsPx } from "./term.js";
+import { ch, cw, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
 import { paintHint, paintNotice, paintStatus } from "./bottom.js";
@@ -216,6 +216,61 @@ function grip(el) {
   g.addEventListener("dblclick", () => saveDrawer());
 }
 
+// The line between two panes (`Tab::handles`): a drag sets the split's ratio, which Laura keeps
+// (pins); a double-click gives the size back to Laura. A drag stays in the split's `min`..`max`, where
+// every pane still fits.
+const SPLIT_TIP = "Drag to resize · double-click to give the size back to Laura";
+const sideName = ids => (ids.length > 1 ? "Panes " : "Pane ") + ids.join(", ");
+
+// One element per split, kept by its key, so a drag's pointer capture survives each new layout. The
+// line sits on the cell where `split_rect` puts it, `at` cells into the split's rect.
+function paintSplits(m) {
+  const keep = new Set();
+  for (const s of m.splits ?? []) {
+    const key = `${s.dir}:${s.first[0]}:${s.second[0]}`;
+    keep.add(key);
+    const el = root.querySelector(`:scope > .split[data-key="${key}"]`) ?? makeSplit(key);
+    const h = s.dir === "horizontal";
+    el.s = s;
+    el.classList.toggle("h", h);
+    el.classList.toggle("v", !h);
+    Object.assign(el.style, h ? {
+      left: `calc(var(--cw) * ${s.x + s.at})`, top: `calc(var(--ch) * ${s.y})`, width: "", height: `calc(var(--ch) * ${s.h})`,
+    } : {
+      left: `calc(var(--cw) * ${s.x})`, top: `calc(var(--ch) * ${s.y + s.at})`, width: `calc(var(--cw) * ${s.w})`, height: "",
+    });
+  }
+  for (const el of root.querySelectorAll(":scope > .split")) if (!keep.has(el.dataset.key)) el.remove();
+}
+
+function makeSplit(key) {
+  const el = root.appendChild(document.createElement("div"));
+  el.className = "split";
+  el.dataset.key = key;
+  el.dataset.tip = SPLIT_TIP;
+  const ids = () => ({ a: el.s.first[0], b: el.s.second[0] });
+  // `ratio`: the drag's last ratio; `frame`: a resize waits for the next animation frame.
+  let ratio = null, frame = 0;
+  const resize = () => (frame = 0, act({ act: "resize", ...ids(), ratio }));
+  dragger(el, e => {
+    const s = el.s, h = s.dir === "horizontal", r = root.getBoundingClientRect();
+    const [px, start, size] = h ? [e.clientX - r.left, s.x * cw, s.w * cw] : [e.clientY - r.top, s.y * ch, s.h * ch];
+    ratio = Math.min(s.max, Math.max(s.min, Math.round((px - start) / size * 100)));
+    ui.resizing = true;
+    el.dataset.tip = `${sideName(s.first)} · ${ratio}%   ${sideName(s.second)} · ${100 - ratio}%`;
+    frame ||= requestAnimationFrame(resize);
+  }, () => {
+    cancelAnimationFrame(frame);
+    if (ratio !== null) resize();
+    ratio = null;
+    ui.resizing = false;
+    el.dataset.tip = SPLIT_TIP;
+    fitShell();
+  });
+  el.addEventListener("dblclick", () => act({ act: "unpin", ...ids() }));
+  return el;
+}
+
 // The `+` on the hovered line (`el.plus`), just past its text and centred on its first line. A click
 // or a reload replaces the line's element, so `onPane` places the `+` again from the new one.
 export function placePlus(id) {
@@ -250,6 +305,7 @@ export function onLayout(m) {
   // A drag keeps the height under the pointer until the release.
   fitDrawer();
   paintCanvas(m);
+  paintSplits(m);
   // The list closes with its last thread, or its pane.
   if (!pane(ui.listOpen)?.threads) ui.listOpen = null;
   if (!pane(ui.moreOpen) || ui.moreOpen === 0) ui.moreOpen = null;

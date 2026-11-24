@@ -237,6 +237,9 @@ pub struct PaneReport {
     /// area (#187).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub drawer: bool,
+    /// The user dragged a split that sizes this pane, and Laura keeps that size (#211).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 /// Serializable mirror of a ratatui `Rect` (which isn't `Serialize`).

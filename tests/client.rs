@@ -585,3 +585,52 @@ fn the_shell_links_these_paths() -> Result<()> {
     assert_eq!(got.as_array().map(Vec::len), Some(lines.len()), "{got}");
     Ok(())
 }
+
+/// The center of the line between two panes, in CSS px, once the web app shows it.
+fn split_center(r: &mut Rig, c: &Client) -> (f64, f64) {
+    let at = c.until(
+        r,
+        "the line between the panes",
+        "(() => { const b = document.querySelector('#ws > .split')?.getBoundingClientRect(); \
+           return b?.height && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    (at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0))
+}
+
+/// #211: a drag on the line between two panes resizes them, and Laura keeps the size; a
+/// double-click on the line gives the size back to Laura.
+#[test]
+fn a_drag_on_a_split_resizes_the_panes() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--split", "1", "--dir", "h"]);
+    let c = Client::open(&mut r, &path);
+    // Ratios, not widths: the first layout can come before the page's size.
+    c.until(&mut r, "one split at 50%", "layout.splits[0]?.ratio === 50");
+    let (x, y) = split_center(&mut r, &c);
+    c.drag((x, y), (x + 200.0, y));
+    let w = c.until(
+        &mut r,
+        "a pinned split, wider for pane 1",
+        "layout.splits[0].pinned && layout.splits[0].ratio > 50 \
+           && layout.panes.find(p => p.id === 1).w",
+    );
+    let report: Value = serde_json::from_str(&r.drive(&["layout"]))?;
+    assert_eq!(report["panes"][1]["pinned"], true, "{report}");
+    assert_eq!(report["panes"][1]["rect"]["width"], w, "{report}");
+    let (x, y) = split_center(&mut r, &c);
+    c.double_click(x, y);
+    c.until(
+        &mut r,
+        "Laura's ratio again",
+        "!layout.splits[0].pinned && layout.splits[0].ratio === 50",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}

@@ -19,7 +19,7 @@ use crate::browser::{self, Browser, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
 use crate::journal::{Journal, is_runtime_temp};
-use crate::layout::{Layout, MIN_PANE, rects, split_rect};
+use crate::layout::{Handle, Layout, MIN_PANE, rects, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::platform::runtime_dir;
 use crate::protocol::{self, Dir, Message, PTY_PANE, PaneId, Reply, Response};
@@ -50,6 +50,8 @@ pub const SUBMIT_FAILED_WEB: &str =
 /// **Show the shell as a pane** when a pane would get too small beside the shell.
 pub const NO_ROOM_TO_DOCK: &str =
     "⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.";
+/// A drag of the line between two panes would make a pane too small.
+pub const NO_ROOM_TO_RESIZE: &str = "⚠ A pane can't get any smaller.";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
@@ -185,6 +187,18 @@ pub enum UserAction {
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
     Drawer,
+    /// The user dragged the line between panes `a` and `b`: `ratio` percent for `a`'s side, which
+    /// Laura keeps (pins) until the user unpins it.
+    Resize {
+        a: PaneId,
+        b: PaneId,
+        ratio: u16,
+    },
+    /// The user double-clicked the line between panes `a` and `b`: Laura's own ratio again.
+    Unpin {
+        a: PaneId,
+        b: PaneId,
+    },
     /// The drawer's height in % of the workspace's, which the web app saves for the user; `None`
     /// resets it. The TUI ignores it.
     DrawerHeight {
@@ -597,6 +611,15 @@ impl Tab {
         let mut map = rects(&self.shown(l), area);
         map.entry(PTY_PANE).or_insert(area);
         map
+    }
+
+    /// The lines between the panes that the workspace shows at `area`, which the user drags. None
+    /// beside the start canvas, which isn't a pane.
+    pub fn handles(&self, area: Rect) -> Vec<Handle> {
+        if self.canvas_shown() {
+            return vec![];
+        }
+        self.shown(&self.layout).handles(area)
     }
 
     /// Each pane's rect at `area`: the one source of geometry for drawing and for overflow.

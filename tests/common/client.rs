@@ -193,6 +193,38 @@ impl Client {
         }
     }
 
+    /// A left drag from `from` to `to`, in CSS px from the viewport's top left, in one move: a
+    /// resize the client sends during the drag can't land after the release's.
+    pub fn drag(&self, from: (f64, f64), to: (f64, f64)) {
+        let at = |kind: &str, (x, y): (f64, f64), buttons: u8| {
+            self.call(
+                "Input.dispatchMouseEvent",
+                json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1}),
+            );
+        };
+        // The pointer comes to the point first, as the user's does.
+        at("mouseMoved", from, 0);
+        at("mousePressed", from, 1);
+        at("mouseMoved", to, 1);
+        at("mouseReleased", to, 0);
+    }
+
+    /// A left double-click at `x`, `y` CSS px from the viewport's top left.
+    pub fn double_click(&self, x: f64, y: f64) {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type": "mouseMoved", "x": x, "y": y}),
+        );
+        for count in [1, 2] {
+            for kind in ["mousePressed", "mouseReleased"] {
+                self.call(
+                    "Input.dispatchMouseEvent",
+                    json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": count}),
+                );
+            }
+        }
+    }
+
     /// The page's viewport at `width`×`height` CSS px, as a window of that size shows it.
     pub fn resize(&self, width: u32, height: u32) {
         self.call(

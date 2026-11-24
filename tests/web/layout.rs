@@ -1,5 +1,6 @@
 //! The layout frame: the panes' rects, the drawer and dock, the start canvas, the drawer's saved
-//! and start heights, the fit of a split, the icons, the hint line and the help.
+//! and start heights, the fit of a split, the splits the user drags, the icons, the hint line and
+//! the help.
 
 use super::*;
 
@@ -671,5 +672,90 @@ fn the_layout_says_when_the_agent_is_ready() -> Result<()> {
         "ready layout",
         |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["agent"] == true),
     );
+    Ok(())
+}
+
+/// #211: the user drags the line between two panes. Laura keeps that size when the agent opens
+/// another pane, `laura layout` marks each pane the split sizes, and a double-click gives the size
+/// back to Laura. A drag that would make a pane too small changes nothing.
+#[test]
+fn a_dragged_split_keeps_its_size() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    let (_c, c) = file("c.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    rig.drive(&["open", &b, "--split", "1", "--dir", "h"]);
+    let before = layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    let cols = before["cols"].as_u64().unwrap_or(0);
+    assert_eq!(
+        before["splits"].as_array().map(Vec::len),
+        Some(1),
+        "{before}"
+    );
+    let split = &before["splits"][0];
+    assert_eq!(split["dir"], "horizontal", "{split}");
+    assert_eq!(
+        (&split["first"], &split["second"]),
+        (&json!([1]), &json!([2]))
+    );
+    assert_eq!(split["pinned"], false, "{split}");
+    let range = |s: &Value| {
+        (
+            s["min"].as_u64().unwrap_or(0),
+            s["max"].as_u64().unwrap_or(0),
+        )
+    };
+    let (min, max) = range(split);
+    assert!(1 < min && min < 50 && 50 < max && max < 99, "{split}");
+
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "resize", "a": 1, "b": 2, "ratio": 70}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    let pinned = layout_when(&mut rig, &mut ws, "pinned", |v| {
+        v["splits"][0]["pinned"] == true
+    });
+    assert_eq!(cells(&pinned, 1)[2], cols * 70 / 100, "{pinned}");
+
+    // The agent's next pane leaves the user's size alone.
+    rig.drive(&["open", &c, "--split", "2", "--dir", "h"]);
+    let three = layout_when(&mut rig, &mut ws, "pane 3", |v| v["focus"] == 3);
+    assert_eq!(cells(&three, 1), cells(&pinned, 1), "{three}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    for id in 1..=3 {
+        assert_eq!(pane_of(&report, id)["pinned"], true, "{report}");
+    }
+    assert!(pane_of(&report, 0).get("pinned").is_none(), "{report}");
+
+    let acted = rig.act(&mut ws, json!({"act": "unpin", "a": 1, "b": 2}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let back = layout_when(&mut rig, &mut ws, "unpinned", |v| {
+        v["splits"][0]["pinned"] == false
+    });
+    assert_eq!(cells(&back, 1), cells(&before, 1), "{back}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    assert!(pane_of(&report, 1).get("pinned").is_none(), "{report}");
+
+    let (min, _) = range(&back["splits"][0]);
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "resize", "a": 1, "b": 2, "ratio": min - 1}),
+    );
+    assert_eq!(acted["ok"], false, "{acted}");
+    assert_eq!(acted["text"], NO_ROOM_TO_RESIZE, "{acted}");
+    let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+    assert_eq!(
+        pane_of(&report, 1)["rect"]["width"],
+        cells(&back, 1)[2],
+        "{report}"
+    );
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "resize", "a": 1, "b": 2, "ratio": min}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
     Ok(())
 }

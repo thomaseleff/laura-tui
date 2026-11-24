@@ -79,6 +79,16 @@ When the file doesn't exist, or the path names a folder, Laura shows `⚠ The li
 
 When the workspace has no room for another pane, Laura shows `⚠ No room for another pane. Close a pane, then click the link again.` in the drawer.
 
+## Resize panes
+
+To make a pane larger, drag the line between that pane and the pane beside it. While you drag, Laura shows each side's share of the space, such as `Pane 1 · 60%   Panes 2, 3 · 40%`. Laura stops the line where a pane would get too small.
+
+Laura keeps the size that you set. When the agent opens another pane, the line stays where you put it.
+
+To give the size back to Laura, double-click the line. Laura puts the line back where Laura had it. When you point at the line, Laura shows `Drag to resize · double-click to give the size back to Laura`.
+
+Laura shows no line between the shell and the start canvas.
+
 ## Switch workspaces
 
 The workspace switcher is at the left of the top bar. The workspace switcher shows the session label and the folder of the workspace. Before the agent sets a session label, the workspace switcher shows the folder name in grey.
@@ -201,6 +211,7 @@ Laura shows a notice in the bottom-right corner of its pane, or of the workspace
 | `⚠ Press d to close the diff view before you comment.` | Press `d`, then comment. |
 | `⚠ An editor pane does not show the diff view.` | Ask the agent to show the diff in a file pane. |
 | `⚠ Laura did not submit the inline review, but kept its threads and review body.` | Click **Retry submit** or press `Enter`. |
+| `⚠ A pane can't get any smaller.` | Make the window larger, or close a pane, then [resize the panes](#resize-panes) again. |
 
 ## Markdown files
 
