@@ -648,7 +648,9 @@ impl Tab {
         let path = journal.path().to_string_lossy().into_owned();
         let root = crate::platform::folder()
             .ok()
-            .map(crate::platform::strip_verbatim);
+            .map(crate::platform::strip_verbatim)
+            // `json!` panics on a path that isn't UTF-8.
+            .map(|r| r.to_string_lossy().into_owned());
         journal
             .log(json!({"type": "ready", "pid": std::process::id(), "title": title, "root": root}));
         self.journal = Some(journal);

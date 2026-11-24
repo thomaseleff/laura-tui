@@ -167,6 +167,11 @@ fn session_in(text: &str, root: &Path) -> Option<Recent> {
         .filter(Value::is_object)
         .collect();
     let kind = |e: &Value, t: &[&str]| t.iter().any(|t| e["type"] == *t);
+    let ready = events.iter().rev().find(|e| kind(e, &["ready"]))?;
+    // Before any `canonicalize`: a session in another folder costs no file system call.
+    if ready["root"].as_str().is_some_and(|r| Path::new(r) != root) {
+        return None;
+    }
     // Each file below `root`, relative, newest first.
     let below = |e: &Value| {
         let p = Path::new(e["path"].as_str()?).canonicalize().ok()?;
@@ -179,12 +184,8 @@ fn session_in(text: &str, root: &Path) -> Option<Recent> {
         .filter(|e| kind(e, &["open", "review"]))
         .filter_map(below)
         .collect();
-    let ready = events.iter().rev().find(|e| kind(e, &["ready"]))?;
-    let belongs = match ready["root"].as_str() {
-        Some(r) => Path::new(r) == root,
-        None => !opened.is_empty(),
-    };
-    if !belongs {
+    // A journal from before `root` belongs to the folder where it opened a file.
+    if ready["root"].as_str().is_none() && opened.is_empty() {
         return None;
     }
     let mut files: Vec<String> = vec![];
