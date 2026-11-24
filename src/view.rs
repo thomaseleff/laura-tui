@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use crate::editor::Nvim;
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::CODE_BG;
-use crate::{ChangeKind, Panel, PanelLayout, Tab};
+use crate::{ChangeKind, Panel, PanelLayout, PanelRow, Tab};
 
 /// The diff gutter's added and removed colors, shared with the border's `+N -M`.
 const ADDED: Color = Color::Rgb(56, 166, 96); // #38a660
@@ -167,25 +167,6 @@ pub fn panel_lines(
                 Some(n) => format!("{n:>gw$}"),
                 None => format!("{:>gw$}", ""),
             };
-            // 5-cell decoration: number · sep · change · sep · caret · sep · body. The change cell is
-            // a `▌` half-block in higher-contrast diff colors; the caret carries thread state.
-            let change_cell = r
-                .change
-                .map(|k| {
-                    Span::styled(
-                        "▌",
-                        Style::default().fg(match k {
-                            ChangeKind::Added => ADDED,
-                            ChangeKind::Modified => Color::Rgb(56, 150, 217), // #3896d9
-                            ChangeKind::Removed(_) => REMOVED,
-                        }),
-                    )
-                })
-                .unwrap_or_else(|| Span::raw(" "));
-            let caret_cell = match r.review {
-                Some(collapsed) => Span::raw(if collapsed { "▸" } else { "▾" }),
-                None => Span::raw(" "),
-            };
             if r.comment {
                 // Card/gap rows emit at column 0; blank number + 3 lands the card border under the caret.
                 let mut spans = vec![Span::raw(number), Span::raw(" ".repeat(3))];
@@ -197,19 +178,7 @@ pub fn panel_lines(
                     .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line));
                 let on_cursor = focused && r.line == panel.cursor;
 
-                let number_span = if highlighted {
-                    Span::styled(number, Style::default().fg(HL_NUMBER))
-                } else {
-                    Span::raw(number).dim()
-                };
-                let mut spans = vec![
-                    number_span,
-                    Span::raw(" "),
-                    change_cell,
-                    Span::raw(" "),
-                    caret_cell,
-                    Span::raw(" "),
-                ];
+                let mut spans = gutter_spans(r, number, highlighted);
                 let mut body: Vec<Span> = r.spans.to_vec();
                 if !on_cursor {
                     if highlighted {
@@ -223,8 +192,7 @@ pub fn panel_lines(
 
                 // Pad to the pane edge so a row that shrinks between frames overwrites the old
                 // cells, and so the cursor band's bg reaches the edge.
-                let used = gw
-                    + 5
+                let used = layout.text_col()
                     + body
                         .iter()
                         .map(|s| s.content.chars().count())
@@ -255,6 +223,41 @@ pub fn panel_lines(
             }
         })
         .collect()
+}
+
+/// A text row's gutter, `DECOR` cells past the number: number · sep · change · sep · caret · sep.
+/// The change cell is a `▌` half-block in higher-contrast diff colors; the caret carries thread state.
+fn gutter_spans(r: &PanelRow, number: String, highlighted: bool) -> Vec<Span<'static>> {
+    let number = if highlighted {
+        Span::styled(number, Style::default().fg(HL_NUMBER))
+    } else {
+        Span::raw(number).dim()
+    };
+    let change = r
+        .change
+        .map(|k| {
+            Span::styled(
+                "▌",
+                Style::default().fg(match k {
+                    ChangeKind::Added => ADDED,
+                    ChangeKind::Modified => Color::Rgb(56, 150, 217), // #3896d9
+                    ChangeKind::Removed(_) => REMOVED,
+                }),
+            )
+        })
+        .unwrap_or_else(|| Span::raw(" "));
+    let caret = match r.review {
+        Some(collapsed) => Span::raw(if collapsed { "▸" } else { "▾" }),
+        None => Span::raw(" "),
+    };
+    vec![
+        number,
+        Span::raw(" "),
+        change,
+        Span::raw(" "),
+        caret,
+        Span::raw(" "),
+    ]
 }
 
 /// What the hint line describes.
