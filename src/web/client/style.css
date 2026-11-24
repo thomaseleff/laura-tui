@@ -216,6 +216,8 @@ a.brand[href]:hover .logo { opacity: .75; }
 }
 .gcard h3 .sp { flex: 1; }
 .gcard h3 .br { text-transform: none; letter-spacing: 0; font-weight: 400; }
+/* A file name keeps its own case. */
+.gcard h3 .name { text-transform: none; letter-spacing: 0; }
 .gcard h3 .lnk { padding: 0; border: 0; background: none; cursor: pointer; text-transform: none; letter-spacing: 0; font: 500 12.5px var(--sans); color: var(--acc); }
 .gcard h3 .lnk:hover { text-decoration: underline; }
 /* The README card is a smaller file pane: zoom keeps the pane's proportions at 14 px, as the base .md margins are px. */

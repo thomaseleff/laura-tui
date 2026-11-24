@@ -338,7 +338,7 @@ export function paintGlance(m) {
   const cards = [];
   if (m.readme) {
     // The README's HTML is Laura's, as in a `pane` frame.
-    cards.push(`<div class="gcard"><h3>${esc(m.readme.name)}<span class="sp"></span><button class="lnk" data-path="${esc(m.readme.name)}">Open as a pane</button></h3>`
+    cards.push(`<div class="gcard"><h3><span class="name">${esc(m.readme.name)}</span><span class="sp"></span><button class="lnk" data-path="${esc(m.readme.name)}">Open as a pane</button></h3>`
       + `<div class="md">${m.readme.html}</div></div>`);
   }
   const col = [];
@@ -348,6 +348,8 @@ export function paintGlance(m) {
   glance.innerHTML = cards.join("");
   glance.classList.toggle("one", cards.length === 1);
   sizeGlance();
+  // An image that loads makes the README taller.
+  glance.querySelectorAll("img").forEach(i => i.addEventListener("load", sizeGlance, { once: true }));
 }
 
 const glance = $("canvas").querySelector(".glance");
