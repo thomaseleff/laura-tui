@@ -119,6 +119,9 @@ a.brand[href]:hover .logo { opacity: .75; }
   color: var(--mute); background: none; cursor: pointer;
 }
 .iconbtn:hover { background: #e9eaee; color: var(--fg); }
+/* The help button is a key chip, in the top bar and on the calm canvas. */
+.iconbtn.key { border: 1px solid var(--line); background: #fff; }
+.iconbtn.key:hover { border-color: #cfd2da; }
 .find {
   width: 360px; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px; cursor: pointer;
   color: var(--mute); background: #fff; border: 1px solid var(--line); border-radius: 8px;
@@ -156,7 +159,7 @@ a.brand[href]:hover .logo { opacity: .75; }
 .calm h1 { font: 600 21px/1.3 var(--sans); margin: 14px 0 4px; letter-spacing: -.01em; }
 .calm p { color: var(--mute); margin: 0 0 16px; }
 .calm .keys { color: var(--mute); font-size: 12.5px; }
-.calm .keys .iconbtn { display: inline-grid; vertical-align: middle; width: 24px; height: 24px; border: 1px solid var(--line); background: #fff; }
+.calm .keys .iconbtn { display: inline-grid; vertical-align: middle; width: 24px; height: 24px; }
 .welcome { width: min(940px, 100%); }
 .welcome h1 { font: 600 21px/1.3 var(--sans); margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
 .welcome > p { color: var(--mute); margin: 0 0 16px; }
