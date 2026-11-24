@@ -198,10 +198,10 @@ a.brand[href]:hover .logo { opacity: .75; }
 .gcard h3 .br { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .gcard h3 .lnk { padding: 0; border: 0; background: none; cursor: pointer; text-transform: none; letter-spacing: 0; font: 500 12.5px var(--sans); color: var(--acc); }
 .gcard h3 .lnk:hover { text-decoration: underline; }
-.gcard .md { font-size: 14px; overflow-wrap: anywhere; }
-.gcard .md h1 { font-size: 19px; margin: 2px 0 8px; }
-.gcard .md h2 { font-size: 16px; margin: 12px 0 6px; }
-.gcard .md :is(p, ul, ol, pre, table, blockquote) { margin: 0 0 8px; color: #3b3f47; }
+/* The README card is a smaller file pane: zoom keeps the pane's proportions at 14 px, as the base .md margins are px. */
+.gcard .md { font: 16px/1.5 var(--sans); zoom: .875; overflow-wrap: anywhere; }
+/* The card's blocks share one .md, with no .blk padding, so a heading gets the pane's space above it. */
+.gcard .md > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 24px; }
 .gcard .more { margin: 0; color: var(--faint); font-size: 12.5px; }
 .frow {
   display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; width: 100%;
