@@ -1,12 +1,17 @@
 //! Diff an open file against git HEAD. #26 folds this to per-line markers;
 //! #18 renders removed/added text inline. One git call, header + body parse.
+//! `project` reads the folder's branch, changes and latest commit for the start canvas.
 //!
 //! We shell out to the `git` CLI (not a git crate) to keep the release binary
 //! small and C-dependency-free — see `planning/git-diff-gutter.md`.
 
+use std::collections::HashMap;
 use std::io;
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use serde::Serialize;
 
 use crate::platform::strip_verbatim;
 
@@ -77,6 +82,147 @@ pub fn hunks(path: &str) -> DiffOutcome {
         }
         Err(_) => DiffOutcome::Unavailable,
     }
+}
+
+/// The most files the start canvas lists; the rest is a count.
+const FILES: usize = 8;
+
+/// A changed file on the start canvas: `M`, `A`, `D` (a rename is a `D` and an `A`), or `?` for an
+/// untracked file. Its path is relative to Laura's folder; the counts are `None` for a binary or
+/// untracked file.
+#[derive(Serialize)]
+pub(crate) struct FileChange {
+    status: char,
+    path: String,
+    add: Option<u32>,
+    del: Option<u32>,
+}
+
+/// The project's git state for the start canvas: the changes since HEAD, else the latest commit.
+/// `more` counts the files past the first `FILES`.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub(crate) enum Project {
+    Changes {
+        branch: String,
+        files: Vec<FileChange>,
+        more: usize,
+    },
+    Latest {
+        branch: String,
+        hash: String,
+        author: String,
+        /// The commit's time, in Unix ms.
+        ts: u64,
+        subject: String,
+        files: Vec<FileChange>,
+        more: usize,
+    },
+}
+
+/// `root`'s branch and its changes, else its latest commit. `None` outside a repo, in a repo with
+/// no commit, or without `git`.
+pub(crate) fn project(root: &Path) -> Option<Project> {
+    let root = strip_verbatim(root.to_path_buf());
+    let branch = text(git(&root, &["branch", "--show-current"])?);
+    let branch = if branch.is_empty() {
+        "HEAD".into()
+    } else {
+        branch
+    };
+    let mut changed = files(&root, &["diff", "HEAD"])?;
+    let untracked = git(&root, &["ls-files", "-o", "--exclude-standard", "-z"])?;
+    changed.extend(nul_split(&untracked).map(|path| FileChange {
+        status: '?',
+        path: path.into(),
+        add: None,
+        del: None,
+    }));
+    if !changed.is_empty() {
+        let more = changed.len().saturating_sub(FILES);
+        changed.truncate(FILES);
+        return Some(Project::Changes {
+            branch,
+            files: changed,
+            more,
+        });
+    }
+    let log = text(git(
+        &root,
+        &["log", "-1", "--format=%h%x00%an%x00%ct%x00%s"],
+    )?);
+    let mut f = log.split('\0');
+    let (hash, author, ts, subject) = (f.next()?, f.next()?, f.next()?, f.next()?);
+    let (hash, author, subject) = (hash.into(), author.into(), subject.into());
+    let ts = ts.parse::<u64>().ok()? * 1000;
+    let mut files = files(&root, &["show", "HEAD", "--format="])?;
+    let more = files.len().saturating_sub(FILES);
+    files.truncate(FILES);
+    Some(Project::Latest {
+        branch,
+        hash,
+        author,
+        ts,
+        subject,
+        files,
+        more,
+    })
+}
+
+/// The files that `git <rev>` changes, below `root` and relative to it, with their counts.
+fn files(root: &Path, rev: &[&str]) -> Option<Vec<FileChange>> {
+    let run = |kind: &str| {
+        let mut args = rev.to_vec();
+        args.extend(["--no-renames", "--relative", "-z", kind]);
+        git(root, &args)
+    };
+    let numstat = run("--numstat")?;
+    // `add\tdel\tpath`, with `-` counts for a binary file.
+    let counts: HashMap<&str, (Option<u32>, Option<u32>)> = nul_split(&numstat)
+        .filter_map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let (add, del, path) = (f.next()?, f.next()?, f.next()?);
+            Some((path, (add.parse().ok(), del.parse().ok())))
+        })
+        .collect();
+    let status = run("--name-status")?;
+    // `X\0path\0` pairs.
+    let mut f = nul_split(&status);
+    let mut files = vec![];
+    while let (Some(s), Some(path)) = (f.next(), f.next()) {
+        let (add, del) = counts.get(path).copied().unwrap_or_default();
+        files.push(FileChange {
+            status: s.chars().next().unwrap_or('M'),
+            path: path.into(),
+            add,
+            del,
+        });
+    }
+    Some(files)
+}
+
+/// `git -C root <args>`'s output. `None` when git exits non-zero, or is missing, which latches
+/// `GIT_MISSING`.
+fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    match Command::new("git").arg("-C").arg(root).args(args).output() {
+        Ok(o) if o.status.success() => Some(o.stdout),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            GIT_MISSING.store(true, Ordering::Relaxed);
+            None
+        }
+        _ => None,
+    }
+}
+
+fn text(out: Vec<u8>) -> String {
+    String::from_utf8_lossy(&out).trim().to_string()
+}
+
+/// The fields of `-z` output. A path that isn't UTF-8 reads as `�`, so the pairs stay aligned.
+fn nul_split(out: &[u8]) -> impl Iterator<Item = &str> {
+    out.split(|&b| b == 0)
+        .filter(|f| !f.is_empty())
+        .map(|f| std::str::from_utf8(f).unwrap_or("\u{FFFD}"))
 }
 
 /// Fold hunks → per-source-line marker, 1:1 with a `line_count`-line file.

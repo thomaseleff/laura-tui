@@ -225,28 +225,6 @@ fn an_earlier_editor_theme_moves_into_the_settings() -> Result<()> {
     }
 }
 
-/// `laura --web` with its own `home`, and a view connected to it.
-fn laura_web_in(home: &Path) -> Result<(Kill, Ws)> {
-    let (child, url) = laura_start(home, &["--web", "--", PROGRAM], Some(home))?;
-    let (port, token) = port_token(&url);
-    let origin = format!("http://localhost:{port}");
-    Ok((child, connect_to(port, Some(&token), Some(&origin))?))
-}
-
-/// The first `layout` frame on a raw view that `want` accepts.
-fn raw_layout_when(ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
-    let start = Instant::now();
-    loop {
-        if let Some(Frame::Json(v)) = read(ws)
-            && v["t"] == "layout"
-            && want(&v)
-        {
-            return v;
-        }
-        assert!(start.elapsed() < common::DEADLINE, "no layout with {what}");
-    }
-}
-
 /// A `settings.json` that Laura can't parse, for example after a typo in a hand edit: Laura shows
 /// the start height, a drag applies to this workspace only, and the file keeps the user's keys.
 #[test]
@@ -300,18 +278,6 @@ fn a_save_waits_for_another_lauras_save() -> Result<()> {
             saved()
         );
     }
-    Ok(())
-}
-
-/// A `review` event in `home`'s journal; `error` makes it a failed submit.
-fn journal_review(home: &Path, error: bool) -> Result<()> {
-    let dir = home.join(".laura/sessions");
-    std::fs::create_dir_all(&dir)?;
-    let mut event = json!({"type": "review", "ts": 1, "pane": 1, "path": "a.rs"});
-    if error {
-        event["error"] = json!("the shell exited");
-    }
-    std::fs::write(dir.join("x.ndjson"), format!("{event}\n"))?;
     Ok(())
 }
 

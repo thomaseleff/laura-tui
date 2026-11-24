@@ -147,7 +147,8 @@ a.brand[href]:hover .logo { opacity: .75; }
   position: absolute; inset: 0 0 calc(max(var(--drawer, 54%), var(--drawer-min, 0px)) + 8px);
   display: flex; padding: 24px 40px; box-sizing: border-box; overflow: auto; container-type: size;
 }
-#canvas[hidden], #canvas:not([data-c=calm]) .calm, #canvas:not([data-c=start]) .welcome { display: none; }
+#canvas[hidden], #canvas:not([data-c=calm]) .calm, #canvas:not([data-c=start]) .welcome,
+#canvas:not([data-c=glance]) .glance { display: none; }
 #canvas.docked { bottom: 0; }
 /* `margin: auto`, not `align-items`, so a canvas taller than its box scrolls from its top. */
 #canvas > div { margin: auto; }
@@ -181,6 +182,48 @@ a.brand[href]:hover .logo { opacity: .75; }
 #canvas.docked .steps { grid-template-columns: 1fr; gap: 10px; }
 #canvas.docked .mini { display: none; }
 @container (height < 380px) { .mini { display: none; } }
+/* The project at a glance: the README beside a column of the changes and the recent sessions. One
+   column beside the docked shell, or on a narrow canvas. */
+.glance { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; width: min(1000px, 100%); align-items: start; }
+.glance.one { width: min(640px, 100%); grid-template-columns: 1fr; }
+#canvas.docked .glance { grid-template-columns: 1fr; }
+@container (width < 700px) { .glance { grid-template-columns: 1fr; } }
+.glance .col { display: grid; gap: 14px; min-width: 0; }
+.gcard { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 18px; min-width: 0; }
+.gcard h3 {
+  margin: 0 0 8px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--mute); display: flex; align-items: baseline; gap: 6px;
+}
+.gcard h3 .sp { flex: 1; }
+.gcard h3 .br { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.gcard h3 .lnk { padding: 0; border: 0; background: none; cursor: pointer; text-transform: none; letter-spacing: 0; font: 500 12.5px var(--sans); color: var(--acc); }
+.gcard h3 .lnk:hover { text-decoration: underline; }
+.gcard .md { font-size: 14px; overflow-wrap: anywhere; }
+.gcard .md h1 { font-size: 19px; margin: 2px 0 8px; }
+.gcard .md h2 { font-size: 16px; margin: 12px 0 6px; }
+.gcard .md :is(p, ul, ol, pre, table, blockquote) { margin: 0 0 8px; color: #3b3f47; }
+.gcard .more { margin: 0; color: var(--faint); font-size: 12.5px; }
+.frow {
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; width: 100%;
+  padding: 5px 6px; border: 0; border-radius: 7px; background: none; color: var(--fg); text-align: left; font: 12.5px var(--mono);
+}
+button.frow { cursor: pointer; }
+button.frow:hover { background: var(--acc-soft); }
+.frow .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow .k { font-weight: 600; }
+.k.m { color: var(--warn); } .k.a { color: var(--ok); } .k.d { color: var(--bad); } .k.u { color: var(--faint); }
+.frow .n, .commit .n { color: var(--mute); }
+.frow .add { color: var(--ok); } .frow .del { color: var(--bad); }
+.commit { padding: 0 6px 6px; }
+.commit b { font-weight: 500; }
+.commit .n { font-size: 12px; }
+.srec { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px; border-top: 1px solid var(--line2); }
+.srec:first-of-type { border-top: 0; }
+.srec .t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srec .n { color: var(--mute); font-size: 12px; }
+.srec .fl { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.srec .fl button { font: 12px var(--mono); color: var(--acc); background: var(--acc-soft); border: 0; border-radius: 5px; padding: 0 6px; cursor: pointer; }
+.srec .fl button:hover { text-decoration: underline; }
 
 /* Every pane sits on Laura's cell grid: x/y/w/h are cells, --cw/--ch one cell in px. The card is
    inset 5px in the pane's cells, so two panes are 10px apart and the card's inner edge is 6px in. */

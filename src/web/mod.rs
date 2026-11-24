@@ -32,8 +32,10 @@ use crate::serve::{live, record_path, workspaces_dir};
 use crate::{Panel, Rect, Tab, UserAction, view};
 
 mod frames;
+mod glance;
 mod html;
 use frames::{Canvas, layout_json, send_browsers, send_panes};
+use glance::Glance;
 use html::tag_lines;
 
 /// The workspace's size until a view reports one.
@@ -224,6 +226,8 @@ struct View {
     browsers: HashMap<PaneId, String>,
     /// The browser panes the view holds a frame of.
     framed: HashSet<PaneId>,
+    /// The last `glance` frame.
+    glance: Option<String>,
     focus: PaneId,
     area: Rect,
     git_shown: bool,
@@ -265,8 +269,12 @@ pub struct WebServer {
     /// The drawer's height that the user set, in % of the workspace's, from the settings at the
     /// start; `None`: the start height on the canvas, else `DRAWER`.
     drawer: Option<u8>,
-    /// The canvas the view shows, which Laura picks again each time the canvas comes back.
+    /// The canvas the view shows, which Laura picks again each time the canvas comes back, and
+    /// the `glance` frame for `Canvas::Glance`.
     canvas: Option<Canvas>,
+    glance: Option<String>,
+    /// The file route of Laura's folder, which the README on the canvas loads its images from.
+    root_base: String,
 }
 
 impl WebServer {
@@ -278,6 +286,15 @@ impl WebServer {
         let url = format!("http://127.0.0.1:{port}/?t={token}");
         let root = crate::platform::folder()?;
         let files = Files::default();
+        let n = nonce(16)?;
+        let root_base = format!("/f/{n}/");
+        files.lock().unwrap_or_else(PoisonError::into_inner).insert(
+            n,
+            Served {
+                root: root.clone(),
+                page: None,
+            },
+        );
         let (join, conns) = channel();
         let shared = files.clone();
         std::thread::spawn(move || {
@@ -309,6 +326,8 @@ impl WebServer {
                 .and_then(Value::as_f64)
                 .map(drawer_pct),
             canvas: None,
+            glance: None,
+            root_base,
         })
     }
 
@@ -439,6 +458,7 @@ impl WebServer {
                 pages: HashMap::new(),
                 browsers: HashMap::new(),
                 framed: HashSet::new(),
+                glance: None,
                 focus: tab.focus,
                 area: Rect::default(),
                 git_shown: false,
@@ -623,7 +643,14 @@ impl WebServer {
         if dirty {
             reconcile(&mut self.bases, &self.files, &self.root, tab);
         }
-        let canvas = pick_canvas(&mut self.canvas, tab);
+        let canvas = pick_canvas(
+            (&mut self.canvas, &mut self.glance),
+            &self.root,
+            &self.root_base,
+            tab,
+        );
+        // Before `layout`, so the canvas shows with its cards.
+        send_canvas(v, &self.glance);
         let drawer = drawer_frame(self.drawer, canvas);
         let layout = layout_json(tab, &rects, area, &self.bases, canvas, drawer);
         if v.layout != layout {
@@ -740,18 +767,39 @@ fn drawer_frame(saved: Option<u8>, canvas: Option<Canvas>) -> (u8, Value) {
     }
 }
 
-/// The canvas while `tab` shows one, kept in `cache` until a pane opens.
-fn pick_canvas(cache: &mut Option<Canvas>, tab: &Tab) -> Option<Canvas> {
+/// The canvas while `tab` shows one, and the project at a glance's frame for `Canvas::Glance`,
+/// kept in `cache` until a pane opens. `base` is the file route of the folder `root`.
+// shortcut: git and the journals run on the sync thread once per canvas; move to a thread if a big repo stalls the start.
+fn pick_canvas(
+    (cache, glance): (&mut Option<Canvas>, &mut Option<String>),
+    root: &Path,
+    base: &str,
+    tab: &Tab,
+) -> Option<Canvas> {
     if !tab.canvas_shown() {
-        *cache = None;
+        (*cache, *glance) = (None, None);
     } else if cache.is_none() {
-        *cache = Some(if crate::journal::reviewed() {
-            Canvas::Calm
-        } else {
+        *glance = None;
+        *cache = Some(if !crate::journal::reviewed() {
             Canvas::Start
+        } else if let Some(g) = Glance::of(root, base) {
+            *glance = Some(g.frame());
+            Canvas::Glance
+        } else {
+            Canvas::Calm
         });
     }
     *cache
+}
+
+/// The project at a glance's frame, when it differs from the one the view has.
+fn send_canvas(v: &mut View, glance: &Option<String>) {
+    if let Some(g) = glance
+        && v.glance.as_ref() != Some(g)
+    {
+        v.send(Outbound::Text(g.clone()));
+        v.glance = Some(g.clone());
+    }
 }
 
 /// A drawer height from the user or the file, within 20–85%.

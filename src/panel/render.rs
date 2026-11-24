@@ -72,6 +72,16 @@ impl Block {
         &self.built().0
     }
 
+    /// The block's level and text when it is an ATX heading (`## Data`).
+    pub(crate) fn heading(&self) -> Option<(usize, &str)> {
+        let line = self.md.trim_start_matches(['\r', '\n']).lines().next()?;
+        let level = line.bytes().take_while(|&b| b == b'#').count();
+        let text = line[level..].strip_prefix([' ', '\t'])?.trim();
+        (1..=6)
+            .contains(&level)
+            .then(|| (level, text.trim_end_matches('#').trim_end()))
+    }
+
     /// `(row, 1-based line)` for each line inside the block with its own row and its own
     /// `data-line`: a code line, a table body row or a list item. The first row isn't one.
     pub(crate) fn stops(&self) -> &[(usize, u32)] {

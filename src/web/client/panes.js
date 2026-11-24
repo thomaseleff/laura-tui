@@ -2,7 +2,7 @@
 // grip and start height, a browser pane's pointer, and the DOM focus, which follows the workspace's
 // focus.
 
-import { $, act, drawerOpen, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
+import { $, act, drawerOpen, esc, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
 import { ch, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
@@ -303,7 +303,7 @@ export function onLayout(m) {
   if (ui.popup !== null) paintSelector();
 }
 
-// The canvas while no pane but the shell is open: *Get started* or the calm canvas, under the
+// The canvas while no pane but the shell is open: *Get started*, the project at a glance or the calm canvas, under the
 // drawer or right of the docked shell. Not a pane: no id, no pane header.
 function paintCanvas(m) {
   const c = $("canvas"), shell = pane(0);
@@ -318,9 +318,71 @@ function paintCanvas(m) {
 export const steps = () => $("steps").content.cloneNode(true);
 $("canvas").querySelector(".foot").before(steps());
 // The canvas is not a pane: a click on it gives the keystrokes back to the shell, except a click
-// on a button or one that selects text to copy.
+// on a button or a link, or one that selects text to copy.
 $("canvas").addEventListener("click", (e) => {
-  if (!e.target.closest("button") && !getSelection().toString()) followFocus(true);
+  if (!e.target.closest("button, [data-href]") && !getSelection().toString()) followFocus(true);
+});
+
+// The project at a glance: the README's first section, the changes or the latest commit, and the
+// recent sessions in the folder. Laura leaves out a card with nothing to show.
+export function paintGlance(m) {
+  const cards = [];
+  if (m.readme) {
+    const more = m.readme.more.length ? `<p class="more">${m.readme.more.map(esc).join(" · ")}</p>` : "";
+    // The README's HTML is Laura's, as in a `pane` frame.
+    cards.push(`<div class="gcard"><h3>README.md<span class="sp"></span><button class="lnk" data-path="README.md">Open as a pane</button></h3>`
+      + `<div class="md">${m.readme.html}</div>${more}</div>`);
+  }
+  const col = [];
+  if (m.project) col.push(projectCard(m.project));
+  if (m.sessions.length) col.push(`<div class="gcard"><h3>Recently in this folder</h3>${m.sessions.map(sessionRow).join("")}</div>`);
+  if (col.length) cards.push(`<div class="col">${col.join("")}</div>`);
+  glance.innerHTML = cards.join("");
+  glance.classList.toggle("one", cards.length === 1);
+}
+
+const glance = $("canvas").querySelector(".glance");
+const KINDS = { M: "m", A: "a", D: "d", "?": "u" };
+const ago = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "narrow" });
+const UNITS = [["year", 31536e3], ["month", 2592e3], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60]];
+function age(ts) {
+  const s = (ts - Date.now()) / 1000, [unit, n] = UNITS.find(([, n]) => Math.abs(s) >= n) ?? ["second", 1];
+  return ago.format(Math.round(s / n), unit);
+}
+
+// A changed file's row: a button that opens the file, in the diff view when `diff`. A deleted file
+// has nothing to open.
+function fileRow(f, diff) {
+  const n = f.status === "?" ? "new"
+    : (f.add ? `<span class="add">+${f.add}</span> ` : "") + (f.del ? `<span class="del">−${f.del}</span>` : "");
+  const row = `<span class="k ${KINDS[f.status] ?? "m"}">${esc(f.status)}</span><span class="p">${esc(f.path)}</span><span class="n">${n}</span>`;
+  return f.status === "D" ? `<div class="frow">${row}</div>`
+    : `<button class="frow" data-path="${esc(f.path)}"${diff ? " data-diff" : ""}>${row}</button>`;
+}
+
+function projectCard(p) {
+  const rows = p.files.map(f => fileRow(f, p.kind === "changes" && f.status !== "?")).join("")
+    + (p.more ? `<div class="frow"><span></span><span class="n">and ${p.more} more</span></div>` : "");
+  if (p.kind === "changes") return `<div class="gcard"><h3>Changes on <span class="br">${esc(p.branch)}</span></h3>${rows}</div>`;
+  return `<div class="gcard"><h3>Latest on <span class="br">${esc(p.branch)}</span><span class="sp"></span><span class="br">No changes</span></h3>`
+    + `<div class="commit"><b>${esc(p.subject)}</b><div class="n">${esc(p.hash)} · ${esc(p.author)} · ${age(p.ts)}</div></div>${rows}</div>`;
+}
+
+function sessionRow(s) {
+  const reviews = s.reviews ? ` · ${s.reviews} inline review${s.reviews === 1 ? "" : "s"}` : "";
+  const files = s.files.map(f => `<button data-path="${esc(f)}">${esc(f)}</button>`).join("");
+  return `<div class="srec"><span class="t">${s.label ? esc(s.label) : "Untitled session"}</span><span class="n">${age(s.ts)}${reviews}</span>`
+    + (files ? `<span class="fl">${files}</span>` : "") + "</div>";
+}
+
+// A file opens beside the shell. A README link opens its file, which `open_path` finds from
+// Laura's folder, the README's folder.
+glance.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-path]"), a = e.target.closest("[data-href]");
+  if (b) return act({ act: "open_path", pane: 0, path: b.dataset.path, diff: "diff" in b.dataset });
+  let path = "";
+  try { path = decodeURIComponent(a?.dataset.href.split(/[#?]/)[0] ?? ""); } catch { /* a bad escape opens nothing */ }
+  if (path) act({ act: "open_path", pane: 0, path });
 });
 
 // A browser pane's size in CSS pixels, with a whole number of device pixels each way, so a frame

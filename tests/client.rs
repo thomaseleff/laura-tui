@@ -375,7 +375,7 @@ fn the_shell_starts_in_the_drawer_over_the_canvas() -> Result<()> {
         &mut r,
         "the canvas's text",
         "!document.getElementById('canvas').hidden && document.getElementById('canvas').innerText\
-         .includes({start: 'Welcome to Laura', calm: 'Ask your agent'}[layout.canvas])",
+         .includes({start: 'Welcome to Laura', glance: 'Open as a pane', calm: 'Ask your agent'}[layout.canvas])",
     );
     let share = |at: &Value| at[1].as_f64().unwrap_or(0.0) / at[2].as_f64().unwrap_or(1.0);
     c.resize(1280, 1100);
@@ -398,6 +398,38 @@ fn the_shell_starts_in_the_drawer_over_the_canvas() -> Result<()> {
         &mut r,
         "the help's steps",
         "!document.getElementById('help').hidden && document.querySelectorAll('#help .step').length === 3",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #214: after a submitted inline review, the canvas shows the project at a glance, and its
+/// **Open as a pane** opens the README in a file pane, which takes the focus. The client rig's
+/// folder is the crate, which has a README.
+#[test]
+fn a_click_on_the_glance_opens_the_file() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    // The shared home (`isolate_home`): before the rig, which picks the canvas at its first turn.
+    let sessions = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(".laura/sessions");
+    std::fs::create_dir_all(&sessions)?;
+    let review = json!({"type": "review", "ts": 1, "pane": 1, "path": "x"});
+    std::fs::write(sessions.join("client-glance.ndjson"), format!("{review}\n"))?;
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let at = c.until(
+        &mut r,
+        "the README card's button",
+        "layout?.canvas === 'glance' && (() => { \
+           const b = document.querySelector('#canvas .glance [data-path=\"README.md\"]')?.getBoundingClientRect(); \
+           return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "README.md in a focused file pane",
+        "layout.panes.some(p => p.id === layout.focus && p.kind === 'file' && p.name === 'README.md')",
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())

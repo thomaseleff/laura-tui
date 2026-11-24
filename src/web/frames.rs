@@ -24,7 +24,9 @@ use super::{Bases, Outbound, View, content_hash};
 pub(super) enum Canvas {
     /// *Get started*: until the user's first submitted inline review, in any folder.
     Start,
-    /// One sentence and the keystrokes, after that.
+    /// The project at a glance, after that, when one of its cards has something to show.
+    Glance,
+    /// One sentence and the keystrokes, after that, when no card has.
     Calm,
 }
 

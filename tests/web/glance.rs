@@ -1,0 +1,168 @@
+//! The project at a glance (#214): after the user's first submitted inline review, the start
+//! canvas shows the folder's README, its git changes or latest commit, and the recent sessions in
+//! the folder. With nothing to show, the canvas is the calm canvas.
+
+use super::*;
+
+/// The frames up to the first `layout`, and that `layout`: Laura sends `glance` before it.
+fn first_frames(ws: &mut Ws) -> (Option<Value>, Value) {
+    let start = Instant::now();
+    let mut glance = None;
+    loop {
+        match read(ws) {
+            Some(Frame::Json(v)) if v["t"] == "glance" => glance = Some(v),
+            Some(Frame::Json(v)) if v["t"] == "layout" => return (glance, v),
+            _ => {}
+        }
+        assert!(start.elapsed() < common::DEADLINE, "no layout");
+    }
+}
+
+/// `laura --web` in `dir` after a submitted inline review: its glance frame.
+fn glance_in(dir: &Path, home: &Path) -> Result<(Kill, Value)> {
+    journal_review(home, false)?;
+    let (child, mut ws) = laura_web_at(dir, home)?;
+    let (glance, layout) = first_frames(&mut ws);
+    assert_eq!(layout["canvas"], "glance", "{layout}");
+    Ok((child, glance.expect("a glance frame before the layout")))
+}
+
+/// `path` as Laura names its folder: canonical, without Windows' `\\?\`.
+fn canonical(path: &Path) -> String {
+    let p = path.canonicalize().expect("the folder exists");
+    let s = p.to_string_lossy();
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+}
+
+/// The file row for `path`.
+fn row<'a>(g: &'a Value, path: &str) -> &'a Value {
+    g["project"]["files"]
+        .as_array()
+        .and_then(|f| f.iter().find(|f| f["path"] == path))
+        .unwrap_or_else(|| panic!("no row for {path}: {g}"))
+}
+
+#[test]
+fn a_changed_file_shows_with_its_counts() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let (dir, path) = changed_file("a.rs", "one\ntwo\n", "one\nTWO\n")?;
+    std::fs::write(dir.path().join("b.txt"), "new\n")?;
+    let (_child, g) = glance_in(dir.path(), home.path())?;
+    assert_eq!(g["project"]["kind"], "changes", "{g}");
+    assert!(
+        g["project"]["branch"]
+            .as_str()
+            .is_some_and(|b| !b.is_empty()),
+        "{g}"
+    );
+    assert_eq!(
+        *row(&g, "a.rs"),
+        json!({"status": "M", "path": "a.rs", "add": 1, "del": 1}),
+        "{path}"
+    );
+    assert_eq!(row(&g, "b.txt")["status"], "?", "{g}");
+    Ok(())
+}
+
+#[test]
+fn a_clean_tree_shows_the_latest_commit() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let (dir, _) = file("a.rs", "one\ntwo\n")?;
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["add", "a.rs"]);
+    git(dir.path(), &["commit", "-q", "-m", "Add the parser"]);
+    let (_child, g) = glance_in(dir.path(), home.path())?;
+    let p = &g["project"];
+    assert_eq!(p["kind"], "latest", "{g}");
+    assert_eq!(p["subject"], "Add the parser", "{g}");
+    assert_eq!(p["author"], "t", "{g}");
+    assert_eq!(p["hash"].as_str().map(str::len), Some(7), "{g}");
+    assert_eq!(
+        *row(&g, "a.rs"),
+        json!({"status": "A", "path": "a.rs", "add": 2, "del": 0}),
+    );
+    Ok(())
+}
+
+#[test]
+fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = tempfile::tempdir()?;
+    let readme = "# Ridgeline\n\nPlan a day hike.\n\n## Data\n\nThe tracks.\n\n## Deploy\n";
+    std::fs::write(dir.path().join("README.md"), readme)?;
+    let (_child, g) = glance_in(dir.path(), home.path())?;
+    let html = g["readme"]["html"].as_str().unwrap_or("");
+    assert!(
+        html.contains("<h1") && html.contains("Plan a day hike."),
+        "{g}"
+    );
+    assert!(!html.contains("The tracks."), "only the first section: {g}");
+    assert_eq!(g["readme"]["more"], json!(["Data", "Deploy"]), "{g}");
+    assert_eq!(g["project"], Value::Null, "{g}");
+    assert_eq!(g["sessions"], json!([]), "{g}");
+    Ok(())
+}
+
+#[test]
+fn a_session_in_the_folder_shows_its_label() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = tempfile::tempdir()?;
+    let other = tempfile::tempdir()?;
+    for f in ["a.md", "b.md"] {
+        std::fs::write(dir.path().join(f), "x\n")?;
+    }
+    std::fs::write(other.path().join("c.md"), "x\n")?;
+    let (root, elsewhere) = (canonical(dir.path()), canonical(other.path()));
+    let at = |f: &str| dir.path().join(f).to_string_lossy().into_owned();
+    let sessions = home.path().join(".laura/sessions");
+    std::fs::create_dir_all(&sessions)?;
+    let write = |name: &str, events: &[Value]| {
+        let body: String = events.iter().map(|e| format!("{e}\n")).collect();
+        std::fs::write(sessions.join(name), body)
+    };
+    write(
+        "now.ndjson",
+        &[
+            json!({"type": "ready", "ts": 3000, "root": root, "title": "flat profile"}),
+            json!({"type": "open", "ts": 3001, "path": at("a.md")}),
+            json!({"type": "review", "ts": 3002, "path": at("a.md")}),
+        ],
+    )?;
+    // From a Laura before `root`: the session opened a file in the folder.
+    write(
+        "old.ndjson",
+        &[
+            json!({"type": "ready", "ts": 1000, "title": "gpx import"}),
+            json!({"type": "open", "ts": 1001, "path": at("b.md")}),
+        ],
+    )?;
+    write(
+        "other.ndjson",
+        &[
+            json!({"type": "ready", "ts": 5000, "root": elsewhere, "title": "elsewhere"}),
+            json!({"type": "open", "ts": 5001, "path": other.path().join("c.md")}),
+        ],
+    )?;
+    let (_child, g) = glance_in(dir.path(), home.path())?;
+    assert_eq!(
+        g["sessions"],
+        json!([
+            {"label": "flat profile", "ts": 3002, "files": ["a.md"], "reviews": 1},
+            {"label": "gpx import", "ts": 1001, "files": ["b.md"], "reviews": 0},
+        ]),
+        "{g}"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_empty_folder_gives_the_calm_canvas() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = tempfile::tempdir()?;
+    journal_review(home.path(), false)?;
+    let (_child, mut ws) = laura_web_at(dir.path(), home.path())?;
+    let (glance, layout) = first_frames(&mut ws);
+    assert_eq!(layout["canvas"], "calm", "{layout}");
+    assert_eq!(glance, None);
+    Ok(())
+}
