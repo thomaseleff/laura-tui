@@ -83,6 +83,9 @@ impl Block {
     pub(crate) fn heading(&self) -> Option<(usize, &str)> {
         let mut lines = self.md.trim_start_matches(['\r', '\n']).lines();
         let line = lines.next()?;
+        // Up to 3 spaces may indent an ATX heading; 4 make a code block.
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        let line = if indent <= 3 { &line[indent..] } else { line };
         let level = line.bytes().take_while(|&b| b == b'#').count();
         if level == 0 && matches!(self.kind, BlockKind::Prose) {
             let under = lines.next()?.trim();

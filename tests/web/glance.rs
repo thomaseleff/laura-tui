@@ -125,8 +125,9 @@ fn a_merge_commit_lists_its_files() -> Result<()> {
 fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
     let home = tempfile::tempdir()?;
     let dir = tempfile::tempdir()?;
-    // Any case of the name, a setext title, and HTML that a page would show as its source.
-    let readme = "<p align=\"center\">x</p>\n\nRidgeline\n=========\n\nPlan a day hike. [d](#data)\n\n\
+    // Any case of the name, a setext title, HTML that a page would show as its source, and an
+    // indented heading.
+    let readme = "<p align=\"center\">x</p>\n\nRidgeline\n=========\n\nPlan a day hike. [d](#data)\n\n  \
                   ## Data\n\nThe tracks.\n\n## Deploy\n";
     std::fs::write(dir.path().join("Readme.md"), readme)?;
     let (_child, g) = glance_in(dir.path(), home.path())?;
