@@ -98,8 +98,9 @@ pub(crate) struct FileChange {
     del: Option<u32>,
 }
 
-/// The project's git state for the start canvas: the changes since HEAD, else the latest commit.
-/// `more` counts the files past the first `FILES`.
+/// The project's git state for the start canvas: the changes since HEAD, else the latest commit
+/// and its files against its first parent, so a merge commit lists the files it brings in. `more`
+/// counts the files past the first `FILES`.
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub(crate) enum Project {
@@ -155,7 +156,10 @@ pub(crate) fn project(root: &Path) -> Option<Project> {
     let (hash, author, ts, subject) = (f.next()?, f.next()?, f.next()?, f.next()?);
     let (hash, author, subject) = (hash.into(), author.into(), subject.into());
     let ts = ts.parse::<u64>().ok()? * 1000;
-    let mut files = files(&root, &["show", "HEAD", "--format="])?;
+    let mut files = files(
+        &root,
+        &["show", "HEAD", "--format=", "-m", "--first-parent"],
+    )?;
     let more = files.len().saturating_sub(FILES);
     files.truncate(FILES);
     Some(Project::Latest {

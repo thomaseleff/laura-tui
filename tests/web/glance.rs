@@ -85,6 +85,32 @@ fn a_clean_tree_shows_the_latest_commit() -> Result<()> {
 }
 
 #[test]
+fn a_merge_commit_lists_its_files() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let (dir, _) = file("a.rs", "one\n")?;
+    let d = dir.path();
+    git(d, &["init", "-q", "-b", "main"]);
+    git(d, &["add", "a.rs"]);
+    git(d, &["commit", "-q", "-m", "Start"]);
+    git(d, &["checkout", "-q", "-b", "side"]);
+    std::fs::write(d.join("b"), "b\n")?;
+    git(d, &["add", "b"]);
+    git(d, &["commit", "-q", "-m", "Add b"]);
+    git(d, &["checkout", "-q", "main"]);
+    std::fs::write(d.join("c"), "c\n")?;
+    git(d, &["add", "c"]);
+    git(d, &["commit", "-q", "-m", "Add c"]);
+    git(d, &["merge", "-q", "--no-edit", "side"]);
+    let (_child, g) = glance_in(d, home.path())?;
+    assert_eq!(g["project"]["kind"], "latest", "{g}");
+    assert_eq!(
+        *row(&g, "b"),
+        json!({"status": "A", "path": "b", "add": 1, "del": 0}),
+    );
+    Ok(())
+}
+
+#[test]
 fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
     let home = tempfile::tempdir()?;
     let dir = tempfile::tempdir()?;
