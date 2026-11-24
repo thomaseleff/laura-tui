@@ -144,35 +144,6 @@ const NORD: [&str; 7] = [
 
 const RUST: &str = "fn main() {\n    let s = \"hi\";\n}\n";
 
-/// A stand-in editor that stays up and prints `fake` (after a bell on unix); a `--headless` push exits at once.
-fn fake_nvim() -> std::path::PathBuf {
-    static ONCE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    ONCE.get_or_init(|| {
-        // Under the target dir: a `.cmd` whose path has a space can't be spawned.
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("web_fake_nvim");
-        std::fs::create_dir_all(&dir).unwrap();
-        #[cfg(windows)]
-        let (name, body) = (
-            "nvim.cmd",
-            "@echo off\r\nif \"%~1\"==\"--headless\" exit /b 0\r\necho fake\r\nping -n 30 127.0.0.1 >nul\r\n",
-        );
-        #[cfg(not(windows))]
-        let (name, body) = (
-            "nvim",
-            "#!/bin/sh\n[ \"$1\" = --headless ] && exit 0\nprintf '\\007'\necho fake\nsleep 30\n",
-        );
-        let f = dir.join(name);
-        std::fs::write(&f, body).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        f
-    })
-    .clone()
-}
-
 /// `GET path` without the token; the raw response.
 fn get(port: u16, path: &str) -> Result<String> {
     get_as(port, path, "")
