@@ -375,14 +375,12 @@ function sessionRow(s) {
     + (files ? `<span class="fl">${files}</span>` : "") + "</div>";
 }
 
-// A file opens beside the shell. A README link opens its file, which `open_path` finds from
-// Laura's folder, the README's folder.
+// A file opens beside the shell. A README link opens its file at its heading, which `open_link`
+// finds from Laura's folder, the README's folder.
 glance.addEventListener("click", (e) => {
   const b = e.target.closest("[data-path]"), a = e.target.closest("[data-href]");
   if (b) return act({ act: "open_path", pane: 0, path: b.dataset.path, diff: "diff" in b.dataset });
-  let path = "";
-  try { path = decodeURIComponent(a?.dataset.href.split(/[#?]/)[0] ?? ""); } catch { /* a bad escape opens nothing */ }
-  if (path) act({ act: "open_path", pane: 0, path });
+  if (a) act({ act: "open_link", pane: 0, href: a.dataset.href });
 });
 
 // A browser pane's size in CSS pixels, with a whole number of device pixels each way, so a frame

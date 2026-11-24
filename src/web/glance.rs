@@ -68,11 +68,14 @@ fn readme(root: &Path, base: &str) -> Option<Readme> {
         .filter(|(_, b)| top(b))
         .nth(1)
         .map_or(r.blocks.len(), |(i, _)| i);
-    let html: String = r.blocks[..end]
+    let html = r.blocks[..end]
         .iter()
         .take(README_BLOCKS)
         .map(|b| b.html().replace('\0', base))
-        .collect();
+        .collect::<String>()
+        // The canvas has no README pane, so a bare `#heading` names the README. File text can't
+        // fake `data-href="`: `render` escapes its `"`.
+        .replace("data-href=\"#", "data-href=\"README.md#");
     let more = r.blocks[end..]
         .iter()
         .filter_map(Block::heading)

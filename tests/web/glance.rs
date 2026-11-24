@@ -88,7 +88,8 @@ fn a_clean_tree_shows_the_latest_commit() -> Result<()> {
 fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
     let home = tempfile::tempdir()?;
     let dir = tempfile::tempdir()?;
-    let readme = "# Ridgeline\n\nPlan a day hike.\n\n## Data\n\nThe tracks.\n\n## Deploy\n";
+    let readme =
+        "# Ridgeline\n\nPlan a day hike. [d](#data)\n\n## Data\n\nThe tracks.\n\n## Deploy\n";
     std::fs::write(dir.path().join("README.md"), readme)?;
     let (_child, g) = glance_in(dir.path(), home.path())?;
     let html = g["readme"]["html"].as_str().unwrap_or("");
@@ -96,6 +97,8 @@ fn a_folder_without_git_shows_the_readme_only() -> Result<()> {
         html.contains("<h1") && html.contains("Plan a day hike."),
         "{g}"
     );
+    // The canvas has no README pane, so a heading link names the README.
+    assert!(html.contains(r#"data-href="README.md#data""#), "{g}");
     assert!(!html.contains("The tracks."), "only the first section: {g}");
     assert_eq!(g["readme"]["more"], json!(["Data", "Deploy"]), "{g}");
     assert_eq!(g["project"], Value::Null, "{g}");
@@ -164,5 +167,30 @@ fn an_empty_folder_gives_the_calm_canvas() -> Result<()> {
     let (glance, layout) = first_frames(&mut ws);
     assert_eq!(layout["canvas"], "calm", "{layout}");
     assert_eq!(glance, None);
+    Ok(())
+}
+
+/// A README link on the canvas opens its file, from Laura's folder, at its heading.
+#[test]
+fn a_readme_link_opens_its_file_at_the_heading() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let r = rig.act(
+        &mut ws,
+        json!({"act": "open_link", "pane": 0, "href": "docs/navigation.md#the-drawer"}),
+    );
+    assert_eq!(r["ok"], true, "{r}");
+    let nav = std::fs::read_to_string("docs/navigation.md")?;
+    let line = nav
+        .lines()
+        .position(|l| l == "## The drawer")
+        .expect("the heading")
+        + 1;
+    assert_eq!(rig.tab.panels[&1].cursor_line() as usize, line);
+    let r = rig.act(
+        &mut ws,
+        json!({"act": "open_link", "pane": 0, "href": "#x"}),
+    );
+    assert_eq!(r["text"], "⚠ The link target #x does not exist.", "{r}");
     Ok(())
 }
