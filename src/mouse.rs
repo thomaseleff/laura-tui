@@ -2,6 +2,7 @@
 //! Kept out of `tui.rs` so the event loop doesn't grow a fourth concern; the unit tests live here.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -9,6 +10,8 @@ use ratatui::layout::{Margin, Rect};
 use ratatui::style::Modifier;
 
 use laura::PaneId;
+use laura::layout::Handle;
+use laura::protocol::Dir;
 use vt100::MouseProtocolMode;
 
 /// The TUI's pointer state across mouse events. A drag can't span a tab switch, so this is a
@@ -17,7 +20,15 @@ use vt100::MouseProtocolMode;
 pub struct Pointer {
     /// An in-progress left-drag selection.
     pub selection: Option<Selection>,
+    /// The split whose line the user drags, from the press to the release.
+    pub split: Option<Handle>,
+    /// The last press on a line, with the line's two panes: a second press within
+    /// `DOUBLE_CLICK` is a double-click.
+    pub last_down: Option<(Instant, (PaneId, PaneId))>,
 }
+
+/// The longest time between the two presses of a double-click.
+pub const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 
 /// An in-progress (or just-finished) drag selection, in absolute buffer coords.
 pub struct Selection {
@@ -288,6 +299,31 @@ pub fn base64_encode(data: &[u8]) -> String {
     out
 }
 
+/// The line under `col`, `row`: the two border cells where `first`'s last column (or row) meets
+/// `second`'s first. `handles` lists outer splits first, so where two lines meet, the outer wins.
+pub fn handle_at(handles: &[Handle], col: u16, row: u16) -> Option<&Handle> {
+    let on = |p: u16, start: u16, at: u16| p + 1 >= start + at && p <= start + at;
+    let within = |p: u16, start: u16, len: u16| p >= start && p < start + len;
+    handles.iter().find(|h| {
+        let a = h.area;
+        match h.dir {
+            Dir::Horizontal => on(col, a.x, h.at) && within(row, a.y, a.height),
+            Dir::Vertical => on(row, a.y, h.at) && within(col, a.x, a.width),
+        }
+    })
+}
+
+/// The ratio for `first` that puts `h`'s line under `col`, `row`, within the split's range.
+pub fn ratio_at(h: &Handle, col: u16, row: u16) -> u16 {
+    let (p, start, len) = match h.dir {
+        Dir::Horizontal => (col, h.area.x, h.area.width),
+        Dir::Vertical => (row, h.area.y, h.area.height),
+    };
+    let len = u32::from(len.max(1));
+    let share = (u32::from(p.saturating_sub(start)) * 100 + len / 2) / len;
+    (share.min(100) as u16).clamp(h.min, h.max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,5 +527,49 @@ mod tests {
         let got = pbpaste();
         pbcopy(&saved);
         assert_eq!(got, "20");
+    }
+
+    /// The root's vertical line at column 40 of 80, and a stacked split in its right side.
+    fn two_lines() -> Vec<Handle> {
+        let line = |dir, area, at| Handle {
+            dir,
+            area,
+            at,
+            ratio: 50,
+            pinned: false,
+            first: vec![1],
+            second: vec![2],
+            min: 10,
+            max: 90,
+        };
+        vec![
+            line(Dir::Horizontal, Rect::new(0, 0, 80, 20), 40),
+            line(Dir::Vertical, Rect::new(40, 0, 40, 20), 10),
+        ]
+    }
+
+    #[test]
+    fn a_press_on_either_border_cell_finds_the_line() {
+        let hs = two_lines();
+        assert_eq!(handle_at(&hs, 39, 5), Some(&hs[0]));
+        assert_eq!(handle_at(&hs, 40, 5), Some(&hs[0]), "the outer line wins");
+        assert_eq!(handle_at(&hs, 41, 5), None);
+        assert_eq!(handle_at(&hs, 60, 9), Some(&hs[1]));
+        assert_eq!(handle_at(&hs, 60, 10), Some(&hs[1]));
+        assert_eq!(handle_at(&hs, 60, 11), None);
+        assert_eq!(
+            handle_at(&hs, 20, 10),
+            None,
+            "the stacked line is right of the root's"
+        );
+    }
+
+    #[test]
+    fn a_drag_sets_the_share_within_the_range() {
+        let hs = two_lines();
+        assert_eq!(ratio_at(&hs[0], 60, 5), 75);
+        assert_eq!(ratio_at(&hs[0], 1, 5), 10, "clamped to min");
+        assert_eq!(ratio_at(&hs[0], 300, 5), 90, "clamped to max");
+        assert_eq!(ratio_at(&hs[1], 50, 15), 75);
     }
 }

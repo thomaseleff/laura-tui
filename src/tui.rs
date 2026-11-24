@@ -671,14 +671,14 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
                     }
                     // Popups / focused panel without a draft / help / confirm — paste is meaningless, drop it.
                 }
-                Event::Mouse(m) => on_mouse(
-                    &mut tab,
-                    m,
-                    &rect_map,
-                    pty_inner,
-                    &mut pointer,
-                    drag_frame.as_ref(),
-                ),
+                Event::Mouse(m) => {
+                    let frame = drag_frame.as_ref();
+                    let (map, ptr) = (&rect_map, &mut pointer);
+                    if let Err(e) = on_mouse(&mut tab, m, content, map, pty_inner, ptr, frame) {
+                        let until = Instant::now() + Duration::from_secs(5);
+                        toast = Some((e.to_string(), until, None));
+                    }
+                }
                 _ => {}
             }
         }
@@ -686,17 +686,22 @@ pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Res
     Ok(())
 }
 
-/// Mouse: a child in SGR mouse mode gets real events; else the wheel scrolls history/cursor and a
-/// plain left drag selects within the pane. Shift+drag is the terminal's own reserved gesture
-/// (native, whole-window selection). `drag_frame`: the frame that showed the selection.
+/// Mouse: a left drag on the border between two panes resizes them. Else a child in SGR mouse
+/// mode gets real events, the wheel scrolls history/cursor, and a plain left drag selects within
+/// the pane. Shift+drag is the terminal's own reserved gesture (native, whole-window selection).
+/// `drag_frame`: the frame that showed the selection. `Err`: the notice for a resize.
 fn on_mouse(
     tab: &mut Tab,
     m: MouseEvent,
+    content: Rect,
     rect_map: &HashMap<PaneId, Rect>,
     pty_inner: Rect,
     pointer: &mut Pointer,
     drag_frame: Option<&Buffer>,
-) {
+) -> Result<(), laura::tab::Error> {
+    if let Some(resized) = on_split(tab, &m, content, pointer) {
+        return resized;
+    }
     let over = pane_at_point(rect_map, m.column, m.row);
     let left = matches!(
         m.kind,
@@ -750,6 +755,44 @@ fn on_mouse(
         && let Some(rect) = rect_map.get(&sel.pane)
     {
         copy_selection(tab, &sel, buf, rect.inner(Margin::new(1, 1)));
+    }
+    Ok(())
+}
+
+/// A left press on the border between two panes starts a drag of their split, and a second press
+/// on the same border within `DOUBLE_CLICK` gives the size back to Laura. `None`: the event isn't
+/// the split's.
+fn on_split(
+    tab: &mut Tab,
+    m: &MouseEvent,
+    content: Rect,
+    pointer: &mut Pointer,
+) -> Option<Result<(), laura::tab::Error>> {
+    match m.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            let handles = tab.handles(content);
+            let h = mouse::handle_at(&handles, m.column, m.row)?;
+            let (a, b) = (h.first[0], h.second[0]);
+            let now = Instant::now();
+            let again = pointer
+                .last_down
+                .is_some_and(|(t, line)| line == (a, b) && now - t < mouse::DOUBLE_CLICK);
+            if again {
+                pointer.last_down = None;
+                return Some(tab.act(UserAction::Unpin { a, b }).map(drop));
+            }
+            pointer.last_down = Some((now, (a, b)));
+            pointer.split = Some(h.clone());
+            Some(Ok(()))
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            let h = pointer.split.as_ref()?;
+            let (a, b) = (h.first[0], h.second[0]);
+            let ratio = mouse::ratio_at(h, m.column, m.row);
+            Some(tab.act(UserAction::Resize { a, b, ratio }).map(drop))
+        }
+        MouseEventKind::Up(MouseButton::Left) => pointer.split.take().map(|_| Ok(())),
+        _ => None,
     }
 }
 

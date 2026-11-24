@@ -496,3 +496,42 @@ fn a_file_path_that_is_not_a_file_returns_the_link_notice() -> Result<()> {
     assert!(tab.panels.is_empty());
     Ok(())
 }
+
+/// #211: in the TUI, a drag of the border between two panes pins their split, as in the web app.
+/// `Tab::handles` gives the TUI each border and the range a drag may reach; the mouse can't be
+/// driven here, so this sends the action the drag sends.
+#[test]
+fn a_resize_in_the_tui_pins_the_split() -> Result<()> {
+    let (mut tab, dir, _) = tab_with("a.md", &five_lines())?;
+    let b = dir.path().join("b.md");
+    std::fs::write(&b, five_lines())?;
+    drive(&mut tab, &["open", "--no-focus", &b.to_string_lossy()]);
+    tab.drain(area());
+    let before = tab.rects(area());
+    let handles = tab.handles(area());
+    assert_eq!(handles.len(), 2, "{handles:?}");
+    let root = &handles[0];
+    assert_eq!((&root.first[..], &root.second[..]), (&[0][..], &[1, 2][..]));
+    assert!(!root.pinned && root.min < 30 && 30 < root.max, "{root:?}");
+
+    tab.act(UserAction::Resize {
+        a: 0,
+        b: 1,
+        ratio: 30,
+    })?;
+    let report: serde_json::Value = serde_json::from_str(&drive(&mut tab, &["layout"]))?;
+    assert_eq!(
+        report["panes"][0]["rect"]["width"],
+        120 * 30 / 100,
+        "{report}"
+    );
+    for id in 0..=2 {
+        assert_eq!(report["panes"][id]["pinned"], true, "{report}");
+    }
+    assert!(tab.handles(area())[0].pinned);
+
+    tab.act(UserAction::Unpin { a: 0, b: 1 })?;
+    assert_eq!(tab.rects(area()), before);
+    assert!(!tab.handles(area())[0].pinned);
+    Ok(())
+}

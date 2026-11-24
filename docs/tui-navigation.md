@@ -20,6 +20,8 @@ A pane's border shows what the pane header shows in the browser:
 - `· editor` or `· file`: the view of an editor pane, and `● unsaved` while Neovim has unsaved edits.
 - `· paused`: you paused the tail pane.
 
+To [resize two panes](navigation.md#resize-panes), drag the border between them. To give the size back to Laura, double-click the border. The TUI shows no share while you drag.
+
 ## Global keystrokes
 
 `Ctrl+P` opens the panes popup, which finds a pane by id only. Type a pane id, then press `Enter`. A single-digit id focuses the pane at once.
