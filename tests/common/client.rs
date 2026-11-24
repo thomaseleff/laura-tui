@@ -25,6 +25,8 @@ pub const CTRL_Q: Keystroke = ("q", "KeyQ", 81, 2, "");
 pub const SHIFT_S: Keystroke = ("S", "KeyS", 83, 8, "S");
 pub const C: Keystroke = ("c", "KeyC", 67, 0, "c");
 pub const N: Keystroke = ("n", "KeyN", 78, 0, "n");
+pub const ARROW_RIGHT: Keystroke = ("ArrowRight", "ArrowRight", 39, 0, "");
+pub const HOME: Keystroke = ("Home", "Home", 36, 0, "");
 
 /// Each error, unhandled rejection and `console.error` of the page, in `window.__errors`, from
 /// before the page's own scripts run.

@@ -899,6 +899,8 @@ body.sv { height: auto; min-height: 100%; overflow: auto; display: flex; flex-di
 #ws > .split.h::before { width: 4px; height: 100%; }
 #ws > .split.v::before { width: 100%; height: 4px; }
 #ws > .split:hover::before, #ws > .split.on::before { background: var(--acc); }
+#ws > .split:focus-visible { outline: none; }
+#ws > .split:focus-visible::before { background: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
 #ws > .split.on::after {
   content: attr(data-tip); position: absolute; z-index: 60; white-space: pre; pointer-events: none;
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans); color: #fff; background: #23262d;

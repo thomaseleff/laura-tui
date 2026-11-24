@@ -87,7 +87,9 @@ When the window gets smaller, a pane can become too small. You can still drag a 
 
 Laura keeps the size that you set. When the agent opens another pane, the line stays where you put it.
 
-To give the size back to Laura, double-click the line. Laura puts the line back where Laura had it. When you point at the line, Laura shows `Drag to resize · double-click to give the size back to Laura`.
+To give the size back to Laura, double-click the line. Laura puts the line back where Laura had it. When you point at a line between side-by-side panes, Laura shows `Drag or press ← → to resize · double-click or Home to give the size back to Laura`, and `↑ ↓` for a line between stacked panes.
+
+A screen reader names the line **Size of Pane 1 and Pane 2**, with the names of the panes on each side. When the line has the focus, `←` and `→` move a line between side-by-side panes, and `↑` and `↓` move a line between stacked panes, 5% at a time. `Home` gives the size back to Laura.
 
 Laura shows no line between the shell and the start canvas. When you show the shell as a pane again, Laura keeps the size that you set for the shell's line.
 

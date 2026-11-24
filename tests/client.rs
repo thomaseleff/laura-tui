@@ -634,3 +634,44 @@ fn a_drag_on_a_split_resizes_the_panes() -> Result<()> {
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
+
+/// #211: a screen reader and the keyboard reach the line between two panes: `→` moves it 5 points,
+/// and `Home` gives the size back to Laura.
+#[test]
+fn the_keyboard_moves_the_line_between_panes() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--split", "1", "--dir", "h"]);
+    let c = Client::open(&mut r, &path);
+    c.until(
+        &mut r,
+        "a separator at 50%",
+        "(() => { const s = document.querySelector('#ws > .split'); \
+           return s?.getAttribute('role') === 'separator' \
+             && s.getAttribute('aria-valuenow') === '50' \
+             && s.getAttribute('aria-orientation') === 'vertical'; })()",
+    );
+    c.eval("document.querySelector('#ws > .split').focus()")
+        .map_err(anyhow::Error::msg)?;
+    c.press(ARROW_RIGHT);
+    c.until(
+        &mut r,
+        "a pinned split at 55%",
+        "layout.splits[0].pinned && layout.splits[0].ratio === 55 \
+           && document.querySelector('#ws > .split').getAttribute('aria-valuenow') === '55'",
+    );
+    c.press(HOME);
+    c.until(
+        &mut r,
+        "Laura's ratio again",
+        "!layout.splits[0].pinned && layout.splits[0].ratio === 50",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}

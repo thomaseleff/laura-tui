@@ -217,9 +217,11 @@ function grip(el) {
 }
 
 // The line between two panes (`Tab::handles`): a drag sets the split's ratio, which Laura keeps
-// (pins); a double-click gives the size back to Laura. A drag stays in the split's `min`..`max`, where
-// every pane still fits.
-const SPLIT_TIP = "Drag to resize · double-click to give the size back to Laura";
+// (pins); a double-click gives the size back to Laura. A drag stays in the split's `min`..`max`.
+// A screen reader and the keyboard reach the line as a separator (`splitKey`), as the drawer's grip.
+const splitTip = s => s.dir === "horizontal"
+  ? "Drag or press ← → to resize · double-click or Home to give the size back to Laura"
+  : "Drag or press ↑ ↓ to resize · double-click or Home to give the size back to Laura";
 const sideName = ids => (ids.length > 1 ? "Panes " : "Pane ") + ids.join(", ");
 
 // One element per split, kept by its key, so a drag's pointer capture survives each new layout. The
@@ -234,6 +236,11 @@ function paintSplits(m) {
     el.s = s;
     el.classList.toggle("h", h);
     el.classList.toggle("v", !h);
+    if (!ui.resizing) el.dataset.tip = splitTip(s);
+    for (const [k, v] of Object.entries({ "aria-orientation": h ? "vertical" : "horizontal",
+      "aria-valuenow": s.ratio, "aria-valuemin": s.min, "aria-valuemax": s.max,
+      "aria-label": `Size of ${sideName(s.first)} and ${sideName(s.second)}`,
+      "aria-valuetext": `${sideName(s.first)} · ${s.ratio}%` })) el.setAttribute(k, v);
     Object.assign(el.style, h ? {
       left: `calc(var(--cw) * ${s.x + s.at})`, top: `calc(var(--ch) * ${s.y})`, width: "", height: `calc(var(--ch) * ${s.h})`,
     } : {
@@ -247,7 +254,10 @@ function makeSplit(key) {
   const el = root.appendChild(document.createElement("div"));
   el.className = "split";
   el.dataset.key = key;
-  el.dataset.tip = SPLIT_TIP;
+  el.tabIndex = 0;
+  el.setAttribute("role", "separator");
+  // The workspace's own handlers would take the focus.
+  for (const t of ["mousedown", "click"]) el.addEventListener(t, e => e.stopPropagation());
   const ids = () => ({ a: el.s.first[0], b: el.s.second[0] });
   // `ratio`: the drag's last ratio; `frame`: a resize waits for the next animation frame.
   let ratio = null, frame = 0;
@@ -264,11 +274,24 @@ function makeSplit(key) {
     if (ratio !== null) resize();
     ratio = null;
     ui.resizing = false;
-    el.dataset.tip = SPLIT_TIP;
+    el.dataset.tip = splitTip(el.s);
     fitShell();
   });
   el.addEventListener("dblclick", () => act({ act: "unpin", ...ids() }));
   return el;
+}
+
+// The focused line between two panes: the arrows along its axis move it 5 points within its range,
+// and `Home` gives the size back to Laura. True when the line takes the keystroke.
+export function splitKey(e) {
+  const el = document.activeElement;
+  if (!el?.matches?.("#ws > .split") || e.ctrlKey || e.altKey || e.metaKey) return false;
+  const s = el.s, h = s.dir === "horizontal", ids = { a: s.first[0], b: s.second[0] };
+  const step = { [h ? "ArrowLeft" : "ArrowUp"]: -5, [h ? "ArrowRight" : "ArrowDown"]: 5 }[e.key];
+  if (step) act({ act: "resize", ...ids, ratio: Math.min(s.max, Math.max(s.min, s.ratio + step)) });
+  else if (e.key === "Home") act({ act: "unpin", ...ids });
+  else return false;
+  return true;
 }
 
 // The `+` on the hovered line (`el.plus`), just past its text and centred on its first line. A click
