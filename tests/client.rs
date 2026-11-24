@@ -672,6 +672,11 @@ fn the_keyboard_moves_the_line_between_panes() -> Result<()> {
         "Laura's ratio again",
         "!layout.splits[0].pinned && layout.splits[0].ratio === 50",
     );
+    // Three presses before the next layout: each one steps from the last, not from the layout.
+    for _ in 0..3 {
+        c.press(ARROW_RIGHT);
+    }
+    c.until(&mut r, "a split at 65%", "layout.splits[0].ratio === 65");
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

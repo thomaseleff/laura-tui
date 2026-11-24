@@ -234,6 +234,8 @@ function paintSplits(m) {
     const el = root.querySelector(`:scope > .split[data-key="${key}"]`) ?? makeSplit(key);
     const h = s.dir === "horizontal";
     el.s = s;
+    // Laura sends `acted` before the layout, and an earlier press's layout can come between two presses.
+    if (el.want === s.ratio) el.want = null;
     el.classList.toggle("h", h);
     el.classList.toggle("v", !h);
     if (!ui.resizing) el.dataset.tip = splitTip(s);
@@ -288,9 +290,14 @@ export function splitKey(e) {
   if (!el?.matches?.("#ws > .split") || e.ctrlKey || e.altKey || e.metaKey) return false;
   const s = el.s, h = s.dir === "horizontal", ids = { a: s.first[0], b: s.second[0] };
   const step = { [h ? "ArrowLeft" : "ArrowUp"]: -5, [h ? "ArrowRight" : "ArrowDown"]: 5 }[e.key];
-  if (step) act({ act: "resize", ...ids, ratio: Math.min(s.max, Math.max(s.min, s.ratio + step)) });
-  else if (e.key === "Home") act({ act: "unpin", ...ids });
-  else return false;
+  if (step) {
+    // `want`: the ratio sent and not yet in a layout (`paintSplits`), so fast presses add up.
+    el.want = Math.min(s.max, Math.max(s.min, (el.want ?? s.ratio) + step));
+    act({ act: "resize", ...ids, ratio: el.want }, m => m.ok || (el.want = null));
+  } else if (e.key === "Home") {
+    el.want = null;
+    act({ act: "unpin", ...ids });
+  } else return false;
   return true;
 }
 
