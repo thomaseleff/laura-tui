@@ -178,6 +178,14 @@ fn a_session_in_the_folder_shows_its_label() -> Result<()> {
             json!({"type": "open", "ts": 1001, "path": at("b.md")}),
         ],
     )?;
+    // From a Laura before `root`, too: the only file it opened is gone.
+    write(
+        "gone.ndjson",
+        &[
+            json!({"type": "ready", "ts": 500, "title": "old draft"}),
+            json!({"type": "open", "ts": 501, "path": at("gone.md")}),
+        ],
+    )?;
     write(
         "other.ndjson",
         &[
@@ -191,6 +199,7 @@ fn a_session_in_the_folder_shows_its_label() -> Result<()> {
         json!([
             {"label": "flat profile", "ts": 3002, "files": ["a.md"], "reviews": 1},
             {"label": "gpx import", "ts": 1001, "files": ["b.md"], "reviews": 0},
+            {"label": "old draft", "ts": 501, "files": [], "reviews": 0},
         ]),
         "{g}"
     );

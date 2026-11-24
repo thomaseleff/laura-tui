@@ -172,13 +172,18 @@ fn session_in(text: &str, root: &Path) -> Option<Recent> {
     if ready["root"].as_str().is_some_and(|r| Path::new(r) != root) {
         return None;
     }
-    // Each file below `root`, relative, newest first.
+    // Each file below `root`, relative, newest first, and whether it still exists. A file that is
+    // gone since is below `root` when its folder is, so the session still belongs to `root`.
     let below = |e: &Value| {
-        let p = Path::new(e["path"].as_str()?).canonicalize().ok()?;
-        let rel = strip_verbatim(p).strip_prefix(root).ok()?.to_path_buf();
-        Some(rel.to_string_lossy().replace('\\', "/"))
+        let p = Path::new(e["path"].as_str()?);
+        let full = p
+            .canonicalize()
+            .ok()
+            .or_else(|| Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?)))?;
+        let rel = strip_verbatim(full).strip_prefix(root).ok()?.to_path_buf();
+        Some((rel.to_string_lossy().replace('\\', "/"), p.exists()))
     };
-    let opened: Vec<String> = events
+    let opened: Vec<(String, bool)> = events
         .iter()
         .rev()
         .filter(|e| kind(e, &["open", "review"]))
@@ -189,7 +194,7 @@ fn session_in(text: &str, root: &Path) -> Option<Recent> {
         return None;
     }
     let mut files: Vec<String> = vec![];
-    for f in opened {
+    for (f, _) in opened.into_iter().filter(|(_, exists)| *exists) {
         if !files.contains(&f) && files.len() < RECENT_FILES {
             files.push(f);
         }
