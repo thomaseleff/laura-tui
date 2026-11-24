@@ -108,12 +108,16 @@ function dragger(el, move, done) {
     el.setPointerCapture(e.pointerId);
     el.classList.add("on");
     // After `pointerup`, `pointercancel`, or any other loss of the capture, so a drag always ends.
+    // `el.drop`: a removed element gets no `lostpointercapture` (Chrome sends it to `document`), so
+    // `paintSplits` ends the drag before it removes the line.
     const up = () => {
+      el.drop = null;
       el.removeEventListener("pointermove", move);
       el.removeEventListener("lostpointercapture", up);
       el.classList.remove("on");
       done();
     };
+    el.drop = up;
     el.addEventListener("pointermove", move);
     el.addEventListener("lostpointercapture", up);
   });
@@ -249,7 +253,10 @@ function paintSplits(m) {
       left: `calc(var(--cw) * ${s.x})`, top: `calc(var(--ch) * ${s.y + s.at})`, width: `calc(var(--cw) * ${s.w})`, height: "",
     });
   }
-  for (const el of root.querySelectorAll(":scope > .split")) if (!keep.has(el.dataset.key)) el.remove();
+  for (const el of root.querySelectorAll(":scope > .split")) if (!keep.has(el.dataset.key)) {
+    el.drop?.();
+    el.remove();
+  }
 }
 
 function makeSplit(key) {

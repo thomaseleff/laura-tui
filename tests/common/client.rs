@@ -198,17 +198,23 @@ impl Client {
     /// A left drag from `from` to `to`, in CSS px from the viewport's top left, in one move: a
     /// resize the client sends during the drag can't land after the release's.
     pub fn drag(&self, from: (f64, f64), to: (f64, f64)) {
-        let at = |kind: &str, (x, y): (f64, f64), buttons: u8| {
-            self.call(
-                "Input.dispatchMouseEvent",
-                json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1}),
-            );
-        };
+        self.drag_hold(from, to);
+        self.mouse("mouseReleased", to, 0);
+    }
+
+    /// `drag` without the release: the user still holds the button at `to`.
+    pub fn drag_hold(&self, from: (f64, f64), to: (f64, f64)) {
         // The pointer comes to the point first, as the user's does.
-        at("mouseMoved", from, 0);
-        at("mousePressed", from, 1);
-        at("mouseMoved", to, 1);
-        at("mouseReleased", to, 0);
+        self.mouse("mouseMoved", from, 0);
+        self.mouse("mousePressed", from, 1);
+        self.mouse("mouseMoved", to, 1);
+    }
+
+    fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8) {
+        self.call(
+            "Input.dispatchMouseEvent",
+            json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1}),
+        );
     }
 
     /// A left double-click at `x`, `y` CSS px from the viewport's top left.

@@ -680,3 +680,30 @@ fn the_keyboard_moves_the_line_between_panes() -> Result<()> {
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
+
+/// #211: a pane that closes while the user drags a line ends the drag, so the shell fits again.
+#[test]
+fn a_pane_that_closes_during_a_drag_ends_the_drag() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let _five = open_five(&mut r)?;
+    let dir = tempfile::tempdir()?;
+    let b = dir.path().join("b.txt");
+    std::fs::write(&b, "b\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--split", "1", "--dir", "h"]);
+    let c = Client::open(&mut r, &path);
+    c.until(&mut r, "one split at 50%", "layout.splits[0]?.ratio === 50");
+    let (x, y) = split_center(&mut r, &c);
+    c.drag_hold((x, y), (x + 100.0, y));
+    c.until(&mut r, "a drag", "ui.resizing");
+    r.drive(&["close", "2"]);
+    c.until(
+        &mut r,
+        "the drag's end",
+        "!ui.resizing && !document.querySelector('#ws > .split')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
