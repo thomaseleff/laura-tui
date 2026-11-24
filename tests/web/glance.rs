@@ -4,17 +4,29 @@
 
 use super::*;
 
-/// The frames up to the first `layout`, and that `layout`: Laura sends `glance` before it.
-fn first_frames(ws: &mut Ws) -> (Option<Value>, Value) {
+/// The first `glance` frame and the first `layout` with `canvas`, in either order: a thread reads
+/// the glance, so its frame can come after the first layout. `None` when the layout comes and no
+/// glance came before it, for `canvas` other than `glance`.
+fn first_frames(ws: &mut Ws, canvas: &str) -> (Option<Value>, Value) {
     let start = Instant::now();
-    let mut glance = None;
+    let (mut glance, mut layout) = (None, None);
     loop {
         match read(ws) {
-            Some(Frame::Json(v)) if v["t"] == "glance" => glance = Some(v),
-            Some(Frame::Json(v)) if v["t"] == "layout" => return (glance, v),
+            Some(Frame::Json(v)) if v["t"] == "glance" && glance.is_none() => glance = Some(v),
+            Some(Frame::Json(v)) if v["t"] == "layout" && v["canvas"] == canvas => {
+                layout.get_or_insert(v);
+            }
             _ => {}
         }
-        assert!(start.elapsed() < common::DEADLINE, "no layout");
+        if let Some(l) = &layout
+            && (glance.is_some() || canvas != "glance")
+        {
+            return (glance, l.clone());
+        }
+        assert!(
+            start.elapsed() < common::DEADLINE,
+            "no layout with {canvas}"
+        );
     }
 }
 
@@ -22,9 +34,8 @@ fn first_frames(ws: &mut Ws) -> (Option<Value>, Value) {
 fn glance_in(dir: &Path, home: &Path) -> Result<(Kill, Value)> {
     journal_review(home, false)?;
     let (child, mut ws) = laura_web_at(dir, home)?;
-    let (glance, layout) = first_frames(&mut ws);
-    assert_eq!(layout["canvas"], "glance", "{layout}");
-    Ok((child, glance.expect("a glance frame before the layout")))
+    let (glance, _) = first_frames(&mut ws, "glance");
+    Ok((child, glance.expect("a glance frame")))
 }
 
 /// `path` as Laura names its folder: canonical, without Windows' `\\?\`.
@@ -193,8 +204,7 @@ fn an_empty_folder_gives_the_calm_canvas() -> Result<()> {
     let dir = tempfile::tempdir()?;
     journal_review(home.path(), false)?;
     let (_child, mut ws) = laura_web_at(dir.path(), home.path())?;
-    let (glance, layout) = first_frames(&mut ws);
-    assert_eq!(layout["canvas"], "calm", "{layout}");
+    let (glance, _) = first_frames(&mut ws, "calm");
     assert_eq!(glance, None);
     Ok(())
 }

@@ -326,9 +326,9 @@ fn a_workspace_after_a_review_starts_over_the_calm_canvas() -> Result<()> {
     let home = tempfile::tempdir()?;
     journal_review(home.path(), false)?;
     let (_child, mut ws) = laura_web_in(home.path())?;
-    let first = raw_layout_when(&mut ws, "a layout", |_| true);
-    assert_eq!(first["canvas"], "calm", "{first}");
-    assert_eq!(first["drawer_fit"], start_fit(), "{first}");
+    // The first layout can show the glance while Laura reads the folder.
+    let calm = raw_layout_when(&mut ws, "the calm canvas", |l| l["canvas"] == "calm");
+    assert_eq!(calm["drawer_fit"], start_fit(), "{calm}");
     Ok(())
 }
 
