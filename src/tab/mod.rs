@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
@@ -272,6 +273,9 @@ pub enum UserAction {
 /// The docked shell's share of the workspace's width, in %.
 const DOCK: u16 = 40;
 
+/// How long after the user's last drag step Laura fits the terminals to their panes.
+const RESIZE_SETTLE: Duration = Duration::from_millis(200);
+
 fn no_pane(pane: PaneId) -> String {
     format!("no pane #{pane}")
 }
@@ -390,6 +394,9 @@ pub struct Tab {
     pty_size: (u16, u16),
     /// The last draw area `drain` saw; `OpenLink` splits against it.
     area: Rect,
+    /// The user's last drag step on a line between panes: until `RESIZE_SETTLE` after it, the
+    /// shell and editor panes keep their terminal size, so a program doesn't redraw at each step.
+    dragged: Option<Instant>,
 }
 
 impl Tab {
@@ -445,6 +452,7 @@ impl Tab {
             listener: Some(listener),
             pty_size: (rows, cols),
             area: Rect::default(),
+            dragged: None,
         })
     }
 
@@ -543,7 +551,8 @@ impl Tab {
     }
 
     /// Per-frame upkeep before drawing `content`: take `pending_focus`, move focus off a closed
-    /// pane, resize the shell and each editor pane's Neovim to its rect. Returns the rects.
+    /// pane, resize the shell and each editor pane's Neovim to its rect once the user's drag
+    /// settled. Returns the rects.
     pub fn tick(&mut self, content: Rect) -> HashMap<PaneId, Rect> {
         if let Some(id) = self.pending_focus.take() {
             self.focus = id;
@@ -552,6 +561,9 @@ impl Tab {
             self.focus = self.fallback_focus();
         }
         let rect_map = self.rects(content);
+        if !self.settled() {
+            return rect_map;
+        }
         let pty_inner = self.inner(rect_map.get(&PTY_PANE).copied().unwrap_or(content));
         let (rows, cols) = self
             .shell_size
@@ -564,6 +576,11 @@ impl Tab {
             }
         }
         rect_map
+    }
+
+    /// No drag step on a line between panes within `RESIZE_SETTLE`.
+    fn settled(&self) -> bool {
+        self.dragged.is_none_or(|t| t.elapsed() >= RESIZE_SETTLE)
     }
 
     /// Inside pane rect `r`'s border. The web app's pane header takes two rows, so there the

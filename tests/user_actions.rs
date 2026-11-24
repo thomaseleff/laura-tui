@@ -594,3 +594,28 @@ fn a_too_small_pane_can_still_grow() -> Result<()> {
     assert_eq!(tab.rects(narrow), grown);
     Ok(())
 }
+
+/// #211: while the user drags the line beside the shell, the shell keeps its terminal size, so the
+/// program in it doesn't redraw at each step. Laura fits the shell once the user stops.
+#[test]
+fn the_shell_keeps_its_size_while_the_user_drags() -> Result<()> {
+    let (mut tab, _dir, _) = tab_with("a.md", &five_lines())?;
+    tab.tick(area());
+    let before = tab.pty_size();
+    tab.act(UserAction::Resize {
+        a: 0,
+        b: 1,
+        ratio: 30,
+    })?;
+    tab.tick(area());
+    assert_eq!(tab.pty_size(), before);
+    let want = tab.rects(area())[&0].width - 2;
+    assert_ne!(before.1, want);
+    let start = Instant::now();
+    while tab.pty_size().1 != want {
+        assert!(start.elapsed() < common::DEADLINE, "the shell never fit");
+        thread::sleep(Duration::from_millis(20));
+        tab.tick(area());
+    }
+    Ok(())
+}

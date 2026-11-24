@@ -81,7 +81,7 @@ When the workspace has no room for another pane, Laura shows `⚠ No room for an
 
 ## Resize panes
 
-To make a pane larger, drag the line between that pane and the pane beside it. While you drag, Laura shows each side's share of the space, such as `Pane 1 · 60%   Panes 2, 3 · 40%`. Laura stops the line where a pane would get too small.
+To make a pane larger, drag the line between that pane and the pane beside it. While you drag, Laura shows each side's share of the space, such as `Pane 1 · 60%   Panes 2, 3 · 40%`. Laura stops the line where a pane would get too small. While you drag, the shell and editor panes keep their size. Laura fits them when you stop.
 
 When the window gets smaller, a pane can become too small. You can still drag a line to make that pane larger, but Laura doesn't make that pane smaller.
 

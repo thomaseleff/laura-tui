@@ -246,6 +246,9 @@ impl Tab {
             .into());
         }
         self.layout = probe;
+        if ratio.is_some() {
+            self.dragged = Some(Instant::now());
+        }
         Ok(())
     }
 
