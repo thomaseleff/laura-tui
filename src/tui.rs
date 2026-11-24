@@ -760,7 +760,7 @@ fn on_mouse(
 }
 
 /// A left press on the border between two panes starts a drag of their split, and a second press
-/// on the same border within `DOUBLE_CLICK` gives the size back to Laura. `None`: the event isn't
+/// on the same border within `DOUBLE_CLICK`, with no drag between, gives the size back to Laura. `None`: the event isn't
 /// the split's.
 fn on_split(
     tab: &mut Tab,
@@ -773,15 +773,9 @@ fn on_split(
             let handles = tab.handles(content);
             let h = mouse::handle_at(&handles, m.column, m.row)?;
             let (a, b) = (h.first[0], h.second[0]);
-            let now = Instant::now();
-            let again = pointer
-                .last_down
-                .is_some_and(|(t, line)| line == (a, b) && now - t < mouse::DOUBLE_CLICK);
-            if again {
-                pointer.last_down = None;
+            if pointer.press_line((a, b), Instant::now()) {
                 return Some(tab.act(UserAction::Unpin { a, b }).map(drop));
             }
-            pointer.last_down = Some((now, (a, b)));
             pointer.split = Some(h.clone());
             Some(Ok(()))
         }
@@ -789,6 +783,7 @@ fn on_split(
             let h = pointer.split.as_ref()?;
             let (a, b) = (h.first[0], h.second[0]);
             let ratio = mouse::ratio_at(h, m.column, m.row);
+            pointer.moved_line();
             Some(tab.act(UserAction::Resize { a, b, ratio }).map(drop))
         }
         MouseEventKind::Up(MouseButton::Left) => pointer.split.take().map(|_| Ok(())),

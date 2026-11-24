@@ -1,5 +1,6 @@
-//! Pure mouse logic: SGR passthrough encoding, pane-clamped selection geometry, OSC 52 copy.
-//! Kept out of `tui.rs` so the event loop doesn't grow a fourth concern; the unit tests live here.
+//! The TUI's mouse: SGR passthrough, pane-clamped selection, OSC 52 copy, and the border between
+//! two panes that the user drags (`handle_at`, `ratio_at`), with the pointer's state across events
+//! (`Pointer`). The pure parts' unit tests live here.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -24,7 +25,23 @@ pub struct Pointer {
     pub split: Option<Handle>,
     /// The last press on a line, with the line's two panes: a second press within
     /// `DOUBLE_CLICK` is a double-click.
-    pub last_down: Option<(Instant, (PaneId, PaneId))>,
+    last_down: Option<(Instant, (PaneId, PaneId))>,
+}
+
+impl Pointer {
+    /// A press on `line` at `now`: true when it is the second press of a double-click.
+    pub fn press_line(&mut self, line: (PaneId, PaneId), now: Instant) -> bool {
+        let again = self
+            .last_down
+            .is_some_and(|(t, l)| l == line && now - t < DOUBLE_CLICK);
+        self.last_down = (!again).then_some((now, line));
+        again
+    }
+
+    /// The user dragged the line: the next press starts a new double-click.
+    pub fn moved_line(&mut self) {
+        self.last_down = None;
+    }
 }
 
 /// The longest time between the two presses of a double-click.
@@ -327,6 +344,27 @@ pub fn ratio_at(h: &Handle, col: u16, row: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_double_click_on_a_line_needs_two_presses_without_a_drag() {
+        let (t, line) = (Instant::now(), (0, 1));
+        let ms = Duration::from_millis;
+        let mut p = Pointer::default();
+        assert!(!p.press_line(line, t));
+        assert!(p.press_line(line, t + ms(300)));
+        // A third press starts again.
+        assert!(!p.press_line(line, t + ms(400)));
+
+        let mut p = Pointer::default();
+        p.press_line(line, t);
+        p.moved_line();
+        assert!(!p.press_line(line, t + ms(300)));
+
+        let mut p = Pointer::default();
+        p.press_line(line, t);
+        assert!(!p.press_line(line, t + ms(600)));
+        assert!(!p.press_line((1, 2), t + ms(700)));
+    }
 
     fn ev(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
         MouseEvent {
