@@ -5,29 +5,27 @@ use std::collections::HashMap;
 
 use ratatui::layout::Rect;
 
-use crate::browser::Page;
-use crate::editor::Nvim;
+use crate::layout::Layout;
 use crate::panel::Panel;
 use crate::protocol::{LayoutReport, PTY_PANE, PaneId, PaneKind, PaneReport};
 
 use super::Tab;
 
-/// For each pane's rect, measure content vs. visible rows to fill a `LayoutReport`.
-/// `web`: the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell takes a
-/// column (`web::html::GAP`). `drawer`: the shell floats in the drawer. `shell_rows`: the shell's own
-/// rows from the web app, which differ from its rect while the shell is in the drawer.
-#[allow(clippy::too_many_arguments)] // one per input both reports share
+/// For each pane of tree `layout` at `area`, measure content vs. visible rows to fill a
+/// `LayoutReport`. `panels` may hold a probe pane the tab doesn't have yet (`dry_run_open`).
+/// In the web app the border takes three rows (see [`Tab::inner`]), and the gutter's blank cell
+/// takes a column (`web::html::GAP`). The shell's own rows from the web app differ from its rect
+/// while the shell is in the drawer.
 pub(super) fn build_report(
-    rects: HashMap<PaneId, Rect>,
+    tab: &Tab,
+    layout: &Layout,
     panels: &HashMap<PaneId, &Panel>,
-    editors: &HashMap<PaneId, Nvim>,
-    browsers: &HashMap<PaneId, Page>,
     area: Rect,
-    web: bool,
-    drawer: bool,
-    shell_rows: Option<u16>,
 ) -> LayoutReport {
-    let mut panes: Vec<PaneReport> = rects
+    let (web, drawer) = (tab.web, tab.drawer_in_use());
+    let shell_rows = tab.shell_size.map(|(rows, _)| rows);
+    let mut panes: Vec<PaneReport> = tab
+        .tree_rects(layout, area)
         .into_iter()
         .map(|(id, rect)| {
             let border = if web { 3 } else { 2 };
@@ -42,9 +40,9 @@ pub(super) fn build_report(
                 (PaneKind::Pty, None, None)
             } else if let Some(p) = panels.get(&id).filter(|p| p.browser) {
                 // Laura's browser fits the page to the pane, like the shell's grid.
-                title = browsers.get(&id).map(|b| b.title().to_string());
+                title = tab.browsers.get(&id).map(|b| b.title().to_string());
                 (PaneKind::Browser, Some(p.path.clone()), None)
-            } else if editors.contains_key(&id) {
+            } else if tab.editors.contains_key(&id) {
                 // Neovim's grid always fits its rect, like the shell's.
                 let path = panels.get(&id).map(|p| p.path.clone());
                 (PaneKind::Editor, path, None)
@@ -114,15 +112,6 @@ impl Tab {
 
     /// Current geometry + overflow at draw area `area`.
     pub fn report(&self, area: Rect) -> LayoutReport {
-        build_report(
-            self.rects(area),
-            &self.panel_refs(),
-            &self.editors,
-            &self.browsers,
-            area,
-            self.web,
-            self.drawer_in_use(),
-            self.shell_size.map(|(rows, _)| rows),
-        )
+        build_report(self, &self.layout, &self.panel_refs(), area)
     }
 }
