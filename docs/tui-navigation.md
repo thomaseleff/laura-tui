@@ -24,7 +24,7 @@ To [resize two panes](navigation.md#resize-panes), drag the border between them.
 
 ## Threads
 
-The TUI shows a [collapsed thread](navigation.md#threads-and-inline-reviews) as a gray row with the authors' names, for example `L42 · You, claude · 2 comments`. In a narrow pane, Laura cuts the row with `…`.
+The TUI shows a [collapsed thread](navigation.md#threads-and-inline-reviews) as a gray row with the authors' names, for example `L42 · You, claude · 2 comments`. In a narrow pane, Laura cuts the row with `…`. In the TUI, press `r` on the line to expand the thread.
 
 ## Global keystrokes
 

@@ -28,6 +28,8 @@ vim.api.nvim_create_autocmd('VimEnter', {
       vim.api.nvim_set_hl(0, name, hl)
     end
     vim.opt.number = true
+    -- The digits and a space, so with the sign column the text starts at gw + 3, as in the file view (panel::DECOR).
+    vim.opt.numberwidth = 1
     vim.opt.cursorline = true
     vim.opt.signcolumn = 'yes'
   end,

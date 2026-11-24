@@ -1,6 +1,6 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
 //! Its children read the file: [`render`] styles it, and [`gitdiff`] diffs it against git HEAD.
-//! [`cursor`] moves the web app's cursor by block.
+//! [`cursor`] moves the web app's cursor by block. [`card`] draws a thread's card rows.
 
 mod card;
 pub(crate) mod cursor;

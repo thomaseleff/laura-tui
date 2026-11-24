@@ -747,7 +747,10 @@ fn laura_s_theme_adds_a_second_bootstrap() -> Result<()> {
     assert!(launch.contains(&theme.display().to_string()), "{launch}");
     let body = std::fs::read_to_string(&theme)?;
     assert!(
-        body.contains("colors_name") && body.contains("signcolumn") && body.contains("cursorline")
+        body.contains("colors_name")
+            && body.contains("signcolumn")
+            && body.contains("cursorline")
+            && body.contains("numberwidth")
     );
     // Colors resolve through the file view's theme, not to its default foreground everywhere.
     assert!(body.contains("String = '#A3BE8C'"), "{body}");
