@@ -6,7 +6,7 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::browser::{self, Page};
-use crate::layout::{all_panes_fit, pane_fits, resize_fits, split_rect};
+use crate::layout::{Layout, all_panes_fit, pane_fits, resize_fits, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
@@ -208,7 +208,8 @@ impl Tab {
     }
 
     /// **Show the shell as a pane**: the shell as the left-most pane, while every pane still fits
-    /// beside it. The TUI always shows the shell as a pane.
+    /// beside it. The shell keeps the user's size while the panes fit, else takes Laura's. The TUI
+    /// always shows the shell as a pane.
     fn dock(&mut self) -> Result<(), Error> {
         if !self.web {
             return Ok(());
@@ -216,13 +217,20 @@ impl Tab {
         let mut probe = self.layout.clone();
         probe.dock_left(PTY_PANE, DOCK);
         // Alone, the shell takes the left `DOCK`%, beside the canvas.
-        let fits = if self.canvas_shown() {
-            pane_fits(split_rect(self.area, Dir::Horizontal, DOCK).0)
-        } else {
-            all_panes_fit(&probe, self.area)
+        let fits = |probe: &Layout| {
+            if self.canvas_shown() {
+                pane_fits(split_rect(self.area, Dir::Horizontal, DOCK).0)
+            } else {
+                all_panes_fit(probe, self.area)
+            }
         };
-        if !fits {
-            return Err(NO_ROOM_TO_DOCK.into());
+        if !fits(&probe) {
+            if let Some(b) = probe.order().into_iter().find(|&p| p != PTY_PANE) {
+                probe.unpin(PTY_PANE, b);
+            }
+            if !fits(&probe) {
+                return Err(NO_ROOM_TO_DOCK.into());
+            }
         }
         self.layout = probe;
         self.docked = true;

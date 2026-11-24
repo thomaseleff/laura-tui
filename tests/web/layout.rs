@@ -799,3 +799,42 @@ fn docking_again_keeps_the_shells_size() -> Result<()> {
     assert_eq!(again["splits"][0]["pinned"], true, "{again}");
     Ok(())
 }
+
+/// #211: the user's size for the shell's line no longer leaves room for the panes beside the shell:
+/// docking again gives the shell Laura's size.
+#[test]
+fn docking_again_drops_a_size_that_no_longer_fits() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    send(&mut ws, json!({"view": {"cols": 80, "rows": 24}}));
+    rig.until(
+        &mut ws,
+        "resized layout",
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && v["cols"] == 80),
+    );
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a]);
+    layout_when(&mut rig, &mut ws, "pane 1", |v| v["focus"] == 1);
+    assert_eq!(rig.act(&mut ws, json!({"act": "dock"}))["ok"], true);
+    // Pane 1 gets 4 of the 80 columns.
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "resize", "a": 0, "b": 1, "ratio": 95}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    rig.act(&mut ws, json!({"act": "drawer"}));
+    layout_when(&mut rig, &mut ws, "drawer", |v| {
+        v["panes"][0]["drawer"] == true
+    });
+    rig.drive(&["open", &b, "--split", "1", "--dir", "h"]);
+    layout_when(&mut rig, &mut ws, "pane 2", |v| v["focus"] == 2);
+    let acted = rig.act(&mut ws, json!({"act": "dock"}));
+    assert_eq!(acted["ok"], true, "{acted}");
+    let docked = layout_when(&mut rig, &mut ws, "docked", |v| {
+        v["panes"][0]["drawer"] == false
+    });
+    assert_eq!(cells(&docked, 0)[2], 80 * 40 / 100, "{docked}");
+    assert_eq!(docked["splits"][0]["pinned"], false, "{docked}");
+    Ok(())
+}
