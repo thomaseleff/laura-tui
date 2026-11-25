@@ -449,17 +449,9 @@ fn a_click_on_the_glance_opens_the_file() -> Result<()> {
     Ok(())
 }
 
-/// #258: the glance shows README, Latest (or Changes) and Recently in this folder side by side, as
-/// tall as the room above the drawer at its least height. The drawer covers the cards' lower part;
-/// the user drags the drawer to its least height and sees each card in full, while the canvas holds
-/// still. The crate's README is long, so the README card scrolls inside itself.
-#[test]
-fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
-    let Some((path, _one)) = chrome() else {
-        return Ok(());
-    };
-    // The shared home, as in `a_click_on_the_glance_opens_the_file`, with a session in the crate,
-    // the rig's folder, for the sessions card.
+/// The glance at 1280×870, with a session in the crate, the rig's folder, for the sessions card. The
+/// home is the shared one, as in `a_click_on_the_glance_opens_the_file`.
+fn open_glance(r: &mut Rig, path: &std::path::Path) -> Result<Client> {
     let sessions = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(".laura/sessions");
     std::fs::create_dir_all(&sessions)?;
     let root = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR"))?;
@@ -472,17 +464,30 @@ fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
         sessions.join("client-glance-fit.ndjson"),
         format!("{ready}\n{review}\n"),
     )?;
-    let mut r = bare()?;
-    let c = Client::open(&mut r, &path);
+    let c = Client::open(r, path);
     c.resize(1280, 870);
     c.until(
-        &mut r,
+        r,
         "the glance's sessions card",
         "layout?.canvas === 'glance' && document.querySelector('#canvas .glance .sess')",
     );
     for _ in 0..10 {
         r.pump();
     }
+    Ok(c)
+}
+
+/// #258: the glance shows README, Latest (or Changes) and Recently in this folder side by side, as
+/// tall as the room above the drawer at its least height. The drawer covers the cards' lower part;
+/// the user drags the drawer to its least height and sees each card in full, while the canvas holds
+/// still. The crate's README is long, so the README card scrolls inside itself.
+#[test]
+fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = open_glance(&mut r, &path)?;
     let measure = "(() => { const c = document.getElementById('canvas'), \
            cards = [...c.querySelectorAll('.gcard')], box = e => e.getBoundingClientRect(); \
          return { rects: cards.map(g => [box(g).left, box(g).top, box(g).width, box(g).height].map(Math.round)), \
@@ -499,6 +504,10 @@ fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
             && at(0, 0) < at(1, 0)
             && at(1, 0) < at(2, 0),
         "three cards side by side: {before}"
+    );
+    assert!(
+        at(0, 2) > at(1, 2) && at(0, 2) > at(2, 2),
+        "the README card is the widest: {before}"
     );
     assert_eq!(before["scrolls"], json!(false), "{before}");
     assert_eq!(before["spill"], json!(0), "{before}");
@@ -526,6 +535,49 @@ fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
         num(&after, "bottom") <= num(&after, "drawer") + 1.0,
         "the whole glance shows: {after}"
     );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #258: beside the docked shell, the glance stacks its cards in line with the shell's card. The
+/// README card takes half of the height, and the two lists share the rest.
+#[test]
+fn the_glance_stacks_beside_the_docked_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = open_glance(&mut r, &path)?;
+    c.eval("document.querySelector('#p0 [data-act=dock]').click()")
+        .map_err(anyhow::Error::msg)?;
+    c.until(
+        &mut r,
+        "the canvas beside the docked shell",
+        "document.getElementById('canvas').classList.contains('docked')",
+    );
+    for _ in 0..10 {
+        r.pump();
+    }
+    let fit = c.eval(
+        "(() => { const c = document.getElementById('canvas'), box = e => e.getBoundingClientRect(), \
+             cards = [...c.querySelectorAll('.gcard')].map(box), p0 = document.getElementById('p0'), \
+             shell = box(p0), inset = parseFloat(getComputedStyle(p0, '::before').top); \
+           return { stacked: cards.every((g, i) => !i || (Math.abs(g.left - cards[0].left) <= 1 && g.top >= cards[i - 1].bottom)), \
+             top: cards[0].top - shell.top - inset, bottom: cards[2].bottom - shell.bottom + inset, \
+             readme: cards[0].height / (cards[2].bottom - cards[0].top), lists: cards[1].height - cards[2].height, \
+             scrolls: c.scrollHeight > c.clientHeight + 1, cards: cards.length }; })()",
+    );
+    let fit = fit.map_err(anyhow::Error::msg)?;
+    let num = |k: &str| fit[k].as_f64().unwrap_or(f64::NAN);
+    assert_eq!(fit["cards"], json!(3), "{fit}");
+    assert_eq!(fit["stacked"], json!(true), "{fit}");
+    assert!(
+        num("top").abs() <= 1.0 && num("bottom").abs() <= 1.0,
+        "in line with the shell's card: {fit}"
+    );
+    assert!(num("readme") >= 0.49, "the README card takes half: {fit}");
+    assert!(num("lists").abs() <= 1.0, "the lists share the rest: {fit}");
+    assert_eq!(fit["scrolls"], json!(false), "{fit}");
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
