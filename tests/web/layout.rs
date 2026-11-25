@@ -871,3 +871,28 @@ fn the_help_names_the_line_between_panes() -> Result<()> {
     );
     Ok(())
 }
+
+/// #216: the hint line of a focused shell, and of a focused editor view, lists keystrokes only:
+/// each pair has a keystroke.
+#[test]
+fn a_focused_panes_hint_lists_keystrokes_only() -> Result<()> {
+    let mut rig = Rig::new()?;
+    rig.tab.editor = Ok(fake_nvim());
+    let mut ws = rig.connect();
+    let only_keystrokes = |l: &Value| {
+        let hint = l["hints"]["pane"].as_array().cloned().unwrap_or_default();
+        assert!(!hint.is_empty(), "{l}");
+        assert!(hint.iter().all(|p| p[0] != ""), "{hint:?}");
+    };
+    only_keystrokes(&layout_when(&mut rig, &mut ws, "the shell", |l| {
+        l["focus"] == 0
+    }));
+    let (_dir, path) = file("a.rs", &five_lines())?;
+    assert_eq!(rig.drive(&["open", "--edit", &path]), "1");
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    let editor = layout_when(&mut rig, &mut ws, "the editor view", |l| {
+        l["focus"] == 1 && pairs(&l["hints"]["pane"]).contains("Ctrl+L file view")
+    });
+    only_keystrokes(&editor);
+    Ok(())
+}
