@@ -74,7 +74,8 @@ OVERLAY = """addEventListener("DOMContentLoaded", () => {
 BOXES = ".draft textarea, .pop.review textarea"
 TYPE_DELAY = 75
 BEAT = 600
-LABELS = {"Control+p": "Ctrl+P", "Control+l": "Ctrl+L", "Control+r": "Ctrl+R", "Control+Backquote": "Ctrl+`", "Escape": "Esc", "ArrowDown": "↓", "ArrowUp": "↑"}
+LABELS = {"Control+p": "Ctrl+P", "Control+l": "Ctrl+L", "Control+r": "Ctrl+R", "Control+Backquote": "Ctrl+`", "Escape": "Esc", "ArrowDown": "↓", "ArrowUp": "↑",
+          "Control+Shift+ArrowUp": "Ctrl+Shift+↑", "Control+Shift+ArrowDown": "Ctrl+Shift+↓"}
 
 
 class Agent:
@@ -179,15 +180,33 @@ class User:
         await locator.scroll_into_view_if_needed()
         box = await locator.bounding_box()
         x, y = box["x"] + min(box["width"] / 2, 160), box["y"] + box["height"] / 2
+        await self._move(x, y)
+        await self.page.mouse.click(x, y)
+
+    async def drag(self, locator, dx, dy):
+        """Drags the middle of the locator by `dx`, `dy` pixels, slowly enough to show the drag."""
+        if isinstance(locator, str):
+            locator = self.page.locator(locator).first
+        await locator.wait_for(state="visible")
+        box = await locator.bounding_box()
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        await self._move(x, y)
+        await self.page.wait_for_timeout(400)
+        await self.page.mouse.down()
+        await self._move(x + dx, y + dy, steps=40, ms=25)
+        await self.page.wait_for_timeout(600)
+        await self.page.mouse.up()
+        await self.page.wait_for_timeout(BEAT)
+
+    async def _move(self, x, y, steps=25, ms=15):
         # The overlay moves the pointer, because mouse events over the frame of a page do not go to the top frame.
-        (x0, y0), steps = self.ptr, 25
+        x0, y0 = self.ptr
         for i in range(1, steps + 1):
             xi, yi = x0 + (x - x0) * i / steps, y0 + (y - y0) * i / steps
             await self.page.mouse.move(xi, yi)
             await self.page.evaluate("([x, y]) => window.__ptr(x, y)", [xi, yi])
-            await self.page.wait_for_timeout(15)
+            await self.page.wait_for_timeout(ms)
         self.ptr = (x, y)
-        await self.page.mouse.click(x, y)
 
     async def focused(self, pane):
         # Laura moves the focus. A keystroke before the focus moves goes to the pane that had the focus.

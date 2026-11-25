@@ -14,17 +14,16 @@ import urllib.request
 
 FIXTURES = "demo"
 
-PLAN_REVISED = """# Greeting — draft spec
+PLAN_REVISED = """# Plan: greet each visitor by name
 
-Review before we ship.
+Today the greeting API says `Hello, world!` to every visitor. This plan greets each visitor by name, then serves and logs the greeting, so we can debug it.
 
-- `greet` prints `Hello, world!`.
-- The greeting is in English or Spanish: `--lang es` prints `Hola, Ada!`.
-- `greet Ada` prints `Hello, Ada!`.
-- The API serves the greeting at `/hello?name=Ada`.
-- The API logs each request.
+## Steps
 
-Open question: resolved — an empty name falls back to `world`.
+1. `greet Ada` prints `Hello, Ada!`, and `greet` still prints `Hello, world!`.
+2. The greeting is in English or Spanish: `--lang es` prints `Hola, Ada!`.
+3. The API serves the greeting at `/hello?name=Ada`.
+4. The API logs each request, with the name it greeted.
 """
 
 HELLO_CHANGED = """GREETINGS = {"en": "Hello", "es": "Hola"}
@@ -113,62 +112,83 @@ async def scene(user, agent, camera, other):
         "workspaces, and show how to record feedback.\n\n"
         "Send Next to get started."
     )
+    await camera.shot("canvas")
     await reply(user)
 
     # [1 / 7] The workspace is just panes
+    # As in the demo skill's `$D`, the scratch files stay out of the repo, so the project at a glance doesn't list them.
+    scratch = agent.repo.parent / "scratch"
+    scratch.mkdir(exist_ok=True)
     prev = None
     for i, n in enumerate([1, 1, 2, 3, 5, 8]):
-        (agent.repo / f"fib-{i}.txt").write_text(f"{n}\n")
+        (scratch / f"fib-{i}.txt").write_text(f"{n}\n")
         split = ["--split", prev, "--dir", "v" if i % 2 else "h"] if prev else []
-        prev = await agent.laura("open", f"fib-{i}.txt", *split, "--ratio", "62", "--no-focus")
+        args = [*split, "--ratio", "62", "--no-focus"]
+        prev = await agent.laura("open", str(scratch / f"fib-{i}.txt"), *args,
+                                 shown=f"laura open $D/fib-{i}.txt {' '.join(args)}")
     await agent.say(
         "[1 / 7] The workspace is just panes\n\n"
         "Laura's workspace is just panes, so your agent can lay out almost anything. "
         "Here's a Fibonacci sequence, one number per pane.\n\n"
-        "New: The panes fill the workspace, and this chat floats in a drawer over them. Press Ctrl+` to close "
+        "The panes fill the workspace, and this chat floats in a drawer over them. Press Ctrl+` to close "
         "the drawer and see every pane, and Ctrl+` again to come back here.\n\n"
+        "New: Drag the line between two panes to resize them, and drag the drawer's top edge or press "
+        "Ctrl+Shift+↑ ↓ to set its height. Laura keeps your sizes.\n\n"
         "Send Next to learn how to interact with your agent in a pane."
     )
     await user.press("Control+Backquote")
     await user.page.locator("#p0").wait_for(state="hidden")
     await camera.pause(1500)
     await camera.shot("panes")
+    # The first line splits fib-0, on top, from the panes below. Laura keeps the dragged size.
+    await user.drag("#ws > .split", 0, -110)
+    await camera.pause(800)
+    await camera.shot("resized")
     await user.press("Control+Backquote")
     await user.focused(0)
+    await user.press("Control+Shift+ArrowUp")
+    await user.press("Control+Shift+ArrowUp")
     await camera.pause(800)
+    await camera.shot("drawer")
+    await user.press("Control+Shift+ArrowDown")
+    await user.press("Control+Shift+ArrowDown")
     await reply(user)
     await agent.laura("close", "--all")
 
     # [2 / 7] The pane interactions
     doc = await agent.laura("open", "plan.md", "--ratio", "55", "--no-focus")
-    await agent.laura("comment", "6", "suggest Spanish too: `--lang es` prints `Hola, Ada!`", "--pane", doc)
+    await agent.laura("comment", "8", "Should we greet in Spanish too? `--lang es` would print `Hola, Ada!`.", "--pane", doc)
     await agent.say(
         "[2 / 7] The pane interactions\n\n"
-        "I opened a plan in a new pane and left a comment for you on L6. "
-        "Reply to my comment, add your own on L11, then press Shift+S to submit your inline review."
+        "I opened a plan in a new pane and left you a question on L8. Press c to reply, "
+        "r to collapse the thread, then Shift+S to submit your inline review.\n\n"
+        "New: A collapsed thread shows as one row, with its line, its authors and its number of comments."
     )
-    await user.goto_line(doc, 6)
+    await user.goto_line(doc, 8)
     await user.press("c")
-    await user.type("Agreed")
-    await user.press("Enter")
-    await user.goto_line(doc, 11)
-    await user.press("c")
-    await user.type("Sounds good")
+    await user.type("Yes, add Spanish")
     await user.press("Enter")
     await camera.pause(800)
-    await camera.shot("threads")
+    await camera.shot("thread")
+    await user.press("r")
+    await camera.pause(1200)
+    await camera.shot("collapsed")
     await user.press("Shift+S")
-    await user.type("Replied below - all looks good")
     await user.press("Enter")
     await agent.wait_for_review()
     await agent.write("plan.md", PLAN_REVISED)
     await user.page.locator(f"#p{doc} .head .reloaded").wait_for(state="visible")
     await agent.say(
-        "I applied your inline review: L6 now adds Spanish, and L11 now says an empty name falls back "
-        "to `world`. Laura reloaded the plan in the pane with the changes.\n\n"
+        "I applied your inline review: L8 now adds Spanish. Laura reloaded the plan in the pane with the changes.\n\n"
         "Send Next to review the code that implements your inline review."
     )
+    # The drawer covers L8, so the user hides the drawer to see the revised step, tinted as changed.
+    await user.press("Control+Backquote")
+    await user.page.locator("#p0").wait_for(state="hidden")
+    await camera.pause(1500)
     await camera.shot("reloaded")
+    await user.press("Control+Backquote")
+    await user.focused(0)
     await reply(user)
     await agent.laura("close", "--all")
 
@@ -179,12 +199,14 @@ async def scene(user, agent, camera, other):
         "[3 / 7] Code review\n\n"
         "Here's the code change that implements the plan. I opened the full diff in a new pane. "
         "Press Ctrl+P, then the pane's number, to focus the diff. Press d to turn the diff view off and on.\n\n"
+        "New: With the diff view off, Laura tints the changed lines.\n\n"
         "Send Next to debug with live logs."
     )
     await user.focus(diff)
     await camera.shot("diff")
     await user.press("d")
     await camera.pause(1500)
+    await camera.shot("tinted")
     await user.press("d")
     await camera.pause(1000)
     await reply(user)
@@ -301,7 +323,7 @@ async def scene(user, agent, camera, other):
         "this workspace's session label, Laura demo, and its folder.\n\n"
         "Click the workspace switcher to switch, or press Ctrl+P and type a session label. While the Laura "
         "server runs, select the Laura logo to open the Laura server's page.\n\n"
-        "New: When the agent in another workspace waits for you, the Laura server's page shows Waiting for you "
+        "When the agent in another workspace waits for you, the Laura server's page shows Waiting for you "
         "on that workspace's row.\n\n"
         "Send Next to learn how to record feedback."
     )
