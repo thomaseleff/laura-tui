@@ -449,9 +449,11 @@ fn a_click_on_the_glance_opens_the_file() -> Result<()> {
     Ok(())
 }
 
-/// #258: on a laptop-height window the glance fits the room above the drawer: the canvas doesn't
-/// scroll, each card ends above the canvas's bottom, and the sessions card shows rows below its
-/// title. The crate's README is long, so the README card scrolls inside itself.
+/// #258: on a short window the glance fits the room above the drawer: the canvas doesn't scroll,
+/// each card and its content end above the card's bottom, and each card's list shows rows below its
+/// title. The crate's README is long, so the README card scrolls inside itself. On a clean tree (CI)
+/// the project card is "Latest", whose commit line scrolls with its files; on a dirty tree it is
+/// "Changes".
 #[test]
 fn the_glance_fits_above_the_drawer() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -470,6 +472,8 @@ fn the_glance_fits_above_the_drawer() -> Result<()> {
     )?;
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
+    // About 200 px of glance above the drawer.
+    c.resize(1280, 640);
     c.until(
         &mut r,
         "the glance's sessions card",
@@ -479,15 +483,18 @@ fn the_glance_fits_above_the_drawer() -> Result<()> {
         r.pump();
     }
     let fit = c.eval(
-        "(() => { const c = document.getElementById('canvas'), bottom = c.getBoundingClientRect().bottom; \
+        "(() => { const c = document.getElementById('canvas'), bottom = c.getBoundingClientRect().bottom, \
+             cards = [...c.querySelectorAll('.gcard')], end = e => e.getBoundingClientRect().bottom; \
            return { scrolls: c.scrollHeight > c.clientHeight + 1, \
-             below: [...c.querySelectorAll('.gcard')].filter(g => g.getBoundingClientRect().bottom > bottom + 1).length, \
-             sess: document.querySelector('#canvas .sess').clientHeight }; })()",
+             below: cards.filter(g => end(g) > bottom + 1).length, \
+             spill: cards.filter(g => [...g.children].some(k => end(k) > end(g) + 1)).length, \
+             short: [...c.querySelectorAll('.md, .files, .sess')].filter(l => l.clientHeight < 20).map(l => l.className) }; })()",
     );
     let fit = fit.map_err(anyhow::Error::msg)?;
     assert_eq!(fit["scrolls"], json!(false), "{fit}");
     assert_eq!(fit["below"], json!(0), "{fit}");
-    assert!(fit["sess"].as_f64().unwrap_or(0.0) >= 20.0, "{fit}");
+    assert_eq!(fit["spill"], json!(0), "{fit}");
+    assert_eq!(fit["short"], json!([]), "{fit}");
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
