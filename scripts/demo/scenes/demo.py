@@ -116,11 +116,16 @@ async def scene(user, agent, camera, other):
     await reply(user)
 
     # [1 / 7] The workspace is just panes
+    # As in the demo skill's `$D`, the scratch files stay out of the repo, so the project at a glance doesn't list them.
+    scratch = agent.repo.parent / "scratch"
+    scratch.mkdir(exist_ok=True)
     prev = None
     for i, n in enumerate([1, 1, 2, 3, 5, 8]):
-        (agent.repo / f"fib-{i}.txt").write_text(f"{n}\n")
+        (scratch / f"fib-{i}.txt").write_text(f"{n}\n")
         split = ["--split", prev, "--dir", "v" if i % 2 else "h"] if prev else []
-        prev = await agent.laura("open", f"fib-{i}.txt", *split, "--ratio", "62", "--no-focus")
+        args = [*split, "--ratio", "62", "--no-focus"]
+        prev = await agent.laura("open", str(scratch / f"fib-{i}.txt"), *args,
+                                 shown=f"laura open $D/fib-{i}.txt {' '.join(args)}")
     await agent.say(
         "[1 / 7] The workspace is just panes\n\n"
         "Laura's workspace is just panes, so your agent can lay out almost anything. "
