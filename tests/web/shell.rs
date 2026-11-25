@@ -244,6 +244,20 @@ fn before_laura_ready_the_hint_line_keeps_comment_and_submit() -> Result<()> {
     Ok(())
 }
 
+/// #216: the focused shell's hint line lists keystrokes only, with no line about the other
+/// keystrokes.
+#[test]
+fn a_focused_shells_hint_lists_keystrokes_only() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let l = layout_when(&mut rig, &mut ws, "the shell", |l| l["focus"] == 0);
+    let hint = l["hints"]["pane"].as_array().cloned().unwrap_or_default();
+    assert!(!hint.is_empty(), "{l}");
+    assert!(hint.iter().all(|p| p[0] != ""), "{hint:?}");
+    assert!(!pairs(&l["hints"]["pane"]).contains("Other keystrokes"));
+    Ok(())
+}
+
 /// #190: `seen`, which the web app sends for a keystroke or a click that leaves the shell with the
 /// keystrokes and for a wheel step over the shell, ends the wait, and focus stays on the file pane.
 #[cfg(unix)]

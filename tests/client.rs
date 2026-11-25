@@ -217,6 +217,11 @@ fn c_then_shift_s_submits_an_inline_review() -> Result<()> {
         "the comment's box",
         "document.activeElement?.matches('.draft textarea')",
     );
+    // #216: the comment's box shows no note about the agent's commands.
+    assert_eq!(
+        c.eval("!!document.querySelector('.draft .holdnote')"),
+        Ok(json!(false))
+    );
     c.type_text("Check this line");
     c.press(ENTER);
     c.until(
@@ -230,6 +235,15 @@ fn c_then_shift_s_submits_an_inline_review() -> Result<()> {
         &mut r,
         "the review body's box",
         "document.activeElement?.matches('.pop.review textarea')",
+    );
+    // #216: the review body's box is its text box and buttons, with no header or paragraph.
+    assert_eq!(
+        c.eval("[...document.querySelectorAll('.pop.review .holdnote, .pop.review .ph, .pop.review p')].length"),
+        Ok(json!(0))
+    );
+    assert_eq!(
+        c.eval("document.querySelector('.pop.review textarea').placeholder"),
+        Ok(json!("Review body (optional)"))
     );
     c.type_text("Looks good");
     c.press(ENTER);

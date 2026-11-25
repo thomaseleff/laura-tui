@@ -436,7 +436,6 @@ fn editor_hint() -> Vec<(&'static str, &'static str)> {
         ("]d [d", "threads"),
         (":w", "save"),
         ("Ctrl+P", "find a pane"),
-        ("", "Other keystrokes go to Neovim"),
     ]
 }
 
@@ -452,11 +451,7 @@ fn shell_hint(tab: &Tab) -> Vec<(&'static str, &'static str)> {
             tab.drawer_in_use(),
             vec![("Ctrl+Shift+↑ ↓", "drawer height")],
         ),
-        vec![
-            ("Ctrl+P", "find a pane"),
-            ("Ctrl+H", "keystrokes"),
-            ("", "Other keystrokes go to the shell"),
-        ],
+        vec![("Ctrl+P", "find a pane"), ("Ctrl+H", "keystrokes")],
     ]
     .concat()
 }
