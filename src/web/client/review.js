@@ -189,20 +189,8 @@ function paintPop(id) {
     wrap.addEventListener("click", e => popClick(id, e));
     el.append(wrap);
   }
+  if (kind === "review") return paintReviewPop(wrap, p);
   const q = s => wrap.querySelector(s);
-  if (kind === "review") {
-    const n = p.threads;
-    q(".ph .mute").textContent = `· ${p.name}`;
-    q("p.mute").innerHTML = `${n} thread${n === 1 ? "" : "s"}${p.frozen ? " on the snapshot" : ""}. Laura writes them into the chat`
-      + ` as one <code>[laura review · pane #${p.id} · ${esc(p.path ?? p.name)}]</code> block, then clears the threads.`;
-    q(".err").hidden = !ui.draft.failed;
-    q(".err").textContent = strings.draft?.failed ?? "";
-    q("[data-act=save]").innerHTML = `${ui.draft.busy ? "Submitting…" : ui.draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
-    q("[data-act=save]").disabled = ui.draft.busy;
-    // The review body can't change while Laura submits it.
-    q("textarea").readOnly = ui.draft.busy;
-    return;
-  }
   if (kind === "more") {
     // The header's tools that this pane shows, which a narrow header hides; the narrowest also
     // hides **Submit**, the thread count and an editor pane's view flip.
@@ -236,6 +224,20 @@ function paintPop(id) {
     if (pop.html !== html) pop.innerHTML = pop.html = html;
     if (draftCard) pop.querySelector(".slot")?.replaceWith(draftCard);
   });
+}
+
+// The review body's popover: the thread count, the failed submit and the **Submit review** button.
+function paintReviewPop(wrap, p) {
+  const q = s => wrap.querySelector(s), n = p.threads;
+  q(".ph .mute").textContent = `· ${p.name}`;
+  q("p.mute").innerHTML = `${n} thread${n === 1 ? "" : "s"}${p.frozen ? " on the snapshot" : ""}. Laura writes them into the chat`
+    + ` as one <code>[laura review · pane #${p.id} · ${esc(p.path ?? p.name)}]</code> block, then clears the threads.`;
+  q(".err").hidden = !ui.draft.failed;
+  q(".err").textContent = strings.draft?.failed ?? "";
+  q("[data-act=save]").innerHTML = `${ui.draft.busy ? "Submitting…" : ui.draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
+  q("[data-act=save]").disabled = ui.draft.busy;
+  // The review body can't change while Laura submits it.
+  q("textarea").readOnly = ui.draft.busy;
 }
 
 export const paintPops = () => layout?.panes.forEach(p => paintPop(p.id));
