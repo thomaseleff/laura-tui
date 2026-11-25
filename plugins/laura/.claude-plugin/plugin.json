@@ -1,7 +1,7 @@
 {
     "name": "laura",
     "description": "Laura is a workspace that gives your agent an **API over the UI**, so your agent can tile panes while you pair-program.",
-    "version": "0.20.1",
+    "version": "0.21.0",
     "repository": "https://github.com/thomaseleff/laura-tui",
     "license": "MIT"
 }
