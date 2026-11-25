@@ -63,7 +63,7 @@ The workspace switcher at the left of the top bar switches between the workspace
 
 **5. Pair-program.** Chat as you normally would with your coding agent. Ask your agent to show you a file, a plan, or a diff using the `/laura` skill.
 
-Laura reloads a file pane when its file changes. Laura shows [markdown as rendered markdown](navigation.md#markdown-files) and other files with syntax colours. Laura marks the lines changed since git `HEAD` in the gutter.
+Laura reloads a file pane when its file changes. Laura shows [markdown as rendered markdown](navigation.md#markdown-files) and other files with syntax colours. Laura [tints the lines changed](navigation.md#changed-lines) since git `HEAD`.
 
 ## Where to go next
 

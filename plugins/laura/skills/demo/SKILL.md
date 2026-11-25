@@ -230,10 +230,10 @@ laura open "$R/hello.py" --diff --ratio 55 --no-focus   # the inline diff vs HEA
 
 > **[3 / 7] Code review**
 >
-> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff. I opened the full diff in a new pane.
+> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura tints added and modified lines green and blue in each pane, shows a red row where lines were deleted, and can show the full diff. I opened the full diff in a new pane.
 >
 > 1. Press `Ctrl+P`, then the pane's number, to focus the diff.
-> 2. Press `d` to turn the diff view **off**. Laura shows the file with the gutter markers. Press `d` again to turn the diff view back on.
+> 2. Press `d` to turn the diff view **off**. Laura shows the file with the changed lines tinted. Press `d` again to turn the diff view back on.
 >
 > In the diff view, press `↑`/`↓` to move and `Esc` to return to the chat. To comment, press `d` to turn the diff view off, then press `c`. Press `Shift+S` to submit. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.
 >
@@ -267,7 +267,7 @@ laura open "$D/hello.diff" --ratio 55 --no-focus   # git absent — show the sta
 
 > **[3 / 7] Code review**
 >
-> Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in a new pane. With `git` installed, Laura marks added, modified and deleted lines in each pane's gutter, and can show the full diff.
+> Here's the code change that implements the plan, including the changes from your inline review. `git` isn't installed, so I opened the change as a patch file in a new pane. With `git` installed, Laura tints added and modified lines green and blue in each pane, shows a red row where lines were deleted, and can show the full diff.
 >
 > 1. Press `Ctrl+P`, then the pane's number, to focus the diff.
 > 2. The patch is still a file, so the same pane keystrokes work: `↑`/`↓` to move, `c` to comment, `Shift+S` to submit, and `Esc` to return to the chat. If you comment, submit (`Shift+S`) or refresh (`Ctrl+R`) before you send `Next`.

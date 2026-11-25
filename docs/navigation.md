@@ -152,6 +152,16 @@ Before the agent runs `laura ready`, the hint line shows `c` and `Shift+S` dimme
 
 An inline review is a **call and response**. Your comments and the agent's comments stay in the pane until you submit the inline review.
 
+### Changed lines
+
+Laura tints each line changed since git `HEAD`:
+
+- A **green** row is an added line.
+- A **blue** row is a modified line.
+- A **red** `── N lines removed ──` row shows where lines were deleted.
+
+Laura draws the cursor and the agent's highlight over the tint, and shows no tints in the diff view (`d`). In the web app, Laura tints a markdown block blue when the block has a modified line.
+
 ### Threads and inline reviews
 
 - Laura shows each thread below its line. Click **Reply…** to add a comment. On a thread that ends with your comment, click **Edit…** or **Delete**.

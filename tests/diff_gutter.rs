@@ -1,4 +1,4 @@
-//! Feat #26: gutter diff markers. A real git repo in a tempdir, driven through the
+//! Feat #26, #215: a changed line's row tint. A real git repo in a tempdir, driven through the
 //! real seam (binary → socket → `Tab::drain`); assert on `panel.changes` state, not
 //! pixels, per CLAUDE.md.
 
@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use assert_cmd::Command;
 use laura::{ChangeKind, Rect, Tab};
+use ratatui::style::Color;
 
 fn spawn_tab() -> Result<Tab> {
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
@@ -172,7 +173,7 @@ fn markdown_markers_key_off_source_lines() -> Result<()> {
         "edited source line 3 is Modified, keyed by source line: {changes:?}"
     );
 
-    // The paragraph's rendered row carries a change bar and its gutter shows source line 3.
+    // The paragraph's rendered row carries a row tint and its gutter shows source line 3.
     let layout = tab.panels[&id].layout(78);
     let body = layout
         .rows
@@ -183,7 +184,7 @@ fn markdown_markers_key_off_source_lines() -> Result<()> {
     assert_eq!(
         body.change,
         Some(ChangeKind::Modified),
-        "the rendered row's bar folds the edited source line"
+        "the rendered row's tint folds the edited source line"
     );
     Ok(())
 }
@@ -209,7 +210,9 @@ fn a_deletion_at_a_closing_fence_shows_on_the_next_row() -> Result<()> {
         gap.is_some_and(|g| g < after),
         "removed-lines row above `after`"
     );
-    assert_eq!(rows[after].change, Some(ChangeKind::Removed(1)));
+    // #215: the removed-lines row carries the deletion; the line after it shows no tint.
+    assert_eq!(rows[gap.unwrap()].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(rows[after].change, None);
     Ok(())
 }
 
@@ -258,7 +261,8 @@ fn a_deletion_at_a_closing_fence_that_ends_the_file_shows_on_the_last_row() -> R
         gap.is_some_and(|g| g < a),
         "removed-lines row above the last row"
     );
-    assert_eq!(rows[a].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(rows[gap.unwrap()].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(rows[a].change, None);
     Ok(())
 }
 
@@ -305,8 +309,8 @@ fn an_end_of_file_deletion_shows_below_the_last_row() -> Result<()> {
 }
 
 #[test]
-fn change_bar_runs_every_wrapped_row() -> Result<()> {
-    // #35: the change bar paints every visual row of a changed wrapped paragraph, while
+fn row_tint_runs_every_wrapped_row() -> Result<()> {
+    // #35: the row tint paints every visual row of a changed wrapped paragraph, while
     // the gutter number stays on the first row only.
     let long = "word ".repeat(40); // wraps into many rows at a narrow width
     let (_dir, path) = repo_with("doc.md", &format!("# t\n\n{long}\n"))?;
@@ -327,7 +331,7 @@ fn change_bar_runs_every_wrapped_row() -> Result<()> {
     );
     assert!(
         para.iter().all(|r| r.change == Some(ChangeKind::Modified)),
-        "the change bar paints every wrapped row: {:?}",
+        "the row tint paints every wrapped row: {:?}",
         para.iter().map(|r| r.change).collect::<Vec<_>>()
     );
     assert_eq!(
@@ -371,7 +375,7 @@ fn scroll_offset_ignores_neighbor_deletion_gap() -> Result<()> {
 }
 
 #[test]
-fn untracked_file_has_no_markers() -> Result<()> {
+fn untracked_file_has_no_tints() -> Result<()> {
     let dir = tempfile::tempdir()?;
     git(dir.path(), &["init", "-q"]);
     let file = dir.path().join("new.txt");
@@ -382,7 +386,97 @@ fn untracked_file_has_no_markers() -> Result<()> {
     let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
     assert!(
         tab.panels[&id].changes.is_empty(),
-        "untracked file → git diff empty, no markers (v1 scope)"
+        "untracked file → git diff empty, no tints (v1 scope)"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_changed_line_tints_its_rows_and_no_gutter_has_a_change_cell() -> Result<()> {
+    // #215: a modified line's every wrapped row takes the Modified tint, the removed-lines row the
+    // Removed tint, and the gutter is the number and one space.
+    let long = "word ".repeat(20);
+    let (_dir, path) = repo_with("f.txt", &format!("keep\n{long}\nmid\ngone\nlast\n"))?;
+    std::fs::write(&path, format!("keep\n{long}edited\nmid\nlast\n"))?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let panel = &tab.panels[&id];
+    let width = 40;
+    let layout = panel.layout(width);
+    let lines = laura::view::panel_lines(panel, &layout, false, width, false);
+    // A 5-line file still gets two digits, so Neovim's 2-cell sign fits in the editor's gutter.
+    assert_eq!(layout.gutter_width, 2);
+    let rows = &layout.rows;
+    let changed: Vec<usize> = (0..rows.len())
+        .filter(|&j| rows[j].text().contains("word"))
+        .collect();
+    assert!(changed.len() >= 2, "the modified line wraps: {changed:?}");
+    let gap = rows
+        .iter()
+        .position(|r| r.text().contains("1 line removed"))
+        .expect("removed-lines row");
+    let bg = |j: usize| lines[j].style.bg;
+    for &j in &changed {
+        assert_eq!(rows[j].change, Some(ChangeKind::Modified), "row {j}");
+        assert_eq!(bg(j), Some(Color::Rgb(44, 79, 122)), "row {j} is tinted");
+    }
+    assert_eq!(rows[gap].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(
+        bg(gap),
+        Some(Color::Rgb(107, 42, 51)),
+        "the removed-lines row"
+    );
+    let keep = rows.iter().position(|r| r.text() == "keep").expect("keep");
+    assert_eq!(rows[keep].change, None);
+    assert_eq!(bg(keep), None, "an unchanged row has no tint");
+    for (j, line) in lines.iter().enumerate().filter(|(j, _)| !rows[*j].comment) {
+        assert_eq!(
+            line.spans[1].content, " ",
+            "row {j}: the space after the number"
+        );
+        let body: String = line.spans[2..].iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            body.starts_with(&rows[j].text()),
+            "row {j}: the text follows the space: {body:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_changed_code_line_is_tinted_over_its_box() -> Result<()> {
+    // #215: in the TUI, an edited line in a fenced code block takes the Modified tint on its text
+    // too, not only beside the code box.
+    let (_dir, path) = repo_with("f.md", "# t\n\n```\nlet a = 1;\nlet b = 2;\n```\n")?;
+    std::fs::write(&path, "# t\n\n```\nlet a = 1;\nlet b = 3;\n```\n")?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let panel = &tab.panels[&id];
+    let width = 40;
+    let layout = panel.layout(width);
+    let lines = laura::view::panel_lines(panel, &layout, false, width, false);
+    let rows = &layout.rows;
+    let j = rows
+        .iter()
+        .position(|r| r.text().contains("let b = 3;"))
+        .expect("edited code row");
+    assert_eq!(rows[j].change, Some(ChangeKind::Modified));
+    assert_eq!(lines[j].style.bg, Some(Color::Rgb(44, 79, 122)));
+    let code_bg = Some(Color::Rgb(45, 45, 45));
+    assert!(
+        lines[j].spans.iter().all(|s| s.style.bg != code_bg),
+        "no code box under the tint: {:?}",
+        lines[j].spans
+    );
+    let k = rows
+        .iter()
+        .position(|r| r.text().contains("let a = 1;"))
+        .expect("unchanged code row");
+    assert!(
+        lines[k].spans.iter().any(|s| s.style.bg == code_bg),
+        "an unchanged code row keeps its box"
     );
     Ok(())
 }

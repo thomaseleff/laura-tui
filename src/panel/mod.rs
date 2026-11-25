@@ -21,9 +21,9 @@ use crate::gitdiff::{ChangeKind, DiffOutcome};
 use crate::protocol::PaneId;
 use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
 
-/// The gutter's cells between the line number and the text: sep · change · sep
+/// The gutter's cells between the line number and the text: the space after the number
 /// (`view::panel_lines`).
-pub(crate) const DECOR: usize = 3;
+pub(crate) const DECOR: usize = 1;
 
 /// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
 pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
@@ -445,16 +445,13 @@ impl Panel {
         Some(prev.map_or(0, |&(_, pb)| pb + 1).min(a)..=end)
     }
 
-    /// Row `i`'s gutter change: the highest-ranked change over its source range (Modified > Added >
-    /// Removed, so a mixed markdown block reads as edited). Folds to `changes[i]` for identity files.
+    /// Row `i`'s tint: the highest-ranked added or modified line over its source range
+    /// ([`ChangeKind::rank`]). A deletion shows on its removed-lines row ([`gap_row`]), not here.
     fn row_change(&self, i: usize) -> Option<ChangeKind> {
         self.diff_span(i)?
             .filter_map(|s| self.changes.get(s).copied().flatten())
-            .max_by_key(|k| match k {
-                ChangeKind::Modified => 2,
-                ChangeKind::Added => 1,
-                ChangeKind::Removed(_) => 0,
-            })
+            .filter(|k| !matches!(k, ChangeKind::Removed(_)))
+            .max_by_key(|k| k.rank())
     }
 
     /// Deleted-line count surfacing above row `i`: deletions in its source range, counted on the
@@ -808,15 +805,19 @@ impl Panel {
         out
     }
 
+    /// The digits of the gutter's line number, sized off the largest *source* line number (a
+    /// collapsed block makes it exceed `styled.len()`). At least 2, so Neovim's 2-cell sign fits in
+    /// the number column of a short file and the editor's text keeps its column.
+    pub(super) fn gutter_width(&self) -> usize {
+        self.source_lines.len().max(1).to_string().len().max(2)
+    }
+
     /// Lay the panel into visual rows for an `inner_w`-wide area. Wrapping here (not the widget) keeps rows 1:1 so scroll, scrollbar, and `L<n>` stay exact.
     pub fn layout(&self, inner_w: usize) -> PanelLayout {
         if self.diff_view {
             return self.diff_layout(inner_w);
         }
-        // Gutter is sized off the largest *source* line number: a collapsed block makes the top
-        // number exceed `styled.len()`.
-        let total = self.source_lines.len().max(1);
-        let gutter_width = total.to_string().len();
+        let gutter_width = self.gutter_width();
         let tw = inner_w.saturating_sub(gutter_width + DECOR).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
@@ -835,7 +836,7 @@ impl Panel {
             if i == 0 || self.source[i] != self.source[i - 1] {
                 block_start = i;
             }
-            // A deletion has no surviving line to bar, so emit a dim-red gap row
+            // A deletion has no surviving line to tint, so emit a removed-lines row
             // *above* line `i`. Pushed before `starts[i]` so the row sits outside
             // line `i`'s selectable span and the `starts` invariant holds.
             if let Some(n) = self.removed_in_row(i) {
@@ -850,7 +851,7 @@ impl Panel {
                     gutter: (k == 0).then_some(self.source[i].0 + 1),
                     spans: chunk,
                     comment: false,
-                    // Bar runs every wrapped row of the changed paragraph; row_change folds
+                    // The tint runs every wrapped row of the changed paragraph; row_change folds
                     // the block's source range, identical for each row of line i (#35).
                     change: self.row_change(i),
                 });
@@ -913,9 +914,8 @@ impl Panel {
     /// ponytail: markdown's cursor is rendered-row space while these rows key to source lines, so the
     /// diff-view cursor anchor is approximate — a read mode, block-close.
     fn diff_layout(&self, inner_w: usize) -> PanelLayout {
-        let total = self.source_lines.len().max(1);
-        let gutter_width = total.to_string().len();
-        // Match `layout`'s decoration budget; diff view renders those cells as blanks.
+        let gutter_width = self.gutter_width();
+        // Match `layout`'s gutter, so the text keeps its column when the diff view turns on.
         let tw = inner_w.saturating_sub(gutter_width + DECOR).max(1);
         let green = Style::default().fg(DIFF_ADD);
         let red = Style::default().fg(DIFF_DEL);
@@ -1103,8 +1103,8 @@ pub struct PanelRow {
     /// Styled, width-fit spans for this visual row (leading indent included).
     pub spans: Vec<Span<'static>>,
     pub comment: bool,
-    /// Gutter-bar change, folded from the row's source range; `None` on continuation/comment/gap
-    /// rows and in diff-view. The renderer keys the bar off this (#32).
+    /// The row's tint: Added or Modified on a text row, folded from its source range; Removed on a
+    /// removed-lines row; `None` on a card row and in the diff view (#32, #215).
     pub change: Option<ChangeKind>,
 }
 
@@ -1142,12 +1142,10 @@ fn gap_row(n: usize, line: usize, tw: usize) -> PanelRow {
     PanelRow {
         line,
         gutter: None,
-        spans: vec![Span::styled(
-            label,
-            Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
-        )],
+        // No color of its own: each front-end colors the row with the Removed tint.
+        spans: vec![Span::raw(label)],
         comment: true,
-        change: None,
+        change: Some(ChangeKind::Removed(n)),
     }
 }
 

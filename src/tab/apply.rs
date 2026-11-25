@@ -58,7 +58,7 @@ impl Tab {
         }
         if self.panels[&id].git_missing {
             warnings.push(
-                "diff markers unavailable — install `git` to see changes in the gutter".into(),
+                "diff markers unavailable — install `git` to see the changed lines tinted".into(),
             );
         }
         if let Some(w) = diff_warning {

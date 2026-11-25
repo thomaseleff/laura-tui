@@ -29,7 +29,7 @@ impl Panel {
         let Some(t) = self.thread_at(key) else {
             return vec![];
         };
-        let gutter_width = self.source_lines.len().max(1).to_string().len();
+        let gutter_width = self.gutter_width();
         let pad_w = gutter_width + DECOR; // the card's left edge sits under the code
         if t.collapsed {
             return vec![self.shut_row(t, at, inner_w.saturating_sub(pad_w))];

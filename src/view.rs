@@ -9,11 +9,14 @@ use crate::editor::Nvim;
 use crate::panel::DECOR;
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::CODE_BG;
-use crate::{ChangeKind, Panel, PanelLayout, PanelRow, Tab};
+use crate::{ChangeKind, Panel, PanelLayout, Tab};
 
-/// The diff gutter's added and removed colors, shared with the border's `+N -M`.
+/// The border's `+N -M` colors.
 const ADDED: Color = Color::Rgb(56, 166, 96); // #38a660
 const REMOVED: Color = Color::Rgb(179, 89, 107); // #b3596b
+
+/// A row's gutter spans in [`panel_lines`]: the number and the space after it.
+pub(crate) const GUTTER_SPANS: usize = 2;
 
 /// The cursor row's gray band (nord3) and the slightly-lighter gray code chips read on top of it.
 const BAND: Color = Color::Rgb(67, 76, 94);
@@ -168,18 +171,20 @@ pub fn panel_lines(
                 Some(n) => format!("{n:>gw$}"),
                 None => format!("{:>gw$}", ""),
             };
+            // The web app tints a row from its `data-change`.
+            let tint = r.change.filter(|_| !web).map(tint).unwrap_or_default();
             if r.comment {
                 // Card/gap rows emit at column 0; the blank gutter lands them under the code.
                 let mut spans = vec![Span::raw(number), Span::raw(" ".repeat(DECOR))];
                 spans.extend(r.spans.iter().cloned());
-                Line::from(spans)
+                Line::from(spans).style(tint)
             } else {
                 let highlighted = panel
                     .highlight
                     .is_some_and(|(lo, hi)| (lo..=hi).contains(&r.line));
                 let on_cursor = focused && r.line == panel.cursor;
 
-                let mut spans = gutter_spans(r, number, highlighted);
+                let mut spans = gutter_spans(number, highlighted);
                 let mut body: Vec<Span> = r.spans.to_vec();
                 if !on_cursor {
                     if highlighted {
@@ -200,54 +205,64 @@ pub fn panel_lines(
                         .sum::<usize>();
                 let pad = width.saturating_sub(used);
                 if on_cursor {
-                    // Gray band under the cursor. Repaint code chips + inline caps a shade lighter
-                    // so they read as raised chips on the band, not holes.
                     spans.extend(body);
-                    for s in spans.iter_mut() {
-                        if s.style.bg.is_some() {
-                            s.style.bg = Some(CODE_ON_BAND);
-                        } else if s.style.fg == Some(CODE_BG) {
-                            s.style.fg = Some(CODE_ON_BAND);
-                        }
-                    }
-                    if pad > 0 && !web {
-                        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
-                    }
-                    Line::from(spans).bg(BAND)
+                    band_line(spans, pad, web)
                 } else {
                     spans.extend(body);
-                    if pad > 0 {
-                        spans.push(Span::raw(" ".repeat(pad)));
+                    if let Some(bg) = tint.bg {
+                        repaint_code(&mut spans, bg);
                     }
-                    Line::from(spans)
+                    if pad > 0 {
+                        spans.push(Span::styled(" ".repeat(pad), tint));
+                    }
+                    Line::from(spans).style(tint)
                 }
             }
         })
         .collect()
 }
 
-/// A text row's gutter, `DECOR` cells past the number: number · sep · change · sep.
-/// The change cell is a `▌` half-block in higher-contrast diff colors.
-fn gutter_spans(r: &PanelRow, number: String, highlighted: bool) -> Vec<Span<'static>> {
+/// The cursor row's gray band. Code chips and inline caps repaint a shade lighter so they read as
+/// raised chips on the band, not holes. `web` leaves the band's padding to the browser.
+fn band_line(mut spans: Vec<Span<'static>>, pad: usize, web: bool) -> Line<'static> {
+    repaint_code(&mut spans, CODE_ON_BAND);
+    if pad > 0 && !web {
+        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
+    }
+    Line::from(spans).bg(BAND)
+}
+
+/// Repaint a row's code chips and inline caps in `color`, the row's own bg, so the row's band or
+/// tint runs through its code instead of stopping at a `CODE_BG` box.
+fn repaint_code(spans: &mut [Span<'static>], color: Color) {
+    for s in spans.iter_mut() {
+        if s.style.bg.is_some() {
+            s.style.bg = Some(color);
+        } else if s.style.fg == Some(CODE_BG) {
+            s.style.fg = Some(color);
+        }
+    }
+}
+
+/// A text row's gutter, [`GUTTER_SPANS`] spans: the number and the `DECOR` space after it.
+fn gutter_spans(number: String, highlighted: bool) -> Vec<Span<'static>> {
     let number = if highlighted {
         Span::styled(number, Style::default().fg(HL_NUMBER))
     } else {
         Span::raw(number).dim()
     };
-    let change = r
-        .change
-        .map(|k| {
-            Span::styled(
-                "▌",
-                Style::default().fg(match k {
-                    ChangeKind::Added => ADDED,
-                    ChangeKind::Modified => Color::Rgb(56, 150, 217), // #3896d9
-                    ChangeKind::Removed(_) => REMOVED,
-                }),
-            )
-        })
-        .unwrap_or_else(|| Span::raw(" "));
-    vec![number, Span::raw(" "), change, Span::raw(" ")]
+    vec![number, Span::raw(" ".repeat(DECOR))]
+}
+
+/// A changed row's tint in the TUI, as bright as a highlighter on the dark pane.
+fn tint(k: ChangeKind) -> Style {
+    match k {
+        ChangeKind::Added => Style::default().bg(Color::Rgb(47, 92, 61)), // #2f5c3d
+        ChangeKind::Modified => Style::default().bg(Color::Rgb(44, 79, 122)), // #2c4f7a
+        ChangeKind::Removed(_) => Style::default()
+            .bg(Color::Rgb(107, 42, 51)) // #6b2a33
+            .fg(Color::Rgb(255, 179, 184)), // #ffb3b8
+    }
 }
 
 /// What the hint line describes.

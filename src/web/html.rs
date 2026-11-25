@@ -8,9 +8,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::panel::cursor::{on_card, on_stop};
-use crate::panel::{DECOR, DIFF_ADD, DIFF_DEL, PanelLayout};
+use crate::panel::{DIFF_ADD, DIFF_DEL, PanelLayout};
 use crate::render::{Block, escape};
-use crate::{Panel, PanelRow};
+use crate::view::GUTTER_SPANS;
+use crate::{ChangeKind, Panel, PanelRow};
 
 /// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
 /// so a click on an element reports the line the TUI shows its tag on. Comments, CDATA and
@@ -131,10 +132,11 @@ pub(super) fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
         Some(DIFF_DEL) => r#" data-diff="del""#,
         _ => "",
     };
+    let change = change_attr(row.change);
     let mut h = String::with_capacity(160);
     let _ = write!(
         h,
-        r#"<div class="row{}{}{}" data-line="{}" data-row="{}"{diff}{}>{GAP}"#,
+        r#"<div class="row{}{}{}" data-line="{}" data-row="{}"{diff}{change}{}>{GAP}"#,
         // Only removed-lines rows reach here as comment rows: the browser draws the cards.
         if row.comment { " gap" } else { "" },
         if highlighted { " hl" } else { "" },
@@ -146,13 +148,22 @@ pub(super) fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
             ..line.style
         })
     );
-    // `panel_lines`' gutter: the number and a span per `DECOR` cell, 2 on a comment row.
-    let gutter = (if row.comment { 2 } else { DECOR + 1 }).min(line.spans.len());
+    let gutter = GUTTER_SPANS.min(line.spans.len());
     spans_html(&mut h, &line.spans[..gutter]);
     h.push_str("</span>");
     spans_html(&mut h, &line.spans[gutter..]);
     h.push_str("</div>");
     h
+}
+
+/// A row's or a block's tint, which `style.css` paints.
+fn change_attr(change: Option<ChangeKind>) -> &'static str {
+    match change {
+        Some(ChangeKind::Added) => r#" data-change="added""#,
+        Some(ChangeKind::Modified) => r#" data-change="modified""#,
+        Some(ChangeKind::Removed(_)) => r#" data-change="removed""#,
+        None => "",
+    }
 }
 
 /// A markdown pane as one unit per rendered block (#89): the removed-lines rows inside it go above
@@ -168,7 +179,6 @@ pub(super) fn block_units(
     focused: bool,
     base: &str,
 ) -> (Vec<String>, Option<usize>) {
-    let blank = |s: &Span| s.content.trim().is_empty();
     let rows = |span: Range<usize>, units: &mut Vec<String>, cursor: &mut Option<usize>| {
         for j in span {
             let row = &layout.rows[j];
@@ -196,15 +206,20 @@ pub(super) fn block_units(
             .position(|r| r.line >= b.rows.end)
             .map_or(layout.rows.len(), |k| first + k)
             .min(layout.eof.start);
-        let mut gutter: Vec<Span> = lines[first].spans.iter().take(DECOR + 1).cloned().collect();
+        let mut gutter: Vec<Span> = lines[first]
+            .spans
+            .iter()
+            .take(GUTTER_SPANS)
+            .cloned()
+            .collect();
+        let mut change: Option<ChangeKind> = None;
         for (i, (row, line)) in layout.rows[first..end]
             .iter()
             .zip(&lines[first..end])
             .enumerate()
         {
             if !row.comment {
-                // The highlighted number and the change cell show if any row of the block has one.
-                // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
+                // The highlighted number shows if any row of the block has one.
                 if panel
                     .highlight
                     .is_some_and(|(lo, hi)| (lo..=hi).contains(&row.line))
@@ -212,12 +227,8 @@ pub(super) fn block_units(
                 {
                     n.style = s.style;
                 }
-                // The first non-blank change cell wins.
-                if let Some(g) = gutter.get_mut(2).filter(|g| blank(g))
-                    && let Some(s) = line.spans.get(2).filter(|s| !blank(s))
-                {
-                    *g = s.clone();
-                }
+                // The block takes one tint, its rows' highest-ranked change.
+                change = std::cmp::max_by_key(change, row.change, |k| k.map(ChangeKind::rank));
             } else if first + i > layout.starts[row.line] {
                 continue;
             } else {
@@ -252,10 +263,11 @@ pub(super) fn block_units(
         let mut h = String::with_capacity(md.len() + 200);
         let _ = write!(
             h,
-            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}"{at}>{GAP}"#,
+            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}"{at}{}>{GAP}"#,
             if hl { " hl" } else { "" },
             panel.row_source_line(&layout.rows[first]),
-            b.rows.start
+            b.rows.start,
+            change_attr(change),
         );
         spans_html(&mut h, &gutter);
         h.push_str(r#"</span><div class="md">"#);
@@ -344,7 +356,6 @@ const LIGHT: &[([u8; 3], &str)] = &[
     ([0x61, 0x6e, 0x88], "#6e7781"), // the Nord theme's comments
     ([0x38, 0xa6, 0x60], "#1d7d4c"), // view.rs ADDED
     ([0xb3, 0x59, 0x6b], "#bf3a32"), // view.rs REMOVED
-    ([0x38, 0x96, 0xd9], "#0550ae"), // the modified gutter
     ([0x52, 0x5c, 0x6e], "#e2e4f6"), // view.rs CODE_ON_BAND
     ([0x2d, 0x2d, 0x2d], "#f2f3f6"), // render.rs CODE_BG
     ([0xab, 0xb2, 0xbf], "#1d1f24"), // a comment card's text

@@ -75,7 +75,7 @@ The scene uses these helpers:
 | `agent.write(path, text)` | Writes the file in the scratch repo. The chat shows `Update(<path>)` with the count of added and removed lines, or `Write(<path>)` for a new file. |
 | `agent.edit(path, old, new)` | Replaces `old` with `new` in the file, as `agent.write` does. If `old` is not in the file, raises an error. |
 | `agent.workspace(name, title)` | Starts another workspace in `home/<name>/`, with its own chat stub, and runs `laura ready --title <title>` in that workspace. Gives the `Agent` of the other workspace. Use `agent.workspace` before a beat that switches workspaces, so that the workspace switcher has a list. |
-| `agent.repo` | The `Path` of the scratch repo. Write files after the commit to show changes in the gutter and in `--diff`. |
+| `agent.repo` | The `Path` of the scratch repo. Write files after the commit to show the changed lines tinted and in `--diff`. |
 | `user.focus(pane)` | Moves the focus to the pane from the keyboard. The user presses `Ctrl+P`, waits one beat with the pane selector open, and types the pane id. From a file pane to the shell, the user presses `Esc`. If the pane has the focus, does nothing. |
 | `user.goto_line(pane, line)` | Focuses the file pane, then presses `↓` or `↑` until the cursor is on the line. If the cursor cannot reach the line, raises an error. |
 | `user.press(key)` | Presses a keystroke and shows it in the keystroke box. After `c` or `Shift+S`, waits for the comment box or the review body. After `Enter` in a box, waits until the box closes. |
