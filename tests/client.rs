@@ -449,13 +449,12 @@ fn a_click_on_the_glance_opens_the_file() -> Result<()> {
     Ok(())
 }
 
-/// #258: on a short window the glance fits the room above the drawer: the canvas doesn't scroll,
-/// each card and its content end above the card's bottom, and each card's list shows rows below its
-/// title. The crate's README is long, so the README card scrolls inside itself. On a clean tree (CI)
-/// the project card is "Latest", whose commit line scrolls with its files; on a dirty tree it is
-/// "Changes".
+/// #258: the glance shows README, Latest (or Changes) and Recently in this folder side by side, as
+/// tall as the room above the drawer at its least height. The drawer covers the cards' lower part;
+/// the user drags the drawer to its least height and sees each card in full, while the canvas holds
+/// still. The crate's README is long, so the README card scrolls inside itself.
 #[test]
-fn the_glance_fits_above_the_drawer() -> Result<()> {
+fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
@@ -475,8 +474,7 @@ fn the_glance_fits_above_the_drawer() -> Result<()> {
     )?;
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
-    // About 200 px of glance above the drawer.
-    c.resize(1280, 640);
+    c.resize(1280, 870);
     c.until(
         &mut r,
         "the glance's sessions card",
@@ -485,19 +483,49 @@ fn the_glance_fits_above_the_drawer() -> Result<()> {
     for _ in 0..10 {
         r.pump();
     }
-    let fit = c.eval(
-        "(() => { const c = document.getElementById('canvas'), bottom = c.getBoundingClientRect().bottom, \
-             cards = [...c.querySelectorAll('.gcard')], end = e => e.getBoundingClientRect().bottom; \
-           return { scrolls: c.scrollHeight > c.clientHeight + 1, \
-             below: cards.filter(g => end(g) > bottom + 1).length, \
-             spill: cards.filter(g => [...g.children].some(k => end(k) > end(g) + 1)).length, \
-             short: [...c.querySelectorAll('.md, .files, .sess')].filter(l => l.clientHeight < 20).map(l => l.className) }; })()",
+    let measure = "(() => { const c = document.getElementById('canvas'), \
+           cards = [...c.querySelectorAll('.gcard')], box = e => e.getBoundingClientRect(); \
+         return { rects: cards.map(g => [box(g).left, box(g).top, box(g).width, box(g).height].map(Math.round)), \
+           bottom: Math.max(...cards.map(g => box(g).bottom)), drawer: box(document.getElementById('p0')).top, \
+           scrolls: c.scrollHeight > c.clientHeight + 1, \
+           spill: cards.filter(g => [...g.children].some(k => box(k).bottom > box(g).bottom + 1)).length, \
+           short: [...c.querySelectorAll('.md, .files, .sess')].filter(l => l.clientHeight < 20).map(l => l.className) }; })()";
+    let before = c.eval(measure).map_err(anyhow::Error::msg)?;
+    let rects = before["rects"].as_array().cloned().unwrap_or_default();
+    let at = |i: usize, k: usize| rects[i][k].as_f64().unwrap_or(f64::NAN);
+    assert_eq!(rects.len(), 3, "three cards: {before}");
+    assert!(
+        (0..3).all(|i| (at(i, 1) - at(0, 1)).abs() <= 1.0)
+            && at(0, 0) < at(1, 0)
+            && at(1, 0) < at(2, 0),
+        "three cards side by side: {before}"
     );
-    let fit = fit.map_err(anyhow::Error::msg)?;
-    assert_eq!(fit["scrolls"], json!(false), "{fit}");
-    assert_eq!(fit["below"], json!(0), "{fit}");
-    assert_eq!(fit["spill"], json!(0), "{fit}");
-    assert_eq!(fit["short"], json!([]), "{fit}");
+    assert_eq!(before["scrolls"], json!(false), "{before}");
+    assert_eq!(before["spill"], json!(0), "{before}");
+    assert_eq!(before["short"], json!([]), "{before}");
+    let num = |v: &Value, k: &str| v[k].as_f64().unwrap_or(f64::NAN);
+    assert!(
+        num(&before, "drawer") < num(&before, "bottom"),
+        "the drawer covers the cards: {before}"
+    );
+    // As in `a_drawer_step_holds_while_the_web_app_reconnects`: no socket, so the steps change the
+    // drawer and save no height to the shared home.
+    c.eval("WebSocket = function () { return { readyState: 0 }; }; ws.close()")
+        .map_err(anyhow::Error::msg)?;
+    for _ in 0..10 {
+        c.press(CTRL_SHIFT_DOWN);
+    }
+    // A turn of the shell's `ResizeObserver`.
+    let after = c
+        .eval(&format!(
+            "new Promise(r => setTimeout(() => r({measure}), 100))"
+        ))
+        .map_err(anyhow::Error::msg)?;
+    assert_eq!(after["rects"], before["rects"], "the canvas holds still");
+    assert!(
+        num(&after, "bottom") <= num(&after, "drawer") + 1.0,
+        "the whole glance shows: {after}"
+    );
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

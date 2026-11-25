@@ -186,29 +186,26 @@ a.brand[href]:hover .logo { opacity: .75; }
 #canvas.docked .steps { grid-template-columns: 1fr; gap: 10px; }
 #canvas.docked .mini { display: none; }
 @container (height < 380px) { .mini { display: none; } }
-/* The project at a glance: the README beside a column of the changes and the recent sessions. One
-   column beside the docked shell, or on a narrow canvas. */
-.glance { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; width: min(1000px, 100%); }
-.glance.one { width: min(640px, 100%); grid-template-columns: 1fr; }
-#canvas.docked .glance { grid-template-columns: 1fr; }
-@container (width < 700px) { .glance { grid-template-columns: 1fr; } }
-.glance .col { display: grid; gap: 14px; min-width: 0; }
+/* The project at a glance: three cards side by side, as tall as the canvas (`holdCanvas`); the
+   README card is the widest. The README section, the file list and the sessions scroll inside their
+   cards. */
+.glance { display: flex; gap: 14px; width: min(1200px, 100%); height: 100%; }
+.glance.one { width: min(640px, 100%); }
 .gcard {
   background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 18px; min-width: 0;
-  display: flex; flex-direction: column; box-sizing: border-box; min-height: 0;
+  display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; flex: 1 1 0;
 }
-/* Side by side, the glance is `--h` tall (`sizeGlance`), and the README card and the column fill
-   it. The column's two cards share it: a card taller than its half scrolls, a shorter one keeps its
-   height. The README section, the file list and the sessions scroll inside their cards. */
-.glance { height: var(--h, auto); grid-template-rows: minmax(0, 1fr); }
-.glance .col { grid-auto-rows: minmax(0, auto); min-height: 0; }
+.gcard:has(> .md) { flex-grow: 1.4; }
 .gcard .md, .gcard .files, .gcard .sess { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-/* Stacked, the cards keep their own height and the canvas scrolls. */
-#canvas.docked .glance:not(.one) { height: auto; grid-template-rows: none; }
-#canvas.docked .glance:not(.one) :is(.md, .files, .sess) { max-height: 360px; }
-@container (width < 700px) {
-  .glance:not(.one) { height: auto; grid-template-rows: none; }
-  .glance:not(.one) :is(.md, .files, .sess) { max-height: 360px; }
+/* Stacked beside the docked shell or on a narrow canvas: the cards keep their own height and the
+   canvas scrolls. */
+#canvas.docked .glance { flex-direction: column; height: auto; }
+#canvas.docked .gcard { flex: none; }
+#canvas.docked .glance :is(.md, .files, .sess) { max-height: 360px; }
+@container (width < 860px) {
+  .glance { flex-direction: column; height: auto; }
+  .gcard { flex: none; }
+  .glance :is(.md, .files, .sess) { max-height: 360px; }
 }
 .gcard h3 {
   margin: 0 0 8px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
