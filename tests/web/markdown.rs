@@ -291,8 +291,8 @@ fn a_thread_on_an_inner_line_shows_under_its_block() -> Result<()> {
     let html = frame["html"].as_str().unwrap_or("");
     // The browser draws the thread; the rows don't hold it.
     assert!(!html.contains("agent note"), "{html}");
-    // The quote's block shows the thread's caret.
-    assert!(blocks(html)[1].1.contains('▾'), "{html}");
+    // The quote's block shows no caret: the browser draws the thread's card.
+    assert!(!blocks(html)[1].1.contains('▾'), "{html}");
     let quote = unit_of(html, 3);
     let acted = rig.act(
         &mut ws,
@@ -472,16 +472,16 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
             ("out".into(), false)
         ]
     );
-    assert!(t.contains(r#"<tr data-line="3" class="th shut">"#), "{t}");
-    assert!(t.contains(r#"<tr data-line="4" class="th shut">"#), "{t}");
-    // A stop's caret shows on its row, not in the block's gutter.
+    // A stop with a thread carries no class, and no caret shows.
+    assert!(t.contains(r#"<tr data-line="3">"#), "{t}");
+    assert!(t.contains(r#"<tr data-line="4">"#), "{t}");
     assert!(!t.contains('▸') && !t.contains('▾'), "{t}");
 
     rig.act(&mut ws, toggle.clone());
     let (t, collapsed) = view(&mut rig, &mut ws);
     assert!(collapsed.iter().all(|(_, c)| !c));
-    assert!(t.contains(r#"<tr data-line="3" class="th">"#), "{t}");
-    assert!(t.contains(r#"<tr data-line="4" class="th">"#), "{t}");
+    assert!(t.contains(r#"<tr data-line="3">"#), "{t}");
+    assert!(t.contains(r#"<tr data-line="4">"#), "{t}");
 
     // On the second table thread's row, `r` toggles only that thread.
     for _ in 0..2 {
@@ -500,11 +500,8 @@ fn r_on_a_block_toggles_only_its_threads() -> Result<()> {
             ("out".into(), false)
         ]
     );
-    assert!(t.contains(r#"<tr data-line="3" class="th">"#), "{t}");
-    assert!(
-        t.contains(r#"<tr data-line="4" class="cur th shut">"#),
-        "{t}"
-    );
+    assert!(t.contains(r#"<tr data-line="3">"#), "{t}");
+    assert!(t.contains(r#"<tr data-line="4" class="cur">"#), "{t}");
 
     // On a blank line, `r` collapses every thread, as in the TUI.
     rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
@@ -736,7 +733,7 @@ fn a_code_line_is_its_own_unit() -> Result<()> {
         &mut ws,
         json!({"act": "jump_thread", "pane": 1, "next": true}),
     );
-    // The cursor and the thread show on the code line, not on the block.
+    // The cursor shows on the code line, not on the block.
     let mut view = rig.connect();
     let html = pane_frame(&mut rig, &mut view, 1)["html"]
         .as_str()
@@ -744,7 +741,7 @@ fn a_code_line_is_its_own_unit() -> Result<()> {
         .to_string();
     let code = &blocks(&html)[1].1;
     assert!(
-        code.contains(r#"<span data-line="5" class="cur th">"#),
+        code.contains(r#"<span data-line="5" class="cur">"#),
         "{code}"
     );
     assert!(
@@ -762,7 +759,7 @@ fn a_code_line_is_its_own_unit() -> Result<()> {
     assert!(
         blocks(&html)[1]
             .1
-            .contains(r#"<span data-line="5" class="cur th">"#),
+            .contains(r#"<span data-line="5" class="cur">"#),
         "{html}"
     );
     let acted = rig.act(&mut view, json!({"act": "submit", "pane": 1, "body": ""}));
@@ -821,8 +818,8 @@ fn a_nested_item_is_its_own_unit() -> Result<()> {
     let mut ws = rig.connect();
     let frame = pane_frame(&mut rig, &mut ws, 1);
     let html = frame["html"].as_str().unwrap_or("");
-    assert!(html.contains(r#"<li data-line="2" class="th">"#), "{html}");
-    // The item's caret shows on the item, not in the block's gutter.
+    // The item carries no class, and no caret shows.
+    assert!(html.contains(r#"<li data-line="2">"#), "{html}");
     assert!(!html.contains('▾'), "{html}");
     // A hand-wrapped item renders on one row in the TUI, so it has no line of its own.
     assert!(!html.contains(r#"<li data-line="5""#), "{html}");
@@ -835,19 +832,13 @@ fn a_nested_item_is_its_own_unit() -> Result<()> {
         .as_str()
         .unwrap_or("")
         .to_string();
-    assert!(
-        html.contains(r#"<li data-line="2" class="cur th">"#),
-        "{html}"
-    );
+    assert!(html.contains(r#"<li data-line="2" class="cur">"#), "{html}");
     rig.act(&mut view, json!({"act": "toggle_thread", "pane": 1}));
     let mut view = rig.connect();
     let html = pane_frame(&mut rig, &mut view, 1)["html"]
         .as_str()
         .unwrap_or("")
         .to_string();
-    assert!(
-        html.contains(r#"<li data-line="2" class="cur th shut">"#),
-        "{html}"
-    );
+    assert!(html.contains(r#"<li data-line="2" class="cur">"#), "{html}");
     Ok(())
 }

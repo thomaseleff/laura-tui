@@ -812,7 +812,7 @@ fn copy_selection(tab: &Tab, sel: &Selection, buf: &Buffer, inner: Rect) {
                 .iter()
                 .map(|r| (!r.comment).then_some(r.line))
                 .collect();
-            let gutter = layout.gutter_width as u16 + 5;
+            let gutter = layout.text_col() as u16;
             mouse::extract_panel(buf, inner, gutter, off, &line_at, sel.anchor, sel.head)
         }
         None => mouse::extract(buf, inner, sel.anchor, sel.head),

@@ -8,8 +8,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::panel::cursor::{on_card, on_stop};
-use crate::panel::{DIFF_ADD, DIFF_DEL, PanelLayout};
-use crate::render::escape;
+use crate::panel::{DECOR, DIFF_ADD, DIFF_DEL, PanelLayout};
+use crate::render::{Block, escape};
 use crate::{Panel, PanelRow};
 
 /// `html` with ` data-laura-line="N"` after each start tag's name, N the 1-based line of its `<`,
@@ -146,8 +146,8 @@ pub(super) fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
             ..line.style
         })
     );
-    // `panel_lines`' gutter: 6 spans, 2 on a comment row.
-    let gutter = (if row.comment { 2 } else { 6 }).min(line.spans.len());
+    // `panel_lines`' gutter: the number and a span per `DECOR` cell, 2 on a comment row.
+    let gutter = (if row.comment { 2 } else { DECOR + 1 }).min(line.spans.len());
     spans_html(&mut h, &line.spans[..gutter]);
     h.push_str("</span>");
     spans_html(&mut h, &line.spans[gutter..]);
@@ -196,15 +196,14 @@ pub(super) fn block_units(
             .position(|r| r.line >= b.rows.end)
             .map_or(layout.rows.len(), |k| first + k)
             .min(layout.eof.start);
-        let mut gutter: Vec<Span> = lines[first].spans.iter().take(6).cloned().collect();
+        let mut gutter: Vec<Span> = lines[first].spans.iter().take(DECOR + 1).cloned().collect();
         for (i, (row, line)) in layout.rows[first..end]
             .iter()
             .zip(&lines[first..end])
             .enumerate()
         {
             if !row.comment {
-                // The highlighted number, the change cell and the caret show if any row of the block
-                // has one. A stop's caret shows on the stop instead.
+                // The highlighted number and the change cell show if any row of the block has one.
                 // ponytail: the first change found, not row_change's Modified > Added > Removed rank.
                 if panel
                     .highlight
@@ -213,15 +212,11 @@ pub(super) fn block_units(
                 {
                     n.style = s.style;
                 }
-                // The first non-blank span wins, except that an open caret wins over a closed one.
-                let stop = b.stops().iter().any(|&(r, _)| r == row.line);
-                for k in [2, 4].into_iter().filter(|&k| k == 2 || !stop) {
-                    if let Some(g) = gutter.get_mut(k)
-                        && let Some(s) = line.spans.get(k).filter(|s| !blank(s))
-                        && (blank(g) || (k == 4 && s.content == "▾"))
-                    {
-                        *g = s.clone();
-                    }
+                // The first non-blank change cell wins.
+                if let Some(g) = gutter.get_mut(2).filter(|g| blank(g))
+                    && let Some(s) = line.spans.get(2).filter(|s| !blank(s))
+                {
+                    *g = s.clone();
                 }
             } else if first + i > layout.starts[row.line] {
                 continue;
@@ -229,23 +224,7 @@ pub(super) fn block_units(
                 units.push(row_html(panel, row, line));
             }
         }
-        // A stop with the cursor or a thread is marked inside the block, focused or not, so the
-        // browser's scroll target doesn't change with focus. The file's text can't fake
-        // ` data-line="N">`: every `>` in it is escaped.
-        let mut md = b.html().replace('\0', base);
-        for &(row, n) in b.stops() {
-            let thread = panel.threads.iter().find(|t| t.line == row);
-            let cls = match (panel.cursor == row, thread.map(|t| t.collapsed)) {
-                (true, Some(false)) => "cur th",
-                (true, Some(true)) => "cur th shut",
-                (true, None) => "cur",
-                (false, Some(false)) => "th",
-                (false, Some(true)) => "th shut",
-                (false, None) => continue,
-            };
-            let attr = format!(r#" data-line="{n}">"#);
-            md = md.replacen(&attr, &format!(r#" data-line="{n}" class="{cls}">"#), 1);
-        }
+        let md = mark_cursor_stop(panel, b, b.html().replace('\0', base));
         let has_cursor = b.rows.contains(&panel.cursor);
         let cur = focused && has_cursor && !on_card(panel, b) && !on_stop(panel, b);
         let hl = panel
@@ -270,16 +249,10 @@ pub(super) fn block_units(
             }
             _ => String::new(),
         };
-        // The gutter's caret column, where a stop's caret shows, past `GAP`.
-        let caret: usize = 1 + gutter
-            .iter()
-            .take(4)
-            .map(|s| s.content.chars().count())
-            .sum::<usize>();
         let mut h = String::with_capacity(md.len() + 200);
         let _ = write!(
             h,
-            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}" style="--caret:{caret}"{at}>{GAP}"#,
+            r#"<div class="blk{cls}{}" data-line="{}" data-row="b{}"{at}>{GAP}"#,
             if hl { " hl" } else { "" },
             panel.row_source_line(&layout.rows[first]),
             b.rows.start
@@ -293,6 +266,20 @@ pub(super) fn block_units(
     }
     rows(next..layout.rows.len(), &mut units, &mut cursor);
     (units, cursor)
+}
+
+/// `md`, a block's HTML, with `class="cur"` on the one of the block's [`Block::stops`] that has
+/// the cursor. Marked focused or not, so the browser's scroll target doesn't change with focus.
+/// The file's text can't fake ` data-line="N">`: every `>` in it is escaped.
+fn mark_cursor_stop(panel: &Panel, b: &Block, md: String) -> String {
+    let Some(&(_, n)) = b.stops().iter().find(|&&(row, _)| row == panel.cursor) else {
+        return md;
+    };
+    md.replacen(
+        &format!(r#" data-line="{n}">"#),
+        &format!(r#" data-line="{n}" class="cur">"#),
+        1,
+    )
 }
 
 fn spans_html(h: &mut String, spans: &[Span]) {

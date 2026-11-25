@@ -580,11 +580,6 @@ kbd {
 /* A code line. Inline-block, not block: a copied code block keeps single
    newlines. Top-aligned, so a blank line isn't taller than the rest. */
 .md pre [data-line] { display: inline-block; min-width: 100%; min-height: 1lh; vertical-align: top; }
-/* A stop's thread caret, in the block's gutter on the stop's line (src/view.rs caret_cell). */
-.md :is(li, pre [data-line]).th::before, .md tr.th > :first-child::before {
-  content: "▾"; position: absolute; left: calc(var(--cw) * var(--caret)); font-family: var(--mono);
-}
-.md :is(li, pre [data-line]).th.shut::before, .md tr.th.shut > :first-child::before { content: "▸"; }
 /* A list item's cursor band stops at its nested list. */
 .md li.cur > :is(ul, ol) { background: var(--blk); }
 .blk.dim .md { opacity: .42; }

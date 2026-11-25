@@ -1,7 +1,8 @@
 //! A file's review state: an opened file rendered beside the PTY, its cursor, comments, and live reload.
 //! Its children read the file: [`render`] styles it, and [`gitdiff`] diffs it against git HEAD.
-//! [`cursor`] moves the web app's cursor by block.
+//! [`cursor`] moves the web app's cursor by block. [`card`] draws a thread's card rows.
 
+mod card;
 pub(crate) mod cursor;
 pub mod gitdiff;
 pub mod render;
@@ -19,6 +20,10 @@ use crate::browser::page_of;
 use crate::gitdiff::{ChangeKind, DiffOutcome};
 use crate::protocol::PaneId;
 use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
+
+/// The gutter's cells between the line number and the text: sep · change · sep
+/// (`view::panel_lines`).
+pub(crate) const DECOR: usize = 3;
 
 /// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
 pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
@@ -137,7 +142,7 @@ impl Note {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thread {
     pub line: usize,
-    /// Card show/hide and gutter-caret shape. Starts expanded.
+    /// The card shows in full, or minimized to one row. Starts expanded.
     pub collapsed: bool,
     pub root: Note,
     /// Newest last, one level deep.
@@ -803,93 +808,6 @@ impl Panel {
         out
     }
 
-    /// Card rows for the expanded thread keyed on line `key` (empty when none/collapsed), tagged
-    /// `line: at` — the block's last row, so the card follows the whole block (#70). A rounded gray
-    /// box grown to the widest note; human notes are inline-code chips, agent notes plain fg.
-    /// Emitted at column 0 — `view::panel_lines` prefixes the decoration, so `pad_w` is only a wrap budget.
-    fn thread_rows(&self, key: usize, at: usize, inner_w: usize) -> Vec<PanelRow> {
-        let Some(t) = self.thread_at(key).filter(|t| !t.collapsed) else {
-            return vec![];
-        };
-        let gutter_width = self.source_lines.len().max(1).to_string().len();
-        let pad_w = gutter_width + 3; // number + sep + change + sep — card's left edge sits under the caret
-        let cap = inner_w.saturating_sub(pad_w + 4).max(12); // two border + two padding columns
-        let border = Style::default().fg(Color::Rgb(120, 120, 120)); // rounded box gray
-        let plain = Style::default().fg(Color::Rgb(171, 178, 191)); // one dark fg
-        let chip = Style::default().fg(Color::Rgb(180, 180, 180)).bg(CODE_BG);
-
-        let width = |spans: &[Span<'static>]| -> usize {
-            spans.iter().map(|s| s.content.chars().count()).sum()
-        };
-
-        // Inner note lines: wrap each line of `{name} · body`; continuations align under the note's
-        // start (connector width only), not under the body.
-        let mut inner: Vec<Vec<Span<'static>>> = vec![];
-        for (idx, note) in t.notes().enumerate() {
-            let is_user = matches!(note.author, Author::User);
-            let name = match &note.author {
-                Author::User => "You",
-                // Title-case the unnamed-agent fallback so it reads as a role beside "You";
-                // real supplied names render verbatim. The chat payload keeps lowercase "agent".
-                Author::Agent(n) if n == "agent" => "Agent",
-                Author::Agent(n) => n.as_str(),
-            };
-            let connector = if idx == 0 { "" } else { "└─ " };
-            let cw = connector.chars().count();
-            let chip_pad = if is_user { 2 } else { 0 }; // the chip pads one space each side
-            let full = format!("{name} · {}", note.body);
-            for (j, seg) in full
-                .lines()
-                .flat_map(|l| wrap_line(l, cap.saturating_sub(cw + chip_pad)))
-                .enumerate()
-            {
-                let mut spans = vec![];
-                let lead = if j == 0 {
-                    connector.to_string()
-                } else {
-                    " ".repeat(cw)
-                };
-                if !lead.is_empty() {
-                    spans.push(Span::styled(lead, border));
-                }
-                spans.push(if is_user {
-                    Span::styled(format!(" {seg} "), chip) // whole note as an inline-code chip
-                } else {
-                    Span::styled(seg, plain)
-                });
-                inner.push(spans);
-            }
-        }
-
-        // Draw the rounded box, growing to the widest inner line. `line: at` so scroll/copy keep the
-        // card with the block's last row; `comment: true` so cosmetics skip it and `view::panel_lines` indents it.
-        let w = inner.iter().map(|s| width(s)).max().unwrap_or(0);
-        let mk = |spans: Vec<Span<'static>>| PanelRow {
-            line: at,
-            gutter: None,
-            spans,
-            comment: true,
-            change: None,
-            review: None,
-        };
-        let mut rows = vec![mk(vec![Span::styled(
-            format!("╭{}╮", "─".repeat(w + 2)),
-            border,
-        )])];
-        for line in inner {
-            let used = width(&line);
-            let mut spans = vec![Span::styled("│ ".to_string(), border)];
-            spans.extend(line);
-            spans.push(Span::styled(format!("{} │", " ".repeat(w - used)), border));
-            rows.push(mk(spans));
-        }
-        rows.push(mk(vec![Span::styled(
-            format!("╰{}╯", "─".repeat(w + 2)),
-            border,
-        )]));
-        rows
-    }
-
     /// Lay the panel into visual rows for an `inner_w`-wide area. Wrapping here (not the widget) keeps rows 1:1 so scroll, scrollbar, and `L<n>` stay exact.
     pub fn layout(&self, inner_w: usize) -> PanelLayout {
         if self.diff_view {
@@ -899,29 +817,10 @@ impl Panel {
         // number exceed `styled.len()`.
         let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
-        // 5-cell gutter decoration (number · sep · change · sep · caret · sep · body); see `view::panel_lines`.
-        let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
+        let tw = inner_w.saturating_sub(gutter_width + DECOR).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
         let mut block_start = 0;
-        let gap = |n: usize, line: usize| {
-            let word = if n == 1 { "line" } else { "lines" };
-            let mut label = format!("── {n} {word} removed ");
-            // +2 so the separator still reaches the pane edge from the caret-aligned indent (+3, not +5).
-            let dashes = (tw + 2).saturating_sub(label.chars().count());
-            label.push_str(&"─".repeat(dashes));
-            PanelRow {
-                line,
-                gutter: None,
-                spans: vec![Span::styled(
-                    label,
-                    Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
-                )],
-                comment: true,
-                change: None,
-                review: None,
-            }
-        };
         // An EOF deletion has no line below it, so its gap goes below the last line (#142). An emptied
         // file shows no gap.
         let eof_n: usize = self
@@ -940,35 +839,10 @@ impl Panel {
             // *above* line `i`. Pushed before `starts[i]` so the row sits outside
             // line `i`'s selectable span and the `starts` invariant holds.
             if let Some(n) = self.removed_in_row(i) {
-                rows.push(gap(n, i));
+                rows.push(gap_row(n, i, tw));
             }
             starts.push(rows.len());
-            let nowrap = self.nowrap.get(i).copied().unwrap_or(false);
-            // A thematic-break sentinel stretches full-width; everything else word-wraps.
-            let chunks = if line.spans.len() == 1 && line.spans[0].content.as_ref() == RULE_SENTINEL
-            {
-                vec![vec![Span::styled("─".repeat(tw), line.spans[0].style)]]
-            } else if nowrap {
-                // Pre-formatted: clip to the horizontal window instead of wrapping. Judge fenced
-                // from the source: a clipped row ends in a bg-less `›` and would drop out of the
-                // box. Fenced rows clip 2 narrower for `box_fenced`'s 1-cell pad per side (#65).
-                let fenced = is_fenced_row(&line.spans);
-                let w = if fenced {
-                    tw.saturating_sub(2).max(1)
-                } else {
-                    tw
-                };
-                let mut row = clip_spans(&line.spans, self.h_offset, w);
-                if fenced
-                    && let Some(bg) = row.iter().find_map(|s| s.style.bg)
-                    && let Some(m) = row.last_mut().filter(|s| s.style.bg.is_none())
-                {
-                    m.style.bg = Some(bg); // keep the `›` inside the box
-                }
-                vec![row]
-            } else {
-                wrap_spans(&cap_inline(&line.spans), tw)
-            };
+            let chunks = self.line_chunks(i, line, tw);
             for (k, chunk) in chunks.into_iter().enumerate() {
                 rows.push(PanelRow {
                     line: i,
@@ -979,17 +853,12 @@ impl Panel {
                     // Bar runs every wrapped row of the changed paragraph; row_change folds
                     // the block's source range, identical for each row of line i (#35).
                     change: self.row_change(i),
-                    // Caret only on the line's first row; carries collapse shape.
-                    review: (k == 0)
-                        .then(|| self.thread_at(i))
-                        .flatten()
-                        .map(|t| t.collapsed),
                 });
             }
             // The EOF gap sits between the last line and its card, as the web app orders them.
             if i + 1 == self.styled.len() && eof_n > 0 {
                 eof = Some(rows.len()..rows.len() + 1);
-                rows.push(gap(eof_n, i));
+                rows.push(gap_row(eof_n, i, tw));
             }
             // A folded block's card lands after its last row so it never splits the block (#70).
             if self.source.get(i + 1) != self.source.get(i) {
@@ -1007,6 +876,36 @@ impl Panel {
         }
     }
 
+    /// Rendered line `i`'s rows at text width `tw`: a pre-formatted line clips to the horizontal
+    /// window, anything else word-wraps.
+    fn line_chunks(&self, i: usize, line: &Line<'static>, tw: usize) -> Vec<Vec<Span<'static>>> {
+        let nowrap = self.nowrap.get(i).copied().unwrap_or(false);
+        // A thematic-break sentinel stretches full-width; everything else word-wraps.
+        if line.spans.len() == 1 && line.spans[0].content.as_ref() == RULE_SENTINEL {
+            vec![vec![Span::styled("─".repeat(tw), line.spans[0].style)]]
+        } else if nowrap {
+            // Pre-formatted: clip to the horizontal window instead of wrapping. Judge fenced
+            // from the source: a clipped row ends in a bg-less `›` and would drop out of the
+            // box. Fenced rows clip 2 narrower for `box_fenced`'s 1-cell pad per side (#65).
+            let fenced = is_fenced_row(&line.spans);
+            let w = if fenced {
+                tw.saturating_sub(2).max(1)
+            } else {
+                tw
+            };
+            let mut row = clip_spans(&line.spans, self.h_offset, w);
+            if fenced
+                && let Some(bg) = row.iter().find_map(|s| s.style.bg)
+                && let Some(m) = row.last_mut().filter(|s| s.style.bg.is_none())
+            {
+                m.style.bg = Some(bg); // keep the `›` inside the box
+            }
+            vec![row]
+        } else {
+            wrap_spans(&cap_inline(&line.spans), tw)
+        }
+    }
+
     /// #18: lay the panel out as an inline diff vs HEAD — deleted lines as red `-` rows above green
     /// `+` added/modified lines, unchanged plain. Iterates the raw `source_lines`, so `changes`/
     /// `removed` index straight in and markdown shows a readable patch, not an overlay on prose (#32).
@@ -1016,8 +915,8 @@ impl Panel {
     fn diff_layout(&self, inner_w: usize) -> PanelLayout {
         let total = self.source_lines.len().max(1);
         let gutter_width = total.to_string().len();
-        // Match `layout`'s 5-cell decoration budget; diff view renders those cells as blanks.
-        let tw = inner_w.saturating_sub(gutter_width + 5).max(1);
+        // Match `layout`'s decoration budget; diff view renders those cells as blanks.
+        let tw = inner_w.saturating_sub(gutter_width + DECOR).max(1);
         let green = Style::default().fg(DIFF_ADD);
         let red = Style::default().fg(DIFF_DEL);
         let line_count = self.source_lines.len().max(1);
@@ -1035,7 +934,6 @@ impl Panel {
                             spans: vec![Span::styled(chunk, red)],
                             comment: false,
                             change: None,
-                            review: None,
                         });
                     }
                 }
@@ -1063,7 +961,6 @@ impl Panel {
                     spans: vec![span],
                     comment: false,
                     change: None,
-                    review: None,
                 });
             }
         }
@@ -1209,9 +1106,6 @@ pub struct PanelRow {
     /// Gutter-bar change, folded from the row's source range; `None` on continuation/comment/gap
     /// rows and in diff-view. The renderer keys the bar off this (#32).
     pub change: Option<ChangeKind>,
-    /// Review caret on the line's first row: `Some(collapsed)` = a thread here, shape carries
-    /// collapse (`▸`/`▾`) (#45).
-    pub review: Option<bool>,
 }
 
 impl PanelRow {
@@ -1229,6 +1123,32 @@ pub struct PanelLayout {
     /// The rows of a deletion at the end of the file, below the last line. Empty, at `rows.len()`,
     /// when there is none.
     pub eof: Range<usize>,
+}
+
+impl PanelLayout {
+    /// The column a row's text starts at, past the gutter.
+    pub fn text_col(&self) -> usize {
+        self.gutter_width + DECOR
+    }
+}
+
+/// A removed-lines row for `n` lines, tagged `line`, its dashes reaching the edge of text width `tw`.
+fn gap_row(n: usize, line: usize, tw: usize) -> PanelRow {
+    let word = if n == 1 { "line" } else { "lines" };
+    let mut label = format!("── {n} {word} removed ");
+    // The row's indent is the gutter's, so the dashes reach the pane edge at the text width.
+    let dashes = tw.saturating_sub(label.chars().count());
+    label.push_str(&"─".repeat(dashes));
+    PanelRow {
+        line,
+        gutter: None,
+        spans: vec![Span::styled(
+            label,
+            Style::default().fg(Color::Rgb(191, 97, 106)), // nord red
+        )],
+        comment: true,
+        change: None,
+    }
 }
 
 /// The last row belonging to source `line`, scanning forward from its `starts` entry.
