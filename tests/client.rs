@@ -796,11 +796,13 @@ fn editor_beside(
         "h",
     ]);
     let c = Client::open(r, chrome);
+    // A layout from before the page's size (`--cols`) would resize the xterm after this returns.
     let cols = c.until(
         r,
-        "one split at 50%, with the editor's xterm at its pane's size",
-        "layout.splits[0]?.ratio === 50 \
-           && terms.get(2)?.cols === layout.panes.find(p => p.id === 2).w - 2 && terms.get(2).cols",
+        "one split at 50% at the page's size, with the editor's xterm at its pane's size",
+        "(p => layout.splits[0]?.ratio === 50 \
+           && p.x + p.w === +document.documentElement.style.getPropertyValue('--cols') \
+           && terms.get(2)?.cols === p.w - 2 && terms.get(2).cols)(layout.panes.find(p => p.id === 2))",
     );
     Ok((c, cols, [five, dir]))
 }
