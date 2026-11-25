@@ -89,16 +89,16 @@ In markdown:
 
 ## Show what changed
 
-Laura marks each line changed since git `HEAD` in a file pane's gutter: a **green** bar on added lines, **blue** on modified lines, and a dim-**red** `── N lines removed ──` row where lines were deleted. Laura updates the markers when the file reloads.
+Laura [tints each line changed](navigation.md#changed-lines) since git `HEAD` in a file pane: **green** rows for added lines, **blue** rows for modified lines, and a **red** `── N lines removed ──` row where lines were deleted. Laura updates the tints when the file reloads.
 
-- Laura needs `git` on `PATH` for the markers. Without `git`, `laura open` warns `diff markers unavailable` on stderr, and Laura shows a notice and no markers.
-- In markdown, Laura marks the rendered row whose paragraph or block holds the changed source line.
+- Laura needs `git` on `PATH` for the tints. Without `git`, `laura open` warns `diff markers unavailable` on stderr, and Laura shows a notice and no tints.
+- In markdown, Laura tints the rendered rows of the paragraph or block that holds the changed source line.
 - When the user deletes the last lines of a file, Laura shows the `── N lines removed ──` row below the last line.
-- Laura shows no markers on an untracked file until the file is committed.
+- Laura shows no tints on an untracked file until the file is committed.
 
 ## See the full diff inline
 
-Laura marks *where* lines changed in the gutter. In the diff view, Laura shows *what* changed: Laura replaces the pane's content with an interleaved `+`/`-` diff against git `HEAD`, with deleted lines as red `-` rows holding their old text.
+Laura's tints show *where* lines changed. In the diff view, Laura shows *what* changed: Laura replaces the pane's content with an interleaved `+`/`-` diff against git `HEAD`, with deleted lines as red `-` rows holding their old text.
 
 ```bash
 laura open src/x.rs --diff       # open straight into the diff view

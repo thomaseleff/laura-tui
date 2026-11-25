@@ -33,6 +33,18 @@ pub enum ChangeKind {
     Removed(usize),
 }
 
+impl ChangeKind {
+    /// The change a range shows when its lines differ: Modified > Added > Removed, so a mixed
+    /// markdown block reads as edited.
+    pub(crate) fn rank(self) -> u8 {
+        match self {
+            ChangeKind::Modified => 2,
+            ChangeKind::Added => 1,
+            ChangeKind::Removed(_) => 0,
+        }
+    }
+}
+
 /// One zero-context hunk, keyed to current (new-file) line numbers.
 #[derive(Debug, PartialEq)]
 pub struct Hunk {

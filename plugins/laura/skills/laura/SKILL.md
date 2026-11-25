@@ -160,7 +160,7 @@ Each motion is a common sequence of `laura` commands, with when to use it.
 - **`overflows:`** — the content overflows the pane. For a large overflow, open the file stacked (`--dir v`) to give the pane more height.
 - **`too small`** — the pane is too small to show any of the content. Raise `--ratio` or change `--dir`.
 - **`cannot read <path>: …`** — Laura can't read the file. Check the path.
-- **`diff markers unavailable`** — `git` isn't installed, so Laura shows no gutter markers or diff view.
+- **`diff markers unavailable`** — `git` isn't installed, so Laura shows no tints on changed lines and no diff view.
 - **`already open in pane #N`** — reuse pane N (`laura highlight --pane N`). Open a second pane of one file only for two distant sections. If the warning ends with `, which has an unsubmitted inline review`, use the new pane and leave pane N to your partner's inline review.
 
 ### Call and respond
@@ -206,7 +206,7 @@ Each motion is a common sequence of `laura` commands, with when to use it.
 
 **Use when** you want to show *what* changed, not just *where*, or your partner asks to see the latest changes to a file.
 
-Laura marks added, modified and deleted lines in every file pane's gutter. On a clean or untracked file, or without `git`, there is nothing to diff: `laura diff` returns an error, and `laura open --diff` warns on stderr.
+Laura tints added and modified lines, and shows a red row where lines were deleted, in every file pane. To point your partner at a change, name the tinted rows. On a clean or untracked file, or without `git`, there is nothing to diff: `laura diff` returns an error, and `laura open --diff` warns on stderr.
 
 ### Edit a file together
 

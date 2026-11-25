@@ -168,6 +168,65 @@ fn a_diff_row_names_its_change() -> Result<()> {
     Ok(())
 }
 
+/// #215: outside the diff view, a changed row and a changed markdown block name their tint.
+#[test]
+fn a_changed_row_names_its_tint() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_dir, path) = changed_file(
+        "a.txt",
+        "keep\nold\nmid\ngone\nlast\n",
+        "keep\nnew\nmid\nlast\nadded\n",
+    )?;
+    rig.drive(&["open", &path]);
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let row = |html: &str, text: &str| {
+        html.split("<div class=\"row")
+            .find(|r| r.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text}: {html}"))
+            .to_string()
+    };
+    assert!(
+        row(&html, "new").contains(r#"data-change="modified""#),
+        "{html}"
+    );
+    assert!(
+        row(&html, ">added").contains(r#"data-change="added""#),
+        "{html}"
+    );
+    assert!(
+        row(&html, "1 line removed").contains(r#"data-change="removed""#),
+        "{html}"
+    );
+    assert!(!row(&html, "keep").contains("data-change"), "{html}");
+
+    rig.act(&mut ws, json!({"act": "toggle_diff", "pane": 1}));
+    let html = pane_frame(&mut rig, &mut ws, 1)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        !html.contains("data-change"),
+        "the diff view shows no tints: {html}"
+    );
+
+    let (_md, doc) = changed_file("doc.md", "# t\n\nold text\n", "# t\n\nnew text\n")?;
+    rig.drive(&["open", &doc]);
+    let html = pane_frame(&mut rig, &mut ws, 2)["html"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let blk = html
+        .split("<div class=\"blk")
+        .find(|b| b.contains("new text"))
+        .unwrap_or_else(|| panic!("no block with new text: {html}"));
+    assert!(blk.contains(r#"data-change="modified""#), "{html}");
+    Ok(())
+}
+
 #[test]
 fn open_path_with_diff_opens_the_diff_view() -> Result<()> {
     let mut rig = Rig::new()?;

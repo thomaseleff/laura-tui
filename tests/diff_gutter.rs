@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use assert_cmd::Command;
 use laura::{ChangeKind, Rect, Tab};
+use ratatui::style::Color;
 
 fn spawn_tab() -> Result<Tab> {
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
@@ -209,7 +210,9 @@ fn a_deletion_at_a_closing_fence_shows_on_the_next_row() -> Result<()> {
         gap.is_some_and(|g| g < after),
         "removed-lines row above `after`"
     );
-    assert_eq!(rows[after].change, Some(ChangeKind::Removed(1)));
+    // #215: the removed-lines row carries the deletion; the line after it shows no tint.
+    assert_eq!(rows[gap.unwrap()].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(rows[after].change, None);
     Ok(())
 }
 
@@ -258,7 +261,8 @@ fn a_deletion_at_a_closing_fence_that_ends_the_file_shows_on_the_last_row() -> R
         gap.is_some_and(|g| g < a),
         "removed-lines row above the last row"
     );
-    assert_eq!(rows[a].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(rows[gap.unwrap()].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(rows[a].change, None);
     Ok(())
 }
 
@@ -384,5 +388,56 @@ fn untracked_file_has_no_markers() -> Result<()> {
         tab.panels[&id].changes.is_empty(),
         "untracked file → git diff empty, no markers (v1 scope)"
     );
+    Ok(())
+}
+
+#[test]
+fn a_changed_line_tints_its_rows_and_no_gutter_has_a_change_cell() -> Result<()> {
+    // #215: a modified line's every wrapped row takes the Modified tint, the removed-lines row the
+    // Removed tint, and the gutter is the number and one space.
+    let long = "word ".repeat(20);
+    let (_dir, path) = repo_with("f.txt", &format!("keep\n{long}\nmid\ngone\nlast\n"))?;
+    std::fs::write(&path, format!("keep\n{long}edited\nmid\nlast\n"))?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus"]).parse()?;
+    let panel = &tab.panels[&id];
+    let width = 40;
+    let layout = panel.layout(width);
+    let lines = laura::view::panel_lines(panel, &layout, false, width, false);
+    let rows = &layout.rows;
+    let changed: Vec<usize> = (0..rows.len())
+        .filter(|&j| rows[j].text().contains("word"))
+        .collect();
+    assert!(changed.len() >= 2, "the modified line wraps: {changed:?}");
+    let gap = rows
+        .iter()
+        .position(|r| r.text().contains("1 line removed"))
+        .expect("removed-lines row");
+    let bg = |j: usize| lines[j].style.bg;
+    for &j in &changed {
+        assert_eq!(rows[j].change, Some(ChangeKind::Modified), "row {j}");
+        assert_eq!(bg(j), Some(Color::Rgb(44, 79, 122)), "row {j} is tinted");
+    }
+    assert_eq!(rows[gap].change, Some(ChangeKind::Removed(1)));
+    assert_eq!(
+        bg(gap),
+        Some(Color::Rgb(107, 42, 51)),
+        "the removed-lines row"
+    );
+    let keep = rows.iter().position(|r| r.text() == "keep").expect("keep");
+    assert_eq!(rows[keep].change, None);
+    assert_eq!(bg(keep), None, "an unchanged row has no tint");
+    for (j, line) in lines.iter().enumerate().filter(|(j, _)| !rows[*j].comment) {
+        assert_eq!(
+            line.spans[1].content, " ",
+            "row {j}: the space after the number"
+        );
+        let body: String = line.spans[2..].iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            body.starts_with(&rows[j].text()),
+            "row {j}: the text follows the space: {body:?}"
+        );
+    }
     Ok(())
 }
