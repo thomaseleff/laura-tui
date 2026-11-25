@@ -26,8 +26,8 @@ use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
 pub(crate) const DECOR: usize = 1;
 
 /// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
-pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
-pub(crate) const DIFF_DEL: Color = Color::Rgb(191, 97, 106); // nord red
+const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
+const DIFF_DEL: Color = Color::Rgb(191, 97, 106); // nord red
 
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
 pub struct Panel {
