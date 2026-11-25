@@ -449,6 +449,49 @@ fn a_click_on_the_glance_opens_the_file() -> Result<()> {
     Ok(())
 }
 
+/// #258: on a laptop-height window the glance fits the room above the drawer: the canvas doesn't
+/// scroll, each card ends above the canvas's bottom, and the sessions card shows rows below its
+/// title. The crate's README is long, so the README card scrolls inside itself.
+#[test]
+fn the_glance_fits_above_the_drawer() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    // The shared home, as in `a_click_on_the_glance_opens_the_file`, with a session in the crate,
+    // the rig's folder, for the sessions card.
+    let sessions = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(".laura/sessions");
+    std::fs::create_dir_all(&sessions)?;
+    let root = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR"))?;
+    let ready = json!({"type": "ready", "ts": 1, "root": root, "title": "glance fit"});
+    let review = json!({"type": "review", "ts": 2, "pane": 1, "path": root.join("README.md")});
+    std::fs::write(
+        sessions.join("client-glance-fit.ndjson"),
+        format!("{ready}\n{review}\n"),
+    )?;
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.until(
+        &mut r,
+        "the glance's sessions card",
+        "layout?.canvas === 'glance' && document.querySelector('#canvas .glance .sess')",
+    );
+    for _ in 0..10 {
+        r.pump();
+    }
+    let fit = c.eval(
+        "(() => { const c = document.getElementById('canvas'), bottom = c.getBoundingClientRect().bottom; \
+           return { scrolls: c.scrollHeight > c.clientHeight + 1, \
+             below: [...c.querySelectorAll('.gcard')].filter(g => g.getBoundingClientRect().bottom > bottom + 1).length, \
+             sess: document.querySelector('#canvas .sess').clientHeight }; })()",
+    );
+    let fit = fit.map_err(anyhow::Error::msg)?;
+    assert_eq!(fit["scrolls"], json!(false), "{fit}");
+    assert_eq!(fit["below"], json!(0), "{fit}");
+    assert!(fit["sess"].as_f64().unwrap_or(0.0) >= 20.0, "{fit}");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// #213: the start canvas is not a pane, so a click on its text leaves the keystrokes in the shell.
 #[test]
 fn a_click_on_the_canvas_keeps_the_shell() -> Result<()> {

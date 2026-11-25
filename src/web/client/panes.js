@@ -469,12 +469,12 @@ export function paintGlance(m) {
 }
 
 const glance = $("canvas").querySelector(".glance");
-// The least height of the glance, which keeps a few rows of each card readable: on a short
-// window, the canvas scrolls.
-const GLANCE_MIN = 440;
+// The least height of the glance, which keeps a few rows of each card readable. The glance fits the
+// room above the drawer and each card scrolls; only on a very short window does the canvas scroll.
+const GLANCE_MIN = 160;
 
-// The glance's height (`--h`): its cards' own height, at most the canvas's and at least
-// `GLANCE_MIN`. The canvas holds still while the user drags the drawer's grip.
+// The glance's height (`--h`): its cards' own height, at most the room above the drawer and at
+// least `GLANCE_MIN`. The canvas holds still while the user drags the drawer's grip.
 function sizeGlance() {
   const c = $("canvas"), cs = getComputedStyle(c);
   if (c.hidden || c.dataset.c !== "glance" || !glance.firstChild) return;
