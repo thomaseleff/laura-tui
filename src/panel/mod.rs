@@ -805,15 +805,19 @@ impl Panel {
         out
     }
 
+    /// The digits of the gutter's line number, sized off the largest *source* line number (a
+    /// collapsed block makes it exceed `styled.len()`). At least 2, so Neovim's 2-cell sign fits in
+    /// the number column of a short file and the editor's text keeps its column.
+    pub(super) fn gutter_width(&self) -> usize {
+        self.source_lines.len().max(1).to_string().len().max(2)
+    }
+
     /// Lay the panel into visual rows for an `inner_w`-wide area. Wrapping here (not the widget) keeps rows 1:1 so scroll, scrollbar, and `L<n>` stay exact.
     pub fn layout(&self, inner_w: usize) -> PanelLayout {
         if self.diff_view {
             return self.diff_layout(inner_w);
         }
-        // Gutter is sized off the largest *source* line number: a collapsed block makes the top
-        // number exceed `styled.len()`.
-        let total = self.source_lines.len().max(1);
-        let gutter_width = total.to_string().len();
+        let gutter_width = self.gutter_width();
         let tw = inner_w.saturating_sub(gutter_width + DECOR).max(1);
         let mut rows = vec![];
         let mut starts = vec![];
@@ -910,8 +914,7 @@ impl Panel {
     /// ponytail: markdown's cursor is rendered-row space while these rows key to source lines, so the
     /// diff-view cursor anchor is approximate — a read mode, block-close.
     fn diff_layout(&self, inner_w: usize) -> PanelLayout {
-        let total = self.source_lines.len().max(1);
-        let gutter_width = total.to_string().len();
+        let gutter_width = self.gutter_width();
         // Match `layout`'s gutter, so the text keeps its column when the diff view turns on.
         let tw = inner_w.saturating_sub(gutter_width + DECOR).max(1);
         let green = Style::default().fg(DIFF_ADD);

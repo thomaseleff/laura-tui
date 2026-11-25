@@ -56,7 +56,7 @@ The border shows the view and the unsaved edits (see [Pane borders](#pane-border
 
 The first time you start Laura with editor panes enabled, Laura asks if you want to use its theme in Neovim: `y` yes, `n` keep your Neovim as it is, `Esc` ask again next launch. Laura holds the agent's commands until you answer.
 
-Laura's theme gives Neovim the file view's colors (Nord, over the terminal's background), and line numbers in the file view's gutter, so both views look the same. Neovim shows a thread's `✎` in place of its line's number. Laura applies the theme only inside Laura and never changes your config. Laura saves your answer in your [settings](cli.md#settings). To be asked again, remove `editor_theme` from the settings and restart Laura. Until you answer, editor panes in the browser use your Neovim's own theme.
+Laura's theme gives Neovim the file view's colors (Nord, over the terminal's background), and line numbers in the file view's gutter, so both views look the same. Neovim shows a thread's `✎`, and the signs of your Neovim plugins, in place of the line's number. Laura applies the theme only inside Laura and never changes your config. Laura saves your answer in your [settings](cli.md#settings). To be asked again, remove `editor_theme` from the settings and restart Laura. Until you answer, editor panes in the browser use your Neovim's own theme.
 
 ## Small terminals
 

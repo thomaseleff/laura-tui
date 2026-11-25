@@ -89,7 +89,7 @@ In markdown:
 
 ## Show what changed
 
-Laura [tints each line changed](navigation.md#changed-lines) since git `HEAD` in a file pane: **green** rows for added lines, **blue** rows for modified lines, and a **red** `── N lines removed ──` row where lines were deleted. Laura updates the tints when the file reloads.
+Laura [tints each line changed](navigation.md#changed-lines) since git `HEAD` in a file pane, and updates the tints when the file reloads.
 
 - Laura needs `git` on `PATH` for the tints. Without `git`, `laura open` warns `diff markers unavailable` on stderr, and Laura shows a notice and no tints.
 - In markdown, Laura tints the rendered rows of the paragraph or block that holds the changed source line.

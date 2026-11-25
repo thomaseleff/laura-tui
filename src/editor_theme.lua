@@ -28,9 +28,10 @@ vim.api.nvim_create_autocmd('VimEnter', {
       vim.api.nvim_set_hl(0, name, hl)
     end
     vim.opt.number = true
-    -- The digits and a space, so the text starts at gw + 1, as in the file view (panel::DECOR).
-    -- A sign (a thread's ✎) shows in place of its line's number.
-    vim.opt.numberwidth = 1
+    -- At least 2 digits and a space, so the text starts at gw + 1, as in the file view
+    -- (Panel::gutter_width, panel::DECOR). A sign (a thread's ✎, a plugin's sign) shows in place of
+    -- its line's number, and its 2 cells fit on a short file.
+    vim.opt.numberwidth = 3
     vim.opt.cursorline = true
     vim.opt.signcolumn = 'number'
   end,

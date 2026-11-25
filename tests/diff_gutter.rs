@@ -1,4 +1,4 @@
-//! Feat #26: gutter diff markers. A real git repo in a tempdir, driven through the
+//! Feat #26, #215: a changed line's row tint. A real git repo in a tempdir, driven through the
 //! real seam (binary → socket → `Tab::drain`); assert on `panel.changes` state, not
 //! pixels, per CLAUDE.md.
 
@@ -405,6 +405,8 @@ fn a_changed_line_tints_its_rows_and_no_gutter_has_a_change_cell() -> Result<()>
     let width = 40;
     let layout = panel.layout(width);
     let lines = laura::view::panel_lines(panel, &layout, false, width, false);
+    // A 5-line file still gets two digits, so Neovim's 2-cell sign fits in the editor's gutter.
+    assert_eq!(layout.gutter_width, 2);
     let rows = &layout.rows;
     let changed: Vec<usize> = (0..rows.len())
         .filter(|&j| rows[j].text().contains("word"))

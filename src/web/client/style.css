@@ -561,7 +561,7 @@ kbd {
   font: 16px/1.5 var(--sans); padding-right: calc(2 * var(--cw));
   overflow-wrap: anywhere;
 }
-/* Hover and a thread's tint under the cursor and the highlight. */
+/* Hover and a thread's tint under a changed line's tint, the cursor and the highlight. */
 :where(.rows > [data-row]):hover { background: #f6f6f9; }
 .has-th { background: #f4f5fe; }
 /* The diff view colors whole rows, which read better on white than colored text alone. */
