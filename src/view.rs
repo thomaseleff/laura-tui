@@ -200,20 +200,8 @@ pub fn panel_lines(
                         .sum::<usize>();
                 let pad = width.saturating_sub(used);
                 if on_cursor {
-                    // Gray band under the cursor. Repaint code chips + inline caps a shade lighter
-                    // so they read as raised chips on the band, not holes.
                     spans.extend(body);
-                    for s in spans.iter_mut() {
-                        if s.style.bg.is_some() {
-                            s.style.bg = Some(CODE_ON_BAND);
-                        } else if s.style.fg == Some(CODE_BG) {
-                            s.style.fg = Some(CODE_ON_BAND);
-                        }
-                    }
-                    if pad > 0 && !web {
-                        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
-                    }
-                    Line::from(spans).bg(BAND)
+                    band_line(spans, pad, web)
                 } else {
                     spans.extend(body);
                     if pad > 0 {
@@ -224,6 +212,22 @@ pub fn panel_lines(
             }
         })
         .collect()
+}
+
+/// The cursor row's gray band. Code chips and inline caps repaint a shade lighter so they read as
+/// raised chips on the band, not holes. `web` leaves the band's padding to the browser.
+fn band_line(mut spans: Vec<Span<'static>>, pad: usize, web: bool) -> Line<'static> {
+    for s in spans.iter_mut() {
+        if s.style.bg.is_some() {
+            s.style.bg = Some(CODE_ON_BAND);
+        } else if s.style.fg == Some(CODE_BG) {
+            s.style.fg = Some(CODE_ON_BAND);
+        }
+    }
+    if pad > 0 && !web {
+        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
+    }
+    Line::from(spans).bg(BAND)
 }
 
 /// A text row's gutter, `DECOR` cells past the number: number · sep · change · sep.
