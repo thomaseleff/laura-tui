@@ -419,36 +419,41 @@ pub fn hint(tab: &Tab, mode: Hint) -> Pairs {
             when(!tab.agent && !tab.web, vec![("", READY)]),
         ]
         .concat(),
-        Hint::Pane if editor_focused => vec![
-            ("Ctrl+L", "file view"),
-            ("]d [d", "threads"),
-            (":w", "save"),
-            ("Ctrl+P", "find a pane"),
-            ("", "Other keystrokes go to Neovim"),
-        ],
-        Hint::Pane => [
-            // On the canvas, the drawer stays open.
-            when(
-                tab.drawer_in_use() && !tab.canvas_shown(),
-                vec![("Ctrl+`", "hide the shell")],
-            ),
-            when(
-                tab.drawer_in_use(),
-                vec![("Ctrl+Shift+↑ ↓", "drawer height")],
-            ),
-            vec![
-                ("Ctrl+P", "find a pane"),
-                ("Ctrl+H", "keystrokes"),
-                ("", "Other keystrokes go to the shell"),
-            ],
-        ]
-        .concat(),
+        Hint::Pane if editor_focused => editor_hint(),
+        Hint::Pane => shell_hint(tab),
         Hint::CommentMode => vec![
             ("", "Click an element to comment"),
             ("Esc", "leave comment mode"),
         ],
     };
     v.into_iter().map(|(k, l)| (k, l.to_string())).collect()
+}
+
+/// The hint line of a focused editor pane's editor view.
+fn editor_hint() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("Ctrl+L", "file view"),
+        ("]d [d", "threads"),
+        (":w", "save"),
+        ("Ctrl+P", "find a pane"),
+    ]
+}
+
+/// The hint line of the focused shell.
+fn shell_hint(tab: &Tab) -> Vec<(&'static str, &'static str)> {
+    [
+        // On the canvas, the drawer stays open.
+        when(
+            tab.drawer_in_use() && !tab.canvas_shown(),
+            vec![("Ctrl+`", "hide the shell")],
+        ),
+        when(
+            tab.drawer_in_use(),
+            vec![("Ctrl+Shift+↑ ↓", "drawer height")],
+        ),
+        vec![("Ctrl+P", "find a pane"), ("Ctrl+H", "keystrokes")],
+    ]
+    .concat()
 }
 
 /// `s`, cut from the left to `n` characters with `…`: a selector's end names its element.

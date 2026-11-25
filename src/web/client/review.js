@@ -24,8 +24,6 @@ export const authors = t => t.notes.map(n => n.author);
 // A thread's chip: a browser pane's element, cut from the left to `n` characters, else its line.
 const chip = (anchor, line, n) => esc(!anchor ? "L" + line : anchor.length > n ? "…" + anchor.slice(1 - n) : anchor);
 
-const HOLD = "Laura holds the agent’s commands while you type.";
-
 // The rows' units (rows and blocks), without the threads between them.
 export const units = rows => rows.querySelectorAll(":scope > [data-row]");
 
@@ -67,7 +65,7 @@ function makeDraftCard(reply) {
   const at = chip(ui.draft.anchor?.[0], ui.draft.line, 40);
   c.innerHTML = `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`
     + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on ${at}`}"></textarea>`
-    + `<div class="holdnote">${HOLD}</div><div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
+    + `<div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
     + `<button class="btn pri" data-act="save">${edit ? "Save" : verb} <kbd>Enter</kbd></button></div>`;
   c.querySelector("textarea").value = ui.draft.text;
   wireDraft(c);
@@ -153,9 +151,8 @@ export function paintThreads(id) {
   paintPop(id);
 }
 
-const REVIEW = '<div class="pop review"><div class="ph">Submit inline review <span class="mute"></span></div><p class="mute"></p>'
-  + '<div class="err" hidden></div><textarea spellcheck="false" placeholder="Review body (optional): overall direction for the agent"></textarea>'
-  + `<div class="holdnote">${HOLD}</div><div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
+const REVIEW = '<div class="pop review"><div class="err" hidden></div><textarea spellcheck="false" placeholder="Review body (optional)"></textarea>'
+  + '<div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>'
   + '<button class="btn pri" data-act="save"></button></div></div>';
 
 // The pane's popover under its header: the review body, the thread list, or **More**. The header's
@@ -189,20 +186,8 @@ function paintPop(id) {
     wrap.addEventListener("click", e => popClick(id, e));
     el.append(wrap);
   }
+  if (kind === "review") return paintReviewPop(wrap);
   const q = s => wrap.querySelector(s);
-  if (kind === "review") {
-    const n = p.threads;
-    q(".ph .mute").textContent = `· ${p.name}`;
-    q("p.mute").innerHTML = `${n} thread${n === 1 ? "" : "s"}${p.frozen ? " on the snapshot" : ""}. Laura writes them into the chat`
-      + ` as one <code>[laura review · pane #${p.id} · ${esc(p.path ?? p.name)}]</code> block, then clears the threads.`;
-    q(".err").hidden = !ui.draft.failed;
-    q(".err").textContent = strings.draft?.failed ?? "";
-    q("[data-act=save]").innerHTML = `${ui.draft.busy ? "Submitting…" : ui.draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
-    q("[data-act=save]").disabled = ui.draft.busy;
-    // The review body can't change while Laura submits it.
-    q("textarea").readOnly = ui.draft.busy;
-    return;
-  }
   if (kind === "more") {
     // The header's tools that this pane shows, which a narrow header hides; the narrowest also
     // hides **Submit**, the thread count and an editor pane's view flip.
@@ -236,6 +221,17 @@ function paintPop(id) {
     if (pop.html !== html) pop.innerHTML = pop.html = html;
     if (draftCard) pop.querySelector(".slot")?.replaceWith(draftCard);
   });
+}
+
+// The review body's popover: the failed submit and the **Submit review** button.
+function paintReviewPop(wrap) {
+  const q = s => wrap.querySelector(s);
+  q(".err").hidden = !ui.draft.failed;
+  q(".err").textContent = strings.draft?.failed ?? "";
+  q("[data-act=save]").innerHTML = `${ui.draft.busy ? "Submitting…" : ui.draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
+  q("[data-act=save]").disabled = ui.draft.busy;
+  // The review body can't change while Laura submits it.
+  q("textarea").readOnly = ui.draft.busy;
 }
 
 export const paintPops = () => layout?.panes.forEach(p => paintPop(p.id));
