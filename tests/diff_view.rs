@@ -160,7 +160,7 @@ fn an_end_of_file_deletion_shows_below_the_last_row_in_the_diff_view() -> Result
 
 #[test]
 fn markdown_diff_shows_the_raw_source_patch() -> Result<()> {
-    // #32: the block-map unblocks markdown diff. Rendered view lights a change bar on the row whose
+    // #32: the block-map unblocks markdown diff. Rendered view tints the row whose
     // source range covers the edit; diff-view drops the reflowed prose for a raw-source `+`/`-` patch.
     use laura::ChangeKind;
 

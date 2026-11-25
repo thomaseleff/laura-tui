@@ -209,6 +209,9 @@ pub fn panel_lines(
                     band_line(spans, pad, web)
                 } else {
                     spans.extend(body);
+                    if let Some(bg) = tint.bg {
+                        repaint_code(&mut spans, bg);
+                    }
                     if pad > 0 {
                         spans.push(Span::styled(" ".repeat(pad), tint));
                     }
@@ -222,17 +225,23 @@ pub fn panel_lines(
 /// The cursor row's gray band. Code chips and inline caps repaint a shade lighter so they read as
 /// raised chips on the band, not holes. `web` leaves the band's padding to the browser.
 fn band_line(mut spans: Vec<Span<'static>>, pad: usize, web: bool) -> Line<'static> {
-    for s in spans.iter_mut() {
-        if s.style.bg.is_some() {
-            s.style.bg = Some(CODE_ON_BAND);
-        } else if s.style.fg == Some(CODE_BG) {
-            s.style.fg = Some(CODE_ON_BAND);
-        }
-    }
+    repaint_code(&mut spans, CODE_ON_BAND);
     if pad > 0 && !web {
         spans.push(Span::styled(" ".repeat(pad), Style::default().bg(BAND)));
     }
     Line::from(spans).bg(BAND)
+}
+
+/// Repaint a row's code chips and inline caps in `color`, the row's own bg, so the row's band or
+/// tint runs through its code instead of stopping at a `CODE_BG` box.
+fn repaint_code(spans: &mut [Span<'static>], color: Color) {
+    for s in spans.iter_mut() {
+        if s.style.bg.is_some() {
+            s.style.bg = Some(color);
+        } else if s.style.fg == Some(CODE_BG) {
+            s.style.fg = Some(color);
+        }
+    }
 }
 
 /// A text row's gutter, [`GUTTER_SPANS`] spans: the number and the `DECOR` space after it.
