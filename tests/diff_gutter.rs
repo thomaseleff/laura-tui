@@ -419,12 +419,12 @@ fn a_changed_line_tints_its_rows_and_no_gutter_has_a_change_cell() -> Result<()>
     let bg = |j: usize| lines[j].style.bg;
     for &j in &changed {
         assert_eq!(rows[j].change, Some(ChangeKind::Modified), "row {j}");
-        assert_eq!(bg(j), Some(Color::Rgb(44, 79, 122)), "row {j} is tinted");
+        assert_eq!(bg(j), Some(Color::Rgb(36, 52, 74)), "row {j} is tinted");
     }
     assert_eq!(rows[gap].change, Some(ChangeKind::Removed(1)));
     assert_eq!(
         bg(gap),
-        Some(Color::Rgb(107, 42, 51)),
+        Some(Color::Rgb(61, 38, 43)),
         "the removed-lines row"
     );
     let keep = rows.iter().position(|r| r.text() == "keep").expect("keep");
@@ -463,7 +463,7 @@ fn a_changed_code_line_is_tinted_over_its_box() -> Result<()> {
         .position(|r| r.text().contains("let b = 3;"))
         .expect("edited code row");
     assert_eq!(rows[j].change, Some(ChangeKind::Modified));
-    assert_eq!(lines[j].style.bg, Some(Color::Rgb(44, 79, 122)));
+    assert_eq!(lines[j].style.bg, Some(Color::Rgb(36, 52, 74)));
     let code_bg = Some(Color::Rgb(45, 45, 45));
     assert!(
         lines[j].spans.iter().all(|s| s.style.bg != code_bg),

@@ -7,8 +7,8 @@ use std::ops::Range;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::panel::PanelLayout;
 use crate::panel::cursor::{on_card, on_stop};
-use crate::panel::{DIFF_ADD, DIFF_DEL, PanelLayout};
 use crate::render::{Block, escape};
 use crate::view::GUTTER_SPANS;
 use crate::{ChangeKind, Panel, PanelRow};
@@ -124,19 +124,11 @@ pub(super) fn row_html(panel: &Panel, row: &PanelRow, line: &Line) -> String {
             .is_some_and(|(lo, hi)| (lo..=hi).contains(&row.line));
     // `panel_lines` marks the cursor's row with a background; `.cur` paints it, so `.hl` wins.
     let cur = line.style.bg.is_some();
-    // A diff row's color, which a wrapped row's later rows keep without the sign.
-    let fg = row.spans.first().and_then(|s| s.style.fg);
-    let diff = match fg {
-        _ if !panel.diff_view => "",
-        Some(DIFF_ADD) => r#" data-diff="add""#,
-        Some(DIFF_DEL) => r#" data-diff="del""#,
-        _ => "",
-    };
     let change = change_attr(row.change);
     let mut h = String::with_capacity(160);
     let _ = write!(
         h,
-        r#"<div class="row{}{}{}" data-line="{}" data-row="{}"{diff}{change}{}>{GAP}"#,
+        r#"<div class="row{}{}{}" data-line="{}" data-row="{}"{change}{}>{GAP}"#,
         // Only removed-lines rows reach here as comment rows: the browser draws the cards.
         if row.comment { " gap" } else { "" },
         if highlighted { " hl" } else { "" },

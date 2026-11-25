@@ -25,9 +25,9 @@ use crate::render::{Block, CODE_BG, RULE_SENTINEL, Rendered, plain, render};
 /// (`view::panel_lines`).
 pub(crate) const DECOR: usize = 1;
 
-/// The diff view's `+` and `-` text, which the web app also reads to color whole rows.
-pub(crate) const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
-pub(crate) const DIFF_DEL: Color = Color::Rgb(191, 97, 106); // nord red
+/// The diff view's `+` and `-` text color.
+const DIFF_ADD: Color = Color::Rgb(163, 190, 140); // nord green
+const DIFF_DEL: Color = Color::Rgb(191, 97, 106); // nord red
 
 /// An opened file rendered beside the PTY. State logic lives here, off the render loop, so tests can build one directly.
 pub struct Panel {
@@ -908,7 +908,8 @@ impl Panel {
     }
 
     /// #18: lay the panel out as an inline diff vs HEAD — deleted lines as red `-` rows above green
-    /// `+` added/modified lines, unchanged plain. Iterates the raw `source_lines`, so `changes`/
+    /// `+` added/modified lines, unchanged plain. A `-` row's `change` is `Removed(1)` and a `+`
+    /// row's `Added`, also for a modified line, so both front-ends tint it as the file view does. Iterates the raw `source_lines`, so `changes`/
     /// `removed` index straight in and markdown shows a readable patch, not an overlay on prose (#32).
     ///
     /// ponytail: markdown's cursor is rendered-row space while these rows key to source lines, so the
@@ -933,7 +934,7 @@ impl Panel {
                             gutter: None,
                             spans: vec![Span::styled(chunk, red)],
                             comment: false,
-                            change: None,
+                            change: Some(ChangeKind::Removed(1)),
                         });
                     }
                 }
@@ -942,9 +943,11 @@ impl Panel {
         for i in 0..line_count {
             removed_at(&mut rows, i);
             starts.push(rows.len());
-            let (prefix, style) = match self.changes.get(i).copied().flatten() {
-                Some(ChangeKind::Added | ChangeKind::Modified) => ('+', Some(green)),
-                _ => (' ', None), // context, incl. the surviving line below a deletion gap
+            let (prefix, style, change) = match self.changes.get(i).copied().flatten() {
+                Some(ChangeKind::Added | ChangeKind::Modified) => {
+                    ('+', Some(green), Some(ChangeKind::Added))
+                }
+                _ => (' ', None, None), // context, incl. the surviving line below a deletion gap
             };
             let text = lines.get(i).copied().unwrap_or("");
             for (k, chunk) in wrap_line(&format!("{prefix}{text}"), tw)
@@ -960,7 +963,7 @@ impl Panel {
                     gutter: (k == 0).then_some(i + 1),
                     spans: vec![span],
                     comment: false,
-                    change: None,
+                    change,
                 });
             }
         }

@@ -426,17 +426,19 @@ function paintCanvas(m) {
   const c = $("canvas"), shell = pane(0), had = !c.hidden;
   c.hidden = !m.canvas;
   if (!m.canvas) return;
+  const old = c.dataset.c;
   c.dataset.c = m.canvas;
   c.classList.toggle("docked", !shell?.drawer);
   c.style.left = shell?.drawer ? "" : `calc(var(--cw) * ${shell?.w ?? 0})`;
-  if (!had) holdCanvas();
+  if (!had || old !== m.canvas) holdCanvas();
 }
 
-// The canvas's height: the room above the drawer when the canvas shows, or at the drawer's start
-// height. A drag of the drawer's grip doesn't move the canvas: the drawer floats over it.
+// The canvas's height: the room above the drawer when the canvas shows. The glance stands above
+// the drawer at its least height, so the drawer at its minimum shows the whole glance, and the
+// drawer floats over the cards' lower part until then. A drag of the grip doesn't move the canvas.
 function holdCanvas() {
-  root.style.setProperty("--canvas-drawer", root.style.getPropertyValue("--drawer"));
-  sizeGlance();
+  const glance = $("canvas").dataset.c === "glance";
+  root.style.setProperty("--canvas-drawer", glance ? drawerRange()[0] + "%" : root.style.getPropertyValue("--drawer"));
 }
 
 // The steps of *Get started*, which the canvas and the help show.
@@ -457,32 +459,13 @@ export function paintGlance(m) {
     cards.push(`<div class="gcard"><h3><span class="name">${esc(m.readme.name)}</span><span class="sp"></span><button class="lnk" data-path="${esc(m.readme.name)}">Open as a pane</button></h3>`
       + `<div class="md">${m.readme.html}</div></div>`);
   }
-  const col = [];
-  if (m.project) col.push(projectCard(m.project));
-  if (m.sessions.length) col.push(`<div class="gcard"><h3>Recently in this folder</h3><div class="sess">${m.sessions.map(sessionRow).join("")}</div></div>`);
-  if (col.length) cards.push(`<div class="col">${col.join("")}</div>`);
+  if (m.project) cards.push(projectCard(m.project));
+  if (m.sessions.length) cards.push(`<div class="gcard"><h3>Recently in this folder</h3><div class="sess">${m.sessions.map(sessionRow).join("")}</div></div>`);
   glance.innerHTML = cards.join("");
   glance.classList.toggle("one", cards.length === 1);
-  sizeGlance();
-  // An image that loads makes the README taller.
-  glance.querySelectorAll("img").forEach(i => i.addEventListener("load", sizeGlance, { once: true }));
 }
 
 const glance = $("canvas").querySelector(".glance");
-// The least height of the glance, which keeps a few rows of each card readable: on a short
-// window, the canvas scrolls.
-const GLANCE_MIN = 440;
-
-// The glance's height (`--h`): its cards' own height, at most the canvas's and at least
-// `GLANCE_MIN`. The canvas holds still while the user drags the drawer's grip.
-function sizeGlance() {
-  const c = $("canvas"), cs = getComputedStyle(c);
-  if (c.hidden || c.dataset.c !== "glance" || !glance.firstChild) return;
-  const room = c.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-  glance.style.removeProperty("--h");
-  glance.style.setProperty("--h", Math.min(glance.offsetHeight, Math.max(room, GLANCE_MIN)) + "px");
-}
-addEventListener("resize", sizeGlance);
 const KINDS = { M: "m", A: "a", D: "d", "?": "u" };
 const ago = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "narrow" });
 const UNITS = [["year", 31536e3], ["month", 2592e3], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60]];
@@ -502,12 +485,14 @@ function fileRow(f, diff) {
 }
 
 function projectCard(p) {
-  // The rows scroll inside the card, below the commit line.
-  const rows = `<div class="files">${p.files.map(f => fileRow(f, p.kind === "changes" && f.status !== "?")).join("")}`
+  // The list scrolls inside the card, below the title; in the "Latest" card the commit line
+  // scrolls with the rows, so a short card still shows the list.
+  const commit = p.kind === "changes" ? ""
+    : `<div class="commit"><b>${esc(p.subject)}</b><div class="n">${esc(p.hash)} · ${esc(p.author)} · ${age(p.ts)}</div></div>`;
+  const rows = `<div class="files">${commit}${p.files.map(f => fileRow(f, p.kind === "changes" && f.status !== "?")).join("")}`
     + (p.more ? `<div class="frow"><span></span><span class="n">and ${p.more} more</span></div>` : "") + "</div>";
   if (p.kind === "changes") return `<div class="gcard"><h3>Changes on <span class="br">${esc(p.branch)}</span></h3>${rows}</div>`;
-  return `<div class="gcard"><h3>Latest on <span class="br">${esc(p.branch)}</span><span class="sp"></span><span class="br">No changes</span></h3>`
-    + `<div class="commit"><b>${esc(p.subject)}</b><div class="n">${esc(p.hash)} · ${esc(p.author)} · ${age(p.ts)}</div></div>${rows}</div>`;
+  return `<div class="gcard"><h3>Latest on <span class="br">${esc(p.branch)}</span><span class="sp"></span><span class="br">No changes</span></h3>${rows}</div>`;
 }
 
 function sessionRow(s) {

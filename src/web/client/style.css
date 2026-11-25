@@ -186,29 +186,28 @@ a.brand[href]:hover .logo { opacity: .75; }
 #canvas.docked .steps { grid-template-columns: 1fr; gap: 10px; }
 #canvas.docked .mini { display: none; }
 @container (height < 380px) { .mini { display: none; } }
-/* The project at a glance: the README beside a column of the changes and the recent sessions. One
-   column beside the docked shell, or on a narrow canvas. */
-.glance { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; width: min(1000px, 100%); }
-.glance.one { width: min(640px, 100%); grid-template-columns: 1fr; }
-#canvas.docked .glance { grid-template-columns: 1fr; }
-@container (width < 700px) { .glance { grid-template-columns: 1fr; } }
-.glance .col { display: grid; gap: 14px; min-width: 0; }
+/* The project at a glance: three cards side by side, as tall as the canvas (`holdCanvas`). The
+   lists keep their width and the README card takes the rest. The README section, the file list and
+   the sessions scroll inside their cards. */
+.glance { display: flex; gap: 14px; width: min(1400px, 100%); height: 100%; }
+.glance.one { width: min(640px, 100%); }
 .gcard {
   background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 18px; min-width: 0;
-  display: flex; flex-direction: column; box-sizing: border-box; min-height: 0;
+  display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; flex: 0 1 320px;
 }
-/* Side by side, the glance is `--h` tall (`sizeGlance`), and the README card and the column fill
-   it. The column's two cards share it: a card taller than its half scrolls, a shorter one keeps its
-   height. The README section, the file list and the sessions scroll inside their cards. */
-.glance { height: var(--h, auto); grid-template-rows: minmax(0, 1fr); }
-.glance .col { grid-auto-rows: minmax(0, auto); min-height: 0; }
+.gcard:has(> .md) { flex: 1 1 400px; }
 .gcard .md, .gcard .files, .gcard .sess { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-/* Stacked, the cards keep their own height and the canvas scrolls. */
-#canvas.docked .glance:not(.one) { height: auto; grid-template-rows: none; }
-#canvas.docked .glance:not(.one) :is(.md, .files, .sess) { max-height: 360px; }
-@container (width < 700px) {
-  .glance:not(.one) { height: auto; grid-template-rows: none; }
-  .glance:not(.one) :is(.md, .files, .sess) { max-height: 360px; }
+/* Beside the docked shell, the cards stack and line up with the panes' cards (`.pane::before`): the
+   README card takes half the height, and the two lists share the rest. */
+#canvas.docked[data-c=glance] { padding: 5px; }
+#canvas.docked .glance { flex-direction: column; width: 100%; gap: 10px; }
+#canvas.docked .gcard { flex: 1 1 0; }
+#canvas.docked .gcard:has(> .md) { min-height: 50%; }
+/* On a narrow canvas above the drawer, the cards stack with their own height and the canvas scrolls. */
+@container (width < 860px) {
+  #canvas:not(.docked) .glance { flex-direction: column; height: auto; }
+  #canvas:not(.docked) .gcard { flex: none; }
+  #canvas:not(.docked) .glance :is(.md, .files, .sess) { max-height: 360px; }
 }
 .gcard h3 {
   margin: 0 0 8px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
@@ -225,7 +224,7 @@ a.brand[href]:hover .logo { opacity: .75; }
 /* The card's blocks share one .md, with no .blk padding, so a heading gets the pane's space above it. */
 .gcard .md > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 24px; }
 .frow {
-  display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; width: 100%;
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; width: 100%; box-sizing: border-box;
   padding: 5px 6px; border: 0; border-radius: 7px; background: none; color: var(--fg); text-align: left; font: 12.5px var(--mono);
 }
 button.frow { cursor: pointer; }
@@ -238,11 +237,12 @@ button.frow:hover { background: var(--acc-soft); }
 .commit { padding: 0 6px 6px; }
 .commit b { font-weight: 500; }
 .commit .n { font-size: 12px; }
-.srec { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px; border-top: 1px solid var(--line2); }
+/* The title, then the age and the inline reviews, then the files: a narrow card keeps the title. */
+.srec { display: grid; gap: 2px; padding: 6px; border-top: 1px solid var(--line2); }
 .srec:first-of-type { border-top: 0; }
 .srec .t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srec .n { color: var(--mute); font-size: 12px; }
-.srec .fl { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.srec .fl { display: flex; gap: 6px; flex-wrap: wrap; }
 .srec .fl button { font: 12px var(--mono); color: var(--acc); background: var(--acc-soft); border: 0; border-radius: 5px; padding: 0 6px; cursor: pointer; }
 .srec .fl button:hover { text-decoration: underline; }
 
@@ -564,14 +564,11 @@ kbd {
 /* Hover and a thread's tint under a changed line's tint, the cursor and the highlight. */
 :where(.rows > [data-row]):hover { background: #f6f6f9; }
 .has-th { background: #f4f5fe; }
-/* The diff view colors whole rows, which read better on white than colored text alone. */
-.row[data-diff=add] { background: #ebf7ef; }
-.row[data-diff=del] { background: #fdeeed; }
-/* Outside the diff view, a changed line's tint, as bright as a highlighter. The cursor and the
-   highlight below draw over it. */
-.row[data-change=added], .blk[data-change=added] { background: #c8f5d5; --blk: #c8f5d5; }
-.row[data-change=modified], .blk[data-change=modified] { background: #cde6ff; --blk: #cde6ff; }
-.row[data-change=removed] { background: #ffd3d0; color: #b3261e; }
+/* A changed line's tint, pale, the same in the file view and the diff view (a `+` row is added, a
+   `-` row removed). The cursor and the highlight below draw over it. */
+.row[data-change=added], .blk[data-change=added] { background: #ebf7ef; --blk: #ebf7ef; }
+.row[data-change=modified], .blk[data-change=modified] { background: #eaf2fc; --blk: #eaf2fc; }
+.row[data-change=removed] { background: #fdeeed; color: #b3261e; }
 .blk.cur, .row.cur, .pane.focused .md .cur { background: var(--acc-soft); box-shadow: inset 2px 0 var(--acc); }
 .blk.cur { --blk: var(--acc-soft); }
 /* The highlight is one band over the cursor; the cursor's gutter number marks it (Decision 4).
