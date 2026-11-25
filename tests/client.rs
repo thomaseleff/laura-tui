@@ -464,6 +464,9 @@ fn the_glance_fits_above_the_drawer() -> Result<()> {
     let sessions = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(".laura/sessions");
     std::fs::create_dir_all(&sessions)?;
     let root = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR"))?;
+    // As Laura names its folder: without Windows' `\\?\`.
+    let root = root.to_string_lossy();
+    let root = std::path::Path::new(root.strip_prefix(r"\\?\").unwrap_or(&root));
     let ready = json!({"type": "ready", "ts": 1, "root": root, "title": "glance fit"});
     let review = json!({"type": "review", "ts": 2, "pane": 1, "path": root.join("README.md")});
     std::fs::write(
