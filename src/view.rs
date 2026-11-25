@@ -254,13 +254,14 @@ fn gutter_spans(number: String, highlighted: bool) -> Vec<Span<'static>> {
     vec![number, Span::raw(" ".repeat(DECOR))]
 }
 
-/// A changed row's tint in the TUI, as bright as a highlighter on the dark pane.
+/// A changed row's tint in the TUI, in the file view and the diff view: pale on the dark pane, as
+/// the web app's on white.
 fn tint(k: ChangeKind) -> Style {
     match k {
-        ChangeKind::Added => Style::default().bg(Color::Rgb(47, 92, 61)), // #2f5c3d
-        ChangeKind::Modified => Style::default().bg(Color::Rgb(44, 79, 122)), // #2c4f7a
+        ChangeKind::Added => Style::default().bg(Color::Rgb(37, 58, 44)), // #253a2c
+        ChangeKind::Modified => Style::default().bg(Color::Rgb(36, 52, 74)), // #24344a
         ChangeKind::Removed(_) => Style::default()
-            .bg(Color::Rgb(107, 42, 51)) // #6b2a33
+            .bg(Color::Rgb(61, 38, 43)) // #3d262b
             .fg(Color::Rgb(255, 179, 184)), // #ffb3b8
     }
 }

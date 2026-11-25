@@ -144,6 +144,8 @@ fn file_pane_keys_reach_the_pane() -> Result<()> {
     Ok(())
 }
 
+/// #258: in the diff view, a `+` row (here of a modified line) names the added tint and a `-` row
+/// the removed tint, as the file view's rows do.
 #[test]
 fn a_diff_row_names_its_change() -> Result<()> {
     let mut rig = Rig::new()?;
@@ -162,13 +164,13 @@ fn a_diff_row_names_its_change() -> Result<()> {
             .unwrap_or_else(|| panic!("no row with {text}: {html}"))
             .to_string()
     };
-    assert!(row("+new").contains(r#"data-diff="add""#), "{html}");
-    assert!(row("-old").contains(r#"data-diff="del""#), "{html}");
-    assert!(!row("keep").contains("data-diff"), "{html}");
+    assert!(row("+new").contains(r#"data-change="added""#), "{html}");
+    assert!(row("-old").contains(r#"data-change="removed""#), "{html}");
+    assert!(!row("keep").contains("data-change"), "{html}");
     Ok(())
 }
 
-/// #215: outside the diff view, a changed row and a changed markdown block name their tint.
+/// #215: a changed row and a changed markdown block name their tint; #258: the diff view's rows too.
 #[test]
 fn a_changed_row_names_its_tint() -> Result<()> {
     let mut rig = Rig::new()?;
@@ -208,9 +210,14 @@ fn a_changed_row_names_its_tint() -> Result<()> {
         .as_str()
         .unwrap_or("")
         .to_string();
+    // The diff view's rows take the same tints: `-gone` removed, `+added` added.
     assert!(
-        !html.contains("data-change"),
-        "the diff view shows no tints: {html}"
+        row(&html, "-gone").contains(r#"data-change="removed""#),
+        "{html}"
+    );
+    assert!(
+        row(&html, "+added").contains(r#"data-change="added""#),
+        "{html}"
     );
 
     let (_md, doc) = changed_file("doc.md", "# t\n\nold text\n", "# t\n\nnew text\n")?;

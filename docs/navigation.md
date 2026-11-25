@@ -160,7 +160,9 @@ Laura tints each line changed since git `HEAD`:
 - A **blue** row is a modified line.
 - A **red** `── N lines removed ──` row shows where lines were deleted.
 
-Laura draws the cursor and the agent's highlight over the tint, and shows no tints in the diff view (`d`). In the web app, Laura tints a markdown block blue when the block has a modified line.
+Laura draws the cursor and the agent's highlight over the tint. In the web app, Laura tints a markdown block blue when the block has a modified line.
+
+In the diff view (`d`), Laura uses the same tints: a `+` row is green, also for a modified line, and a `-` row is red.
 
 ### Threads and inline reviews
 

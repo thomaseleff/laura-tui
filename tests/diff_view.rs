@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use assert_cmd::Command;
 use laura::{Rect, Tab};
+use ratatui::style::Color;
 
 fn spawn_tab() -> Result<Tab> {
     let cmd = portable_pty::CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
@@ -141,6 +142,28 @@ fn open_diff_shows_removed_text_then_toggles_off() -> Result<()> {
     // Toggle back on (no --off = toggle).
     drive(&mut tab, &["diff", "--pane", &id_s]);
     assert!(tab.panels[&id].diff_view, "toggle turns it back on");
+    Ok(())
+}
+
+#[test]
+fn the_diff_view_tints_its_rows_in_the_tui() -> Result<()> {
+    // #258: a modified line's `-` row takes the removed tint and its `+` row the added tint, as
+    // the file view's rows do; a context row has none.
+    let (_dir, path) = repo_with("f.txt", "keep\nold\n")?;
+    std::fs::write(&path, "keep\nnew\n")?;
+
+    let mut tab = spawn_tab()?;
+    let id: u64 = drive(&mut tab, &["open", &path, "--no-focus", "--diff"]).parse()?;
+    let panel = &tab.panels[&id];
+    let layout = panel.layout(40);
+    let lines = laura::view::panel_lines(panel, &layout, false, 40, false);
+    let bg = |text: &str| {
+        let j = layout.rows.iter().position(|r| r.text() == text);
+        lines[j.unwrap_or_else(|| panic!("no row {text}"))].style.bg
+    };
+    assert_eq!(bg("-old"), Some(Color::Rgb(61, 38, 43)));
+    assert_eq!(bg("+new"), Some(Color::Rgb(37, 58, 44)));
+    assert_eq!(bg(" keep"), None);
     Ok(())
 }
 

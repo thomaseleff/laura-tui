@@ -29,7 +29,8 @@ pub fn git_missing() -> bool {
 pub enum ChangeKind {
     Added,
     Modified,
-    /// Deleted lines; carries the count for the synthetic gap row.
+    /// Deleted lines; carries the count of lines the row stands for: the file view's gap row, or
+    /// one diff-view `-` row.
     Removed(usize),
 }
 

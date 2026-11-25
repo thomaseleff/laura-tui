@@ -564,14 +564,11 @@ kbd {
 /* Hover and a thread's tint under a changed line's tint, the cursor and the highlight. */
 :where(.rows > [data-row]):hover { background: #f6f6f9; }
 .has-th { background: #f4f5fe; }
-/* The diff view colors whole rows, which read better on white than colored text alone. */
-.row[data-diff=add] { background: #ebf7ef; }
-.row[data-diff=del] { background: #fdeeed; }
-/* Outside the diff view, a changed line's tint, as bright as a highlighter. The cursor and the
-   highlight below draw over it. */
-.row[data-change=added], .blk[data-change=added] { background: #c8f5d5; --blk: #c8f5d5; }
-.row[data-change=modified], .blk[data-change=modified] { background: #cde6ff; --blk: #cde6ff; }
-.row[data-change=removed] { background: #ffd3d0; color: #b3261e; }
+/* A changed line's tint, pale, the same in the file view and the diff view (a `+` row is added, a
+   `-` row removed). The cursor and the highlight below draw over it. */
+.row[data-change=added], .blk[data-change=added] { background: #ebf7ef; --blk: #ebf7ef; }
+.row[data-change=modified], .blk[data-change=modified] { background: #eaf2fc; --blk: #eaf2fc; }
+.row[data-change=removed] { background: #fdeeed; color: #b3261e; }
 .blk.cur, .row.cur, .pane.focused .md .cur { background: var(--acc-soft); box-shadow: inset 2px 0 var(--acc); }
 .blk.cur { --blk: var(--acc-soft); }
 /* The highlight is one band over the cursor; the cursor's gutter number marks it (Decision 4).
