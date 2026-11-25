@@ -109,7 +109,7 @@ done
 >
 > Send `Next` to learn how to interact with your agent in a pane.
 
-_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "**New:** The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here."_
+_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here. **New:** Drag the line between two panes to resize them, and drag the drawer's top edge to set its height. Laura keeps your sizes; double-click a line to give the size back to Laura."_
 
 _Then **wait for `Next`**, and `laura close --all`._
 
@@ -121,22 +121,21 @@ _Then **wait for `Next`**, and `laura close --all`._
 
 ```bash
 cat > "$D/plan.md" <<'EOF'
-# Greeting — draft spec
+# Plan: greet each visitor by name
 
-Review before we ship.
+Today the greeting API says `Hello, world!` to every visitor. This plan greets each visitor by name, then serves and logs the greeting, so we can debug it.
 
-- `greet` prints `Hello, world!`.
-- The greeting is in English only.
-- `greet Ada` prints `Hello, Ada!`.
-- The API serves the greeting at `/hello?name=Ada`.
-- The API logs each request.
+## Steps
 
-Open question: should an empty name fall back to `world`?
+1. `greet Ada` prints `Hello, Ada!`, and `greet` still prints `Hello, world!`.
+2. The greeting is in English only.
+3. The API serves the greeting at `/hello?name=Ada`.
+4. The API logs each request, with the name it greeted.
 EOF
 DOC=$(laura open "$D/plan.md" --ratio 55 --no-focus)
-# Annotate the spec for your partner to reply to. Line numbers are
+# Ask your partner a question on the plan. Line numbers are
 # 1-based *file* lines (count them in the heredoc, not the rendered view).
-laura comment 6 'suggest Spanish too: `--lang es` prints `Hola, Ada!`' --pane "$DOC"
+laura comment 8 'Should we greet in Spanish too? `--lang es` would print `Hola, Ada!`.' --pane "$DOC"
 ```
 
 **Say:**
@@ -145,13 +144,12 @@ laura comment 6 'suggest Spanish too: `--lang es` prints `Hola, Ada!`' --pane "$
 >
 > Beyond laying out panes, Laura lets you review with your agent in every pane, next to the chat.
 >
-> I opened a plan in a new pane and left a comment for you. Reply to my comment and add your own:
+> I opened a plan in a new pane and left you a question on L8. Answer my question:
 >
 > 1. To focus the plan pane, press `Ctrl+P`, then the pane's number. Press `Esc` in a file pane to return to the chat.
-> 2. In the plan pane, press `↑`/`↓` to move the cursor to L6, the **"The greeting is in English only."** line. My comment shows as a card under the line. Press `c`, type `Agreed`, then press `Enter` to reply.
-> 3. Move to L11, the **"Open question: should an empty name fall back…"** line. Press `c`, type `Sounds good`, then press `Enter`. L11 has no thread yet, so your comment starts a **new** thread.
-> 4. Press `r` on a thread to collapse or expand the thread. Press `r` on a line without a thread to collapse or expand every thread in the pane.
-> 5. When you're ready, press `Shift+S`, type `Replied below - all looks good` as the review body, then press `Enter` to submit.
+> 2. In the plan pane, press `↑`/`↓` to move the cursor to L8, the **"The greeting is in English only."** step. My question shows as a card under the line. Press `c`, type `Yes, add Spanish`, then press `Enter` to reply. To start a new thread, press `c` on a line without a thread.
+> 3. Press `r` on the thread to collapse or expand the thread. **New:** Laura shows a collapsed thread as one row, with its line, its authors and its number of comments.
+> 4. Press `Shift+S`, then `Enter`, to submit. You can type a review body before `Enter`, for overall direction.
 >
 > Laura submits your inline review, with its threads and review body, into the chat.
 >
@@ -166,28 +164,26 @@ _Then **wait** for the `[laura review · …]` block. If your partner sends `Nex
 
 **Do:**
 
-_Apply the agreed revisions to `$D/plan.md` (Spanish with `--lang es`, an empty
-name falls back to `world`) — the file pane reloads with the revisions:_
+_Apply your partner's answer to `$D/plan.md` (Spanish with `--lang es`) — the file pane reloads with the revision:_
 
 ```bash
 cat > "$D/plan.md" <<'EOF'
-# Greeting — draft spec
+# Plan: greet each visitor by name
 
-Review before we ship.
+Today the greeting API says `Hello, world!` to every visitor. This plan greets each visitor by name, then serves and logs the greeting, so we can debug it.
 
-- `greet` prints `Hello, world!`.
-- The greeting is in English or Spanish: `--lang es` prints `Hola, Ada!`.
-- `greet Ada` prints `Hello, Ada!`.
-- The API serves the greeting at `/hello?name=Ada`.
-- The API logs each request.
+## Steps
 
-Open question: resolved — an empty name falls back to `world`.
+1. `greet Ada` prints `Hello, Ada!`, and `greet` still prints `Hello, world!`.
+2. The greeting is in English or Spanish: `--lang es` prints `Hola, Ada!`.
+3. The API serves the greeting at `/hello?name=Ada`.
+4. The API logs each request, with the name it greeted.
 EOF
 ```
 
 **Say:**
 
-> I applied your inline review: L6 now adds Spanish, and L11 now says an empty name falls back to `world`. Laura reloaded the plan in the pane with the changes.
+> I applied your inline review: L8 now adds Spanish. Laura reloaded the plan in the pane with the changes.
 >
 > Your threads add up to one inline review. When you submit with `Shift+S`, Laura writes the whole inline review into the chat and clears the threads from the pane.
 >
@@ -210,8 +206,11 @@ _Branch the following step on whether `git` is installed, then run *one* script 
 ```bash
 R="$D/repo"; mkdir -p "$R"
 cat > "$R/hello.py" <<'EOF'
-def greet(name):
-    return "Hello, " + name + "!"
+GREETINGS = {"en": "Hello"}
+
+
+def greet(name="world", lang="en"):
+    return f"{GREETINGS[lang]}, {name or 'world'}!"
 EOF
 git -C "$R" init -q
 git -C "$R" -c user.email=demo@laura -c user.name=laura add -A
@@ -230,7 +229,7 @@ laura open "$R/hello.py" --diff --ratio 55 --no-focus   # the inline diff vs HEA
 
 > **[3 / 7] Code review**
 >
-> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura tints added and modified lines green and blue in each pane, shows a red row where lines were deleted, and can show the full diff. I opened the full diff in a new pane.
+> Here's the code change that implements the plan, including the changes from your inline review. **New:** With `git` installed, Laura tints added and modified lines green and blue in each pane, shows a red row where lines were deleted, and can show the full diff. I opened the full diff in a new pane.
 >
 > 1. Press `Ctrl+P`, then the pane's number, to focus the diff.
 > 2. Press `d` to turn the diff view **off**. Laura shows the file with the changed lines tinted. Press `d` again to turn the diff view back on.
@@ -251,14 +250,12 @@ cat > "$D/hello.diff" <<'EOF'
 diff --git a/hello.py b/hello.py
 --- a/hello.py
 +++ b/hello.py
-@@ -1,2 +1,5 @@
--def greet(name):
--    return "Hello, " + name + "!"
+@@ -1,4 +1,4 @@
+-GREETINGS = {"en": "Hello"}
 +GREETINGS = {"en": "Hello", "es": "Hola"}
-+
-+
-+def greet(name="world", lang="en"):
-+    return f"{GREETINGS[lang]}, {name or 'world'}!"
+ 
+ 
+ def greet(name="world", lang="en"):
 EOF
 laura open "$D/hello.diff" --ratio 55 --no-focus   # git absent — show the static patch instead
 ```
@@ -460,7 +457,7 @@ _Run this beat only if `laura ready` printed `web_app` as `true`: the TUI has no
 >
 > While the Laura server runs, select the Laura logo at the left of the top bar to open the Laura server's page, which lists the running workspaces and starts new ones.
 >
-> **New:** When the agent in another workspace waits for you, for example at a permission prompt, the Laura server's page shows `Waiting for you` on that workspace's row.
+> When the agent in another workspace waits for you, for example at a permission prompt, the Laura server's page shows `Waiting for you` on that workspace's row.
 >
 > Read more in [Switch workspaces](https://thomaseleff.github.io/laura-tui/navigation/#switch-workspaces).
 >

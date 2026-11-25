@@ -81,6 +81,7 @@ The scene uses these helpers:
 | `user.press(key)` | Presses a keystroke and shows it in the keystroke box. After `c` or `Shift+S`, waits for the comment box or the review body. After `Enter` in a box, waits until the box closes. |
 | `user.type(text, keys=False)` | Types the text at a readable speed. Use `type`, not `press`, for keystrokes to Neovim. With `keys=True`, the keystroke box shows the text, for a Neovim command such as `]d` or `:w`. |
 | `user.click(locator)` | Moves an arrow pointer to a Playwright locator or a CSS selector, then clicks. |
+| `user.drag(locator, dx, dy)` | Moves the arrow pointer to the middle of a locator or a CSS selector, then drags it by `dx`, `dy` pixels, for a line between two panes (`.split`). |
 | `user.focused(pane)` | Waits until the pane has the focus. Use `user.focused` after `user.click` and before keystrokes. A keystroke before the focus moves goes to the pane that had the focus. |
 | `user.page` | The Playwright `Page`, for all other actions. `user.page.get_by_label(...)` finds a pane header button. |
 | `camera.shot(name)` | Writes `<name>.png`. |
@@ -88,7 +89,7 @@ The scene uses these helpers:
 
 Obey these rules when you change the scene:
 
-- Do each action from the keyboard, so that the keystroke box shows it. Use `user.click` only for an action with no keystroke, such as a click on an HTML page.
+- Do each action from the keyboard, so that the keystroke box shows it. Use `user.click` or `user.drag` only for an action with no keystroke, such as a click on an HTML page or a drag of the line between two panes.
 - Each pane is `#p<id>`. To wait for a change in the web app, wait for a selector, for example `user.page.locator(f"#p{doc} .head .reloaded").wait_for(state="visible")`. Do not use `page.wait_for_function`, because the CSP of the web app blocks it.
 - In the editor view, the web app sends all keystrokes to Neovim, except `Ctrl+P` and `Ctrl+L`. Neovim draws on a canvas. To examine an edit, read the file from `agent.repo` after `:w`. Use `camera.pause` to wait for Neovim.
 - Write each `agent.say` text in the voice of `plugins/laura/skills/demo/SKILL.md`. Obey the Writing rules and the Glossary in `CLAUDE.md`.

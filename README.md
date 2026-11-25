@@ -9,10 +9,11 @@ Your agent can open the file you're discussing, the plan you're following, the d
 > [!TIP]
 > **New:**
 >
-> - Laura now shows when the agent waits for you, in this workspace and in your other workspaces. See [Know when the agent waits](docs/workspace.md#know-when-the-agent-waits).
-> - The panes fill the workspace, and the shell floats in a drawer. Press ``Ctrl+` `` to open or close the drawer. See [The drawer](docs/navigation.md#the-drawer).
-> - The web app starts with the shell in the drawer, over a start canvas that shows the first steps. See [The drawer](docs/navigation.md#the-drawer).
-> - After your first inline review, the start canvas shows the project at a glance: the README, the changes on your branch and your recent sessions in the folder. See [The drawer](docs/navigation.md#the-drawer).
+> - The web app starts with the shell in the drawer, over a start canvas that shows the first steps. After your first inline review, the start canvas shows the project at a glance: the README, the changes on your branch and your recent sessions in the folder. See [The drawer](docs/navigation.md#the-drawer).
+> - Drag the line between two panes to resize them. Laura keeps your size until you double-click the line. See [Resize panes](docs/navigation.md#resize-panes).
+> - Drag the drawer's grip, or press ``Ctrl+Shift+↑ ↓``, to set the drawer's height. Laura keeps the height for each workspace you start. See [The drawer](docs/navigation.md#the-drawer).
+> - Laura tints the changed lines in each file pane, in place of the gutter marks. See [Changed lines](docs/navigation.md#changed-lines).
+> - A collapsed thread shows as one row with its line, its authors and its number of comments. See [Threads and inline reviews](docs/navigation.md#threads-and-inline-reviews).
 
 **Laura lets you:**
 
