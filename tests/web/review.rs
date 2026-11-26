@@ -225,7 +225,7 @@ fn comment_and_submit_from_the_browser() -> Result<()> {
     let acted = rig.act(&mut ws, begin.clone());
     assert_eq!(acted["ok"], true, "{acted}");
     assert_eq!(acted["text"], "", "{acted}");
-    assert_eq!(acted["line"], 2, "{acted}");
+    assert_eq!(rig.draft()["line"], 2, "{acted}");
     let layout = layout_with(&mut rig, &mut ws, "the draft", |v| v["draft"]["line"] == 2);
     assert_eq!(layout["modes"], json!(["draft"]), "{layout}");
     let hint = pairs(&layout["hints"]["mode"]);

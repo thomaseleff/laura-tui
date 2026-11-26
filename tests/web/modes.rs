@@ -51,6 +51,54 @@ fn the_unlock_keeps_the_shell_after_a_focus_move() -> Result<()> {
     Ok(())
 }
 
+/// The user moves away and back within one turn of the loop: the unlock still keeps the shell.
+#[test]
+fn the_unlock_keeps_the_shell_after_a_quick_focus_move() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let _dir = file_focused(&mut rig, &mut ws)?;
+    let (_dir_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &b]);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.act(&mut ws, json!({"act": "lock"}));
+    modes(&mut rig, &mut ws, json!(["locked"]), 0);
+    // All three wait in the queue, so one turn reads them.
+    send(&mut ws, json!({"act": "focus", "pane": 2}));
+    send(&mut ws, json!({"act": "focus", "pane": 0}));
+    send(&mut ws, json!({"act": "lock"}));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    modes(&mut rig, &mut ws, json!([]), 0);
+    Ok(())
+}
+
+/// The agent moves the focus away and back within one drain: the unlock still keeps the shell.
+#[test]
+fn the_unlock_keeps_the_shell_after_the_agent_moves_the_focus() -> Result<()> {
+    use interprocess::local_socket::{GenericNamespaced, Stream, prelude::*};
+    use std::io::Write;
+
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let _dir = file_focused(&mut rig, &mut ws)?;
+    let (_dir_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &b]);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.act(&mut ws, json!({"act": "lock"}));
+    modes(&mut rig, &mut ws, json!(["locked"]), 0);
+    // Both requests wait in the queue, so one drain applies both.
+    let mut conns = Vec::new();
+    for pane in [2, 0] {
+        let name = rig.tab.socket.as_str().to_ns_name::<GenericNamespaced>()?;
+        let mut conn = Stream::connect(name)?;
+        writeln!(conn, "{}", json!({"type": "focus", "pane": pane}))?;
+        conns.push(conn);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    rig.act(&mut ws, json!({"act": "lock"}));
+    modes(&mut rig, &mut ws, json!([]), 0);
+    Ok(())
+}
+
 #[test]
 fn f12_under_the_help_keeps_the_focus() -> Result<()> {
     let mut rig = Rig::new()?;

@@ -237,6 +237,50 @@ fn the_pane_selector_focuses_the_shell() -> Result<()> {
     Ok(())
 }
 
+/// #245: Laura ends the draft when the socket drops. The web app begins the draft again on the
+/// new socket and keeps the text in the comment's box.
+#[test]
+fn a_reconnect_begins_the_draft_again() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    c.type_text("Kept text");
+    c.eval("globalThis.old = ws; ws.close()")
+        .map_err(anyhow::Error::msg)?;
+    c.until(
+        &mut r,
+        "the draft on the new socket",
+        "ws !== globalThis.old && ws.readyState === 1 && layout.modes.includes('draft') \
+         && document.querySelector('.draft textarea')?.value === 'Kept text'",
+    );
+    // The client shows `draft` in its copy of the modes before Laura begins the draft.
+    let t0 = std::time::Instant::now();
+    while !r.tab.held() {
+        assert!(t0.elapsed().as_secs() < 10, "Laura begins the draft again");
+        r.pump();
+    }
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the saved comment",
+        "!document.querySelector('.draft textarea')",
+    );
+    let threads = &r.tab.panels[&1].threads;
+    assert_eq!(threads.len(), 1);
+    assert_eq!(threads[0].root.body, "Kept text");
+    Ok(())
+}
+
 #[test]
 fn c_then_shift_s_submits_an_inline_review() -> Result<()> {
     let Some((path, _one)) = chrome() else {

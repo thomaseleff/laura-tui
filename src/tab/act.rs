@@ -57,6 +57,7 @@ impl Tab {
                     return Err(no_pane(pane).into());
                 }
                 self.focus = pane;
+                self.forget_lock_from();
                 // The user's move into the shell: the user sees the agent.
                 if pane == PTY_PANE {
                     self.answered(self.pty.bells());

@@ -29,7 +29,7 @@ use crate::panel::is_page;
 use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::serve::{live, record_path, workspaces_dir};
-use crate::tab::{Draft, Error};
+use crate::tab::Error;
 use crate::{Panel, Rect, Tab, UserAction, view};
 
 mod frames;
@@ -574,9 +574,14 @@ impl WebServer {
         ok
     }
 
-    /// Apply `a`, the web app's way where it has one: the seed of a comment's draft, its line and
-    /// element.
-    fn apply_act(&mut self, v: &mut View, tab: &mut Tab, a: UserAction) -> Result<Acted, Error> {
+    /// Apply `a`, the web app's way where it has one: the seed of a comment's draft. The layout
+    /// frame's `draft` names its line and element.
+    fn apply_act(
+        &mut self,
+        v: &mut View,
+        tab: &mut Tab,
+        a: UserAction,
+    ) -> Result<Option<String>, Error> {
         let comment = match a {
             UserAction::BeginComment { pane } | UserAction::BrowserPick { pane, .. } => Some(pane),
             _ => None,
@@ -598,14 +603,7 @@ impl WebServer {
             }
             _ => false,
         };
-        let seed = if handled { None } else { tab.act(a)? };
-        let Some(&Draft::Comment { line, .. }) = tab.draft().filter(|_| comment.is_some()) else {
-            return Ok((seed, None, None));
-        };
-        let anchor = tab
-            .draft_anchor()
-            .map(|a| [a.selector.clone(), a.quote.clone()]);
-        Ok((seed, Some(line), anchor))
+        if handled { Ok(None) } else { tab.act(a) }
     }
 
     /// Back from another tab: that workspace's visit can be newer than the kept frame.
@@ -680,15 +678,10 @@ struct Turn {
     closed: bool,
 }
 
-/// A begun comment's seed, its line and its element (selector and quote).
-type Acted = (Option<String>, Option<u32>, Option<[String; 2]>);
-
-/// The `acted` reply to an `act`.
-fn act_reply(res: Result<Acted, Error>) -> Value {
+/// The `acted` reply to an `act`, with a begun comment's seed.
+fn act_reply(res: Result<Option<String>, Error>) -> Value {
     match res {
-        Ok((seed, line, anchor)) => {
-            json!({"t": "acted", "ok": true, "text": seed, "line": line, "anchor": anchor})
-        }
+        Ok(seed) => json!({"t": "acted", "ok": true, "text": seed}),
         Err(Error::SubmitFailed) => {
             json!({"t": "acted", "ok": false,
                    "text": crate::tab::SUBMIT_FAILED_WEB, "retry": true})

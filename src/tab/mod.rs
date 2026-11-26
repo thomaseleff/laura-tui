@@ -767,6 +767,8 @@ impl Tab {
                 break;
             }
             let resp = self.apply(msg, area);
+            // A move away and back within one drain still forgets the unlock's pane.
+            self.forget_lock_from();
             reply.send(&resp);
             changed = true;
         }

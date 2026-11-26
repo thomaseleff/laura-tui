@@ -331,7 +331,9 @@ impl Tui {
         // The web app shows each notice; the TUI shows the newest in its toast.
         let newest = self.tab.notices.drain(..).next_back();
         if let Some((_, text)) = newest {
-            self.notice(text, 5);
+            // The theme's answer ends the wizard, so its notice stays long enough to read.
+            let secs = if text == laura::tab::THEME_SET { 10 } else { 5 };
+            self.notice(text, secs);
         }
         // git-presence is a machine-global fact: arm the "install git" toast once,
         // the first time any diff attempt (open or reload) found no `git` binary.

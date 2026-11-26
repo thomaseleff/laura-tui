@@ -99,7 +99,7 @@ impl Tab {
     }
 
     /// A browser pane's comment draft names its element.
-    pub(crate) fn draft_anchor(&self) -> Option<&Anchor> {
+    pub fn draft_anchor(&self) -> Option<&Anchor> {
         let Some(Draft::Comment { pane, .. }) = self.draft() else {
             return None;
         };

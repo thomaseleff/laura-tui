@@ -289,7 +289,7 @@ An editor pane has two views. Click **Editor** | **File** in the pane header or 
   - Press `Ctrl+W` then `d` to show the thread under the cursor. On Windows and Linux, the browser keeps `Ctrl+W`, so run `:wincmd d` instead.
 - **File view**: you comment on the saved file and submit the inline review, as in a file pane. Save (`:w`) before you flip. Threads stay on their lines and don't follow your edits. Diff (`d`) and highlight (`h`) don't work.
 
-When you submit from the file view, Laura flips the pane back to the editor view. Laura never focuses an editor pane when it opens. To leave the pane, press `Ctrl+P` then a pane id. Laura asks about [its theme](tui-navigation.md#lauras-theme) only in the TUI.
+When you submit from the file view, Laura flips the pane back to the editor view. Laura never focuses an editor pane when it opens. To leave the pane, press `Ctrl+P` then a pane id. Laura asks about [its theme](tui-navigation.md#lauras-theme) only in the TUI. After the user answers `y` or `n`, Laura shows the notice "✅ Experimental · Editor panes setup complete".
 
 ## One workspace per run
 
