@@ -13,6 +13,7 @@ mod common;
 mod rig;
 
 use anyhow::Result;
+use laura::tab::Mode;
 use serde_json::{Value, json};
 
 use browser_rig::{bare, chrome};
@@ -281,6 +282,37 @@ fn a_reconnect_begins_the_draft_again() -> Result<()> {
     Ok(())
 }
 
+/// #245: after a reconnect, a draft that Laura can't begin again closes, and Laura's notice says why.
+#[test]
+fn a_failed_reconnect_closes_the_draft() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    c.type_text("Lost text");
+    c.eval("globalThis.old = ws; ws.close()")
+        .map_err(anyhow::Error::msg)?;
+    // `begin_comment` on the new socket fails with `NEEDS_READY`.
+    r.tab.agent = false;
+    c.until(
+        &mut r,
+        "the box closes on the new socket",
+        "ws !== globalThis.old && ws.readyState === 1 && !layout.modes.includes('draft') \
+         && !document.querySelector('.draft textarea')",
+    );
+    assert!(!r.tab.held());
+    Ok(())
+}
+
 #[test]
 fn c_then_shift_s_submits_an_inline_review() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -356,6 +388,35 @@ fn ctrl_p_opens_the_pane_selector() -> Result<()> {
         "the pane selector closes",
         "document.getElementById('popup').hidden",
     );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: `Ctrl+H` under the pane selector shows the help in its place, as in the TUI.
+#[test]
+fn ctrl_h_under_the_pane_selector_shows_the_help() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.press(CTRL_P);
+    c.until(
+        &mut r,
+        "the pane selector",
+        "!document.getElementById('popup').hidden",
+    );
+    c.press(CTRL_H);
+    c.until(
+        &mut r,
+        "the help in place of the pane selector",
+        "!document.getElementById('help').hidden && document.getElementById('popup').hidden",
+    );
+    let t0 = std::time::Instant::now();
+    while r.tab.modes() != [Mode::Help] {
+        assert!(t0.elapsed().as_secs() < 10, "Laura holds the help");
+        r.pump();
+    }
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

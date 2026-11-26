@@ -445,6 +445,11 @@ impl Tui {
             // The one key Laura keeps even while locked.
             _ if key.code == KeyCode::F(12) => self.act(UserAction::Lock),
             Some(Mode::Help) => self.act(UserAction::Overlay { overlay: None }),
+            Some(Mode::Selector) if ctrl && key.code == KeyCode::Char('h') => {
+                self.act(UserAction::Overlay {
+                    overlay: Some(Overlay::Help),
+                })
+            }
             Some(Mode::Selector) => self.selector_key(key.code),
             Some(Mode::Quit) => return self.quit_key(key.code),
             Some(Mode::Locked) => self.locked_key(key),
@@ -660,7 +665,10 @@ impl Tui {
     /// focused panel without a draft, drops it.
     fn on_paste(&mut self, s: String) {
         match self.tab.mode() {
-            Some(Mode::Draft) => return self.text.insert(&s),
+            // A draft takes a paste under the help or the quit question; under the lock, the shell does.
+            _ if self.tab.draft().is_some() && !self.tab.modes().contains(&Mode::Locked) => {
+                return self.text.insert(&s);
+            }
             Some(Mode::Locked) => {}
             None if focused_pty(&self.tab).is_some() => {}
             _ => return,

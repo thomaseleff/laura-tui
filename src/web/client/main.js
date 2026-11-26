@@ -1,7 +1,7 @@
 // The web app's client starts here: it loads the fonts, measures the grid's cell, and connects to
 // Laura. `connect` reads each frame from Laura and hands it to the module that paints it.
 
-import { $, act, acts, draft, pane, root, setWs, terms, ui, ws } from "./state.js";
+import { $, act, acts, draft, layout, pane, patchModes, root, setWs, terms, ui, ws } from "./state.js";
 import { fitShell, makeProbe, measure, report } from "./term.js";
 import { forgetDrawer, onLayout, paintGlance, resetFocus } from "./panes.js";
 import { onAgent, onBrowser, onFrame, onShot, paintMarks } from "./browser-pane.js";
@@ -142,7 +142,8 @@ export function connect() {
 function reopenDraft(m, d) {
   act({ act: "focus", pane: d.pane });
   if (d.kind === "comment") act({ act: "set_cursor", pane: d.pane, line: d.line });
-  act({ act: d.kind === "comment" ? "begin_comment" : "begin_review", pane: d.pane });
+  // Laura's notice shows a failed begin; the box closes with it.
+  act({ act: d.kind === "comment" ? "begin_comment" : "begin_review", pane: d.pane }, r => r.ok || (patchModes(null, "draft"), onLayout(layout)));
   Object.assign(m, { focus: d.pane, draft: d, modes: [...m.modes, "draft"] });
   ui.box.busy = false;
 }

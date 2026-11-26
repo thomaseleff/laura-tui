@@ -76,8 +76,9 @@ function menuKey(e) {
 
 // A click can open the pane selector under the lock; it still takes its keystrokes.
 function selectorKey(e, ctrl, k) {
-  // Ctrl+R/L/Q/H and Tab would reach the browser; every other keystroke goes to the input.
+  // Ctrl+R/L/Q and Tab would reach the browser; every other keystroke goes to the input.
   if (e.key === "Escape" || (ctrl && k === "p")) return take(e), closeSelector();
+  if (ctrl && k === "h") return take(e), toggleHelp();
   if (e.key === "ArrowUp" || e.key === "ArrowDown") {
     take(e);
     ui.row += e.key === "ArrowDown" ? 1 : -1;
@@ -88,7 +89,7 @@ function selectorKey(e, ctrl, k) {
     // The headings are not rows: count only the rows.
     return pickRow($("prows").querySelectorAll(".prow")[ui.row], e.ctrlKey || e.metaKey);
   }
-  if ((ctrl && "rlqh".includes(k)) || e.key === "Tab") return take(e);
+  if ((ctrl && "rlq".includes(k)) || e.key === "Tab") return take(e);
   if (document.activeElement !== pq) pq.focus();
 }
 
