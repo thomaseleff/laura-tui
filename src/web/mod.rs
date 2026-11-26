@@ -29,6 +29,7 @@ use crate::panel::is_page;
 use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::serve::{live, record_path, workspaces_dir};
+use crate::tab::Error;
 use crate::{Panel, Rect, Tab, UserAction, view};
 
 mod frames;
@@ -234,6 +235,25 @@ struct View {
 }
 
 impl View {
+    /// A view with nothing sent yet, from its channels; `focus` is the workspace's now.
+    fn new(rx: Receiver<Inbound>, tx: SyncSender<Outbound>, focus: PaneId) -> View {
+        View {
+            rx,
+            tx,
+            dead: false,
+            ptys: HashMap::new(),
+            layout: String::new(),
+            panes: HashMap::new(),
+            pages: HashMap::new(),
+            browsers: HashMap::new(),
+            framed: HashSet::new(),
+            glance: None,
+            focus,
+            area: Rect::default(),
+            git_shown: false,
+        }
+    }
+
     fn send(&mut self, o: Outbound) {
         if !self.dead && self.tx.try_send(o).is_err() {
             self.dead = true;
@@ -420,6 +440,30 @@ impl WebServer {
     /// forward PTY bytes, and send the panes whose HTML changed. `changed` is `drain`'s return
     /// this frame. Returns false once the user quits.
     pub fn sync(&mut self, tab: &mut Tab, changed: bool) -> bool {
+        self.forward_workspaces();
+        while let Ok(conn) = self.conns.try_recv() {
+            self.take_over(tab, conn);
+        }
+        // Out of `self` for the turn, so the handlers can change the server's other fields.
+        let Some(mut v) = self.view.take() else {
+            return true;
+        };
+        let turn = self.read_inbound(&mut v, tab);
+        if turn.closed {
+            tab.hold = false;
+            return !turn.quit;
+        }
+        self.send_frames(&mut v, tab, changed || turn.acted);
+        if v.dead {
+            tab.hold = false;
+        } else {
+            self.view = Some(v);
+        }
+        !turn.quit
+    }
+
+    /// The newest `workspaces` frame from `watch`'s thread, to the view and for the next view.
+    fn forward_workspaces(&mut self) {
         let fresh = self.watch.as_ref().and_then(|w| w.try_iter().last());
         if let Some(frame) = fresh {
             if let Some(v) = self.view.as_mut() {
@@ -427,214 +471,168 @@ impl WebServer {
             }
             self.workspaces = Some(frame);
         }
-        while let Ok((rx, tx)) = self.conns.try_recv() {
-            // The token is in the browser now: the page has done its job.
-            if let Some(page) = self.page.take() {
-                let _ = std::fs::remove_file(page);
-            }
-            if let Some(old) = self.view.take() {
-                // A takeover drops the old view's draft hold.
-                tab.hold = false;
-                let _ = old
-                    .tx
-                    .try_send(Outbound::Text(json!({"t": "moved"}).to_string()));
-            }
-            // A new view starts with comment mode off, so Laura's browser turns it off too.
-            for page in tab.browsers.values_mut() {
-                page.comment = false;
-                page.new_view();
-            }
-            let mut v = View {
-                rx,
-                tx,
-                dead: false,
-                ptys: HashMap::new(),
-                layout: String::new(),
-                panes: HashMap::new(),
-                pages: HashMap::new(),
-                browsers: HashMap::new(),
-                framed: HashSet::new(),
-                glance: None,
-                focus: tab.focus,
-                area: Rect::default(),
-                git_shown: false,
-            };
-            let help = view::help(tab.web);
-            v.text(json!({"t": "strings", "help": help, "help_note": view::HELP_NOTE, "moved": view::MOVED,
-                           "ended": view::ENDED, "root": shown_root(&self.root),
-                           "draft": {"failed": crate::tab::SUBMIT_FAILED_WEB},
-                           "narrow": "This pane is too small to show {name}. Make the window larger or close a pane."}));
-            if let Some(frame) = &self.workspaces {
-                v.send(Outbound::Text(frame.clone()));
-            }
-            // The kept frame can miss a visit to another workspace in the last 2 s.
-            if let Some(p) = &self.poke {
-                let _ = p.send(());
-            }
-            if let Err(e @ crate::editor::Error::NoNvim) = &tab.editor {
-                v.text(json!({"t": "notice", "text": format!("⚠ {e}")}));
-            }
-            self.view = Some(v);
-        }
-        let Some(v) = self.view.as_mut() else {
-            return true;
-        };
+    }
 
-        let (mut quit, mut acted) = (false, false);
+    /// A new view connected: it takes over from the old view, which gets `moved`.
+    fn take_over(&mut self, tab: &mut Tab, (rx, tx): Conn) {
+        // The token is in the browser now: the page has done its job.
+        if let Some(page) = self.page.take() {
+            let _ = std::fs::remove_file(page);
+        }
+        if let Some(old) = self.view.take() {
+            // A takeover drops the old view's draft hold.
+            tab.hold = false;
+            let _ = old
+                .tx
+                .try_send(Outbound::Text(json!({"t": "moved"}).to_string()));
+        }
+        // A new view starts with comment mode off, so Laura's browser turns it off too.
+        for page in tab.browsers.values_mut() {
+            page.comment = false;
+            page.new_view();
+        }
+        let mut v = View::new(rx, tx, tab.focus);
+        let help = view::help(tab.web);
+        v.text(json!({"t": "strings", "help": help, "help_note": view::HELP_NOTE, "moved": view::MOVED,
+                       "ended": view::ENDED, "root": shown_root(&self.root),
+                       "draft": {"failed": crate::tab::SUBMIT_FAILED_WEB},
+                       "narrow": "This pane is too small to show {name}. Make the window larger or close a pane."}));
+        if let Some(frame) = &self.workspaces {
+            v.send(Outbound::Text(frame.clone()));
+        }
+        // The kept frame can miss a visit to another workspace in the last 2 s.
+        if let Some(p) = &self.poke {
+            let _ = p.send(());
+        }
+        if let Err(e @ crate::editor::Error::NoNvim) = &tab.editor {
+            v.text(json!({"t": "notice", "text": format!("⚠ {e}")}));
+        }
+        self.view = Some(v);
+    }
+
+    /// Every frame the view sent since the last turn.
+    fn read_inbound(&mut self, v: &mut View, tab: &mut Tab) -> Turn {
+        let mut turn = Turn::default();
         loop {
             match v.rx.try_recv() {
-                Ok(Inbound::Text(t)) => {
-                    let Ok(msg) = serde_json::from_str::<Value>(&t) else {
-                        continue;
-                    };
-                    if msg.get("act").is_some() {
-                        let res = match serde_json::from_value::<UserAction>(msg) {
-                            // Input to a page changes only its frames: no reply, no layout.
-                            Ok(
-                                a @ (UserAction::BrowserMouse { .. }
-                                | UserAction::BrowserKey { .. }
-                                | UserAction::BrowserText { .. }
-                                | UserAction::BrowserBlur { .. }
-                                | UserAction::BrowserCommentMode { .. }
-                                | UserAction::BrowserReveal { .. }),
-                            ) => {
-                                let _ = tab.act(a);
-                                continue;
-                            }
-                            r => r.map_err(|e| crate::tab::Error::Text(e.to_string())),
-                        };
-                        let res = res.and_then(|a| {
-                            let comment = match a {
-                                UserAction::BeginComment { pane }
-                                | UserAction::BrowserPick { pane, .. } => Some(pane),
-                                _ => None,
-                            };
-                            let review = matches!(a, UserAction::BeginReview { .. });
-                            // A new comment goes on the block's first line; on a stop, on that
-                            // line; on a thread's card, it joins that thread.
-                            if let Some(pane) = comment
-                                && let Ok(p) = tab.panel_mut(pane)
-                                && let Some(start) = cursor_block(p)
-                                    .filter(|b| !on_card(p, b) && !on_stop(p, b))
-                                    .map(|b| b.rows.start)
-                            {
-                                p.cursor = start;
-                            }
-                            let handled = match a {
-                                UserAction::MoveCursor { pane, delta } => {
-                                    step(tab.panel_mut(pane)?, delta)
-                                }
-                                UserAction::ToggleThread { pane, line: None } => {
-                                    toggle_block_threads(tab.panel_mut(pane)?)
-                                }
-                                UserAction::DrawerHeight { percent } => {
-                                    self.drawer = save_drawer(percent);
-                                    // The web app showed the user's height before Laura took it:
-                                    // send the layout even when the height ends where it was, after
-                                    // a step and a reset in one loop.
-                                    v.layout.clear();
-                                    true
-                                }
-                                _ => false,
-                            };
-                            let seed = if handled { None } else { tab.act(a)? };
-                            // Laura holds the agent from here, before any drain, until the
-                            // browser closes the draft.
-                            tab.hold |= comment.is_some() || review;
-                            let panel = comment.and_then(|p| tab.panels.get(&p));
-                            let line = panel.map(Panel::cursor_line);
-                            // A browser pane's comment names its element.
-                            let anchor = panel.and_then(|p| p.anchors.get(p.cursor));
-                            let mode = match line {
-                                Some(line) => Some(view::Hint::Comment {
-                                    at: anchor.map_or_else(
-                                        || format!("L{line}"),
-                                        |a| view::cut_left(&a.selector, 40),
-                                    ),
-                                    edit: seed.as_ref().is_some_and(|s| !s.is_empty()),
-                                }),
-                                None => review.then_some(view::Hint::Review),
-                            };
-                            let anchor = anchor.map(|a| [a.selector.clone(), a.quote.clone()]);
-                            Ok((seed, line, anchor, mode.map(|m| view::hint(tab, m))))
-                        });
-                        acted |= res.is_ok();
-                        v.text(match res {
-                            Ok((seed, line, anchor, hint)) => {
-                                json!({"t": "acted", "ok": true, "text": seed, "line": line,
-                                       "anchor": anchor, "hint": hint})
-                            }
-                            Err(crate::tab::Error::SubmitFailed) => {
-                                json!({"t": "acted", "ok": false,
-                                       "text": crate::tab::SUBMIT_FAILED_WEB, "retry": true})
-                            }
-                            Err(e) => json!({"t": "acted", "ok": false, "text": e.to_string()}),
-                        });
-                    } else if msg.get("visit") == Some(&Value::Bool(true)) {
-                        self.visited = now_ms();
-                        // Back from another tab: that workspace's visit can be newer than the kept frame.
-                        if let Some(p) = &self.poke {
-                            let _ = p.send(());
-                        }
-                    } else if let Some((cols, rows)) = msg.get("view").and_then(cells) {
-                        self.area = Some(Rect::new(0, 0, cols, rows));
-                    } else if let Some((cols, rows)) = msg.get("shell").and_then(cells) {
-                        tab.shell_size = Some((rows, cols));
-                    } else if let Some(size) = msg.get("size") {
-                        // A browser pane's size in CSS pixels, and the screen's pixel ratio.
-                        let num = |k: &str| size.get(k).and_then(Value::as_f64);
-                        if let (Some(id), Some(w), Some(h), Some(dpr)) =
-                            (num("id"), num("w"), num("h"), num("dpr"))
-                        {
-                            let id = id as PaneId;
-                            let size = (
-                                w.clamp(50.0, 4000.0) as u32,
-                                h.clamp(50.0, 4000.0) as u32,
-                                dpr.clamp(0.5, 4.0),
-                            );
-                            if tab.panels.get(&id).is_some_and(|p| p.browser) {
-                                tab.browser_sizes.insert(id, size);
-                            }
-                            if let Some(page) = tab.browsers.get_mut(&id) {
-                                page.resize(size);
-                            }
-                        }
-                    } else if let Some(id) = msg.get("ack").and_then(Value::as_u64) {
-                        if let Some(page) = tab.browsers.get_mut(&id) {
-                            page.ack();
-                        }
-                    } else if let Some(hold) = msg.get("hold").and_then(Value::as_bool) {
-                        tab.hold = hold;
-                    } else if msg.get("quit") == Some(&Value::Bool(true)) {
-                        // Again, after the user's `y`: edits made since still block it.
-                        match tab.act(UserAction::Quit) {
-                            Ok(_) => quit = true,
-                            Err(e) => v.text(json!({"t": "notice", "text": e.to_string()})),
-                        }
-                    }
-                }
-                Ok(Inbound::Bytes(b)) => {
-                    if let Some((id, bytes)) = b.split_first_chunk::<8>() {
-                        let pane = u64::from_be_bytes(*id);
-                        let _ = tab.act(UserAction::Input {
-                            pane,
-                            bytes: bytes.to_vec(),
-                        });
-                    }
-                }
-                Err(TryRecvError::Empty) => break,
+                Ok(Inbound::Text(t)) => self.on_text(v, tab, &t, &mut turn),
+                Ok(Inbound::Bytes(b)) => on_bytes(tab, &b),
+                Err(TryRecvError::Empty) => return turn,
                 // The socket died (a closed tab): keep the workspace and its size.
                 Err(TryRecvError::Disconnected) => {
-                    self.view = None;
-                    tab.hold = false;
-                    return !quit;
+                    turn.closed = true;
+                    return turn;
                 }
             }
         }
+    }
 
+    /// One text frame from the view.
+    fn on_text(&mut self, v: &mut View, tab: &mut Tab, t: &str, turn: &mut Turn) {
+        let Ok(msg) = serde_json::from_str::<Value>(t) else {
+            return;
+        };
+        if msg.get("act").is_some() {
+            turn.acted |= self.on_act(v, tab, msg);
+        } else if msg.get("visit") == Some(&Value::Bool(true)) {
+            self.on_visit();
+        } else if let Some((cols, rows)) = msg.get("view").and_then(cells) {
+            self.area = Some(Rect::new(0, 0, cols, rows));
+        } else if let Some((cols, rows)) = msg.get("shell").and_then(cells) {
+            tab.shell_size = Some((rows, cols));
+        } else if let Some(size) = msg.get("size") {
+            on_size(tab, size);
+        } else if let Some(id) = msg.get("ack").and_then(Value::as_u64) {
+            if let Some(page) = tab.browsers.get_mut(&id) {
+                page.ack();
+            }
+        } else if let Some(hold) = msg.get("hold").and_then(Value::as_bool) {
+            tab.hold = hold;
+        } else if msg.get("quit") == Some(&Value::Bool(true)) {
+            turn.quit |= on_quit(v, tab);
+        }
+    }
+
+    /// An `act`: apply it and reply with `acted`. Returns whether it applied.
+    fn on_act(&mut self, v: &mut View, tab: &mut Tab, msg: Value) -> bool {
+        let res = match serde_json::from_value::<UserAction>(msg) {
+            // Input to a page changes only its frames: no reply, no layout.
+            Ok(
+                a @ (UserAction::BrowserMouse { .. }
+                | UserAction::BrowserKey { .. }
+                | UserAction::BrowserText { .. }
+                | UserAction::BrowserBlur { .. }
+                | UserAction::BrowserCommentMode { .. }
+                | UserAction::BrowserReveal { .. }),
+            ) => {
+                let _ = tab.act(a);
+                return false;
+            }
+            r => r.map_err(|e| crate::tab::Error::Text(e.to_string())),
+        };
+        let res = res.and_then(|a| self.apply_act(v, tab, a));
+        let ok = res.is_ok();
+        v.text(act_reply(res));
+        ok
+    }
+
+    /// Apply `a`, the web app's way where it has one: the seed of a comment's draft, its line and
+    /// element, and the draft's hint line.
+    fn apply_act(&mut self, v: &mut View, tab: &mut Tab, a: UserAction) -> Result<Acted, Error> {
+        let comment = match a {
+            UserAction::BeginComment { pane } | UserAction::BrowserPick { pane, .. } => Some(pane),
+            _ => None,
+        };
+        let review = matches!(a, UserAction::BeginReview { .. });
+        if let Some(pane) = comment {
+            snap_to_block(tab, pane);
+        }
+        let handled = match a {
+            UserAction::MoveCursor { pane, delta } => step(tab.panel_mut(pane)?, delta),
+            UserAction::ToggleThread { pane, line: None } => {
+                toggle_block_threads(tab.panel_mut(pane)?)
+            }
+            UserAction::DrawerHeight { percent } => {
+                self.drawer = save_drawer(percent);
+                // The web app showed the user's height before Laura took it: send the layout even
+                // when the height ends where it was, after a step and a reset in one loop.
+                v.layout.clear();
+                true
+            }
+            _ => false,
+        };
+        let seed = if handled { None } else { tab.act(a)? };
+        // Laura holds the agent from here, before any drain, until the browser closes the draft.
+        tab.hold |= comment.is_some() || review;
+        let panel = comment.and_then(|p| tab.panels.get(&p));
+        let line = panel.map(Panel::cursor_line);
+        // A browser pane's comment names its element.
+        let anchor = panel.and_then(|p| p.anchors.get(p.cursor));
+        let mode = match line {
+            Some(line) => Some(view::Hint::Comment {
+                at: anchor.map_or_else(|| format!("L{line}"), |a| view::cut_left(&a.selector, 40)),
+                edit: seed.as_ref().is_some_and(|s| !s.is_empty()),
+            }),
+            None => review.then_some(view::Hint::Review),
+        };
+        let anchor = anchor.map(|a| [a.selector.clone(), a.quote.clone()]);
+        Ok((seed, line, anchor, mode.map(|m| view::hint(tab, m))))
+    }
+
+    /// Back from another tab: that workspace's visit can be newer than the kept frame.
+    fn on_visit(&mut self) {
+        self.visited = now_ms();
+        if let Some(p) = &self.poke {
+            let _ = p.send(());
+        }
+    }
+
+    /// Laura's frames for the turn: the layout, the terminals' bytes, the browser panes, the
+    /// notices, and the file panes when anything changed (`dirty`).
+    fn send_frames(&mut self, v: &mut View, tab: &mut Tab, changed: bool) {
         let area = self.area.unwrap_or(DEFAULT_AREA);
         let rects = tab.rects(area);
-        let dirty = changed || acted || v.focus != tab.focus || v.area != area;
+        let dirty = changed || v.focus != tab.focus || v.area != area;
         // Before `layout`, whose hint depends on a page's route.
         if dirty {
             reconcile(&mut self.bases, &self.files, &self.root, tab);
@@ -648,77 +646,21 @@ impl WebServer {
             v.send(Outbound::Text(layout.clone()));
             v.layout = layout;
         }
-
         // After `layout`, so the browser has a pane's xterm before its first byte.
-        v.ptys
-            .retain(|id, _| *id == PTY_PANE || tab.editors.contains_key(id));
-        let ptys = std::iter::once((PTY_PANE, &tab.pty))
-            .chain(tab.editors.iter().map(|(id, e)| (*id, &e.pty)));
-        for (id, pty) in ptys {
-            if !v.ptys.contains_key(&id) {
-                let (replay, rx) = pty.subscribe();
-                v.send(Outbound::Bytes(framed(id, replay)));
-                v.ptys.insert(id, rx);
-            }
-        }
-        let mut chunks = vec![];
-        for (&id, rx) in &v.ptys {
-            loop {
-                match rx.try_recv() {
-                    Ok(b) => chunks.push(framed(id, b)),
-                    Err(TryRecvError::Empty) => break,
-                    // The reader dropped a full subscription: a fresh replay is the only way back.
-                    Err(TryRecvError::Disconnected) => {
-                        v.dead = true;
-                        break;
-                    }
-                }
-            }
-        }
-        for c in chunks {
-            v.send(Outbound::Bytes(c));
-        }
-
+        send_ptys(v, tab);
         // Before the page's events: the web app resets a pane's typing on a new URL, then takes the
         // `editable` of the load that follows it.
         send_browsers(v, tab);
-        // A browser pane's new frame, and each page's last frame to a new view.
-        v.framed.retain(|id| tab.browsers.contains_key(id));
-        for (&id, page) in &mut tab.browsers {
-            let fresh = page.take_fresh();
-            if (fresh || !v.framed.contains(&id))
-                && let Some(f) = page.frame()
-            {
-                v.send(Outbound::Bytes(framed(id, f)));
-                v.framed.insert(id);
-            }
-            for mut m in page.take_out() {
-                m["id"] = id.into();
-                v.text(m);
-            }
-        }
-        for (pane, text) in tab.notices.drain(..) {
-            let mut m = json!({"t": "notice", "text": text});
-            if let Some(pane) = pane {
-                m["pane"] = pane.into();
-            }
-            v.text(m);
-        }
-
+        send_browser_frames(v, tab);
+        send_notices(v, tab);
         if dirty {
             send_panes(v, tab, &rects, &self.bases);
             (v.focus, v.area) = (tab.focus, area);
         }
-
         if !v.git_shown && crate::gitdiff::git_missing() {
             v.git_shown = true;
             v.text(json!({"t": "notice", "text": view::NO_GIT}));
         }
-        if v.dead {
-            self.view = None;
-            tab.hold = false;
-        }
-        !quit
     }
 
     /// Send `{"t":"exit"}` and wait (briefly) for the connection thread to write it.
@@ -738,6 +680,154 @@ impl WebServer {
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
             }
         }
+    }
+}
+
+/// What one turn read from the view: the user's `y` to quit, an action applied, the socket died.
+#[derive(Default)]
+struct Turn {
+    quit: bool,
+    acted: bool,
+    closed: bool,
+}
+
+/// A begun comment's seed, its line and its element (selector and quote), and the draft's hint line.
+type Acted = (
+    Option<String>,
+    Option<u32>,
+    Option<[String; 2]>,
+    Option<view::Pairs>,
+);
+
+/// The `acted` reply to an `act`.
+fn act_reply(res: Result<Acted, Error>) -> Value {
+    match res {
+        Ok((seed, line, anchor, hint)) => {
+            json!({"t": "acted", "ok": true, "text": seed, "line": line,
+                   "anchor": anchor, "hint": hint})
+        }
+        Err(Error::SubmitFailed) => {
+            json!({"t": "acted", "ok": false,
+                   "text": crate::tab::SUBMIT_FAILED_WEB, "retry": true})
+        }
+        Err(e) => json!({"t": "acted", "ok": false, "text": e.to_string()}),
+    }
+}
+
+/// A new comment goes on the block's first line; on a stop, on that line; on a thread's card, it
+/// joins that thread.
+fn snap_to_block(tab: &mut Tab, pane: PaneId) {
+    if let Ok(p) = tab.panel_mut(pane)
+        && let Some(start) = cursor_block(p)
+            .filter(|b| !on_card(p, b) && !on_stop(p, b))
+            .map(|b| b.rows.start)
+    {
+        p.cursor = start;
+    }
+}
+
+/// A binary frame: keystrokes for the terminal of the pane its first 8 bytes name.
+fn on_bytes(tab: &mut Tab, b: &[u8]) {
+    if let Some((id, bytes)) = b.split_first_chunk::<8>() {
+        let pane = u64::from_be_bytes(*id);
+        let _ = tab.act(UserAction::Input {
+            pane,
+            bytes: bytes.to_vec(),
+        });
+    }
+}
+
+/// A browser pane's size in CSS pixels, and the screen's pixel ratio.
+fn on_size(tab: &mut Tab, size: &Value) {
+    let num = |k: &str| size.get(k).and_then(Value::as_f64);
+    let (Some(id), Some(w), Some(h), Some(dpr)) = (num("id"), num("w"), num("h"), num("dpr"))
+    else {
+        return;
+    };
+    let id = id as PaneId;
+    let size = (
+        w.clamp(50.0, 4000.0) as u32,
+        h.clamp(50.0, 4000.0) as u32,
+        dpr.clamp(0.5, 4.0),
+    );
+    if tab.panels.get(&id).is_some_and(|p| p.browser) {
+        tab.browser_sizes.insert(id, size);
+    }
+    if let Some(page) = tab.browsers.get_mut(&id) {
+        page.resize(size);
+    }
+}
+
+/// The user's `y` to the quit question. Again, after the `y`: edits made since still block it.
+/// Returns whether the workspace quits.
+fn on_quit(v: &mut View, tab: &mut Tab) -> bool {
+    match tab.act(UserAction::Quit) {
+        Ok(_) => true,
+        Err(e) => {
+            v.text(json!({"t": "notice", "text": e.to_string()}));
+            false
+        }
+    }
+}
+
+/// Each terminal's new bytes: the shell's and each editor pane's, with a replay for a new one.
+fn send_ptys(v: &mut View, tab: &Tab) {
+    v.ptys
+        .retain(|id, _| *id == PTY_PANE || tab.editors.contains_key(id));
+    let ptys = std::iter::once((PTY_PANE, &tab.pty))
+        .chain(tab.editors.iter().map(|(id, e)| (*id, &e.pty)));
+    for (id, pty) in ptys {
+        if !v.ptys.contains_key(&id) {
+            let (replay, rx) = pty.subscribe();
+            v.send(Outbound::Bytes(framed(id, replay)));
+            v.ptys.insert(id, rx);
+        }
+    }
+    let mut chunks = vec![];
+    for (&id, rx) in &v.ptys {
+        loop {
+            match rx.try_recv() {
+                Ok(b) => chunks.push(framed(id, b)),
+                Err(TryRecvError::Empty) => break,
+                // The reader dropped a full subscription: a fresh replay is the only way back.
+                Err(TryRecvError::Disconnected) => {
+                    v.dead = true;
+                    break;
+                }
+            }
+        }
+    }
+    for c in chunks {
+        v.send(Outbound::Bytes(c));
+    }
+}
+
+/// A browser pane's new frame, each page's last frame to a new view, and each page's events.
+fn send_browser_frames(v: &mut View, tab: &mut Tab) {
+    v.framed.retain(|id| tab.browsers.contains_key(id));
+    for (&id, page) in &mut tab.browsers {
+        let fresh = page.take_fresh();
+        if (fresh || !v.framed.contains(&id))
+            && let Some(f) = page.frame()
+        {
+            v.send(Outbound::Bytes(framed(id, f)));
+            v.framed.insert(id);
+        }
+        for mut m in page.take_out() {
+            m["id"] = id.into();
+            v.text(m);
+        }
+    }
+}
+
+/// The workspace's notices, each on its pane when it has one.
+fn send_notices(v: &mut View, tab: &mut Tab) {
+    for (pane, text) in tab.notices.drain(..) {
+        let mut m = json!({"t": "notice", "text": text});
+        if let Some(pane) = pane {
+            m["pane"] = pane.into();
+        }
+        v.text(m);
     }
 }
 
