@@ -29,7 +29,7 @@ use crate::panel::is_page;
 use crate::platform::{redirect_page, shown_root, write_private};
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::serve::{live, record_path, workspaces_dir};
-use crate::tab::Error;
+use crate::tab::{Draft, Error};
 use crate::{Panel, Rect, Tab, UserAction, view};
 
 mod frames;
@@ -450,12 +450,12 @@ impl WebServer {
         };
         let turn = self.read_inbound(&mut v, tab);
         if turn.closed {
-            tab.hold = false;
+            tab.end_modes();
             return !turn.quit;
         }
         self.send_frames(&mut v, tab, changed || turn.acted);
         if v.dead {
-            tab.hold = false;
+            tab.end_modes();
         } else {
             self.view = Some(v);
         }
@@ -480,8 +480,8 @@ impl WebServer {
             let _ = std::fs::remove_file(page);
         }
         if let Some(old) = self.view.take() {
-            // A takeover drops the old view's draft hold.
-            tab.hold = false;
+            // A takeover ends the old view's modes, so its draft holds the agent no more.
+            tab.end_modes();
             let _ = old
                 .tx
                 .try_send(Outbound::Text(json!({"t": "moved"}).to_string()));
@@ -546,8 +546,6 @@ impl WebServer {
             if let Some(page) = tab.browsers.get_mut(&id) {
                 page.ack();
             }
-        } else if let Some(hold) = msg.get("hold").and_then(Value::as_bool) {
-            tab.hold = hold;
         } else if msg.get("quit") == Some(&Value::Bool(true)) {
             turn.quit |= on_quit(v, tab);
         }
@@ -577,13 +575,12 @@ impl WebServer {
     }
 
     /// Apply `a`, the web app's way where it has one: the seed of a comment's draft, its line and
-    /// element, and the draft's hint line.
+    /// element.
     fn apply_act(&mut self, v: &mut View, tab: &mut Tab, a: UserAction) -> Result<Acted, Error> {
         let comment = match a {
             UserAction::BeginComment { pane } | UserAction::BrowserPick { pane, .. } => Some(pane),
             _ => None,
         };
-        let review = matches!(a, UserAction::BeginReview { .. });
         if let Some(pane) = comment {
             snap_to_block(tab, pane);
         }
@@ -602,21 +599,13 @@ impl WebServer {
             _ => false,
         };
         let seed = if handled { None } else { tab.act(a)? };
-        // Laura holds the agent from here, before any drain, until the browser closes the draft.
-        tab.hold |= comment.is_some() || review;
-        let panel = comment.and_then(|p| tab.panels.get(&p));
-        let line = panel.map(Panel::cursor_line);
-        // A browser pane's comment names its element.
-        let anchor = panel.and_then(|p| p.anchors.get(p.cursor));
-        let mode = match line {
-            Some(line) => Some(view::Hint::Comment {
-                at: anchor.map_or_else(|| format!("L{line}"), |a| view::cut_left(&a.selector, 40)),
-                edit: seed.as_ref().is_some_and(|s| !s.is_empty()),
-            }),
-            None => review.then_some(view::Hint::Review),
+        let Some(&Draft::Comment { line, .. }) = tab.draft().filter(|_| comment.is_some()) else {
+            return Ok((seed, None, None));
         };
-        let anchor = anchor.map(|a| [a.selector.clone(), a.quote.clone()]);
-        Ok((seed, line, anchor, mode.map(|m| view::hint(tab, m))))
+        let anchor = tab
+            .draft_anchor()
+            .map(|a| [a.selector.clone(), a.quote.clone()]);
+        Ok((seed, Some(line), anchor))
     }
 
     /// Back from another tab: that workspace's visit can be newer than the kept frame.
@@ -691,20 +680,14 @@ struct Turn {
     closed: bool,
 }
 
-/// A begun comment's seed, its line and its element (selector and quote), and the draft's hint line.
-type Acted = (
-    Option<String>,
-    Option<u32>,
-    Option<[String; 2]>,
-    Option<view::Pairs>,
-);
+/// A begun comment's seed, its line and its element (selector and quote).
+type Acted = (Option<String>, Option<u32>, Option<[String; 2]>);
 
 /// The `acted` reply to an `act`.
 fn act_reply(res: Result<Acted, Error>) -> Value {
     match res {
-        Ok((seed, line, anchor, hint)) => {
-            json!({"t": "acted", "ok": true, "text": seed, "line": line,
-                   "anchor": anchor, "hint": hint})
+        Ok((seed, line, anchor)) => {
+            json!({"t": "acted", "ok": true, "text": seed, "line": line, "anchor": anchor})
         }
         Err(Error::SubmitFailed) => {
             json!({"t": "acted", "ok": false,
@@ -760,11 +743,11 @@ fn on_size(tab: &mut Tab, size: &Value) {
 
 /// The user's `y` to the quit question. Again, after the `y`: edits made since still block it.
 /// Returns whether the workspace quits.
-fn on_quit(v: &mut View, tab: &mut Tab) -> bool {
-    match tab.act(UserAction::Quit) {
-        Ok(_) => true,
-        Err(e) => {
-            v.text(json!({"t": "notice", "text": e.to_string()}));
+fn on_quit(v: &mut View, tab: &Tab) -> bool {
+    match tab.unsaved_edits() {
+        None => true,
+        Some(message) => {
+            v.text(json!({"t": "notice", "text": message}));
             false
         }
     }

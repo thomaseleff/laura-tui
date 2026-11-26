@@ -32,6 +32,7 @@ mod glance;
 mod layout;
 mod links;
 mod markdown;
+mod modes;
 mod pages;
 mod review;
 mod shell;
@@ -44,6 +45,16 @@ fn file(name: &str, body: &str) -> Result<(tempfile::TempDir, String)> {
     let path = dir.path().join(name);
     std::fs::write(&path, body)?;
     Ok((dir, path.to_string_lossy().into_owned()))
+}
+
+/// The next layout frame on `ws` that `want` matches.
+fn layout_with(rig: &mut Rig, ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
+    rig.until(
+        ws,
+        what,
+        |f| matches!(f, Frame::Json(v) if v["t"] == "layout" && want(v)),
+    )
+    .json()
 }
 
 fn five_lines() -> String {

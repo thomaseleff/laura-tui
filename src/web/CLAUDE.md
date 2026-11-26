@@ -6,7 +6,7 @@ Rules for `src/web/`: the web app's server (`mod.rs`, `frames.rs`, `html.rs`, `g
 
 The client is ES modules with no build step. `index.html` loads `main.js` as `type="module"`, and Laura serves each module from `ASSETS` (`mod.rs`). The vendor scripts (`xterm.js`, its addons and `idiomorph.js`) stay classic scripts with their globals.
 
-- `state.js`: Laura's layout, the socket, `send` and `act`, the wait rule, `esc`, and `ui` with `mode()`. Every module imports `state.js`, and `state.js` imports nothing.
+- `state.js`: Laura's layout, the socket, `send` and `act`, the wait rule, `esc`, `ui`, and the modes with `mode()`. Every module imports `state.js`, and `state.js` imports nothing.
 - `term.js`: the shell's and each editor pane's xterm.js, `termKeys`, the shell's links (`PATH`), and the grid's cell.
 - `head.js`: the pane header.
 - `panes.js`: each pane's element, `onLayout`, the lines between panes, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
@@ -21,7 +21,11 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 
 Every focus move the user makes calls `focusPane` (`panes.js`), which tells Laura. A route that moves only the DOM focus calls `followFocus`, which follows Laura's focus.
 
-`ui` holds the modes. `modes()` lists every mode that is on, first to last, and `mode()`, its first, takes a keystroke. The keydown listener and `termKeys` ask `mode()`. The hint line shows the first mode in `modes()` that has a hint, so under the help and the overlay the hint line shows the mode below them. A new mode is a field of `ui` and a case of `modes()`.
+Laura holds the modes in `Tab` (`src/tab/mode.rs`): the help, the pane selector, the quit question, the lock and the draft. The `layout` frame lists them in `modes`, with the open draft in `draft`. Only the overlay on close and the workspace switcher's menu live in the client. `modes()` lists every mode that is on, first to last: the client's two, then Laura's. `mode()`, its first, takes a keystroke. The keydown listener and `termKeys` ask `mode()`. `ui` holds only what the client draws of a mode, such as the pane selector's row and the draft's text.
+
+A keystroke that changes a mode sends its `act` and patches the client's copy of `layout.modes` (`patchModes`, `setOverlay`), so the next keystroke goes to the new mode before Laura's reply. Laura's next `layout` frame replaces the copy. What a rule decides, such as the focus or the end of the draft, comes only from Laura.
+
+The hint line shows the first mode in `modes()` that has a hint, so under the help and the overlay the hint line shows the mode below them. A new mode is a case of `Mode` in `mode.rs`, and of `modes()` only when it lives in the client.
 
 A top-level `let` lives in the module that assigns it, and other modules read it through an import. When another module must change it, the owner exports a small function for that change, such as `setLayout`. Top-level code must not call an imported `const` function: a module in an import cycle can run before that function exists.
 
@@ -35,21 +39,21 @@ Laura sends these frames to the view:
 |---|---|---|---|
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
-| `layout` | The panes, their rects, the focus, the hint line, the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
+| `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
 | `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |
 | `browser` | A browser pane's URL and state | `send_browsers` (`frames.rs`) | `onBrowser` |
 | `editable`, `agent`, `screenshot`, `copy`, `rect`, `marks` | Events in a browser pane | `browser.rs`, through `take_out`; `sync` adds the pane `id` | their `case` in `connect` |
-| `acted` | The reply to each `act`: `ok`, the text of an error, and `retry` for a failed submit | `WebServer::sync` | the `acts` queue |
+| `acted` | The reply to each `act`: `ok`, the text of an error, `retry` for a failed submit, and a begun comment's seed, line and element | `WebServer::sync` | the `acts` queue |
 | `notice` | A notice, on a pane when the frame has `pane` | `WebServer::sync` | `showNotice` |
 | `moved` | A newer view took over the workspace | `WebServer::sync` | the overlay on close |
 | `exit` | The workspace ended | `WebServer::close` | the overlay on close |
 
 A binary frame is `framed`: an 8-byte big-endian pane id, then the bytes. For the shell, the bytes are PTY output (`terms.get(id).write`). For a browser pane, the bytes are a screen frame (`onFrame`).
 
-The view sends these frames to Laura, and `sync` reads each one in its inbound branch: `act` (a `UserAction`), `visit`, `view`, `shell`, `size`, `ack`, `hold` and `quit`.
+The view sends these frames to Laura, and `sync` reads each one in its inbound branch: `act` (a `UserAction`), `visit`, `view`, `shell`, `size`, `ack` and `quit`.
 
 ## Escaping
 
@@ -74,7 +78,7 @@ Before a change to the web app, ask: does the TUI need the same change?
 
 Assert on frames, not pixels.
 
-The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `file_panes`, `markdown`, `pages`, `review`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
+The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `file_panes`, `markdown`, `pages`, `review`, `modes`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
 
 - Add a web test to the module for its feature.
 - Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.

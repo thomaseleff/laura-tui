@@ -30,8 +30,6 @@ The TUI shows a [collapsed thread](navigation.md#threads-and-inline-reviews) as 
 
 `Ctrl+P` opens the panes popup, which finds a pane by id only. Type a pane id, then press `Enter`. A single-digit id focuses the pane at once.
 
-In the TUI, `F12` keeps the focus on the focused pane. From a file pane, Laura sends the keystrokes to the shell.
-
 ## Typing a comment or review body
 
 | Keystroke | What Laura does |

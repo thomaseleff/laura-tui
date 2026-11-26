@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use assert_cmd::Command;
 use laura::protocol::{self, Message, Response};
-use laura::{Rect, Tab};
+use laura::{Rect, Tab, UserAction};
 
 fn run_tab(tab: &mut Tab, args: &[&str]) -> bool {
     let name = tab.socket.clone();
@@ -292,9 +292,11 @@ fn agent_request_waits_for_the_users_draft() -> Result<()> {
 
     let mut tab = spawn_tab()?;
     drive_tab(&mut tab, &["open", path]);
-    // What the TUI sets while the user types a comment on the focused pane.
+    // The user presses `c` on the focused pane: the comment's draft holds the agent.
     tab.focus = 1;
-    tab.hold = true;
+    tab.agent = true;
+    tab.act(UserAction::BeginComment { pane: 1 })?;
+    assert!(tab.held());
 
     let name = tab.socket.clone();
     let (tx, rx) = mpsc::channel();
@@ -313,11 +315,13 @@ fn agent_request_waits_for_the_users_draft() -> Result<()> {
     assert!(tab.panels.contains_key(&1), "held close must not apply");
     assert!(rx.try_recv().is_err(), "held request must not be answered");
 
-    // The user presses Enter: the comment commits, then the hold lifts.
-    let p = tab.panels.get_mut(&1).expect("pane 1");
-    p.begin_comment();
-    p.author_note("mine".into());
-    tab.hold = false;
+    // The user presses Enter: the comment commits, and the draft closes.
+    tab.act(UserAction::Comment {
+        pane: 1,
+        line: 1,
+        text: "mine".into(),
+    })?;
+    assert!(!tab.held());
     let resp = loop {
         tab.drain(Rect::new(0, 0, 120, 40));
         if let Ok(r) = rx.try_recv() {

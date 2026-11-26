@@ -2,14 +2,14 @@
 // review body, the thread list and **More**), and the draft from `c` or `Shift+S` to its save or
 // submit.
 
-import { $, act, esc, layout, pane, send, ui } from "./state.js";
+import { $, act, draft, esc, layout, pane, patchModes, ui } from "./state.js";
 import { headClick, ic, tip, TOOLS } from "./head.js";
 import { focusPane, followFocus } from "./panes.js";
 import { clearRetryNotice, paintHint, paintStatus } from "./bottom.js";
 import { frameOf } from "./pages.js";
 import { strings } from "./main.js";
 
-// The comment's box (`ui.draft`).
+// The comment's box (`draft()`).
 let draftCard = null;
 
 // A comment's author: `null` is the user. The agent's names read as in the TUI.
@@ -50,24 +50,24 @@ function cardHTML(p, t, on, drafting) {
       : '<button class="reply" data-act="reply">Reply…</button>') + "</div>";
 }
 
-// The draft and the review popover keep the user's text in `draft.text`.
+// The draft and the review popover keep the user's text in `ui.box.text`.
 function wireDraft(box) {
-  box.querySelector("textarea").addEventListener("input", e => ui.draft && (ui.draft.text = e.target.value));
+  box.querySelector("textarea").addEventListener("input", e => ui.box && (ui.box.text = e.target.value));
   box.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
 }
 
 // `reply`: the thread on the draft's line, if any. `paintThreads` puts the box in that thread's card
 // (`cardHTML`'s slot) or gives the box a card of its own.
 function makeDraftCard(reply) {
-  const c = document.createElement("div"), edit = reply?.notes.at(-1)?.author === null;
+  const c = document.createElement("div"), edit = reply?.notes.at(-1)?.author === null, d = draft();
   const verb = edit ? "Edit" : reply ? "Reply" : "Comment";
-  const lbl = [reply && verb, reply?.label ?? ui.draft.anchor?.[1]].filter(Boolean).join(" · ");
-  const at = chip(ui.draft.anchor?.[0], ui.draft.line, 40);
+  const lbl = [reply && verb, reply?.label ?? d.anchor?.[1]].filter(Boolean).join(" · ");
+  const at = chip(d.anchor?.[0], d.line, 40);
   c.innerHTML = `<div class="ch"><span class="anc">${at}</span>${lbl ? `<span class="lbl">${esc(lbl)}</span>` : ""}</div>`
     + `<textarea spellcheck="false" placeholder="${edit ? "Edit your comment" : `${verb} on ${at}`}"></textarea>`
     + `<div class="fa"><button class="btn" data-act="cancel">Cancel <kbd>Esc</kbd></button>`
     + `<button class="btn pri" data-act="save">${edit ? "Save" : verb} <kbd>Enter</kbd></button></div>`;
-  c.querySelector("textarea").value = ui.draft.text;
+  c.querySelector("textarea").value = ui.box.text;
   wireDraft(c);
   c.addEventListener("click", e => {
     e.stopPropagation();
@@ -97,7 +97,7 @@ export function paintThreads(id) {
   const el = $("p" + id), rows = el?.querySelector(".rows"), p = pane(id);
   if (!rows || !p) return;
   const f = frameOf(id), all = el.threads ?? [];
-  const d = ui.draft?.pane === id && ui.draft.kind === "comment" ? ui.draft : null;
+  const d = draft()?.pane === id && draft().kind === "comment" ? draft() : null;
   let ts = p.diff ? [] : all;
   if (f) ts = ts.filter(t => t.line === el.line && t.line !== el.shut && !t.collapsed && !t.lost);
   const us = [...units(rows)];
@@ -160,7 +160,7 @@ const REVIEW = '<div class="pop review"><div class="err" hidden></div><textarea 
 function paintPop(id) {
   const el = $("p" + id), p = pane(id);
   if (!el || !p) return;
-  const d = ui.draft?.pane === id && ui.draft.kind === "review" ? ui.draft : null;
+  const d = draft()?.pane === id && draft().kind === "review" ? ui.box : null;
   const sb = el.querySelector(".head .submit");
   sb.innerHTML = d?.busy ? "Submitting…" : d?.failed ? 'Retry<span class="tl"> submit</span>' : 'Submit<span class="tl"> review</span>';
   sb.classList.toggle("submitting", !!d?.busy);
@@ -180,7 +180,7 @@ function paintPop(id) {
     wrap.dataset.kind = kind;
     wrap.innerHTML = kind === "review" ? REVIEW : `<div class="pop ${kind}"></div>`;
     if (kind === "review") {
-      wrap.querySelector("textarea").value = ui.draft.text;
+      wrap.querySelector("textarea").value = ui.box.text;
       wireDraft(wrap);
     } else wrap.addEventListener("mousedown", e => e.target.closest("button") && e.preventDefault());
     wrap.addEventListener("click", e => popClick(id, e));
@@ -208,7 +208,7 @@ function paintPop(id) {
     return;
   }
   // A lost thread's card, and its draft, open below its row (`el.lostOpen`).
-  const ts = el.threads ?? [], dl = ui.draft?.pane === id && ui.draft.kind === "comment" ? ui.draft.line : null;
+  const ts = el.threads ?? [], dl = draft()?.pane === id && draft().kind === "comment" ? draft().line : null;
   const html = `<div class="ph">${ts.length} thread${ts.length === 1 ? "" : "s"} <span class="mute">· ${esc(p.name)}</span></div>`
     + ts.map(t => `<button class="trow${t.lost ? " lost" : ""}" data-th="${t.line}"><span class="anc">${chip(t.anchor, t.line, 24)}</span>${avs(authors(t))}`
       + `<span class="tx">${esc(t.notes.at(-1)?.body ?? "")}</span>`
@@ -226,12 +226,13 @@ function paintPop(id) {
 // The review body's popover: the failed submit and the **Submit review** button.
 function paintReviewPop(wrap) {
   const q = s => wrap.querySelector(s);
-  q(".err").hidden = !ui.draft.failed;
+  const box = ui.box;
+  q(".err").hidden = !box.failed;
   q(".err").textContent = strings.draft?.failed ?? "";
-  q("[data-act=save]").innerHTML = `${ui.draft.busy ? "Submitting…" : ui.draft.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
-  q("[data-act=save]").disabled = ui.draft.busy;
+  q("[data-act=save]").innerHTML = `${box.busy ? "Submitting…" : box.failed ? "Retry" : "Submit review"} <kbd>Enter</kbd>`;
+  q("[data-act=save]").disabled = box.busy;
   // The review body can't change while Laura submits it.
-  q("textarea").readOnly = ui.draft.busy;
+  q("textarea").readOnly = box.busy;
 }
 
 export const paintPops = () => layout?.panes.forEach(p => paintPop(p.id));
@@ -244,7 +245,7 @@ function popClick(id, e) {
   const el = $("p" + id), c = b && e.target.closest(".card[data-th]");
   // While a draft is open, a row or a card doesn't move the cursor or close the draft's card, as on the page.
   // headClick and cardClick use the same guard, so the only list open during a draft is the draft's own.
-  if (ui.draft && (c || b?.dataset.th)) return followFocus(true);
+  if (draft() && (c || b?.dataset.th)) return followFocus(true);
   // A lost thread's card in the list: **–** closes it; **Reply…**, **Edit…** and **Delete** act as on the page.
   if (c && b.dataset.act === "collapse") return (el.lostOpen = null), paintPop(id);
   if (c) return cardClick(id, e);
@@ -309,7 +310,7 @@ export function cardClick(id, e) {
   const c = e.target.closest(".card[data-th]"), b = e.target.closest("[data-act]");
   if (!c || !b) return;
   e.stopPropagation();
-  if (ui.draft) return followFocus(true);
+  if (draft()) return followFocus(true);
   focusPane(id);
   if (b.dataset.act === "delete") return act({ act: "comment", pane: id, line: +c.dataset.th, text: "" });
   if (b.dataset.act !== "reply") return act({ act: "toggle_thread", pane: id, line: +c.dataset.th });
@@ -318,52 +319,63 @@ export function cardClick(id, e) {
 }
 
 // `msg`: the act that starts the draft, when not `begin_comment` or `begin_review`, such as a
-// browser pane's `browser_pick`.
+// browser pane's `browser_pick`. Laura opens the draft, and its layout frame shows it (`followDraft`).
 export function begin(id, kind, msg) {
   act(msg ?? { act: kind === "comment" ? "begin_comment" : "begin_review", pane: id }, r => {
     if (!r.ok) return;
     ui.listOpen = null;
-    ui.draft = { pane: id, line: r.line, anchor: r.anchor, kind, hint: r.hint, busy: false, failed: false, text: r.text ?? "" };
-    paintThreads(id);
-    paintPops();
-    paintHint();
-    paintStatus();
-    followFocus(true);
+    ui.box = { text: r.text ?? "", busy: false, failed: false };
   });
 }
 
-// `Enter`: add or save the comment, or submit the inline review. A failure keeps the draft for a retry.
+// The box follows Laura's draft: a draft gets a box, and a box with no draft goes. `onLayout` paints it.
+export function followDraft() {
+  if (draft()) ui.box ??= { text: "", busy: false, failed: false };
+  else if (ui.box) {
+    ui.box = null;
+    draftCard?.remove();
+    draftCard = null;
+    clearRetryNotice();
+  }
+}
+
+// `Enter`: add or save the comment, or submit the inline review. Laura closes the draft; a failure
+// keeps the draft for a retry.
 export function confirmDraft() {
-  const d = ui.draft;
-  if (d.busy) return;
-  d.busy = true;
-  d.failed = false;
+  const d = draft(), box = ui.box;
+  if (!d || box.busy) return;
+  box.busy = true;
+  box.failed = false;
   paintPop(d.pane);
   paintStatus();
-  act(d.kind === "comment" ? { act: "comment", pane: d.pane, line: d.line, text: d.text } : { act: "submit", pane: d.pane, body: d.text },
+  act(d.kind === "comment" ? { act: "comment", pane: d.pane, line: d.line, text: box.text } : { act: "submit", pane: d.pane, body: box.text },
     r => {
       if (r.ok) {
         // The saved card is taller than the draft, so the saved card can overflow the bottom edge of the pane.
         if (d.kind === "comment") $("p" + d.pane).goTh = { th: d.line, block: "nearest" };
-        closeDraft();
+        endDraft(d.pane);
         return goThread(d.pane);
       }
-      if (ui.draft !== d) return;
-      d.busy = false;
-      d.failed = true;
+      if (ui.box !== box) return;
+      box.busy = false;
+      box.failed = true;
       paintPop(d.pane);
       paintStatus();
     });
 }
 
+// `Esc` or **Cancel**: Laura closes the draft.
 export function closeDraft() {
-  if (!ui.draft) return;
-  const id = ui.draft.pane;
-  ui.draft = null;
-  draftCard?.remove();
-  draftCard = null;
-  send({ hold: false });
-  clearRetryNotice();
+  const d = draft();
+  if (!d) return;
+  act({ act: "cancel_draft" });
+  endDraft(d.pane);
+}
+
+// Laura closed, or closes, pane `id`'s draft: the next keystroke goes to the pane before Laura's layout frame.
+function endDraft(id) {
+  patchModes(null, "draft");
+  followDraft();
   paintThreads(id);
   paintHint();
   paintStatus();

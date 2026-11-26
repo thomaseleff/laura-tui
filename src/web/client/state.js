@@ -1,5 +1,5 @@
 // The web app's client (#88): the state that every module reads. Laura's layout, the socket, the
-// modes in `ui`, and `mode`, which tells which mode takes a keystroke. Every module imports this
+// client's draw state in `ui`, and `mode`, which tells which mode takes a keystroke. Every module imports this
 // module, and this module imports none, so it runs first and its capture listeners (the wait rule)
 // see each event first.
 //
@@ -14,19 +14,13 @@ export const setLayout = m => (layout = m);
 export const $ = id => document.getElementById(id);
 export const root = $("ws");
 
-// The modes that take a keystroke before a pane (`mode`), and the state of the pane in use.
+// What the client draws of the modes that Laura holds (`layout.modes`), and the state of the pane in use.
 export const ui = {
-  // F12's lock, which sends a file pane's or a browser pane's keystrokes to the shell.
-  locked: false,
-  // The help sheet is open.
-  help: false,
-  // The pane selector's selected row, or `null` while the pane selector is closed.
-  popup: null,
-  // The quit question shows on the hint line.
-  confirmQuit: false,
-  // The open comment or review body: `{pane, line, kind, hint, busy, failed, text}`. A comment's box
-  // is `draftCard`, in its line's thread or below its line; a review body's is in the pane's popover.
-  draft: null,
+  // The pane selector's selected row.
+  row: 0,
+  // The open draft's box (`draft()`): `{text, busy, failed}`. A comment's box is `draftCard`, in its
+  // line's thread or below its line; a review body's is in the pane's popover.
+  box: null,
   // The pane whose thread list is open, and the pane whose **More** is open.
   listOpen: null,
   moreOpen: null,
@@ -61,16 +55,34 @@ export function act(m, then) {
 
 export const pane = id => layout?.panes.find(p => p.id === id);
 export const focused = () => pane(layout?.focus);
+// A mode that Laura holds is on: "help", "selector", "quit", "locked" or "draft".
+export const on = m => !!layout?.modes.includes(m);
+// The open comment or review body that Laura holds: `{pane, kind, line, anchor}`, else null.
+export const draft = () => layout?.draft ?? null;
+// Laura's order of its modes (`Tab::modes`).
+const ORDER = ["wizard", "help", "selector", "quit", "locked", "draft"];
+// The client's copy of Laura's modes, with `add` and without `drop`, until Laura's next `layout`
+// frame replaces it: the next keystroke goes to the new mode before Laura's reply.
+export function patchModes(add, ...drop) {
+  if (!layout) return;
+  const now = new Set(layout.modes.filter(m => !drop.includes(m)));
+  if (add) now.add(add);
+  layout.modes = ORDER.filter(m => now.has(m));
+  if (!now.has("draft")) layout.draft = null;
+}
+// Open the help or the pane selector, or close the overlay (`null`).
+export function setOverlay(o) {
+  act({ act: "overlay", overlay: o });
+  patchModes(o, "help", "selector", "quit");
+}
 // The lock sends a file pane's or a browser pane's keystrokes to the shell; an editor pane keeps them.
-export const toShell = () => ui.locked && focused()?.kind !== "editor";
+export const toShell = () => on("locked") && focused()?.kind !== "editor";
 // The drawer shows while the shell has the focus or the lock's keystrokes.
 export const drawerOpen = () => layout.focus === 0 || toShell();
-// The modes on now, first to last: the first takes a keystroke before any pane.
+// The modes on now, first to last: the client's overlay and menu, then Laura's. The first takes a
+// keystroke before any pane.
 export function modes() {
-  return [
-    !$("overlay").hidden && "overlay", !$("menu").hidden && "menu", ui.help && "help",
-    ui.popup !== null && "selector", ui.confirmQuit && "quit", ui.locked && "locked", !!ui.draft && "draft",
-  ].filter(Boolean);
+  return [!$("overlay").hidden && "overlay", !$("menu").hidden && "menu", ...(layout?.modes ?? [])].filter(Boolean);
 }
 // The mode that takes a keystroke; null when the focused pane takes it.
 export function mode() {

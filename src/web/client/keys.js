@@ -1,9 +1,9 @@
 // The keystrokes that Laura takes: one function for each mode (`mode`) and for each kind of
 // focused pane, the keystrokes for a browser pane's page, and the window's paste, copy and resize.
 
-import { $, act, drawerOpen, focused, layout, mode, modes, MODIFIERS, pane, root, send, terms, toShell, ui } from "./state.js";
+import { $, act, drawerOpen, focused, layout, mode, MODIFIERS, on, pane, patchModes, root, send, setOverlay, terms, ui } from "./state.js";
 import { fitShell, report } from "./term.js";
-import { focusPane, followFocus, lastFocus, saveDrawer, sizeView, splitKey, stepDrawer } from "./panes.js";
+import { focusPane, followFocus, saveDrawer, sizeView, splitKey, stepDrawer } from "./panes.js";
 import { answer } from "./browser-pane.js";
 import { paintHint, paintShellButton, toggleShell } from "./bottom.js";
 import { begin, closeDraft, confirmDraft, draftBox, paintPops, units } from "./review.js";
@@ -46,34 +46,18 @@ function take(e) {
   e.stopPropagation();
 }
 
-// The pane that the lock moved Laura's focus from (`lockKey`).
-let lockFrom = null;
-
-// F12 turns the lock on or off. From a file pane or a browser pane, the lock moves Laura's focus to
-// the shell, which takes the keystrokes, and the unlock moves it back, unless the user moved it.
-// Under the pane selector, the help or the quit question, the user hasn't reached the shell, and
-// the wait rule ends the wait on the close. A draft holds its pane. Either way, the focus stays.
+// F12 turns the lock on or off, and Laura moves the focus (`Tab::toggle_lock`). The lock's
+// keystrokes go to the shell at once; the drawer and the shell button repaint before the reply.
 function lockKey(e) {
   take(e);
-  ui.locked = !ui.locked;
-  let back = false;
-  // shortcut: a lock under another mode leaves Laura's focus on the pane after the close; move it in the close if users hit it.
-  if (modes().join() === "locked" && toShell() && layout.focus !== 0) {
-    lockFrom = layout.focus;
-    focusPane(0);
-  } else if (!ui.locked) {
-    // shortcut: an unlock before the lock's reply (F12 F12 within one round trip) leaves the focus in the shell; track the move in flight if users hit it.
-    // The user moved the focus to another pane and back to the shell: the focus stays.
-    back = lockFrom !== null && layout.focus === 0 && lastFocus === lockFrom && !!pane(lockFrom);
-    if (back) focusPane(lockFrom);
-    lockFrom = null;
-  }
-  // An unlock sends no layout, so the drawer and the shell button repaint here.
+  const unlock = on("locked");
+  act({ act: "lock" });
+  patchModes(unlock ? null : "locked", "locked");
   if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
-  // Laura's focus is still on the shell until the reply: the shell must not take the keystrokes meanwhile.
-  // shortcut: a keystroke between the unlock and Laura's reply goes to no pane; track the move in flight if users hit it.
-  if (back) {
-    terms.get(0)?.blur();
+  // The unlock can give the focus back to a pane: until Laura's reply, no terminal takes the keystrokes.
+  // shortcut: F12 F12 within one round trip leaves no terminal focused until the next layout frame; follow the focus in the reply if users hit it.
+  if (unlock) {
+    for (const t of terms.values()) t.blur();
     root.focus({ preventScroll: true });
   } else followFocus(true);
   paintHint();
@@ -96,13 +80,13 @@ function selectorKey(e, ctrl, k) {
   if (e.key === "Escape" || (ctrl && k === "p")) return take(e), closeSelector();
   if (e.key === "ArrowUp" || e.key === "ArrowDown") {
     take(e);
-    ui.popup += e.key === "ArrowDown" ? 1 : -1;
+    ui.row += e.key === "ArrowDown" ? 1 : -1;
     return paintSelector();
   }
   if (e.key === "Enter" && !e.isComposing) {
     take(e);
     // The headings are not rows: count only the rows.
-    return pickRow($("prows").querySelectorAll(".prow")[ui.popup], e.ctrlKey || e.metaKey);
+    return pickRow($("prows").querySelectorAll(".prow")[ui.row], e.ctrlKey || e.metaKey);
   }
   if ((ctrl && "rlqh".includes(k)) || e.key === "Tab") return take(e);
   if (document.activeElement !== pq) pq.focus();
@@ -111,7 +95,7 @@ function selectorKey(e, ctrl, k) {
 // The quit question: `y` quits, and any other keystroke closes the question.
 function quitKey(e) {
   take(e);
-  ui.confirmQuit = false;
+  setOverlay(null);
   if (e.key === "y") send({ quit: true });
   paintHint();
 }
@@ -165,7 +149,8 @@ function paneKey(e, ctrl, k) {
   if (splitKey(e)) return take(e);
   if (ctrl && k === "q") {
     take(e);
-    return act({ act: "quit" }, m => m.ok && ((ui.confirmQuit = true), paintHint()));
+    // Laura opens the quit question; it takes the next keystroke before Laura's layout frame.
+    return act({ act: "quit" }, m => m.ok && (patchModes("quit"), paintHint()));
   }
   if (ctrl && k === "l" && f && f.pty && f.id !== 0) {
     take(e);

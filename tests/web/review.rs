@@ -226,7 +226,9 @@ fn comment_and_submit_from_the_browser() -> Result<()> {
     assert_eq!(acted["ok"], true, "{acted}");
     assert_eq!(acted["text"], "", "{acted}");
     assert_eq!(acted["line"], 2, "{acted}");
-    let hint = pairs(&acted["hint"]);
+    let layout = layout_with(&mut rig, &mut ws, "the draft", |v| v["draft"]["line"] == 2);
+    assert_eq!(layout["modes"], json!(["draft"]), "{layout}");
+    let hint = pairs(&layout["hints"]["mode"]);
     assert!(
         hint.contains("L2") && hint.contains("Shift+Enter"),
         "{hint}"
@@ -252,10 +254,15 @@ fn comment_and_submit_from_the_browser() -> Result<()> {
     // Again on the same line: the draft edits the user's comment.
     let acted = rig.act(&mut ws, begin);
     assert_eq!(acted["text"], "user note\nsecond line", "{acted}");
-    let hint = pairs(&acted["hint"]);
+    let layout = layout_with(&mut rig, &mut ws, "the edit", |v| v["draft"]["line"] == 2);
+    let hint = pairs(&layout["hints"]["mode"]);
     assert!(hint.contains("empty deletes"), "{hint}");
     let acted = rig.act(&mut ws, json!({"act": "begin_review", "pane": 1}));
-    let hint = pairs(&acted["hint"]);
+    assert_eq!(acted["ok"], true, "{acted}");
+    let layout = layout_with(&mut rig, &mut ws, "the review body", |v| {
+        v["draft"]["kind"] == "review"
+    });
+    let hint = pairs(&layout["hints"]["mode"]);
     assert!(hint.contains("Review body"), "{hint}");
     let acted = rig.act(
         &mut ws,
@@ -279,7 +286,7 @@ fn a_draft_holds_the_agent() -> Result<()> {
     // A failed begin, here a review with no comments yet, keeps the open draft's hold.
     let acted = rig.act(&mut ws, json!({"act": "begin_review", "pane": 1}));
     assert_eq!(acted["ok"], false, "{acted}");
-    assert!(rig.tab.hold);
+    assert!(rig.tab.held());
     let open = rig.start(&["open", &b]);
     for _ in 0..20 {
         rig.pump();
@@ -288,29 +295,29 @@ fn a_draft_holds_the_agent() -> Result<()> {
     assert_eq!(rig.tab.focus, 1);
     assert!(!rig.tab.panels.contains_key(&2));
     assert!(open.try_recv().is_err(), "the agent's open didn't wait");
-    send(&mut ws, json!({"hold": false}));
+    let acted = rig.act(&mut ws, json!({"act": "cancel_draft"}));
+    assert_eq!(acted["ok"], true, "{acted}");
     assert!(rig.wait(&open).status.success());
     assert!(rig.tab.panels.contains_key(&2));
     Ok(())
 }
 
 #[test]
-fn a_takeover_or_a_closed_view_releases_the_hold() -> Result<()> {
+fn a_takeover_or_a_closed_view_ends_the_draft() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut first = rig.connect();
     let (_dir, path) = file("a.rs", &five_lines())?;
     rig.drive(&["open", &path]);
-    rig.until(&mut first, "layout", |f| f.is("layout"));
-    send(&mut first, json!({"hold": true}));
-    rig.idle(&mut first, 5);
-    assert!(rig.tab.hold);
+    rig.drive(&["ready"]);
+    let begin = json!({"act": "begin_comment", "pane": 1});
+    assert_eq!(rig.act(&mut first, begin.clone())["ok"], true);
+    assert!(rig.tab.held());
     let highlight = rig.start(&["highlight", "--pane", "1", "2"]);
     let mut second = rig.connect();
     rig.until(&mut second, "layout", |f| f.is("layout"));
     assert!(rig.wait(&highlight).status.success());
-    send(&mut second, json!({"hold": true}));
-    rig.idle(&mut second, 5);
-    assert!(rig.tab.hold);
+    assert_eq!(rig.act(&mut second, begin)["ok"], true);
+    assert!(rig.tab.held());
     second.close(None)?;
     drop(second);
     let highlight = rig.start(&["highlight", "--pane", "1", "3"]);

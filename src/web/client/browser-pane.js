@@ -1,7 +1,7 @@
 // A browser pane: the screen frames from Laura's browser, the live badge, the agent's marks, the
 // page's outlines and pins, and the page's dialog.
 
-import { $, act, layout, send, ui } from "./state.js";
+import { $, act, draft, layout, send } from "./state.js";
 import { followFocus } from "./panes.js";
 import { paintHint } from "./bottom.js";
 import { authors, paintThreads, units, who } from "./review.js";
@@ -228,7 +228,7 @@ export function paintMarks(id) {
     pin.append(String(th.notes.length));
     pin.addEventListener("pointerenter", () => (el.pinAt = line));
     pin.addEventListener("pointerleave", () => (el.pinAt = null));
-    pin.addEventListener("click", () => (ui.draft ? followFocus(true) : pinClick(id, line)));
+    pin.addEventListener("click", () => (draft() ? followFocus(true) : pinClick(id, line)));
   }
 }
 

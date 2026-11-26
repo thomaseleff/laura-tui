@@ -14,6 +14,7 @@ use crate::layout::Handle;
 use crate::panel::cursor::card_line;
 use crate::panel::{Author, Thread, is_page};
 use crate::protocol::{PTY_PANE, PaneId};
+use crate::tab::Draft;
 use crate::{Panel, PanelRow, Rect, Tab, view};
 
 use super::html::{block_units, row_html};
@@ -66,9 +67,8 @@ pub(super) fn layout_json(
     );
     let hints = json!({
         "pane": pane,
-        "locked": view::hint(tab, view::Hint::Locked),
-        "quit": view::hint(tab, view::Hint::Quit),
-        "panes": view::hint(tab, view::Hint::Panes),
+        // The first mode on with a hint; `null`: the pane's.
+        "mode": view::mode_hint(tab).map(|h| view::hint(tab, h)),
         "workspace": view::hint(tab, view::Hint::Workspace),
         "comment_mode": view::hint(tab, view::Hint::CommentMode),
         "browser_typing": view::hint(tab, view::Hint::BrowserTyping),
@@ -80,10 +80,26 @@ pub(super) fn layout_json(
     let splits: Vec<Value> = tab.handles(area).iter().map(split_json).collect();
     json!({"t": "layout", "cols": area.width, "rows": area.height, "focus": tab.focus,
            "drawer_height": drawer.0, "drawer_fit": drawer.1, "canvas": canvas,
+           "modes": tab.modes(), "draft": draft_json(tab),
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
            "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes, "splits": splits})
     .to_string()
+}
+
+/// The open draft in the layout frame: its pane, its kind, and a comment's line and element
+/// (selector and quote).
+fn draft_json(tab: &Tab) -> Value {
+    let anchor = tab.draft_anchor().map(|a| [&a.selector, &a.quote]);
+    match tab.draft() {
+        None => Value::Null,
+        Some(&Draft::Comment { pane, line, .. }) => {
+            json!({"pane": pane, "kind": "comment", "line": line, "anchor": anchor})
+        }
+        Some(&Draft::Review { pane }) => {
+            json!({"pane": pane, "kind": "review", "line": null, "anchor": null})
+        }
+    }
 }
 
 /// A split's line in the layout frame: `at` cells into its rect, with the ratios a drag may reach.

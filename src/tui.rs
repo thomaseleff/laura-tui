@@ -26,7 +26,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use laura::editor::Nvim;
 use laura::layout::workspace_fits;
 use laura::protocol::PTY_PANE;
-use laura::tab::SHELL_EXITED;
+use laura::tab::{Draft, Mode, Overlay, SHELL_EXITED};
 use laura::view::{self, Hint};
 use laura::{PaneId, Panel, PtyTab, Tab, UserAction};
 
@@ -162,33 +162,6 @@ fn wrap_rows(line: &str, w: usize) -> Vec<String> {
     rows
 }
 
-/// What live typing captures: a per-line comment or the review body. Enter branches per variant.
-enum Draft {
-    /// `line` is the cursor's source line when `c` was pressed: the comment lands there, not wherever the cursor drifted.
-    /// `edit` means `c` seeded your own comment, so an empty Enter deletes it.
-    Comment {
-        pane: PaneId,
-        line: u32,
-        edit: bool,
-        text: Editor,
-    },
-    Review(PaneId, Editor),
-}
-
-impl Draft {
-    fn editor_mut(&mut self) -> &mut Editor {
-        match self {
-            Draft::Comment { text: e, .. } | Draft::Review(_, e) => e,
-        }
-    }
-
-    fn editor(&self) -> &Editor {
-        match self {
-            Draft::Comment { text: e, .. } | Draft::Review(_, e) => e,
-        }
-    }
-}
-
 /// The theme wizard's answer, `laura` or `neovim`; `None`: ask (only when editor panes are on).
 fn editor_theme() -> Option<String> {
     if let Some(v) = laura::settings::get("editor_theme") {
@@ -218,7 +191,12 @@ pub fn spawn_tab(program: &[String], rows: u16, cols: u16, web: bool) -> Result<
     };
     // Editor panes are resolved once: a terminal's PATH doesn't change under a running Laura.
     tab.editor = laura::editor::resolve();
-    tab.editor_theme = editor_theme().as_deref() == Some("laura");
+    let theme = editor_theme();
+    tab.editor_theme = theme.as_deref() == Some("laura");
+    // The web app has no wizard: it starts with Neovim's own theme until the TUI asks.
+    if !web && tab.editor.is_ok() && theme.is_none() {
+        tab.ask_theme();
+    }
     Ok(tab)
 }
 
@@ -241,20 +219,14 @@ struct Shown {
     drag_frame: Option<Buffer>,
 }
 
-/// The TUI's loop state: the workspace, its modes, the pointer and the toast.
+/// The TUI's loop state: the workspace, what the TUI draws of its modes, the pointer and the toast.
+/// The modes live in `Tab` (`Tab::modes`).
 struct Tui {
     tab: Tab,
-    /// The theme wizard, until the user answers or puts it off.
-    wizard: bool,
-    /// `^p` opens the panes popup; `Some(buf)` holds the pane id being typed (multi-digit for #10+).
-    panes: Option<String>,
-    /// `F12` locks input: every keystroke goes to the shell, Laura intercepts nothing but F12.
-    locked: bool,
-    /// `^q` arms a quit confirm; the next key must be `y`.
-    confirm_quit: bool,
-    /// Draft captures typing for a comment or the review body.
-    draft: Option<Draft>,
-    help: bool,
+    /// The pane id typed in the panes popup (multi-digit for #10+).
+    typed: String,
+    /// The draft's text (`Tab::draft`).
+    text: Editor,
     pointer: Pointer,
     /// A transient bottom-right toast; armed by a queued notice, and once if `git` is missing.
     toast: Option<Toast>,
@@ -324,7 +296,6 @@ fn read_event() -> Result<Event> {
 
 impl Tui {
     fn new(tab: Tab) -> Tui {
-        let wizard = tab.editor.is_ok() && editor_theme().is_none();
         // The user turned editor panes on, so a missing `nvim` is said at startup, not left to a
         // refused `--edit`.
         let toast = tab
@@ -338,12 +309,8 @@ impl Tui {
             });
         Tui {
             tab,
-            wizard,
-            panes: None,
-            locked: false,
-            confirm_quit: false,
-            draft: None,
-            help: false,
+            typed: String::new(),
+            text: Editor::default(),
             pointer: Pointer::default(),
             toast,
             git_shown: false,
@@ -358,9 +325,8 @@ impl Tui {
     /// Per-frame upkeep before drawing `content`: the agent's requests, the notices, the toast's
     /// expiry. Returns each pane's rect: render, resize, wheel and popups all read it.
     fn before_draw(&mut self, content: Rect) -> HashMap<PaneId, Rect> {
-        // A comment/review-body draft holds requests so the pane under it can't move; the theme
-        // wizard holds them too, so an `open --edit` launches with the answer.
-        self.tab.hold = self.wizard || self.draft.is_some();
+        // A draft holds requests so the pane under it can't move; the theme wizard holds them too,
+        // so an `open --edit` launches with the answer (`Tab::held`).
         self.tab.drain(content);
         // The web app shows each notice; the TUI shows the newest in its toast.
         let newest = self.tab.notices.drain(..).next_back();
@@ -389,9 +355,10 @@ impl Tui {
             return draw_too_small(f);
         }
         let rows = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
+        let hint = view::mode_hint(&self.tab).unwrap_or(Hint::Pane);
         draw_panes(f, &self.tab, rects);
         f.render_widget(
-            Paragraph::new(view::hint_text(&view::hint(&self.tab, self.hint()))).dim(),
+            Paragraph::new(view::hint_text(&view::hint(&self.tab, hint))).dim(),
             rows[1],
         );
         self.draw_overlays(f, rects);
@@ -405,50 +372,25 @@ impl Tui {
         }
     }
 
-    /// What the hint line describes.
-    fn hint(&self) -> Hint {
-        if self.locked {
-            Hint::Locked
-        } else if self.wizard {
-            Hint::Wizard
-        } else if self.confirm_quit {
-            Hint::Quit
-        } else if let Some(d) = &self.draft {
-            match d {
-                Draft::Comment { line, edit, .. } => Hint::Comment {
-                    at: format!("L{line}"),
-                    edit: *edit,
-                },
-                Draft::Review(..) => Hint::Review,
-            }
-        } else if self.panes.is_some() {
-            Hint::Panes
-        } else {
-            Hint::Pane
-        }
-    }
-
-    /// The draft's box, the panes popup, the help and the wizard.
+    /// The draft's box, and the overlay: the panes popup, the help or the wizard.
     fn draw_overlays(&self, f: &mut Frame, rects: &HashMap<PaneId, Rect>) {
         // A live draft grows a bordered input box over the bottom of the shell pane — never over
         // a panel, so the file under review stays visible.
-        if let Some(d) = &self.draft
+        if let Some(d) = self.tab.draft()
             && let Some(pty_rect) = rects.get(&PTY_PANE)
         {
             let title = match d {
                 Draft::Comment { .. } => view::DRAFT_COMMENT,
-                Draft::Review(..) => view::DRAFT_REVIEW,
+                Draft::Review { .. } => view::DRAFT_REVIEW,
             };
-            render_draft_box(f, *pty_rect, title, d.editor(), !self.help);
+            let cursor = self.tab.mode() == Some(Mode::Draft);
+            render_draft_box(f, *pty_rect, title, &self.text, cursor);
         }
-        if let Some(buf) = &self.panes {
-            render_panes(f, &self.tab, buf);
-        }
-        if self.help {
-            render_help(f);
-        }
-        if self.wizard {
-            render_wizard(f, &laura::settings::path());
+        match self.tab.overlay() {
+            Some(Overlay::Selector) => render_panes(f, &self.tab, &self.typed),
+            Some(Overlay::Help) => render_help(f),
+            Some(Overlay::Wizard) => render_wizard(f, &laura::settings::path()),
+            Some(Overlay::Quit) | None => {}
         }
     }
 
@@ -492,48 +434,41 @@ impl Tui {
         ControlFlow::Continue(())
     }
 
-    /// A keystroke: to the mode that takes it, else to the focused pane. `Break`: the user quit.
+    /// A keystroke: to the mode that takes it (`Tab::mode`), else to the focused pane. `Break`: the
+    /// user quit.
     fn on_key(&mut self, key: KeyEvent, pty_inner: Rect) -> ControlFlow<()> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        if self.wizard {
-            self.wizard_key(key.code);
-        } else if key.code == KeyCode::F(12) {
-            self.locked = !self.locked; // the one key Laura keeps even while locked
-        } else if self.locked {
-            self.locked_key(key);
-        } else if self.confirm_quit {
-            return self.quit_key(key.code);
-        } else if self.help {
-            self.help = false;
-        } else if ctrl && key.code == KeyCode::Char('h') {
-            self.help = true;
-        } else if self.draft.is_some() {
-            self.draft_key(key.code);
-        } else if self.panes.is_some() {
-            self.selector_key(key.code);
-        } else {
-            self.pane_key(key, pty_inner);
+        match self.tab.mode() {
+            Some(Mode::Wizard) => self.wizard_key(key.code),
+            // The one key Laura keeps even while locked.
+            _ if key.code == KeyCode::F(12) => self.act(UserAction::Lock),
+            Some(Mode::Help) => self.act(UserAction::Overlay { overlay: None }),
+            Some(Mode::Selector) => self.selector_key(key.code),
+            Some(Mode::Quit) => return self.quit_key(key.code),
+            Some(Mode::Locked) => self.locked_key(key),
+            _ if ctrl && key.code == KeyCode::Char('h') => self.act(UserAction::Overlay {
+                overlay: Some(Overlay::Help),
+            }),
+            Some(Mode::Draft) => self.draft_key(key.code),
+            None => self.pane_key(key, pty_inner),
         }
         ControlFlow::Continue(())
     }
 
+    /// An action whose error, if any, needs no notice.
+    fn act(&mut self, action: UserAction) {
+        let _ = self.tab.act(action);
+    }
+
     /// The startup wizard takes every key, F12 included, until answered or put off.
     fn wizard_key(&mut self, code: KeyCode) {
-        let answer = match code {
+        let laura = match code {
             KeyCode::Char('y') => Some(true),
             KeyCode::Char('n') => Some(false),
-            _ => None,
+            KeyCode::Esc => None,
+            _ => return,
         };
-        self.wizard = answer.is_none() && code != KeyCode::Esc;
-        if let Some(yes) = answer {
-            // A failed write only means the wizard asks again next launch.
-            let _ = laura::settings::set(
-                "editor_theme",
-                Some((if yes { "laura" } else { "neovim" }).into()),
-            );
-            self.notice("✅ Experimental · Editor panes setup complete".into(), 10);
-            self.tab.editor_theme = yes;
-        }
+        self.act(UserAction::Theme { laura });
     }
 
     /// Everything to the focused shell or editor pane (else the shell); only F12 is intercepted.
@@ -551,16 +486,13 @@ impl Tui {
         if code == KeyCode::Char('y') {
             return ControlFlow::Break(());
         }
-        self.confirm_quit = false;
+        self.act(UserAction::Overlay { overlay: None });
         ControlFlow::Continue(())
     }
 
     /// The draft's text editing; Enter confirms, Esc cancels.
     fn draft_key(&mut self, code: KeyCode) {
-        let Some(d) = self.draft.as_mut() else {
-            return;
-        };
-        let ed = d.editor_mut();
+        let ed = &mut self.text;
         match code {
             KeyCode::Char(c) => ed.insert(c.encode_utf8(&mut [0; 4])),
             KeyCode::Backspace => ed.backspace(),
@@ -577,44 +509,35 @@ impl Tui {
         }
     }
 
-    /// Enter: add the comment, or submit the inline review. A failed submit keeps the review body.
+    /// Enter: add the comment, or submit the inline review. Laura closes the draft; a failure keeps
+    /// it, and its text, for a retry.
     fn confirm_draft(&mut self) {
-        match self.draft.take() {
-            Some(Draft::Comment {
-                pane,
-                line,
-                text: ed,
-                ..
-            }) => {
-                let res = self.tab.act(UserAction::Comment {
-                    pane,
-                    line,
-                    text: ed.text,
-                });
-                if let Err(t) = res {
-                    self.notice(t.to_string(), 5);
-                }
+        let text = self.text.text.clone();
+        let res = match self.tab.draft() {
+            Some(&Draft::Comment { pane, line, .. }) => {
+                self.tab.act(UserAction::Comment { pane, line, text })
             }
-            Some(Draft::Review(pane, Editor { text: body, .. })) => {
-                let res = self.tab.act(UserAction::Submit {
-                    pane,
-                    body: body.clone(),
-                });
-                if let Err(t) = res {
-                    let until = Instant::now() + Duration::from_secs(5);
-                    self.toast = Some((t.to_string(), until, Some(t)));
-                    self.draft = Some(Draft::Review(pane, Editor::new(body)));
-                } else if submit_failed(&self.toast) {
-                    // A retry that lands must not leave "Enter to retry" up.
+            Some(&Draft::Review { pane }) => self.tab.act(UserAction::Submit { pane, body: text }),
+            None => return,
+        };
+        match res {
+            Err(t) => {
+                let until = Instant::now() + Duration::from_secs(5);
+                self.toast = Some((t.to_string(), until, Some(t)));
+            }
+            Ok(_) => {
+                self.text = Editor::default();
+                // A retry that lands must not leave "Enter to retry" up.
+                if submit_failed(&self.toast) {
                     self.toast = None;
                 }
             }
-            None => {}
         }
     }
 
     fn cancel_draft(&mut self) {
-        self.draft = None;
+        self.act(UserAction::CancelDraft);
+        self.text = Editor::default();
         // Nothing left to retry, so "Enter to retry" would lie.
         if submit_failed(&self.toast) {
             self.toast = None;
@@ -624,32 +547,25 @@ impl Tui {
     /// Typed digits are the pane id (shell is #0), matching `laura close`/`focus`. Commit as soon
     /// as no larger id could still be typed, else wait for `Enter`.
     fn selector_key(&mut self, code: KeyCode) {
-        let Some(buf) = self.panes.as_mut() else {
-            return;
-        };
-        match code {
+        let ids = self.tab.layout.order();
+        let done = match code {
             KeyCode::Char(c) if c.is_ascii_digit() => {
-                buf.push(c);
-                let buf = buf.clone();
-                let ids = self.tab.layout.order();
-                if !pane_id_ambiguous(&ids, &buf) {
-                    if let Some(id) = pane_id_exact(&ids, &buf) {
-                        let _ = self.tab.act(UserAction::Focus { pane: id });
-                    }
-                    self.panes = None;
-                }
+                self.typed.push(c);
+                !pane_id_ambiguous(&ids, &self.typed)
             }
             KeyCode::Backspace => {
-                buf.pop();
+                self.typed.pop();
+                return;
             }
-            KeyCode::Enter => {
-                let ids = self.tab.layout.order();
-                if let Some(id) = pane_id_exact(&ids, buf) {
-                    let _ = self.tab.act(UserAction::Focus { pane: id });
-                }
-                self.panes = None;
+            KeyCode::Enter => true,
+            // Esc or anything else dismisses.
+            _ => return self.act(UserAction::Overlay { overlay: None }),
+        };
+        if done {
+            if let Some(id) = pane_id_exact(&ids, &self.typed) {
+                self.act(UserAction::Focus { pane: id });
             }
-            _ => self.panes = None, // Esc or anything else dismisses
+            self.act(UserAction::Overlay { overlay: None });
         }
     }
 
@@ -658,11 +574,14 @@ impl Tui {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let focus = self.tab.focus;
         if ctrl && key.code == KeyCode::Char('p') {
-            self.panes = Some(String::new());
+            self.typed.clear();
+            self.act(UserAction::Overlay {
+                overlay: Some(Overlay::Selector),
+            });
         } else if ctrl && key.code == KeyCode::Char('q') {
-            match self.tab.act(UserAction::Quit) {
-                Err(e) => self.notice(e.to_string(), 5),
-                Ok(_) => self.confirm_quit = true,
+            // `Ok` opens the quit question.
+            if let Err(e) = self.tab.act(UserAction::Quit) {
+                self.notice(e.to_string(), 5);
             }
         } else if ctrl
             && matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
@@ -693,19 +612,10 @@ impl Tui {
             KeyCode::Right => tab.act(UserAction::ScrollH { pane, delta: 1 }),
             KeyCode::Char('d') => tab.act(UserAction::ToggleDiff { pane }),
             KeyCode::Char('p') => tab.act(UserAction::TogglePause { pane }),
-            KeyCode::Char('c') => {
-                let line = tab.focused_panel().map_or(1, Panel::cursor_line);
-                tab.act(UserAction::BeginComment { pane }).map(|seed| {
-                    let seed = seed.unwrap_or_default();
-                    self.draft = Some(Draft::Comment {
-                        pane,
-                        line,
-                        edit: !seed.is_empty(),
-                        text: Editor::new(seed),
-                    });
-                    None
-                })
-            }
+            KeyCode::Char('c') => tab.act(UserAction::BeginComment { pane }).map(|seed| {
+                self.text = Editor::new(seed.unwrap_or_default());
+                None
+            }),
             KeyCode::Char('r') if ctrl => tab.act(UserAction::Refresh { pane }),
             KeyCode::Char('r') => tab.act(UserAction::ToggleThread { pane, line: None }),
             KeyCode::Char('n') | KeyCode::Char('N') => tab.act(UserAction::JumpThread {
@@ -714,7 +624,7 @@ impl Tui {
             }),
             KeyCode::Char('S') => tab
                 .act(UserAction::BeginReview { pane })
-                .inspect(|_| self.draft = Some(Draft::Review(pane, Editor::default()))),
+                .inspect(|_| self.text = Editor::default()),
             KeyCode::Char('x') => tab.act(UserAction::Close { pane }),
             KeyCode::Char('h') => tab.act(UserAction::ClearHighlight { pane }),
             KeyCode::Esc => tab.act(UserAction::Focus { pane: PTY_PANE }),
@@ -744,23 +654,17 @@ impl Tui {
     }
 
     /// A pasted block arrives as one unit: into a draft body, or to the shell wrapped in
-    /// bracketed paste (no trailing CR) so a REPL doesn't submit per newline. Popups, a focused
-    /// panel without a draft, help and confirm drop it.
+    /// bracketed paste (no trailing CR) so a REPL doesn't submit per newline. An overlay, or a
+    /// focused panel without a draft, drops it.
     fn on_paste(&mut self, s: String) {
-        if let Some(d) = self.draft.as_mut() {
-            d.editor_mut().insert(&s);
-        } else if self.locked
-            || (focused_pty(&self.tab).is_some()
-                && self.panes.is_none()
-                && !self.help
-                && !self.confirm_quit
-                && !self.wizard)
-        {
-            let _ = self.tab.act(UserAction::Paste {
-                pane: key_target(&self.tab),
-                text: s,
-            });
+        match self.tab.mode() {
+            Some(Mode::Draft) => return self.text.insert(&s),
+            Some(Mode::Locked) => {}
+            None if focused_pty(&self.tab).is_some() => {}
+            _ => return,
         }
+        let pane = key_target(&self.tab);
+        self.act(UserAction::Paste { pane, text: s });
     }
 }
 

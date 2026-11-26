@@ -567,8 +567,11 @@ fn pane_html_escapes_the_file() -> Result<()> {
 fn the_pane_selector_hint_names_its_keystrokes() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
-    let layout = rig.until(&mut ws, "layout", |f| f.is("layout")).json();
-    let hint = pairs(&layout["hints"]["panes"]);
+    rig.act(&mut ws, json!({"act": "overlay", "overlay": "selector"}));
+    let layout = layout_with(&mut rig, &mut ws, "the pane selector", |v| {
+        v["modes"] == json!(["selector"])
+    });
+    let hint = pairs(&layout["hints"]["mode"]);
     assert_eq!(
         hint, "↑ ↓ select · Enter focus · type an id to focus at once · Esc close",
         "{layout}"

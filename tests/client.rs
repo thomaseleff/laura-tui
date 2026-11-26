@@ -156,6 +156,41 @@ fn a_second_f12_focuses_the_file_pane_again() -> Result<()> {
     Ok(())
 }
 
+/// #230: the user moves the focus to pane 2 and back to the shell under the lock, so the unlock
+/// leaves the focus on the shell. The agent's moves come in a frame, as a click's do.
+#[test]
+fn the_unlock_keeps_the_shell_after_a_focus_move() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let dir = file_focused(&mut r, &c)?;
+    let other = dir.path().join("b.rs");
+    std::fs::write(&other, "fn b() {}\n")?;
+    r.drive(&["open", "--no-focus", &other.to_string_lossy()]);
+    c.until(
+        &mut r,
+        "pane 2",
+        "layout.focus === 1 && layout.panes.length === 3",
+    );
+    c.press(F12);
+    c.until(
+        &mut r,
+        "the lock, with the shell's focus",
+        "layout.modes.includes('locked') && layout.focus === 0",
+    );
+    r.drive(&["focus", "2"]);
+    c.until(&mut r, "pane 2's focus", "layout.focus === 2");
+    r.drive(&["focus", "0"]);
+    c.until(&mut r, "the shell's focus", "layout.focus === 0");
+    c.press(F12);
+    c.until(&mut r, "the unlock", "!layout.modes.includes('locked')");
+    assert_eq!(r.tab.focus, 0, "the unlock gave pane 1 its focus back");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 #[test]
 fn ctrl_backquote_focuses_the_shell() -> Result<()> {
     let Some((path, _one)) = chrome() else {

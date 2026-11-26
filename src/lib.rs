@@ -8,7 +8,7 @@
 //! - [`browser`] — a browser pane's page in Laura's own headless Chrome or Edge.
 //! - [`cdp_proxy`] — `LAURA_BROWSER_URL`: the agent's browser tools reach Laura's browser through Laura.
 //! - [`editor`] — an editor pane's Neovim (experimental) and the startup gate.
-//! - [`tab`] — one workspace tab tying the above together over its socket; with `apply`, `act`, `links`, `browsers` and `report`.
+//! - [`tab`] — one workspace tab tying the above together over its socket; with `apply`, `act`, `links`, `browsers`, `mode` (the input modes) and `report`.
 //! - [`view`] — pane titles, file pane rows, and the hint, help, and notice text a front-end draws.
 //! - [`web`] — the web app: serves a workspace to the browser; with `frames`, `html` and `glance`.
 //! - [`serve`] — the Laura server: one address that lists the workspaces and starts new ones.

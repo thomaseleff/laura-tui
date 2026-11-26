@@ -1,4 +1,5 @@
-//! One workspace: a PTY, its panels, the split tree, and the socket that ties them together.
+//! One workspace: a PTY, its panels, the split tree, the input modes, and the socket that ties them
+//! together.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -30,7 +31,9 @@ mod act;
 mod apply;
 mod browsers;
 mod links;
+mod mode;
 mod report;
+pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
 
 /// A link that can't open a pane, in place of `Error::SplitTooSmall`.
@@ -57,6 +60,8 @@ pub const NO_ROOM_TO_RESIZE: &str = "⚠ A pane can't get any smaller.";
 pub const NO_ROOM_TO_UNPIN: &str = "⚠ Laura's size doesn't fit in this window. Make the window larger, then double-click the line again.";
 /// A resize of a line that a pane's close took away while the user dragged it.
 pub const NO_SPLIT: &str = "⚠ A pane closed while you moved the line.";
+/// The user answered the theme wizard.
+pub const THEME_SET: &str = "✅ Experimental · Editor panes setup complete";
 /// The shell exited while Neovim has unsaved edits.
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
@@ -128,24 +133,28 @@ pub enum UserAction {
     ClearHighlight {
         pane: PaneId,
     },
-    /// `c` on the cursor's line; `Ok(Some(seed))`: the user's own comment to edit, else empty.
+    /// `c` on the cursor's line opens the comment's draft; `Ok(Some(seed))`: the user's own
+    /// comment to edit, else empty.
     BeginComment {
         pane: PaneId,
     },
-    /// `Shift+S`: `Ok` means the caller may open the review body.
+    /// `Shift+S`: `Ok` opens the review body's draft.
     BeginReview {
         pane: PaneId,
     },
-    /// `line`: 1-based source line, as `L<n>`.
+    /// `line`: 1-based source line, as `L<n>`. `Ok` closes the draft.
     Comment {
         pane: PaneId,
         line: u32,
         text: String,
     },
+    /// `Ok` closes the draft; a failure keeps it for a retry.
     Submit {
         pane: PaneId,
         body: String,
     },
+    /// `Esc` on the draft.
+    CancelDraft,
     Refresh {
         pane: PaneId,
     },
@@ -186,8 +195,20 @@ pub enum UserAction {
         pane: PaneId,
         text: String,
     },
-    /// `Ctrl+Q`: `Ok` means the caller may ask `y` and end the workspace.
+    /// `Ctrl+Q`: `Ok` opens the quit question, after which the caller may end the workspace.
     Quit,
+    /// `F12`: the lock on or off (`Tab::toggle_lock`).
+    Lock,
+    /// Open the help (`Ctrl+H`) or the pane selector (`Ctrl+P`), or close the overlay (`None`).
+    Overlay {
+        #[serde(default)]
+        overlay: Option<Overlay>,
+    },
+    /// The theme wizard's answer: Laura's theme, the user's own, or not now (`None`).
+    Theme {
+        #[serde(default)]
+        laura: Option<bool>,
+    },
     /// **Show the shell as a pane**: the shell as the left-most pane, at the full height. The TUI ignores it.
     Dock,
     /// **Show the shell in a drawer**: the shell back in the drawer.
@@ -345,8 +366,8 @@ pub struct Tab {
     pub shell_size: Option<(u16, u16)>,
     /// The user showed the shell as a pane (**Show the shell as a pane**) in the web app, in place of the drawer.
     docked: bool,
-    /// The user is typing a comment/review body or answering the theme wizard: leave requests queued, and panes unreloaded, until they finish.
-    pub hold: bool,
+    /// The overlay, the lock and the draft (`mode.rs`).
+    modes: mode::Modes,
     /// Editor panes' Neovim, by pane id. Each also has its file panel in `panels`.
     pub editors: HashMap<PaneId, Nvim>,
     /// The `nvim` to run for `open --edit`, or why editor panes are off. The TUI sets it from
@@ -429,7 +450,7 @@ impl Tab {
             bells: 0,
             shell_size: None,
             docked: false,
-            hold: false,
+            modes: mode::Modes::default(),
             editors: HashMap::new(),
             editor: Err(editor::Error::FlagOff),
             editor_theme: false,
@@ -522,8 +543,8 @@ impl Tab {
     }
 
     /// `Shift+S` → `Enter`: write pane `pane`'s inline review with `body` into the shell and
-    /// journal it. A sent review returns focus to the shell, and an editor pane to its editor
-    /// view; a failed one keeps the threads for a retry.
+    /// journal it. A sent review closes the draft and returns focus to the shell, and an editor
+    /// pane to its editor view; a failed one keeps the threads and the draft for a retry.
     fn submit(&mut self, pane: PaneId, body: &str) -> Result<(), Error> {
         self.review_gate(pane)?;
         let bells = self.pty.bells();
@@ -546,6 +567,7 @@ impl Tab {
             e.editor_view = true;
         }
         self.focus = PTY_PANE;
+        self.close_draft();
         self.answered(bells);
         Ok(())
     }
@@ -690,6 +712,7 @@ impl Tab {
     /// Returns whether anything changed: a message applied, a file reloaded or froze, a Neovim exited.
     pub fn drain(&mut self, area: Rect) -> bool {
         self.area = area;
+        self.forget_lock_from();
         // Before the hold: a bell while the user types a comment still counts.
         let bells = self.pty.bells();
         // A new wait begins; a bell during a wait is the same wait the user sees.
@@ -700,7 +723,7 @@ impl Tab {
         self.bells = bells;
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
         let browsed = self.poll_browsers();
-        if self.hold {
+        if self.held() {
             return browsed;
         }
         let started = self.poll_start(area);

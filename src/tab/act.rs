@@ -11,7 +11,7 @@ use crate::panel::{Panel, bracketed_paste};
 use crate::protocol::{Dir, PTY_PANE, PaneId, Response};
 
 use super::{
-    DOCK, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK,
+    DOCK, Draft, Error, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_DIFF_IN_EDITOR, NO_ROOM_TO_DOCK,
     NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_SPLIT, Tab, UserAction, no_pane,
 };
 
@@ -101,30 +101,11 @@ impl Tab {
             A::SetCursor { pane, line } => self.panel_mut(pane)?.set_cursor_line(line),
             A::OpenLink { pane, href } => self.open_link(pane, &href)?,
             A::OpenPath { path, line, diff } => self.open_path(&path, line, diff)?,
-            A::BeginComment { pane } => {
-                if !self.agent {
-                    return Err(NEEDS_READY.into());
-                }
-                let p = self.panel_mut(pane)?;
-                if p.diff_view {
-                    return Err(NO_COMMENT_IN_DIFF.into());
-                }
-                p.set_cursor_line(p.cursor_line()); // snaps to a markdown block's first row
-                return Ok(Some(p.begin_comment()));
-            }
-            A::Comment { pane, line, text } => {
-                if !self.agent {
-                    return Err(NEEDS_READY.into());
-                }
-                let p = self.panel_mut(pane)?;
-                if p.diff_view {
-                    return Err(NO_COMMENT_IN_DIFF.into());
-                }
-                p.set_cursor_line(line);
-                p.author_note(text);
-            }
-            A::BeginReview { pane } => self.review_gate(pane)?,
+            A::BeginComment { pane } => return self.begin_comment(pane).map(Some),
+            A::Comment { pane, line, text } => self.comment(pane, line, text)?,
+            A::BeginReview { pane } => self.begin_review(pane)?,
             A::Submit { pane, body } => self.submit(pane, &body)?,
+            A::CancelDraft => self.close_draft(),
             A::Refresh { pane } if self.panels.get(&pane).is_some_and(|p| p.browser) => {
                 match self.browsers.get(&pane) {
                     Some(page) => {
@@ -176,11 +157,13 @@ impl Tab {
                     self.answered(bells);
                 }
             }
-            A::Quit => {
-                if let Some(message) = self.unsaved_edits() {
-                    return Err(message.into());
-                }
-            }
+            A::Quit => match self.unsaved_edits() {
+                Some(message) => return Err(message.into()),
+                None => self.ask_quit(),
+            },
+            A::Lock => self.toggle_lock(),
+            A::Overlay { overlay } => self.set_overlay(overlay),
+            A::Theme { laura } => self.answer_theme(laura),
             A::BrowserMouse { pane, mouse } => self.page(pane)?.mouse(&mouse, Instant::now()),
             A::BrowserKey { pane, key } => self.page(pane)?.key(&key),
             A::BrowserText { pane, text } => self.page(pane)?.insert_text(&text),
@@ -191,20 +174,70 @@ impl Tab {
                 let url = browser::address(&url)?;
                 self.navigate(pane, url)?;
             }
-            A::BrowserPick { pane, x, y } => {
-                if !self.agent {
-                    return Err(NEEDS_READY.into());
-                }
-                let (selector, quote, url) =
-                    self.page(pane)?.pick(x, y)?.ok_or(browser::NO_ELEMENT)?;
-                let p = self.panel_mut(pane)?;
-                p.cursor = p.anchor(&selector, &quote, &url);
-                return Ok(Some(p.begin_comment()));
-            }
+            A::BrowserPick { pane, x, y } => return self.pick(pane, x, y).map(Some),
             A::BrowserCommentMode { pane, on } => self.page(pane)?.comment = on,
             A::BrowserReveal { pane } => self.page(pane)?.reveal(),
         }
         Ok(None)
+    }
+
+    /// `c`: the comment's draft on the cursor's line, seeded with the user's own comment there.
+    fn begin_comment(&mut self, pane: PaneId) -> Result<String, Error> {
+        if !self.agent {
+            return Err(NEEDS_READY.into());
+        }
+        let p = self.panel_mut(pane)?;
+        if p.diff_view {
+            return Err(NO_COMMENT_IN_DIFF.into());
+        }
+        p.set_cursor_line(p.cursor_line()); // snaps to a markdown block's first row
+        Ok(self.open_comment(pane))
+    }
+
+    /// A click in comment mode: the comment's draft on the element at the point.
+    fn pick(&mut self, pane: PaneId, x: f64, y: f64) -> Result<String, Error> {
+        if !self.agent {
+            return Err(NEEDS_READY.into());
+        }
+        let (selector, quote, url) = self.page(pane)?.pick(x, y)?.ok_or(browser::NO_ELEMENT)?;
+        let p = self.panel_mut(pane)?;
+        p.cursor = p.anchor(&selector, &quote, &url);
+        Ok(self.open_comment(pane))
+    }
+
+    /// Open the comment's draft on pane `pane`'s cursor, which `panel_mut` found. Returns the seed.
+    fn open_comment(&mut self, pane: PaneId) -> String {
+        let p = self
+            .panels
+            .get_mut(&pane)
+            .expect("the caller found the pane");
+        let seed = p.begin_comment();
+        let line = p.cursor_line();
+        let edit = !seed.is_empty();
+        self.open_draft(Draft::Comment { pane, line, edit });
+        seed
+    }
+
+    /// `Enter` on a comment, or **Delete** on the user's own: `text` on `line`, then the draft closes.
+    fn comment(&mut self, pane: PaneId, line: u32, text: String) -> Result<(), Error> {
+        if !self.agent {
+            return Err(NEEDS_READY.into());
+        }
+        let p = self.panel_mut(pane)?;
+        if p.diff_view {
+            return Err(NO_COMMENT_IN_DIFF.into());
+        }
+        p.set_cursor_line(line);
+        p.author_note(text);
+        self.close_draft();
+        Ok(())
+    }
+
+    /// `Shift+S`: the review body's draft, past `review_gate`.
+    fn begin_review(&mut self, pane: PaneId) -> Result<(), Error> {
+        self.review_gate(pane)?;
+        self.open_draft(Draft::Review { pane });
+        Ok(())
     }
 
     /// **Show the shell as a pane**: the shell as the left-most pane, while every pane still fits

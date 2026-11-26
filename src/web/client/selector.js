@@ -1,6 +1,6 @@
 // The pane selector (`Ctrl+P`) and the help (`Ctrl+H`).
 
-import { $, layout, ui } from "./state.js";
+import { $, draft, layout, on, setOverlay, ui } from "./state.js";
 import { ic } from "./head.js";
 import { focusPane, followFocus, steps, unseen } from "./panes.js";
 import { kbds, paintHint } from "./bottom.js";
@@ -43,7 +43,7 @@ export function paintSelector() {
   const ps = matches(), q = pq.value.trim().toLowerCase();
   const others = spaces.filter(w => !w.current && `${spaceLabel(w)} ${w.root}`.toLowerCase().includes(q)).map(spaceRow);
   if (server && "new workspace".includes(q)) others.push(spaceRow());
-  ui.popup = Math.max(0, Math.min(ui.popup, ps.length + others.length - 1));
+  ui.row = Math.max(0, Math.min(ui.row, ps.length + others.length - 1));
   const head = text => {
     const h = document.createElement("div");
     h.className = "ph";
@@ -81,27 +81,28 @@ export function paintSelector() {
   empty.className = "empty";
   empty.textContent = "Nothing matches.";
   const all = [...rows, ...others];
-  all[ui.popup]?.classList.add("on");
+  all[ui.row]?.classList.add("on");
   // The headings show only with a Workspaces section, so one workspace alone looks as before.
   const parts = others.length ? [...(rows.length ? [head("Panes"), ...rows] : []), head("Workspaces"), ...others] : rows;
   $("prows").replaceChildren(...(all.length ? parts : [empty]));
-  all[ui.popup]?.scrollIntoView({ block: "nearest" });
+  all[ui.row]?.scrollIntoView({ block: "nearest" });
   paintHint();
 }
 
 export function openSelector() {
   pq.value = "";
-  ui.popup = 0;
+  ui.row = 0;
+  setOverlay("selector");
   paintSelector();
-  veil.hidden = $("popup").hidden = false;
+  paintOverlays();
   pq.focus();
   paintHint();
 }
 
 // Closes the pane selector, focusing pane `id` if given.
 export function closeSelector(id) {
-  ui.popup = null;
-  veil.hidden = $("popup").hidden = true;
+  setOverlay(null);
+  paintOverlays();
   if (id !== undefined) focusPane(id);
   followFocus(true);
   paintHint();
@@ -115,7 +116,7 @@ pq.addEventListener("input", () => {
     const more = layout.panes.some(p => (String(p.id) !== q && String(p.id).startsWith(q)) || p.name.startsWith(q));
     if (hit && !more) return closeSelector(hit.id);
   }
-  ui.popup = 0;
+  ui.row = 0;
   paintSelector();
 });
 
@@ -131,11 +132,18 @@ $("prows").addEventListener("click", e => pickRow(e.target.closest(".prow"), e.c
 
 $("findbtn").addEventListener("mousedown", e => e.preventDefault());
 
-$("findbtn").addEventListener("click", () => (ui.draft ? followFocus(true) : openSelector()));
+$("findbtn").addEventListener("click", () => (draft() ? followFocus(true) : openSelector()));
 
 export function toggleHelp() {
-  ui.help = !ui.help;
-  veil.hidden = $("help").hidden = !ui.help;
+  setOverlay(on("help") ? null : "help");
+  paintOverlays();
+}
+
+// The help and the pane selector show while Laura holds them open.
+export function paintOverlays() {
+  $("help").hidden = !on("help");
+  $("popup").hidden = !on("selector");
+  veil.hidden = $("help").hidden && $("popup").hidden;
 }
 
 $("helpbtn").addEventListener("mousedown", e => e.preventDefault());
@@ -151,8 +159,8 @@ canvasHelp.addEventListener("click", toggleHelp);
 veil.addEventListener("mousedown", e => {
   if (e.target !== veil) return;
   e.preventDefault();
-  if (ui.help) toggleHelp();
-  if (ui.popup !== null) closeSelector();
+  if (on("help")) toggleHelp();
+  if (on("selector")) closeSelector();
 });
 
 // The help sheet: *Get started*'s steps, then a table of keystrokes per group.
