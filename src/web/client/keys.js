@@ -225,7 +225,8 @@ addEventListener("keydown", e => {
   if (!layout || ended || m === "overlay" || MODIFIERS.includes(e.key)) return;
   const ctrl = e.ctrlKey && !e.altKey;
   const k = e.key.length === 1 && ctrl ? e.key.toLowerCase() : e.key;
-  if (e.key === "F12") return lockKey(e);
+  // The menu closes first: the user sees the shell, and the wait ends, only once the menu is gone.
+  if (e.key === "F12") return m === "menu" && closeMenu(), lockKey(e);
   if (m === "menu") return menuKey(e);
   if (m === "help") return take(e), toggleHelp();
   if (m === "selector") return selectorKey(e, ctrl, k);

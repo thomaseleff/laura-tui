@@ -360,6 +360,77 @@ fn ctrl_p_opens_the_pane_selector() -> Result<()> {
     Ok(())
 }
 
+/// #245: the pane selector moves the focus before it closes, so the user, who never saw the
+/// shell, keeps the wait.
+#[test]
+fn ctrl_p_to_a_file_pane_keeps_the_wait() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = open_five(&mut r)?;
+    c.until(
+        &mut r,
+        "the file's rows",
+        "document.querySelector('#p1 .rows > [data-row]')",
+    );
+    c.focus(&mut r, 0);
+    ring(&mut r, &c)?;
+    c.press(CTRL_P);
+    c.until(
+        &mut r,
+        "the pane selector",
+        "!document.getElementById('popup').hidden",
+    );
+    c.type_text("1");
+    c.until(
+        &mut r,
+        "the file pane's focus",
+        "document.getElementById('popup').hidden && layout.focus === 1",
+    );
+    if cfg!(unix) {
+        assert!(r.tab.waiting, "the wait");
+    }
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: F12 under the workspace switcher's menu closes the menu, then locks. The user sees the
+/// shell, and the wait ends.
+#[test]
+fn f12_closes_the_workspace_menu_and_locks() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    ring(&mut r, &c)?;
+    // The rig hosts one workspace and no Laura server, so the test enables the button as a second
+    // workspace would.
+    c.eval("const w = document.getElementById('wsw'); w.disabled = false; w.click()")
+        .unwrap();
+    c.until(
+        &mut r,
+        "the workspace switcher's menu",
+        "!document.getElementById('menu').hidden",
+    );
+    c.press(F12);
+    let waits = if cfg!(unix) {
+        " && !layout.waiting"
+    } else {
+        ""
+    };
+    c.until(
+        &mut r,
+        "the menu closes, with the shell's focus",
+        &format!("document.getElementById('menu').hidden && layout.focus === 0{waits}"),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// The hint line shows the quit question.
 const QUIT: &str =
     "document.getElementById('hint').textContent.includes('quit? press y to confirm')";

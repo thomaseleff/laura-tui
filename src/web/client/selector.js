@@ -101,9 +101,10 @@ export function openSelector() {
 
 // Closes the pane selector, focusing pane `id` if given.
 export function closeSelector(id) {
+  // The focus moves first, so Laura closes the overlay on the new focus (`Tab::seen_if_shell`), as in the TUI.
+  if (id !== undefined) focusPane(id);
   setOverlay(null);
   paintOverlays();
-  if (id !== undefined) focusPane(id);
   followFocus(true);
   paintHint();
 }
