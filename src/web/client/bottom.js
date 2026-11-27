@@ -161,9 +161,6 @@ export function paintShellButton() {
   if (say && say.at !== sayAt) {
     sayAt = say.at;
     folded = false;
-    const text = document.createElement("div");
-    text.innerHTML = say.html;
-    $("saylive").textContent = text.textContent;
   }
   const html = !open && layout.said && !layout.unsaid ? say?.html ?? null : null, said = b.querySelector(".said");
   if (said.dataset.html !== (html ?? "")) {

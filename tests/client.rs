@@ -436,7 +436,45 @@ fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
     Ok(())
 }
 
+/// `Tab` from the History's list focuses a row that a click shows again, and `Enter` on the row
+/// shows its command again.
+#[test]
+fn enter_on_a_focused_history_row_shows_its_command_again() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let dir = tempfile::tempdir()?;
+    let a = dir.path().join("a.md");
+    std::fs::write(&a, "# A\n\none\n")?;
+    r.drive(&["open", &a.to_string_lossy(), "--no-focus"]);
+    c.until(
+        &mut r,
+        "the open row",
+        "layout.focus === 0 && !acts.length && !!document.querySelector('#p0 .te.hr[data-i]')",
+    );
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the History's list focused",
+        "layout.drawer_view === 'history' && !acts.length \
+         && document.activeElement === document.querySelector('#p0 .history .list')",
+    );
+    c.press(TAB);
+    c.until(
+        &mut r,
+        "the open row focused",
+        "document.activeElement.matches('#p0 .te.hr[data-i]')",
+    );
+    c.press(ENTER);
+    c.until(&mut r, "a.md focused", "layout.focus === 1 && !acts.length");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// A view that opens after the agent's say shows the say in the History and in the shell button.
+/// A screen reader reads only a say that comes while the page is open.
 #[test]
 fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -447,8 +485,15 @@ fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
     let c = Client::open(&mut r, &path);
     c.until(
         &mut r,
-        "the say in the History",
-        "document.querySelector('#p0 .history .te.say')?.textContent.includes('said before the view')",
+        "the say in the History, not read out",
+        "document.querySelector('#p0 .history .te.say')?.textContent.includes('said before the view') \
+         && document.getElementById('saylive').textContent === ''",
+    );
+    r.drive(&["say", "said after"]);
+    c.until(
+        &mut r,
+        "the new say read out",
+        "document.getElementById('saylive').textContent.includes('said after')",
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())

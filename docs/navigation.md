@@ -89,6 +89,8 @@ The History lists what the agent did through Laura in its session, one row for e
 
 A blue row with a chevron shows its command again when you click the row. Laura never runs the command again, and doesn't add a row for the click. Laura finds the pane by the row's file, not by its pane number, and that pane takes the focus, which closes the drawer. The drawer keeps the History, so ``Ctrl+` `` opens the History again.
 
+To show a command again from the keyboard, press `Tab` in the History until a blue row has the focus, then press `Enter` or `Space`. Laura does the same as for a click.
+
 - An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's or a tail pane's file in a file pane.
 - A `highlight` row highlights the lines or the element again.
 - A `diff` row that turned the diff view on turns the diff view on again.

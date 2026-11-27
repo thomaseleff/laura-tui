@@ -106,6 +106,14 @@ function historyList(el) {
   c.className = "history";
   c.innerHTML = '<div class="list" tabindex="-1"></div>';
   c.addEventListener("click", historyClick);
+  // A focused row takes `Enter` and `Space` as a click, and the keydown listener doesn't see them.
+  c.addEventListener("keydown", e => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches(".te.hr[data-i]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      historyClick(e);
+    }
+  });
   el.append(c);
   paintHistory(c.querySelector(".list"));
 }

@@ -10,9 +10,19 @@ import { paintShellButton } from "./bottom.js";
 let rows = [];
 // A hidden list doesn't scroll: focusHistory scrolls it once the History shows.
 let unread = false;
+// A frame came before: the says of the page's first frame are old, and a screen reader doesn't read them.
+let heard = false;
 
 export function onHistory(m) {
+  const before = latestSay()?.at;
   rows = m.rows;
+  const say = latestSay();
+  if (heard && say && say.at !== before) {
+    const text = document.createElement("div");
+    text.innerHTML = say.html;
+    $("saylive").textContent = text.textContent;
+  }
+  heard = true;
   paintHistory();
   paintShellButton();
 }
@@ -25,7 +35,7 @@ const time = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute
 
 // A row of the timeline: the time, a dot on the rail, the verb, then what it acted on. Only a row that
 // a click shows again (`replay`, Laura's rule) is blue, with a chevron and its index.
-const line = (r, i, cls, verb, rest) => `<div class="te hr ${cls}"${r.replay ? ` data-i="${i}" role="button" tabindex="-1"` : ""}>`
+const line = (r, i, cls, verb, rest) => `<div class="te hr ${cls}"${r.replay ? ` data-i="${i}" role="button" tabindex="0"` : ""}>`
   + `<span class="tm">${time(r.at)}</span><i class="pt"></i><span class="verb">${verb}</span>${rest}</div>`;
 
 function row(r, i) {

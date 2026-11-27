@@ -16,6 +16,7 @@ use crate::rig::Rig;
 
 pub const F12: Keystroke = ("F12", "F12", 123, 0, "");
 pub const ENTER: Keystroke = ("Enter", "Enter", 13, 0, "\r");
+pub const TAB: Keystroke = ("Tab", "Tab", 9, 0, "");
 pub const ESCAPE: Keystroke = ("Escape", "Escape", 27, 0, "");
 pub const CTRL_H: Keystroke = ("h", "KeyH", 72, 2, "");
 pub const CTRL_BACKQUOTE: Keystroke = ("`", "Backquote", 192, 2, "");
