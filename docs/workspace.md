@@ -38,7 +38,7 @@ Laura shows the shell in a drawer, with the [chat](navigation.md#the-chat-and-th
 
 When the agent waits for you, for example at a permission prompt, Laura marks the workspace as waiting:
 
-- While the shell is in the drawer, the shell button turns amber and shows `Waiting for you`.
+- While the shell is in the drawer, the shell button turns amber and shows `Waiting for you` when the agent said nothing since you last wrote to the shell. See [The drawer](navigation.md#the-drawer).
 - The browser tab's icon shows an amber dot.
 - The other workspaces show an amber dot in the workspace switcher and `Waiting for you` on this workspace's row. See [Switch workspaces](navigation.md#switch-workspaces).
 - The Laura server's page shows `Waiting for you` on this workspace's row. See [Open a running workspace](#open-a-running-workspace).
@@ -50,6 +50,7 @@ The wait ends when you:
 - Close the pane selector, the list of keystrokes or the list of workspaces while the shell has the focus.
 - Type, paste, scroll or click in the shell.
 - Submit an inline review.
+- Send a message from the chat's message box.
 - Close a pane, and Laura moves the focus to the shell.
 
 The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, when you come back to the browser tab, or when you click or type in the chat.
