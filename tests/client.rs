@@ -238,6 +238,45 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
     Ok(())
 }
 
+/// A say that comes while the drawer shows the shell is in view once the chat shows: Laura shows
+/// the chat at the say, and the client scrolls the chat to its last row.
+#[test]
+fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let tall = (1..=40)
+        .map(|i| format!("p{i}"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    r.drive(&["say", &tall]);
+    c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell",
+        "layout.drawer_view === 'shell' && !acts.length",
+    );
+    r.drive(&["say", "the-last-say"]);
+    c.until(
+        &mut r,
+        "the last say in view",
+        concat!(
+            "layout.drawer_view === 'chat' && !acts.length",
+            " && (l => l.textContent.includes('the-last-say') && l.scrollHeight > l.clientHeight",
+            " && l.scrollTop + l.clientHeight >= l.scrollHeight - 1)(document.querySelector('#p0 .chat .list'))"
+        ),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// `F12` over the chat shows the shell, which takes the keystrokes, until the second `F12` brings
 /// the chat back.
 #[test]

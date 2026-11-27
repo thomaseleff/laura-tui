@@ -10,6 +10,8 @@ import { paintShellButton } from "./bottom.js";
 
 // The rows of the last `chat` frame.
 let rows = [];
+// A hidden list doesn't scroll: focusChat scrolls it once the chat shows.
+let unread = false;
 
 export function onChat(m) {
   rows = m.rows;
@@ -74,13 +76,20 @@ export function paintChat(list = $("p0")?.querySelector(".chat .list")) {
   const grew = list.childElementCount !== rows.length;
   list.innerHTML = rows.map(row).join("");
   linkPaths(list);
-  if (grew) list.scrollTop = list.scrollHeight;
+  if (grew) {
+    list.scrollTop = list.scrollHeight;
+    unread = !list.checkVisibility();
+  }
 }
 
 // The chat takes the DOM focus while the drawer shows it: the message box, unless Laura turned it off.
 export function focusChat() {
-  const box = msgBox();
-  (box && !box.disabled ? box : $("p0")?.querySelector(".chat .list"))?.focus({ preventScroll: true });
+  const box = msgBox(), list = $("p0")?.querySelector(".chat .list");
+  if (unread && list) {
+    list.scrollTop = list.scrollHeight;
+    unread = false;
+  }
+  (box && !box.disabled ? box : list)?.focus({ preventScroll: true });
 }
 
 const msgBox = () => $("p0")?.querySelector(".msgbox textarea");
