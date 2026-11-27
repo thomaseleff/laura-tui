@@ -144,6 +144,7 @@ enum Cmd {
         #[arg(value_name = "LINE|SELECTOR")]
         target: String,
         /// Comment body — starts a thread or appends a reply.
+        #[arg(allow_hyphen_values = true)]
         body: String,
         /// Attribute the comment to this author (default: the session's `ready --agent` name, else `agent`).
         #[arg(long)]
@@ -175,12 +176,14 @@ enum Cmd {
         #[arg(long)]
         negative: bool,
         /// Free-text body.
+        #[arg(allow_hyphen_values = true)]
         body: Option<String>,
     },
     /// Say something to the user: Laura shows it in the chat and in the shell button.
     /// Usage: `laura say "Done: the tests pass."`, or pipe the text in.
     Say {
         /// The text, in markdown (default: piped stdin).
+        #[arg(allow_hyphen_values = true)]
         body: Option<String>,
     },
     /// Print journaled events across sessions (NDJSON, oldest first). Works outside a workspace.

@@ -1,5 +1,6 @@
 //! `laura say` journals the agent's words, from an argument or piped stdin, and the workspace holds
-//! the latest say, which the TUI shows as a notice. `laura comment` journals its body.
+//! the latest say, which the TUI shows as a notice. `laura comment` journals its body. A body that
+//! starts with `-` is the body, not a flag.
 //! Drives the real seam (binary → socket → `Tab::drain`) with `HOME` pointed at a tempdir.
 
 mod common;
@@ -92,6 +93,26 @@ fn say_journals_the_agents_words() -> Result<()> {
     let comment = &events(dir.path(), "say-test", "comment")[0];
     assert_eq!(comment["body"], "look here", "{comment}");
     assert_eq!(comment["line"], 2, "{comment}");
+
+    // A body that starts with `-`, such as a markdown list, is the body, and a flag still parses.
+    assert!(drive(&mut tab, &["say", "- one"], "").0);
+    assert_eq!(events(dir.path(), "say-test", "say")[2]["body"], "- one");
+    assert!(drive(&mut tab, &["comment", "2", "- two", "--pane", "1"], "").0);
+    assert!(drive(&mut tab, &["comment", "--pane", "1", "2", "- three"], "").0);
+    let bodies: Vec<Value> = events(dir.path(), "say-test", "comment")
+        .into_iter()
+        .map(|e| e["body"].clone())
+        .collect();
+    assert_eq!(
+        bodies,
+        ["look here", "- two", "- three"],
+        "the comments' bodies"
+    );
+    assert!(drive(&mut tab, &["feedback", "--positive", "- four"], "").0);
+    let feedback = &events(dir.path(), "say-test", "feedback")[0];
+    assert_eq!(feedback["body"], "- four", "{feedback}");
+    assert_eq!(feedback["sentiment"], "+", "{feedback}");
+    assert!(drive(&mut tab, &["say", "--help"], "").0);
 
     // A new session starts an empty chat; a re-`ready` of the same one keeps it.
     assert!(
