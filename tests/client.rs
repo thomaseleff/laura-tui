@@ -443,17 +443,16 @@ fn a_stale_layout_keeps_the_pane_selectors_focus() -> Result<()> {
         "the pane selector, with the focus",
         "!document.getElementById('popup').hidden && document.activeElement?.id === 'pq'",
     );
-    // Laura's frames, replayed: one sent before the act, a rendered frame for the input to lose
-    // the focus, then one sent after.
-    let js = "(async () => {
+    // Laura's frames, replayed: one sent before the act, then one sent after. Chrome moves the
+    // focus off the hidden input at its next render, at no fixed time, so the blur stands in.
+    let js = "(() => {
         const frame = modes => ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes }) });
         frame([]);
-        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)));
-        const lost = document.activeElement?.id !== 'pq';
+        document.activeElement.blur();
         frame(['selector']);
-        return [lost, !document.getElementById('popup').hidden, document.activeElement?.id];
+        return [!document.getElementById('popup').hidden, document.activeElement?.id];
     })()";
-    assert_eq!(c.eval(js), Ok(json!([true, true, "pq"])));
+    assert_eq!(c.eval(js), Ok(json!([true, "pq"])));
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
