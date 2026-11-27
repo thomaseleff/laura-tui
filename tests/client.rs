@@ -417,6 +417,43 @@ fn ctrl_h_under_the_pane_selector_shows_the_help() -> Result<()> {
         assert!(t0.elapsed().as_secs() < 10, "Laura holds the help");
         r.pump();
     }
+    // The help hid the selector's input; the shell takes the keystrokes again once the help closes.
+    c.press(ESCAPE);
+    c.until(
+        &mut r,
+        "the shell with the focus",
+        "document.getElementById('help').hidden && document.activeElement?.closest('#p0 .xterm')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: a `layout` frame that Laura sent before it read `Ctrl+P` hides the pane selector for a
+/// frame (#272); the input has the focus again when the selector shows.
+#[test]
+fn a_stale_layout_keeps_the_pane_selectors_focus() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.press(CTRL_P);
+    c.until(
+        &mut r,
+        "the pane selector, with the focus",
+        "!document.getElementById('popup').hidden && document.activeElement?.id === 'pq'",
+    );
+    // Laura's frames, replayed: one sent before the act, a rendered frame for the input to lose
+    // the focus, then one sent after.
+    let js = "(async () => {
+        const frame = modes => ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes }) });
+        frame([]);
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)));
+        const lost = document.activeElement?.id !== 'pq';
+        frame(['selector']);
+        return [lost, !document.getElementById('popup').hidden, document.activeElement?.id];
+    })()";
+    assert_eq!(c.eval(js), Ok(json!([true, true, "pq"])));
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

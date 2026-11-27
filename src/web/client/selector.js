@@ -138,6 +138,8 @@ $("findbtn").addEventListener("click", () => (draft() ? followFocus(true) : open
 export function toggleHelp() {
   setOverlay(on("help") ? null : "help");
   paintOverlays();
+  // The help in place of the pane selector hides the selector's input, which had the focus.
+  followFocus(true);
 }
 
 // The help and the pane selector show while Laura holds them open.
@@ -145,6 +147,9 @@ export function paintOverlays() {
   $("help").hidden = !on("help");
   $("popup").hidden = !on("selector");
   veil.hidden = $("help").hidden && $("popup").hidden;
+  // A `layout` frame that Laura sent before it read `Ctrl+P` hides the input for a frame (#272),
+  // and a hidden input loses the focus.
+  if (!$("popup").hidden && document.activeElement !== pq) pq.focus();
 }
 
 $("helpbtn").addEventListener("mousedown", e => e.preventDefault());
