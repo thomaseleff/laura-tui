@@ -195,6 +195,8 @@ $("sbtn").addEventListener("keydown", e => {
 // The first click or keystroke in a pane folds the say.
 addEventListener("pointerdown", e => e.target.closest?.(".pane") && fold(true), true);
 addEventListener("keydown", e => e.target !== $("sbtn") && fold(true), true);
+// A page's frame sends its click as a message, which the window's `pointerdown` doesn't see.
+export const foldSay = () => fold(true);
 
 $("sbtn").addEventListener("click", () => (draft() ? followFocus(true) : toggleShell()));
 

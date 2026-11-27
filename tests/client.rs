@@ -386,6 +386,53 @@ fn the_shell_buttons_say_folds_while_the_user_works_in_a_pane() -> Result<()> {
     Ok(())
 }
 
+/// #275: a click in an HTML file pane's page folds the shell button's say. The page's frame sends
+/// its click as a message, which the window's `pointerdown` doesn't see.
+#[test]
+fn a_click_in_an_html_page_folds_the_shell_buttons_say() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let dir = tempfile::tempdir()?;
+    let page = dir.path().join("page.html");
+    std::fs::write(&page, "<p>hi</p>\n")?;
+    assert_eq!(r.drive(&["open", &page.to_string_lossy()]), "1");
+    // The page's script posts its cursor's rect once the page loads and Laura's state comes.
+    c.until(
+        &mut r,
+        "the page loaded",
+        "'rect' in (document.querySelector('#p1 iframe') ?? {})",
+    );
+    r.drive(&["say", &"A long say about the change. ".repeat(6)]);
+    c.until(
+        &mut r,
+        "the card",
+        "document.getElementById('sbtn').classList.contains('long')",
+    );
+    // A layout from before the page's size (`--cols`) moves the page from under the click, which
+    // then lands on the pane and folds the say through the window's `pointerdown`.
+    let at = c.until(
+        &mut r,
+        "a point on the page, at the page's size",
+        "(p => { const f = document.querySelector('#p1 iframe'), b = f?.getBoundingClientRect(); \
+           return p?.x + p?.w === +document.documentElement.style.getPropertyValue('--cols') \
+             && document.elementFromPoint(b.x + 20, b.y + 20) === f && [b.x + 20, b.y + 20]; \
+         })(layout.panes.find(p => p.id === 1))",
+    );
+    c.hover(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "the folded say",
+        "!document.getElementById('sbtn').classList.contains('long') \
+         && document.querySelector('#sbtn .said').checkVisibility()",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// The centre of the History's first row, once the drawer shows the History.
 const ROW_AT: &str = "layout.drawer_view === 'history' && !acts.length && (() => { \
     const b = document.querySelector('#p0 .te.hr[data-i=\"0\"]')?.getBoundingClientRect(); \

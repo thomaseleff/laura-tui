@@ -5,7 +5,7 @@ import { $, act, draft, layout, pane, root, send, ui } from "./state.js";
 import { tooSmall } from "./head.js";
 import { focusPane, followFocus, placePlus } from "./panes.js";
 import { emuFit, pinWho } from "./browser-pane.js";
-import { paintHint, reloaded } from "./bottom.js";
+import { foldSay, paintHint, reloaded } from "./bottom.js";
 import { begin, goThread, keepDraft, paintThreads, reveal, units } from "./review.js";
 
 // A row's or block's text, without its gutter.
@@ -205,6 +205,7 @@ addEventListener("message", e => {
     f.rect = r.every(Number.isFinite) ? r : null;
     return place(id);
   }
+  if (m.laura === "line" || m.laura === "esc") foldSay();
   if (draft()) return followFocus(true);
   if (m.laura === "line") {
     if (m.pin === true) return pinClick(id, m.line);
