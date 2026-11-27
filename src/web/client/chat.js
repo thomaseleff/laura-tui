@@ -2,7 +2,7 @@
 // message box. A say is Laura's HTML of the agent's markdown; a file path in it opens the file, as
 // the shell's links do.
 
-import { $, act, esc, layout, mode, pane } from "./state.js";
+import { $, act, acts, esc, layout, mode, pane } from "./state.js";
 import { PATH } from "./term.js";
 import { ic } from "./head.js";
 import { focusPane } from "./panes.js";
@@ -105,11 +105,16 @@ export function paintMsgBox() {
   box.closest(".msgbox").querySelector("button").disabled = box.disabled;
 }
 
-// `Enter` or **Send**: the message goes to the shell, and the box empties once Laura wrote it.
+// The send that waits in `acts` for Laura's reply. A lost socket empties `acts`, which frees the box.
+let sending = null;
+
+// `Enter` or **Send**: the message goes to the shell, and the box empties once Laura wrote it. A
+// second `Enter` before Laura's reply sends nothing, so the shell gets the message once.
 function sendMessage() {
   const box = msgBox(), text = box.value;
-  if (!text.trim() || box.disabled) return;
-  act({ act: "message", pane: 0, text }, m => m.ok && box.value === text && (box.value = ""));
+  if (!text.trim() || box.disabled || acts.some(a => a.then === sending)) return;
+  sending = m => m.ok && box.value === text && (box.value = "");
+  act({ act: "message", pane: 0, text }, sending);
 }
 
 // The message box's keystrokes: `Enter` sends, `Shift+Enter` adds a line, and the others type. A

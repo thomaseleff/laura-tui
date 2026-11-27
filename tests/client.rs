@@ -361,7 +361,7 @@ fn a_link_in_a_say_opens_its_file() -> Result<()> {
 }
 
 /// The chat's message box takes the user's keystrokes, and `Enter` writes the message into the
-/// shell; the box empties once Laura wrote it.
+/// shell; the box empties once Laura wrote it. A second `Enter` before Laura's reply sends nothing.
 #[test]
 fn enter_in_the_message_box_sends_the_message() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -377,6 +377,12 @@ fn enter_in_the_message_box_sends_the_message() -> Result<()> {
     );
     c.type_text("hello-box");
     c.press(ENTER);
+    c.press(ENTER);
+    assert_eq!(
+        c.eval("acts.length"),
+        Ok(json!(1)),
+        "the second Enter sent again"
+    );
     c.until(
         &mut r,
         "the message in the shell, and an empty box",
