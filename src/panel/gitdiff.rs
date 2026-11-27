@@ -135,8 +135,8 @@ pub(crate) enum Project {
     },
 }
 
-/// `root`'s branch and the changes below `root`, else its latest commit. Changes elsewhere in the
-/// repo don't count: the card is about Laura's folder (#252). `None` outside a repo, in a repo with
+/// `root`'s branch and the changes below `root`, else the latest commit that changed `root`.
+/// Changes and commits elsewhere in the repo don't count: the card is about Laura's folder (#252). `None` outside a repo, in a repo with
 /// no commit, or without `git`.
 pub(crate) fn project(root: &Path) -> Option<Project> {
     let root = strip_verbatim(root.to_path_buf());
@@ -165,16 +165,20 @@ pub(crate) fn project(root: &Path) -> Option<Project> {
     }
     let log = text(git(
         &root,
-        &["log", "-1", "--format=%h%x00%an%x00%ct%x00%s"],
+        &[
+            "log",
+            "-1",
+            "--first-parent",
+            "--format=%h%x00%an%x00%ct%x00%s",
+            "--",
+            ".",
+        ],
     )?);
     let mut f = log.split('\0');
     let (hash, author, ts, subject) = (f.next()?, f.next()?, f.next()?, f.next()?);
-    let (hash, author, subject) = (hash.into(), author.into(), subject.into());
     let ts = ts.parse::<u64>().ok()? * 1000;
-    let mut files = files(
-        &root,
-        &["show", "HEAD", "--format=", "-m", "--first-parent"],
-    )?;
+    let mut files = files(&root, &["show", hash, "--format=", "-m", "--first-parent"])?;
+    let (hash, author, subject) = (hash.into(), author.into(), subject.into());
     let more = files.len().saturating_sub(FILES);
     files.truncate(FILES);
     Some(Project::Latest {

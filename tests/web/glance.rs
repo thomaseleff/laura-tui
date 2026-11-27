@@ -95,7 +95,7 @@ fn a_clean_tree_shows_the_latest_commit() -> Result<()> {
     Ok(())
 }
 
-/// Laura in a subfolder counts only the changes in that folder (#252).
+/// Laura in a subfolder counts only the changes and the commits in that folder (#252).
 #[test]
 fn a_change_outside_the_folder_leaves_the_latest_commit() -> Result<()> {
     let home = tempfile::tempdir()?;
@@ -106,10 +106,13 @@ fn a_change_outside_the_folder_leaves_the_latest_commit() -> Result<()> {
     git(d, &["init", "-q"]);
     git(d, &["add", "."]);
     git(d, &["commit", "-q", "-m", "Start"]);
+    std::fs::write(d.join("a.rs"), "two\n")?;
+    git(d, &["commit", "-q", "-am", "Outside"]);
     std::fs::write(d.join("a.rs"), "ONE\n")?;
     let (_child, g) = glance_in(&d.join("sub"), home.path())?;
     let p = &g["project"];
     assert_eq!(p["kind"], "latest", "{g}");
+    assert_eq!(p["subject"], "Start", "the folder's latest commit: {g}");
     assert_eq!(
         p["files"],
         json!([{"status": "A", "path": "b.rs", "add": 1, "del": 0}]),
