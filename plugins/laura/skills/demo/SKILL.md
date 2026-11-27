@@ -109,7 +109,7 @@ done
 >
 > Send `Next` to learn how to interact with your agent in a pane.
 
-_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here. **New:** Drag the line between two panes to resize them, and drag the drawer's top edge to set its height. Laura keeps your sizes; double-click a line to give the size back to Laura."_
+_If `laura ready` printed `web_app` as `true`, also say before the suggested prompts: "The panes fill the workspace, and this chat floats in a drawer over them. Press ``Ctrl+` `` to close the drawer and see every pane, and ``Ctrl+` `` again to come back here. Drag the line between two panes to resize them, and drag the drawer's top edge to set its height. Laura keeps your sizes; double-click a line to give the size back to Laura."_
 
 _Then **wait for `Next`**, and `laura close --all`._
 
@@ -148,7 +148,7 @@ laura comment 8 'Should we greet in Spanish too? `--lang es` would print `Hola, 
 >
 > 1. To focus the plan pane, press `Ctrl+P`, then the pane's number. Press `Esc` in a file pane to return to the chat.
 > 2. In the plan pane, press `↑`/`↓` to move the cursor to L8, the **"The greeting is in English only."** step. My question shows as a card under the line. Press `c`, type `Yes, add Spanish`, then press `Enter` to reply. To start a new thread, press `c` on a line without a thread.
-> 3. Press `r` on the thread to collapse or expand the thread. **New:** Laura shows a collapsed thread as one row, with its line, its authors and its number of comments.
+> 3. Press `r` on the thread to collapse or expand the thread. Laura shows a collapsed thread as one row, with its line, its authors and its number of comments.
 > 4. Press `Shift+S`, then `Enter`, to submit. You can type a review body before `Enter`, for overall direction.
 >
 > Laura submits your inline review, with its threads and review body, into the chat.
@@ -193,6 +193,8 @@ EOF
 >
 > Send `Next` to review the code that implements your inline review.
 
+_If `laura ready` printed `web_app` as `true`, also say before "Send `Next`…": "**New:** I speak to you with `laura say`. Laura shows my latest say on the shell button, and opens the drawer on the shell, so you can answer me. Press `Ctrl+.` in the drawer to see the History: each `laura` command I ran, each say and your inline review. Click the plan's `open` row, and Laura focuses the plan again. Press ``Ctrl+` `` to come back here."_
+
 _Then **wait for `Next`**, and `laura close --all`._
 
 ---
@@ -229,7 +231,7 @@ laura open "$R/hello.py" --diff --ratio 55 --no-focus   # the inline diff vs HEA
 
 > **[3 / 7] Code review**
 >
-> Here's the code change that implements the plan, including the changes from your inline review. **New:** With `git` installed, Laura tints added and modified lines green and blue in each pane, shows a red row where lines were deleted, and can show the full diff. I opened the full diff in a new pane.
+> Here's the code change that implements the plan, including the changes from your inline review. With `git` installed, Laura tints added and modified lines green and blue in each pane, shows a red row where lines were deleted, and can show the full diff. I opened the full diff in a new pane.
 >
 > 1. Press `Ctrl+P`, then the pane's number, to focus the diff.
 > 2. Press `d` to turn the diff view **off**. Laura shows the file with the changed lines tinted. Press `d` again to turn the diff view back on.
