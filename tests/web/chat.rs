@@ -202,3 +202,34 @@ fn a_message_reaches_the_shell() -> Result<()> {
     );
     Ok(())
 }
+
+/// A look at the shell ends the wait, but the shell may still hold the agent CLI's question, so the
+/// message box stays off until the user writes to the shell.
+#[cfg(unix)]
+#[test]
+fn a_look_at_the_shell_keeps_the_message_box_off() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    let name = session("chat-look");
+    rig.drive(&["ready", "--session", &name]);
+    rig.drive(&["say", "Ready?"]);
+    let ok = rig.act(&mut ws, json!({"act": "message", "text": "first"}));
+    assert_eq!(ok["ok"], true, "{ok}");
+
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    let l = layout_when(&mut rig, &mut ws, "the unsaid wait", |l| {
+        l["unsaid"] == true
+    });
+    rig.act(&mut ws, json!({"act": "seen", "wait": l["wait"]}));
+    let l = layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    assert_eq!(l["message_box"], false, "{l}");
+    let refused = rig.act(&mut ws, json!({"act": "message", "text": "not-sent"}));
+    assert_eq!(refused["text"], laura::tab::MESSAGE_WAITS, "{refused}");
+
+    type_in(&mut ws, 0, b"\r")?;
+    layout_when(&mut rig, &mut ws, "the message box on", |l| {
+        l["message_box"] == true
+    });
+    Ok(())
+}

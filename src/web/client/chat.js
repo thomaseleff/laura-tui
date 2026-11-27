@@ -85,8 +85,9 @@ export function focusChat() {
 
 const msgBox = () => $("p0")?.querySelector(".msgbox textarea");
 
-// Laura turns the message box off while the shell waits with no say (`Tab::message_gate`): the
-// agent CLI may ask a question there, which the message's `Enter` would answer.
+// Laura turns the message box off from a wait with no say until the user writes to the shell
+// (`Tab::message_gate`): the agent CLI may ask a question there, which the message's `Enter` would
+// answer.
 export function paintMsgBox() {
   const box = msgBox();
   if (!box) return;

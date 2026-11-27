@@ -70,8 +70,8 @@ pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save
 pub const NO_SHELL: &str = "⚠ The shell stopped, so Laura cannot submit the inline review. ";
 /// The message box after the shell exited.
 pub const NO_SHELL_FOR_MESSAGE: &str = "⚠ The shell stopped, so Laura cannot send your message.";
-/// The message box while the shell waits with no say: the agent CLI may ask a question there,
-/// which a message's `Enter` would answer.
+/// The message box from a wait with no say until the user writes to the shell: the agent CLI may
+/// ask a question there, which a message's `Enter` would answer.
 pub const MESSAGE_WAITS: &str =
     "⚠ The shell waits for you. Answer in the shell, then send your message.";
 /// The message didn't reach the shell.
@@ -593,13 +593,13 @@ impl Tab {
         Ok(())
     }
 
-    /// Whether the message box can send: the shell runs, and doesn't wait with no say since the
-    /// user's last message. The web app's layout frame carries it.
+    /// Whether the message box can send: the shell runs, and no wait with no say began since the
+    /// user last wrote to the shell. The web app's layout frame carries it.
     pub(crate) fn message_gate(&self) -> Result<(), Error> {
         if self.pty.has_exited() {
             return Err(NO_SHELL_FOR_MESSAGE.into());
         }
-        if self.wait.unsaid() {
+        if self.wait.asked() {
             return Err(MESSAGE_WAITS.into());
         }
         Ok(())
