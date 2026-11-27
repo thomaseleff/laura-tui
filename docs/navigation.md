@@ -82,7 +82,7 @@ The drawer shows the History or the shell. The drawer shows the shell until you 
 
 The History lists what the agent did through Laura in its session, one row for each event, with its time:
 
-- `ready`, with the session label, when the agent starts the session. When the agent starts a new session with `laura ready --session`, Laura starts an empty History.
+- `ready`, with the session label, when the agent starts the session. The History keeps the rows of the commands that the agent ran before its first `ready`. When the agent then starts another session with `laura ready --session`, Laura starts an empty History.
 - One row for each `laura` command that the agent ran: `open`, `close`, `focus`, `highlight`, `diff` and `comment`, with the file and its lines or its element. `laura open --highlight` gives an `open` row and a `highlight` row. A command that returned an error, `laura layout` and `laura feedback` give no row.
 - `say`, with each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
 - `review`, with the file and its count of comments, for each inline review that you submit.

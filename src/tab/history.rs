@@ -148,8 +148,9 @@ impl History {
         self.agent = on;
     }
 
-    /// `ready`: a new session starts an empty History with its ready row first. The same session
-    /// with a session label changes the ready row's label.
+    /// `ready`: the ready row goes first. A new session after an earlier one starts an empty
+    /// History; the first `ready` keeps the rows before it, which belong to the same work. The same
+    /// session with a session label changes the ready row's label.
     pub(super) fn ready(&mut self, title: Option<String>, new_session: bool) {
         if new_session {
             self.rows.clear();

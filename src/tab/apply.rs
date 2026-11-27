@@ -777,7 +777,8 @@ impl Tab {
                 .and_then(Journal::agent)
         });
         let journal = Journal::open(&session, agent);
-        // A new session starts an empty History; a re-`ready` of the same one keeps it.
+        // A session after an earlier one starts an empty History; the first `ready` and a
+        // re-`ready` of the same session keep it.
         let new_session = self
             .journal
             .as_ref()

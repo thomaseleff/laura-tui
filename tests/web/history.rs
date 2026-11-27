@@ -182,6 +182,21 @@ fn each_command_gets_a_row() -> Result<()> {
     Ok(())
 }
 
+/// The first `ready` goes first and keeps the rows of the commands that the agent ran before it:
+/// they belong to the same work.
+#[test]
+fn the_first_ready_keeps_the_rows_before_it() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let (_a, a) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &a, "--no-focus"]);
+    history_when(&mut rig, &mut ws, "a.rs's row", |c| count(c) == 1);
+    rig.drive(&["ready", "--session", &session("history-first")]);
+    let h = history_when(&mut rig, &mut ws, "the ready row", |c| count(c) == 2);
+    assert_eq!(verbs(&h), ["ready", "open"], "{h}");
+    Ok(())
+}
+
 /// An open row whose pane closed opens the file again, as the user's act: Laura journals the open
 /// and adds no row. A file that is gone shows `GONE`.
 #[test]
