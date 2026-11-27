@@ -218,7 +218,7 @@ impl History {
 impl Tab {
     /// The user clicked History row `row`, with time `at`: show its command again, and focus its
     /// pane, which closes the drawer. Laura finds the pane by the row's path, and by its pane id
-    /// only for an open row's browser pane that moved within the site (`replay_open`). Laura
+    /// only for a row of a page whose browser pane moved within the site (`same_site`). Laura
     /// journals what changes as the user's act. A row that no click shows again, or that a new
     /// session replaced, does nothing.
     pub(super) fn replay(&mut self, row: usize, at: u64) -> Result<(), Error> {
@@ -230,6 +230,7 @@ impl Tab {
         }
         let pane = self
             .showing(&path, PTY_PANE)
+            .or_else(|| pane_of(&event).filter(|&p| self.same_site(&path, p)))
             .ok_or_else(|| Error::Text(NOT_OPEN.replace("{name}", &file_name(&path))))?;
         let lines_or_diff = matches!(
             event,
@@ -258,13 +259,7 @@ impl Tab {
     /// `pane` while it shows another page of the URL's site, else open it again as a link does.
     fn replay_open(&mut self, path: &str, pane: PaneId) -> Result<(), Error> {
         let shown = self.showing(path, PTY_PANE).is_some();
-        if !shown
-            && browser::is_url(path)
-            && self
-                .panels
-                .get(&pane)
-                .is_some_and(|p| p.browser && browser::origin(&p.path) == browser::origin(path))
-        {
+        if !shown && self.same_site(path, pane) {
             self.focus = pane;
             self.forget_lock_from();
             return Ok(());
@@ -274,6 +269,16 @@ impl Tab {
         }
         self.open_file(path.into(), false)?;
         Ok(())
+    }
+
+    /// Browser pane `pane` shows another page of URL `path`'s site: a row of the page still
+    /// finds the pane after the user followed a link.
+    fn same_site(&self, path: &str, pane: PaneId) -> bool {
+        browser::is_url(path)
+            && self
+                .panels
+                .get(&pane)
+                .is_some_and(|p| p.browser && browser::origin(&p.path) == browser::origin(path))
     }
 
     /// A highlight row: its lines `range` again, or its element.

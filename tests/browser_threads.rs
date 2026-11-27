@@ -586,6 +586,55 @@ fn an_open_row_focuses_its_browser_pane_on_the_same_site() -> Result<()> {
     Ok(())
 }
 
+/// A highlight row whose browser pane moved to another page of the same site still finds that
+/// pane: the user sees the pane's own notice for the element, not that no pane shows the page.
+#[test]
+fn a_highlight_row_finds_its_browser_pane_on_the_same_site() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let id = form(&mut r, &mut ws);
+    let pane = id.to_string();
+    r.drive(&["highlight", "main > h1", "--pane", &pane]);
+    let h = r
+        .until(&mut ws, "the highlight row", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "history"
+                && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "highlight")))
+        })
+        .json();
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+        .expect("the highlight row");
+    let (row, at) = (
+        h["from"].as_u64().unwrap_or_default() as usize + i,
+        h["rows"][i]["at"].clone(),
+    );
+    let url = pane_of(&mut r, id)["path"]
+        .as_str()
+        .expect("a URL")
+        .to_string();
+    let mut tools = Tools::attach(&mut r, &url);
+    tools.call(
+        &mut r,
+        "Runtime.evaluate",
+        json!({"expression": "location.assign('/click')"}),
+    );
+    state_until(&mut r, &mut ws, "the second page", id, |v| {
+        v["title"] == "Click" && v["url"].as_str().is_some_and(|u| u.ends_with("/click"))
+    });
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
+    let want = laura::tab::NO_ELEMENT
+        .replace("{selector}", "main > h1")
+        .replace("{n}", &pane);
+    assert_eq!(acted["text"], want, "{acted}");
+    Ok(())
+}
+
 #[test]
 fn laura_draws_no_marks_in_the_page() -> Result<()> {
     let Some((path, _one)) = chrome() else {
