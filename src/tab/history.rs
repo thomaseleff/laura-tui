@@ -1,4 +1,4 @@
-//! The chat: what passed through Laura in the current session, as the drawer shows it. Each say,
+//! The History: what passed through Laura in the current session, as the drawer shows it. Each say,
 //! each run of the agent's other commands folded into one row, each submitted inline review, and
 //! each message from the message box, and each wait with no say since the user's last message.
 
@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::journal::Event;
 use crate::protocol::{PTY_PANE, PaneId};
 
-/// One row of the chat. The web app paints the rows as they are.
+/// One row of the History. The web app paints the rows as they are.
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Row {
@@ -32,20 +32,20 @@ pub(crate) enum Row {
 }
 
 #[derive(Default)]
-pub(super) struct Chat {
+pub(super) struct History {
     rows: Vec<Row>,
     /// The events of the last row while it is `Commands`, which the fold reads.
     run: Vec<Event>,
     /// The says over the tab's life, so a front-end tells a new say from the last one it showed.
     says: u64,
-    /// Counts each change, so the web app sends the chat only when it changed.
+    /// Counts each change, so the web app sends the History only when it changed.
     seq: u64,
-    /// A message from the agent is being applied: only its commands fold into the chat. The
+    /// A message from the agent is being applied: only its commands fold into the History. The
     /// user's close or link click runs the same functions.
     agent: bool,
 }
 
-impl Chat {
+impl History {
     /// Add one journaled event.
     pub(super) fn push(&mut self, event: &Event) {
         let row = match event {

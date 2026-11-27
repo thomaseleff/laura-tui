@@ -1,4 +1,4 @@
-// The chat in the drawer: the rows of the `chat` frame, which Laura folds, their clicks, and the
+// The History in the drawer: the rows of the `history` frame, which Laura folds, their clicks, and the
 // message box. A say is Laura's HTML of the agent's markdown; a file path in it opens the file, as
 // the shell's links do.
 
@@ -8,14 +8,14 @@ import { ic } from "./head.js";
 import { focusPane } from "./panes.js";
 import { paintShellButton } from "./bottom.js";
 
-// The rows of the last `chat` frame.
+// The rows of the last `history` frame.
 let rows = [];
-// A hidden list doesn't scroll: focusChat scrolls it once the chat shows.
+// A hidden list doesn't scroll: focusHistory scrolls it once the History shows.
 let unread = false;
 
-export function onChat(m) {
+export function onHistory(m) {
   rows = m.rows;
-  paintChat();
+  paintHistory();
   paintShellButton();
 }
 
@@ -71,7 +71,7 @@ function linkPaths(list) {
 }
 
 // `list`: the new shell pane's, before its element joins the page.
-export function paintChat(list = $("p0")?.querySelector(".chat .list")) {
+export function paintHistory(list = $("p0")?.querySelector(".history .list")) {
   if (!list) return;
   const grew = list.childElementCount !== rows.length;
   list.innerHTML = rows.map(row).join("");
@@ -82,9 +82,9 @@ export function paintChat(list = $("p0")?.querySelector(".chat .list")) {
   }
 }
 
-// The chat takes the DOM focus while the drawer shows it: the message box, unless Laura turned it off.
-export function focusChat() {
-  const box = msgBox(), list = $("p0")?.querySelector(".chat .list");
+// The History takes the DOM focus while the drawer shows it: the message box, unless Laura turned it off.
+export function focusHistory() {
+  const box = msgBox(), list = $("p0")?.querySelector(".history .list");
   if (unread && list) {
     list.scrollTop = list.scrollHeight;
     unread = false;
@@ -126,7 +126,7 @@ export function msgKey(e) {
   sendMessage();
 }
 
-export function chatClick(e) {
+export function historyClick(e) {
   if (e.target.closest("[data-act=send]")) return sendMessage();
   const a = e.target.closest("a.path"), c = e.target.closest(".te.cmd"), b = e.target.closest("[data-act=flip_drawer]");
   if (a) return act({ act: "open_path", pane: 0, path: a.dataset.path, line: a.dataset.line ? +a.dataset.line : undefined });

@@ -5,7 +5,7 @@ import { $, draft, drawerOpen, focused, layout, modes, pane, send, ui } from "./
 import { ch } from "./term.js";
 import { focusPane, followFocus, lastFocus, unseen } from "./panes.js";
 import { frameOf } from "./pages.js";
-import { latestSay } from "./chat.js";
+import { latestSay } from "./history.js";
 
 const hintEl = $("hint"), noticeEl = $("notice");
 let notice = "", noticeTimer = 0, noticePane;

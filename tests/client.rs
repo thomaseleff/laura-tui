@@ -213,8 +213,8 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
     const CHAT: &str = concat!(
-        "layout.drawer_view === 'chat' && !acts.length",
-        " && document.querySelector('#p0 .chat').checkVisibility()",
+        "layout.drawer_view === 'history' && !acts.length",
+        " && document.querySelector('#p0 .history').checkVisibility()",
         " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
         " && document.activeElement === document.querySelector('#p0 .msgbox textarea')"
     );
@@ -226,7 +226,7 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
         "the shell",
         concat!(
             "layout.drawer_view === 'shell' && !acts.length",
-            " && !document.querySelector('#p0 .chat').checkVisibility()",
+            " && !document.querySelector('#p0 .history').checkVisibility()",
             " && document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
             " && !!document.activeElement.closest('#p0 .term')"
         ),
@@ -255,7 +255,7 @@ fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
     c.until(
         &mut r,
         "the chat",
-        "layout.drawer_view === 'chat' && !acts.length",
+        "layout.drawer_view === 'history' && !acts.length",
     );
     c.press(CTRL_PERIOD);
     c.until(
@@ -268,9 +268,9 @@ fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
         &mut r,
         "the last say in view",
         concat!(
-            "layout.drawer_view === 'chat' && !acts.length",
+            "layout.drawer_view === 'history' && !acts.length",
             " && (l => l.textContent.includes('the-last-say') && l.scrollHeight > l.clientHeight",
-            " && l.scrollTop + l.clientHeight >= l.scrollHeight - 1)(document.querySelector('#p0 .chat .list'))"
+            " && l.scrollTop + l.clientHeight >= l.scrollHeight - 1)(document.querySelector('#p0 .history .list'))"
         ),
     );
     assert_eq!(c.errors(), json!([]));
@@ -290,7 +290,7 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
     c.until(
         &mut r,
         "the chat",
-        "layout.drawer_view === 'chat' && !acts.length",
+        "layout.drawer_view === 'history' && !acts.length",
     );
     c.press(F12);
     c.until(
@@ -309,7 +309,7 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
     c.until(
         &mut r,
         "the chat again",
-        "layout.drawer_view === 'chat' && !acts.length",
+        "layout.drawer_view === 'history' && !acts.length",
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())
@@ -327,7 +327,7 @@ fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
     c.until(
         &mut r,
         "the say in the chat",
-        "document.querySelector('#p0 .chat .te.say')?.textContent.includes('said before the view')",
+        "document.querySelector('#p0 .history .te.say')?.textContent.includes('said before the view')",
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())
@@ -347,7 +347,7 @@ fn a_link_in_a_say_opens_its_file() -> Result<()> {
         &mut r,
         "the say's link",
         "(() => { \
-           const b = document.querySelector('#p0 .chat a[data-href]')?.getBoundingClientRect(); \
+           const b = document.querySelector('#p0 .history a[data-href]')?.getBoundingClientRect(); \
            return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
     );
     c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
@@ -373,7 +373,7 @@ fn enter_in_the_message_box_sends_the_message() -> Result<()> {
     c.until(
         &mut r,
         "the message box's focus",
-        "layout.drawer_view === 'chat' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+        "layout.drawer_view === 'history' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
     );
     c.type_text("hello-box");
     c.press(ENTER);
@@ -406,7 +406,7 @@ fn enter_under_the_help_closes_the_help() -> Result<()> {
     c.until(
         &mut r,
         "the message box's focus",
-        "layout.drawer_view === 'chat' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+        "layout.drawer_view === 'history' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
     );
     c.type_text("hi-help");
     c.press(CTRL_H);
@@ -793,7 +793,7 @@ fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
     c.until(
         &mut r,
         "the chat",
-        "layout.drawer_view === 'chat' && !acts.length",
+        "layout.drawer_view === 'history' && !acts.length",
     );
     c.press(CTRL_PERIOD);
     c.until(
@@ -813,8 +813,8 @@ fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
     let at = c.until(
         &mut r,
         "the chat",
-        "layout.drawer_view === 'chat' && !acts.length && (() => { \
-           const b = document.querySelector('#p0 .chat').getBoundingClientRect(); \
+        "layout.drawer_view === 'history' && !acts.length && (() => { \
+           const b = document.querySelector('#p0 .history').getBoundingClientRect(); \
            return b.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
     );
     c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));

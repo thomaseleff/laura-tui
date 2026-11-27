@@ -423,16 +423,16 @@ kbd {
 }
 .pane.shell.drawer .term { border-radius: 0 0 13px 13px; }
 .pane.shell.drawer:not(.open) { visibility: hidden; pointer-events: none; }
-/* The chat: what passed through Laura in the session, in the shell's pane over its xterm. The
-   xterm keeps its box under the chat, so the shell keeps its size and the agent doesn't redraw. */
-.pane .chat { display: none; }
-.pane.shell.chatview .term { visibility: hidden; }
-.pane.shell.chatview .chat {
+/* The History: what passed through Laura in the session, in the shell's pane over its xterm. The
+   xterm keeps its box under the History, so the shell keeps its size and the agent doesn't redraw. */
+.pane .history { display: none; }
+.pane.shell.historyview .term { visibility: hidden; }
+.pane.shell.historyview .history {
   display: flex; flex-direction: column; position: absolute; left: 6px; right: 6px; top: calc(3 * var(--ch) - 6px); bottom: 6px;
   background: var(--pane); border-radius: 0 0 calc(var(--r) - 1px) calc(var(--r) - 1px); font-family: var(--sans);
 }
-.pane.shell.drawer .chat { border-radius: 0 0 13px 13px; }
-.chat .list {
+.pane.shell.drawer .history { border-radius: 0 0 13px 13px; }
+.history .list {
   flex: 1; min-height: 0; overflow: auto; padding: 16px 22px 8px; display: flex; flex-direction: column; gap: 12px;
   outline: none; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent;
 }
@@ -476,7 +476,7 @@ kbd {
 .msgbox .btn { display: inline-flex; gap: 6px; align-items: center; height: 36px; }
 .msgbox .btn:disabled { opacity: .5; cursor: default; }
 .msgbox .btn.pri kbd { background: transparent; color: #dfe2ff; border-color: rgb(255 255 255 / .35); }
-/* The drawer's Chat and Shell tabs, beside the shell's name. */
+/* The drawer's History and Shell tabs, beside the shell's name. */
 .pane.shell .head .dview { margin-left: 8px; }
 /* The drawer's grip, centred on the card's top border (inset 5px). The bar is `::before`, as
    `[data-tip]` takes `::after`. */

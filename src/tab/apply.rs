@@ -275,7 +275,7 @@ impl Tab {
             return Ok(e);
         }
         let warnings = self.install_new(new, path, follow, tail, highlight, diff, edit, page, area);
-        // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
+        // An editor pane never takes focus: typing into the drawer mustn't land in Neovim.
         if focus && !edit {
             self.pending_focus = Some(new);
         }
@@ -414,9 +414,9 @@ impl Tab {
 
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
-        self.chat.set_agent(true);
+        self.history.set_agent(true);
         let resp = self.agent_message(msg, area);
-        self.chat.set_agent(false);
+        self.history.set_agent(false);
         resp
     }
 
@@ -736,7 +736,7 @@ impl Tab {
         Response::Ok
     }
 
-    /// `say`: journal the agent's words to the user, which the chat shows.
+    /// `say`: journal the agent's words to the user, which the History shows.
     fn say(&mut self, body: String) -> Response {
         if body.trim().is_empty() {
             return Response::Error {
@@ -777,7 +777,7 @@ impl Tab {
             .as_ref()
             .is_some_and(|j| j.path() != journal.path())
         {
-            self.chat.new_session();
+            self.history.new_session();
         }
         let path = journal.path().to_string_lossy().into_owned();
         let root = crate::platform::folder()

@@ -12,7 +12,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `panes.js`: each pane's element, `onLayout`, the lines between panes, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
 - `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
 - `bottom.js`: the notice, the hint line, the status bar and the shell button.
-- `chat.js`: the chat in the drawer, its rows' clicks, and the links and the file paths in a say.
+- `history.js`: the History in the drawer, its rows' clicks, and the links and the file paths in a say.
 - `review.js`: threads, the comment's box, the popovers and the draft.
 - `pages.js`: a file pane's rows and pages, comment mode, and a page's pins.
 - `selector.js`: the pane selector and the help.
@@ -40,9 +40,9 @@ Laura sends these frames to the view:
 |---|---|---|---|
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
-| `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, the drawer's view (`drawer_view`: `chat` or `shell`), and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
+| `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, the drawer's view (`drawer_view`: `history` or `shell`), and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
 | `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes, and again each time the canvas comes back. Until then the client shows skeleton cards | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
-| `chat` | The chat's rows (`tab/chat.rs`), with each say's HTML, when a row changes | `send_chat` (`frames.rs`) | `onChat` |
+| `history` | The History's rows (`tab/history.rs`), with each say's HTML, when a row changes | `send_history` (`frames.rs`) | `onHistory` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |
@@ -59,7 +59,7 @@ The view sends these frames to Laura, and `sync` reads each one in its inbound b
 
 ## Escaping
 
-The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames, the README's HTML in the `glance` frame, and a say's HTML in the `chat` frame, goes in as markup. `html.rs` and `render.rs` build that HTML, and escape the file text.
+The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames, the README's HTML in the `glance` frame, and a say's HTML in the `history` frame, goes in as markup. `html.rs` and `render.rs` build that HTML, and escape the file text.
 
 ## Parity
 
@@ -80,7 +80,7 @@ Before a change to the web app, ask: does the TUI need the same change?
 
 Assert on frames, not pixels.
 
-The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `chat`, `file_panes`, `markdown`, `pages`, `review`, `modes`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
+The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `history`, `file_panes`, `markdown`, `pages`, `review`, `modes`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
 
 - Add a web test to the module for its feature.
 - Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.

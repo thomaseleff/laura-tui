@@ -4,11 +4,11 @@
 use super::*;
 
 /// The next `chat` frame on `ws` that `want` matches.
-fn chat_when(rig: &mut Rig, ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
+fn history_when(rig: &mut Rig, ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
     rig.until(
         ws,
         what,
-        |f| matches!(f, Frame::Json(v) if v["t"] == "chat" && want(v)),
+        |f| matches!(f, Frame::Json(v) if v["t"] == "history" && want(v)),
     )
     .json()
 }
@@ -46,22 +46,22 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
     assert_eq!(first["drawer_view"], "shell", "before a say: {first}");
     rig.drive(&["ready", "--session", &session("chat-fold")]);
     rig.drive(&["say", "Look at **this**"]);
-    let chat = chat_when(&mut rig, &mut ws, "the say", |c| {
+    let chat = history_when(&mut rig, &mut ws, "the say", |c| {
         c["rows"][0]["kind"] == "say"
     });
     let html = chat["rows"][0]["html"].as_str().unwrap_or_default();
     assert!(html.contains("<strong>this</strong>"), "{chat}");
     layout_when(&mut rig, &mut ws, "the chat", |l| {
-        l["drawer_view"] == "chat"
+        l["drawer_view"] == "history"
     });
 
     let (_a, a) = file("a.rs", &five_lines())?;
     let (_b, b) = file("b.rs", &five_lines())?;
     rig.drive(&["open", &a, "--no-focus"]);
-    let one = chat_when(&mut rig, &mut ws, "one open", |c| c["rows"][1].is_object());
+    let one = history_when(&mut rig, &mut ws, "one open", |c| c["rows"][1].is_object());
     assert_eq!(one["rows"][1]["text"], "opened a.rs", "{one}");
     rig.drive(&["open", &b, "--no-focus"]);
-    let two = chat_when(&mut rig, &mut ws, "two opens", |c| {
+    let two = history_when(&mut rig, &mut ws, "two opens", |c| {
         c["rows"][1]["text"] == "opened 2 files"
     });
     assert_eq!(two["rows"].as_array().map(Vec::len), Some(2), "{two}");
@@ -70,14 +70,14 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
 
     // The row's click focuses a pane still open after the run.
     rig.drive(&["close", "2"]);
-    let closed = chat_when(&mut rig, &mut ws, "a close", |c| {
+    let closed = history_when(&mut rig, &mut ws, "a close", |c| {
         c["rows"][1]["text"] == "opened 2 files, closed pane #2"
     });
     assert_eq!(closed["rows"][1]["pane"], 1, "pane 2 is closed: {closed}");
     // The user's own close stays out of the chat, and in the journal.
     rig.act(&mut ws, json!({"act": "close", "pane": 1}));
     rig.drive(&["focus", "0"]);
-    let focused = chat_when(&mut rig, &mut ws, "a focus", |c| {
+    let focused = history_when(&mut rig, &mut ws, "a focus", |c| {
         c["rows"][1]["text"]
             .as_str()
             .is_some_and(|t| t.ends_with("focused the shell"))
@@ -89,7 +89,7 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
     assert_eq!(events(&session("chat-fold"), "close").len(), 2);
 
     rig.drive(&["ready", "--session", &session("chat-other")]);
-    chat_when(&mut rig, &mut ws, "an empty chat", |c| {
+    history_when(&mut rig, &mut ws, "an empty chat", |c| {
         c["rows"] == json!([])
     });
     Ok(())
@@ -108,12 +108,12 @@ fn a_bell_with_no_say_shows_the_shell() -> Result<()> {
     rig.drive(&["ready", "--session", &name]);
     rig.drive(&["say", "hi"]);
     layout_when(&mut rig, &mut ws, "the chat", |l| {
-        l["drawer_view"] == "chat"
+        l["drawer_view"] == "history"
     });
     // The user's keystrokes come after the say, so the bell comes with no say since.
     type_in(&mut ws, 0, b"printf '\\007'\r")?;
     // Laura sends the chat before the layout of the same turn.
-    let chat = chat_when(&mut rig, &mut ws, "the wait row", |c| {
+    let chat = history_when(&mut rig, &mut ws, "the wait row", |c| {
         c["rows"][1]["kind"] == "wait"
     });
     layout_when(&mut rig, &mut ws, "the shell", |l| {
@@ -130,24 +130,24 @@ fn a_bell_with_no_say_shows_the_shell() -> Result<()> {
         go.display()
     );
     type_in(&mut ws, 0, cmd.as_bytes())?;
-    chat_when(&mut rig, &mut ws, "the wait ended", |c| {
+    history_when(&mut rig, &mut ws, "the wait ended", |c| {
         c["rows"][1]["done"] == true
     });
     rig.drive(&["say", "Run the tests?"]);
-    chat_when(&mut rig, &mut ws, "the second say", |c| {
+    history_when(&mut rig, &mut ws, "the second say", |c| {
         c["rows"][2]["kind"] == "say"
     });
     layout_when(&mut rig, &mut ws, "the chat again", |l| {
-        l["waiting"] == false && l["drawer_view"] == "chat"
+        l["waiting"] == false && l["drawer_view"] == "history"
     });
     std::fs::write(&go, "")?;
     let l = layout_when(&mut rig, &mut ws, "the said wait", |l| l["waiting"] == true);
-    assert_eq!(l["drawer_view"], "chat", "{l}");
+    assert_eq!(l["drawer_view"], "history", "{l}");
     assert_eq!(waits(&name).len(), 2, "{:?}", waits(&name));
     assert_eq!(waits(&name)[1]["said"], true, "{:?}", waits(&name));
     let later = rig.idle(&mut ws, 5);
     assert!(
-        !later.into_iter().any(|f| f.is("chat")),
+        !later.into_iter().any(|f| f.is("history")),
         "a said wait added a row"
     );
     // A message from the message box ends the said wait, as the user's write to the shell.
@@ -173,7 +173,7 @@ fn a_message_reaches_the_shell() -> Result<()> {
     let ok = rig.act(&mut ws, json!({"act": "message", "text": "hello-msg"}));
     assert_eq!(ok["ok"], true, "{ok}");
     rig.shell_shows("hello-msg");
-    let chat = chat_when(&mut rig, &mut ws, "the message row", |c| {
+    let chat = history_when(&mut rig, &mut ws, "the message row", |c| {
         c["rows"][1]["kind"] == "message"
     });
     assert_eq!(chat["rows"][1]["body"], "hello-msg", "{chat}");

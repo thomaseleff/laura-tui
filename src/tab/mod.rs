@@ -1,4 +1,4 @@
-//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, the chat, and the
+//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, the History, and the
 //! socket that ties them together.
 
 use std::borrow::Cow;
@@ -29,7 +29,7 @@ use crate::pty::PtyTab;
 mod act;
 mod apply;
 mod browsers;
-mod chat;
+mod history;
 mod links;
 mod mode;
 mod report;
@@ -252,7 +252,7 @@ pub enum UserAction {
         text: String,
     },
     /// `Ctrl+.`, the drawer's **Chat** and **Shell** tabs, and **Show the shell**: the drawer
-    /// flips between the chat and the shell (`Tab::flip_drawer`). The TUI never sends it.
+    /// flips between the History and the shell (`Tab::flip_drawer`). The TUI never sends it.
     FlipDrawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
@@ -373,8 +373,8 @@ pub struct Tab {
     pub title: Option<String>,
     /// Whether the agent waits for the user (`wait.rs`).
     wait: wait::Wait,
-    /// What passed through Laura in the current session (`chat.rs`).
-    chat: chat::Chat,
+    /// What passed through Laura in the current session (`history.rs`).
+    history: history::History,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -460,7 +460,7 @@ impl Tab {
             journal: None,
             title: None,
             wait: wait::Wait::default(),
-            chat: chat::Chat::default(),
+            history: history::History::default(),
             shell_size: None,
             docked: false,
             modes: mode::Modes::default(),
@@ -519,17 +519,17 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
-    /// The one place that journals an event, so the chat holds each journaled event.
+    /// The one place that journals an event, so the History holds each journaled event.
     pub(super) fn log_event(&mut self, event: Event) {
         if let Some(j) = &self.journal {
             j.log(&event);
         }
-        self.chat.push(&event);
+        self.history.push(&event);
     }
 
     /// The agent's latest `say` in this session, with a count that names it over the tab's life.
     pub fn latest_say(&self) -> Option<(u64, &str)> {
-        self.chat.latest_say()
+        self.history.latest_say()
     }
 
     /// The terminal that takes pane `pane`'s keys: the shell, or an editor pane's Neovim in its
@@ -757,7 +757,7 @@ impl Tab {
     /// answer is a new wait.
     fn answered(&mut self, bells: u64) {
         self.wait.answered(bells);
-        self.chat.end_wait();
+        self.history.end_wait();
     }
 
     /// The user saw the shell: a move into the shell (`Focus`, `Close`, the lock, an overlay's
@@ -765,14 +765,14 @@ impl Tab {
     /// write still counts.
     fn saw(&mut self, bells: u64) {
         self.wait.saw(bells);
-        self.chat.end_wait();
+        self.history.end_wait();
     }
 
     /// The web app's `seen` of wait `wait` (`Wait::seen`).
     fn seen(&mut self, wait: u64) {
         self.wait.seen(wait, self.pty.bells());
         if !self.wait.waiting() {
-            self.chat.end_wait();
+            self.history.end_wait();
         }
     }
 
@@ -787,16 +787,16 @@ impl Tab {
         }
     }
 
-    /// The drawer shows the shell, not the chat: before the agent's first say, and from the start
+    /// The drawer shows the shell, not the History: before the agent's first say, and from the start
     /// of each wait with no say since the user's last message (`Tab::say`, `wait_began`), until
     /// the user flips it (`Ctrl+.`); and while the lock is on, which sends the keystrokes to the
-    /// shell. The unlock brings the chat back.
+    /// shell. The unlock brings the History back.
     pub fn drawer_shows_shell(&self) -> bool {
         self.modes.drawer == DrawerView::Shell || self.locked()
     }
 
     /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it
-    /// is; on the shell, the drawer flips between the chat and the shell.
+    /// is; on the shell, the drawer flips between the History and the shell.
     pub(super) fn flip_drawer(&mut self) {
         if self.focus != PTY_PANE {
             self.focus = PTY_PANE;
@@ -804,20 +804,20 @@ impl Tab {
             return self.saw(self.pty.bells());
         }
         self.modes.drawer = match self.modes.drawer {
-            DrawerView::Chat => DrawerView::Shell,
-            DrawerView::Shell => DrawerView::Chat,
+            DrawerView::History => DrawerView::Shell,
+            DrawerView::Shell => DrawerView::History,
         };
     }
 
-    /// The agent said something: the drawer turns to the chat.
+    /// The agent said something: the drawer turns to the History.
     pub(super) fn said(&mut self) {
         self.wait.say();
-        self.modes.drawer = DrawerView::Chat;
+        self.modes.drawer = DrawerView::History;
     }
 
-    /// The chat's rows, and a count that changes with them (`chat.rs`).
-    pub(crate) fn chat(&self) -> (&[chat::Row], u64) {
-        (self.chat.rows(), self.chat.seq())
+    /// The History's rows, and a count that changes with them (`history.rs`).
+    pub(crate) fn history(&self) -> (&[history::Row], u64) {
+        (self.history.rows(), self.history.seq())
     }
 
     /// The agent waits for the user (`wait.rs`).
