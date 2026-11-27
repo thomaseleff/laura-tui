@@ -99,6 +99,9 @@ A client test that waits for the wrong state passes on a fast machine and fails 
 - **Measure only a layout at the page's size.** Laura can send the first layout before the page reports its size, and the next layout moves the panes. Before you read a rect, wait until the layout reaches the page's `--cols` (`split_center`, `editor_beside`).
 - **Change the page's size only with `Client::resize`.** It waits for Chrome's `resize` event, which Chrome fires at its next rendering step, also after the test's next check under load.
 - **Test a stale frame by replaying it.** The rig runs Laura only on `pump`, so the acts that the test sent stay unanswered until the next `until`. Send the keystrokes with no `until` between them, then replay Laura's old frame through `ws.onmessage` (`a_stale_layout_leaves_the_closed_pane_selector_closed`). Do not wait for a timing to happen.
+- **Keep each frame that a wait did not check.** Wait for the state that the check needs. A frame that comes before an `acted` can be the frame that the next wait needs (`act()`, #205).
+- **Click into an HTML page only after the page reports from inside its frame**, such as its `rect` (`a_click_in_an_html_page_folds_the_shell_buttons_say`). Before that report, the page's script can miss the click.
+- **Send input only through `Client`'s methods.** They send what a mouse and a keyboard send, such as `buttons` from the press to the release. A test that needs a hover first calls `hover`: `click` does not move the pointer.
 
 `LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
 

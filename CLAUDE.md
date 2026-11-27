@@ -11,6 +11,7 @@ Standard Rust, plus the organization rules below. Public names and signatures fo
 - **Edition:** latest stable (2024). Toolchain pinned in `rust-toolchain.toml`.
 - **Errors:** `anyhow` at binary boundaries. In the library, an error a caller branches on is a variant of its module's `Error` enum (`thiserror`, as `tab::Error`); never compare error text. `Result<_, String>` is only for text Laura shows as is, to the user or the agent. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
 - **Comments/docstrings:** terse; explain *why*, not *what*. Match the surrounding file's density.
+- **Events from two sources:** don't depend on the order in which events from two sources come, such as Chrome's events and a page's report, or a `layout` and a `history` frame. Key the state to an identity, such as a row's `at`. Don't tell events apart with a time window; wait for a reply (#205).
 
 ### Code organization
 
