@@ -135,7 +135,8 @@ pub(crate) enum Project {
     },
 }
 
-/// `root`'s branch and its changes, else its latest commit. `None` outside a repo, in a repo with
+/// `root`'s branch and the changes below `root`, else its latest commit. Changes elsewhere in the
+/// repo don't count: the card is about Laura's folder (#252). `None` outside a repo, in a repo with
 /// no commit, or without `git`.
 pub(crate) fn project(root: &Path) -> Option<Project> {
     let root = strip_verbatim(root.to_path_buf());
