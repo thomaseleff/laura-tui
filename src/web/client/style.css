@@ -440,14 +440,16 @@ kbd {
 /* A History row is one line of a timeline: the time, a dot on the rail, the verb, then what it acted
    on. A say differs only in its body. */
 .te.hr {
-  --rail: 66px; position: relative; display: grid; grid-template-columns: 44px 12px auto 1fr auto; column-gap: 8px;
+  /* The time column fits "12:59 PM"; the rail runs through the dot's middle: padding, time, gap, half the dot. */
+  --tm: 56px; --rail: calc(8px + var(--tm) + 8px + 6px);
+  position: relative; display: grid; grid-template-columns: var(--tm) 12px auto 1fr auto; column-gap: 8px;
   align-items: baseline; padding: 6px 8px; border-radius: 8px; font-size: 12.5px; color: var(--fg);
 }
 /* The rail: one line through every row's dot. */
 .te.hr::before { content: ""; position: absolute; left: var(--rail); top: 0; bottom: 0; width: 1.5px; margin-left: -.75px; background: #d3d6de; }
 .te.hr:first-child::before { top: 16px; }
 .te.hr:last-child::before { bottom: calc(100% - 16px); }
-.te.hr .tm { font: 11px var(--mono); color: var(--faint); text-align: right; }
+.te.hr .tm { font: 11px var(--mono); color: var(--faint); text-align: right; white-space: nowrap; }
 .te.hr .pt {
   position: relative; z-index: 1; justify-self: center; align-self: start; margin-top: 6px;
   width: 7px; height: 7px; border-radius: 50%; background: #fff; border: 1.5px solid var(--faint);

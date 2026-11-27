@@ -488,6 +488,38 @@ fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
     Ok(())
 }
 
+/// The History's first row keeps its time on one line in a 12-hour clock: the time fits its column,
+/// and in a narrow window the long target ends in `…` instead.
+#[test]
+fn a_history_rows_time_stays_on_one_line() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.set_locale("en-US");
+    let dir = tempfile::tempdir()?;
+    let a = dir.path().join(format!("{}.md", "long-name-".repeat(12)));
+    std::fs::write(&a, "# A\n")?;
+    r.drive(&["open", &a.to_string_lossy(), "--no-focus"]);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
+    // A text takes one rect for each line; a target that doesn't wrap overflows its column.
+    const ONE_LINE: &str = "layout.drawer_view === 'history' && !acts.length && (row => { \
+        if (!row) return false; \
+        const lines = el => { const g = document.createRange(); g.selectNodeContents(el.firstChild); \
+            return g.getClientRects().length; }; \
+        const tm = row.querySelector('.tm'), tg = row.querySelector('.tg'); \
+        return /[AP]M$/.test(tm.textContent) && lines(tm) === 1 && tm.scrollWidth <= tm.clientWidth \
+            && tg.scrollWidth > tg.clientWidth; \
+        })(document.querySelector('#p0 .te.hr[data-i=\"0\"]'))";
+    c.until(&mut r, "the time on one line", ONE_LINE);
+    c.resize(420, 800);
+    c.until(&mut r, "the time on one line, narrow", ONE_LINE);
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// `Tab` from the History's list focuses a row that a click shows again, and `Enter` on the row
 /// shows its command again.
 #[test]
