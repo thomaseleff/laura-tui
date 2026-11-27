@@ -1037,13 +1037,16 @@ fn the_shell_links_these_paths() -> Result<()> {
     Ok(())
 }
 
-/// The center of the line between two panes, in CSS px, once the web app shows it.
+/// The center of the line between two panes, in CSS px, once the web app shows it at the page's
+/// size: a layout from before the page's size (`--cols`) puts the line elsewhere, and the next
+/// layout moves it from under the press.
 fn split_center(r: &mut Rig, c: &Client) -> (f64, f64) {
     let at = c.until(
         r,
-        "the line between the panes",
-        "(() => { const b = document.querySelector('#ws > .split')?.getBoundingClientRect(); \
-           return b?.height && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+        "the line between the panes, at the page's size",
+        "(() => { const s = layout.splits[0], b = document.querySelector('#ws > .split')?.getBoundingClientRect(); \
+           return s?.x + s?.w === +document.documentElement.style.getPropertyValue('--cols') \
+             && b?.height && [b.x + b.width / 2, b.y + b.height / 2]; })()",
     );
     (at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0))
 }
