@@ -76,7 +76,7 @@ Do these steps only when a test fails at random: the test failed and then passed
 
 - First, look for the test in the failed runs on `main` and on other branches (`gh run list --status failure`, then `gh run view <id> --log-failed`). A failure that is already there is not caused by your change, but you still fix it or open an issue for it.
 - Find the cause with a record that the page or the test writes when the event occurs. A client test that times out prints the page's last events (`INIT` in `tests/common/client.rs`): read them first. Add a record only for an event that they do not show, for example a listener or a wrapper in `INIT`. Do not add an `eval` before the step that fails: each extra round trip changes the timing, and the failure goes away.
-- Prove the fix: the test fails with the fix removed, and passes with it. A test that passes alone can fail under the full suite's load, so run the whole test binary of the test that fails at random 10 times in a row (the client rules are in [`src/web/CLAUDE.md`](src/web/CLAUDE.md), Waits).
+- Prove the fix: the test fails with the fix removed, and passes with it. A test that passes alone can fail under the full suite's load, so run `scripts/stress.sh <test binary>`: the script runs the whole test binary 10 times, each beside a second copy as load, and stops at the first failure with its log (the client rules are in [`src/web/CLAUDE.md`](src/web/CLAUDE.md), Waits).
 
 **Manual runs.** `tmp/` is gitignored scratch for manual checks. Build a binary to run by hand with `CARGO_TARGET_DIR=tmp/target cargo build`, so a Laura running from `target/` doesn't lock the build.
 
