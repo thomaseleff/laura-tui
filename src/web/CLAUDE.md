@@ -40,7 +40,7 @@ Laura sends these frames to the view:
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
 | `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
-| `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
+| `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes, and again each time the canvas comes back. Until then the client shows skeleton cards | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |

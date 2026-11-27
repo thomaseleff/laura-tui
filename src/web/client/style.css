@@ -203,6 +203,14 @@ a.brand[href]:hover .logo { opacity: .75; }
 #canvas.docked .glance { flex-direction: column; width: 100%; gap: 10px; }
 #canvas.docked .gcard { flex: 1 1 0; }
 #canvas.docked .gcard:has(> .md) { min-height: 50%; }
+/* The skeleton cards while Laura reads the folder (`skeleton`): gray bars that pulse slowly. */
+.gcard.skel:first-child { flex: 1 1 400px; }
+.skel i { display: block; height: 12px; margin: 8px 0; border-radius: 6px; background: var(--line2); }
+.skel i:first-child { width: 40%; margin-top: 0; }
+.skel i:last-child { width: 70%; }
+.skel { animation: skel 1.6s ease-in-out infinite alternate; }
+@keyframes skel { to { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 /* On a narrow canvas above the drawer, the cards stack with their own height and the canvas scrolls. */
 @container (width < 860px) {
   #canvas:not(.docked) .glance { flex-direction: column; height: auto; }

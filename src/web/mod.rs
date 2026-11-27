@@ -626,7 +626,7 @@ impl WebServer {
         }
         let canvas = self.canvas.pick(tab, &self.root, &self.root_base);
         // Before `layout`, so the canvas shows with its cards once Laura has read them.
-        send_canvas(v, self.canvas.frame());
+        send_canvas(v, canvas, self.canvas.frame());
         let drawer = drawer_frame(self.drawer, canvas);
         let layout = layout_json(tab, &rects, area, &self.bases, canvas, drawer);
         if v.layout != layout {
@@ -876,8 +876,13 @@ impl StartCanvas {
     }
 }
 
-/// The project at a glance's frame, when it differs from the one the view has.
-fn send_canvas(v: &mut View, glance: Option<&String>) {
+/// The project at a glance's frame, when it differs from the one the view has. Without a canvas the
+/// view forgets its frame: the client shows skeleton cards when the canvas comes back, until the
+/// frame comes again, changed or not (#251).
+fn send_canvas(v: &mut View, canvas: Option<Canvas>, glance: Option<&String>) {
+    if canvas.is_none() {
+        v.glance = None;
+    }
     if let Some(g) = glance
         && v.glance.as_ref() != Some(g)
     {

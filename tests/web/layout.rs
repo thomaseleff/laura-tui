@@ -54,14 +54,6 @@ fn the_shell_takes_the_agents_name() -> Result<()> {
     Ok(())
 }
 
-/// Pane `id`'s entry in a `layout` frame.
-fn pane_of(layout: &Value, id: u64) -> &Value {
-    layout["panes"]
-        .as_array()
-        .and_then(|ps| ps.iter().find(|p| p["id"] == id))
-        .unwrap_or(&Value::Null)
-}
-
 /// Pane `id`'s cells in a `layout` frame: x, y, w, h.
 fn cells(layout: &Value, id: u64) -> [u64; 4] {
     let p = pane_of(layout, id);

@@ -428,7 +428,11 @@ export function onLayout(m) {
 function paintCanvas(m) {
   const c = $("canvas"), shell = pane(0), had = !c.hidden;
   c.hidden = !m.canvas;
-  if (!m.canvas) return;
+  // The canvas that comes back shows skeleton cards until Laura sends the glance again.
+  if (!m.canvas) {
+    if (had) skeleton();
+    return;
+  }
   const old = c.dataset.c;
   c.dataset.c = m.canvas;
   c.classList.toggle("docked", !shell?.drawer);
@@ -469,6 +473,11 @@ export function paintGlance(m) {
 }
 
 const glance = $("canvas").querySelector(".glance");
+// Gray cards in the glance's shape, while Laura reads the folder. `paintGlance` replaces them.
+function skeleton() {
+  glance.innerHTML = '<div class="gcard skel"><i></i><i></i><i></i><i></i></div>'.repeat(3);
+}
+skeleton();
 const KINDS = { M: "m", A: "a", D: "d", "?": "u" };
 const ago = new Intl.RelativeTimeFormat("en", { numeric: "auto", style: "narrow" });
 const UNITS = [["year", 31536e3], ["month", 2592e3], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60]];

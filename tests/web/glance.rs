@@ -229,6 +229,27 @@ fn a_session_in_the_folder_shows_its_label() -> Result<()> {
     Ok(())
 }
 
+/// The canvas that comes back after the last pane closes gets the glance frame again, unchanged,
+/// to paint over its skeleton cards (#251).
+#[test]
+fn the_canvas_that_comes_back_gets_the_glance_again() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("README.md"),
+        "# Ridgeline\n\nPlan a day hike.\n",
+    )?;
+    journal_review(home.path(), false)?;
+    let (_child, mut ws) = laura_web_at(dir.path(), home.path())?;
+    let (first, _) = first_frames(&mut ws, "glance");
+    send(&mut ws, json!({"act": "open_path", "path": "README.md"}));
+    raw_layout_when(&mut ws, "pane 1", |v| !pane_of(v, 1).is_null());
+    send(&mut ws, json!({"act": "close", "pane": 1}));
+    let (again, _) = first_frames(&mut ws, "glance");
+    assert_eq!(again, first);
+    Ok(())
+}
+
 #[test]
 fn an_empty_folder_gives_the_calm_canvas() -> Result<()> {
     let home = tempfile::tempdir()?;
