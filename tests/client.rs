@@ -311,6 +311,43 @@ fn enter_in_the_message_box_sends_the_message() -> Result<()> {
     Ok(())
 }
 
+/// `Enter` under the help closes the help, and the message box keeps its text.
+#[test]
+fn enter_under_the_help_closes_the_help() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "Ready when you are"]);
+    c.until(
+        &mut r,
+        "the message box's focus",
+        "layout.drawer_view === 'chat' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+    );
+    c.type_text("hi-help");
+    c.press(CTRL_H);
+    c.until(
+        &mut r,
+        "the help",
+        "layout.modes.includes('help') && !acts.length",
+    );
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "no help",
+        "!layout.modes.includes('help') && !acts.length",
+    );
+    assert_eq!(
+        c.eval("document.querySelector('#p0 .msgbox textarea').value"),
+        Ok(json!("hi-help"))
+    );
+    let lines = c.eval(SHELL_LINES).unwrap_or_default();
+    assert!(!lines.to_string().contains("hi-help"), "{lines}");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 #[test]
 fn the_shell_button_focuses_the_shell() -> Result<()> {
     let Some((path, _one)) = chrome() else {

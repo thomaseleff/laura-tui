@@ -2,7 +2,7 @@
 // message box. A say is Laura's HTML of the agent's markdown; a file path in it opens the file, as
 // the shell's links do.
 
-import { $, act, esc, layout, pane } from "./state.js";
+import { $, act, esc, layout, mode, pane } from "./state.js";
 import { PATH } from "./term.js";
 import { ic } from "./head.js";
 import { focusPane } from "./panes.js";
@@ -102,9 +102,10 @@ function sendMessage() {
   act({ act: "message", pane: 0, text }, m => m.ok && box.value === text && (box.value = ""));
 }
 
-// The message box's keystrokes: `Enter` sends, `Shift+Enter` adds a line, and the others type.
+// The message box's keystrokes: `Enter` sends, `Shift+Enter` adds a line, and the others type. A
+// mode on top (the help, the quit question) takes `Enter` first: this listener runs before keys.js's.
 export function msgKey(e) {
-  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+  if (mode() || e.key !== "Enter" || e.shiftKey || e.isComposing) return;
   e.preventDefault();
   e.stopPropagation();
   sendMessage();
