@@ -339,11 +339,11 @@ impl Tui {
             self.notice(text, secs);
         }
         // The TUI has no chat: each new say shows in the toast, over this frame's other notice. The
-        // toast is one row, so it shows the say's first line.
-        let say = self
-            .tab
-            .latest_say()
-            .map(|(n, body)| (n, body.lines().next().unwrap_or_default().to_string()));
+        // toast is one row, so it shows the say's first line of text.
+        let say = self.tab.latest_say().map(|(n, body)| {
+            let line = body.lines().find(|l| !l.trim().is_empty());
+            (n, line.unwrap_or_default().to_string())
+        });
         if let Some((n, body)) = say
             && n != self.said
         {
