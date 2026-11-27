@@ -172,7 +172,7 @@ fn the_bell_makes_the_workspace_wait_until_the_user_scrolls_the_shell() -> Resul
     // Frames apply in order: once the act replies, the hover has reached the shell.
     rig.act(&mut ws, json!({"act": "drawer"}));
     rig.idle(&mut ws, 10);
-    assert!(rig.tab.waiting, "a hover ended the wait");
+    assert!(rig.tab.waiting(), "a hover ended the wait");
     type_in(&mut ws, 0, b"\x1b[<64;10;5M")?;
     layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
     Ok(())
@@ -191,7 +191,7 @@ fn moving_focus_into_the_shell_ends_the_wait() -> Result<()> {
     layout_when(&mut rig, &mut ws, "waiting", |l| l["waiting"] == true);
     rig.drive(&["focus", "0"]);
     rig.idle(&mut ws, 10);
-    assert!(rig.tab.waiting, "the agent's focus ended the wait");
+    assert!(rig.tab.waiting(), "the agent's focus ended the wait");
     rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
     rig.tab.pty.write(b"printf '\\007'\r")?;
     layout_when(&mut rig, &mut ws, "waiting again", |l| l["waiting"] == true);
@@ -222,7 +222,7 @@ fn closing_the_last_pane_ends_the_wait() -> Result<()> {
     layout_when(&mut rig, &mut ws, "waiting again", |l| l["waiting"] == true);
     rig.drive(&["close", &id]);
     rig.idle(&mut ws, 10);
-    assert!(rig.tab.waiting, "the agent's close ended the wait");
+    assert!(rig.tab.waiting(), "the agent's close ended the wait");
     Ok(())
 }
 
@@ -281,10 +281,16 @@ fn seen_ends_only_the_wait_the_web_app_showed() -> Result<()> {
 
     rig.act(&mut ws, json!({"act": "seen", "wait": w1}));
     rig.idle(&mut ws, 5);
-    assert!(rig.tab.waiting, "a seen from before the new wait ended it");
+    assert!(
+        rig.tab.waiting(),
+        "a seen from before the new wait ended it"
+    );
     rig.act(&mut ws, json!({"act": "seen", "wait": 0xFFFF_FFFFu64}));
     rig.idle(&mut ws, 5);
-    assert!(rig.tab.waiting, "a seen that names no wait ended the wait");
+    assert!(
+        rig.tab.waiting(),
+        "a seen that names no wait ended the wait"
+    );
 
     let bells = rig.tab.pty.bells();
     rig.tab.pty.write(b"printf '\\007'\r")?;
@@ -303,7 +309,7 @@ fn seen_ends_only_the_wait_the_web_app_showed() -> Result<()> {
     );
     rig.act(&mut ws, json!({"act": "seen", "wait": w2}));
     rig.idle(&mut ws, 5);
-    assert!(!rig.tab.waiting, "a late seen brought the wait back");
+    assert!(!rig.tab.waiting(), "a late seen brought the wait back");
     Ok(())
 }
 
@@ -332,7 +338,7 @@ fn a_bell_just_before_the_user_types_does_not_bring_the_wait_back() -> Result<()
     });
     rig.idle(&mut ws, 5);
     assert!(
-        !rig.tab.waiting,
+        !rig.tab.waiting(),
         "a bell before the keystroke made the workspace wait after it"
     );
     Ok(())
@@ -360,7 +366,10 @@ fn a_notification_makes_the_workspace_wait_and_a_conemu_command_does_not() -> Re
     )?;
     rig.shell_shows("progress");
     rig.idle(&mut ws, 5);
-    assert!(!rig.tab.waiting, "a ConEmu command made the workspace wait");
+    assert!(
+        !rig.tab.waiting(),
+        "a ConEmu command made the workspace wait"
+    );
     Ok(())
 }
 
@@ -381,7 +390,7 @@ fn a_bell_in_an_editor_pane_does_not_make_the_workspace_wait() -> Result<()> {
     }
     rig.idle(&mut ws, 5);
     assert!(
-        !rig.tab.waiting,
+        !rig.tab.waiting(),
         "the editor's bell made the workspace wait"
     );
     Ok(())

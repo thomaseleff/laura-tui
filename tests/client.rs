@@ -116,7 +116,7 @@ fn into_the_shell(
         "layout.focus === 0 && !layout.waiting",
     );
     assert_eq!(r.tab.focus, 0, "Laura's focus");
-    assert!(!r.tab.waiting, "the wait");
+    assert!(!r.tab.waiting(), "the wait");
     assert_eq!(c.errors(), json!([]));
     Ok(dir)
 }
@@ -544,7 +544,7 @@ fn ctrl_p_to_a_file_pane_keeps_the_wait() -> Result<()> {
         "document.getElementById('popup').hidden && layout.focus === 1",
     );
     if cfg!(unix) {
-        assert!(r.tab.waiting, "the wait");
+        assert!(r.tab.waiting(), "the wait");
     }
     assert_eq!(c.errors(), json!([]));
     Ok(())

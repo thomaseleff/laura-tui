@@ -451,8 +451,8 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
         if quit || tab.shell_done() {
             break;
         }
-        if tab.title != title || tab.waiting != waiting || web.visited() != visited {
-            (title, waiting, visited) = (tab.title.clone(), tab.waiting, web.visited());
+        if tab.title != title || tab.waiting() != waiting || web.visited() != visited {
+            (title, waiting, visited) = (tab.title.clone(), tab.waiting(), web.visited());
             record(&web, title.as_deref(), waiting);
         }
         // Past `shell_done`, an exited shell means unsaved edits: tell a user with no browser open.

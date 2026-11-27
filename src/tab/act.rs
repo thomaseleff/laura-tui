@@ -137,13 +137,7 @@ impl Tab {
             A::Resize { a, b, ratio } => self.resize(a, b, Some(ratio))?,
             A::Unpin { a, b } => self.resize(a, b, None)?,
             A::DrawerHeight { .. } => {} // the web server saves it
-            // Only the wait the web app showed at the press; `wait` is untrusted, and a late `seen`
-            // after the wait ended does nothing, so the answered count never goes down.
-            A::Seen { wait } => {
-                if self.waiting && wait == self.wait {
-                    self.answered(self.pty.bells());
-                }
-            }
+            A::Seen { wait } => self.wait.seen(wait, self.pty.bells()),
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;

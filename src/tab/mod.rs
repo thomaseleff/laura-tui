@@ -1,5 +1,5 @@
-//! One workspace: a PTY, its panels, the split tree, the input modes, and the socket that ties them
-//! together.
+//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, and the socket
+//! that ties them together.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -32,6 +32,7 @@ mod browsers;
 mod links;
 mod mode;
 mod report;
+mod wait;
 pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
 
@@ -353,13 +354,8 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
-    /// The shell rang the bell or sent a notification since the user last moved to the shell, used it or submitted an inline review: the agent waits for the user.
-    pub waiting: bool,
-    /// The shell's bell count when the current wait began. The layout frame carries this count,
-    /// and `seen` names it, so a `seen` from before a new wait does not end the new wait.
-    pub wait: u64,
-    /// The shell's bell count that `drain` last saw.
-    bells: u64,
+    /// Whether the agent waits for the user (`wait.rs`).
+    wait: wait::Wait,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -444,9 +440,7 @@ impl Tab {
             agent: false,
             journal: None,
             title: None,
-            waiting: false,
-            wait: 0,
-            bells: 0,
+            wait: wait::Wait::default(),
             shell_size: None,
             docked: false,
             modes: mode::Modes::default(),
@@ -704,8 +698,17 @@ impl Tab {
     /// answer is a new wait. A move into the shell (`Focus`, `Close`) and `Seen` read it at arrival:
     /// the user now sees the shell.
     fn answered(&mut self, bells: u64) {
-        self.waiting = false;
-        self.bells = bells;
+        self.wait.answered(bells);
+    }
+
+    /// The agent waits for the user (`wait.rs`).
+    pub fn waiting(&self) -> bool {
+        self.wait.waiting()
+    }
+
+    /// The bell count that names the current wait, for the web app's `seen`.
+    pub(crate) fn wait_id(&self) -> u64 {
+        self.wait.id()
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
@@ -714,13 +717,7 @@ impl Tab {
         self.area = area;
         self.forget_lock_from();
         // Before the hold: a bell while the user types a comment still counts.
-        let bells = self.pty.bells();
-        // A new wait begins; a bell during a wait is the same wait the user sees.
-        if bells != self.bells && !self.waiting {
-            self.wait = bells;
-        }
-        self.waiting |= bells != self.bells;
-        self.bells = bells;
+        self.wait.bell(self.pty.bells());
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
         let browsed = self.poll_browsers();
         if self.held() {

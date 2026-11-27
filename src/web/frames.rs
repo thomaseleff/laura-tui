@@ -83,7 +83,7 @@ pub(super) fn layout_json(
            "modes": tab.modes(), "draft": draft_json(tab),
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
-           "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes, "splits": splits})
+           "agent": tab.agent, "waiting": tab.waiting(), "wait": tab.wait_id(), "hints": hints, "panes": panes, "splits": splits})
     .to_string()
 }
 
