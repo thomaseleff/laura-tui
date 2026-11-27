@@ -9,11 +9,9 @@ Your agent can open the file you're discussing, the plan you're following, the d
 > [!TIP]
 > **New:**
 >
-> - The web app starts with the shell in the drawer, over a start canvas that shows the first steps. After your first inline review, the start canvas shows the project at a glance: the README, the changes on your branch and your recent sessions in the folder. See [The drawer](docs/navigation.md#the-drawer).
-> - Drag the line between two panes to resize them. Laura keeps your size until you double-click the line. See [Resize panes](docs/navigation.md#resize-panes).
-> - Drag the drawer's grip, or press ``Ctrl+Shift+↑ ↓``, to set the drawer's height. Laura keeps the height for each workspace you start. See [The drawer](docs/navigation.md#the-drawer).
-> - Laura tints the changed lines in each file pane, in place of the gutter marks. See [Changed lines](docs/navigation.md#changed-lines).
-> - A collapsed thread shows as one row with its line, its authors and its number of comments. See [Threads and inline reviews](docs/navigation.md#threads-and-inline-reviews).
+> - The agent tells you what it did with [`laura say`](docs/cli.md#commands). Laura shows the agent's latest say on the shell button, and opens the drawer on the shell, so you can answer. See [The drawer](docs/navigation.md#the-drawer).
+> - Laura lists each `laura` command, each say and each inline review of the agent's session in the drawer's History. Click a row, and Laura shows its command again. See [The History and the shell](docs/navigation.md#the-history-and-the-shell).
+> - While Laura reads the folder, Laura shows gray placeholder cards in the project at a glance. See [The drawer](docs/navigation.md#the-drawer).
 
 **Laura lets you:**
 
