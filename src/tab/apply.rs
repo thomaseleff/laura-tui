@@ -4,11 +4,9 @@
 use anyhow::Result;
 use ratatui::layout::Rect;
 
-use serde_json::json;
-
 use crate::browser::{self, Page};
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, session_path};
+use crate::journal::{Event, Journal, session_path};
 use crate::layout::{Layout, all_panes_fit, infer_split};
 use crate::panel::Panel;
 use crate::protocol::{Dir, Message, PTY_PANE, PaneId, Response, Side};
@@ -161,7 +159,12 @@ impl Tab {
             if let Err(message) = self.navigate(id, path.clone()) {
                 return Response::Error { message };
             }
-            self.log_event(json!({"type":"open","pane":id,"path":path,"replaced":true}));
+            self.log_event(Event::Open {
+                pane: id,
+                path,
+                replaced: true,
+                edit: false,
+            });
             return Response::Opened {
                 pane: id,
                 warnings: dup.into_iter().collect(),
@@ -176,9 +179,12 @@ impl Tab {
                     p.clear_highlight();
                     p.diff_view = false;
                 }
-                self.log_event(
-                    json!({"type":"open","pane":id,"path":path,"edit":true,"replaced":true}),
-                );
+                self.log_event(Event::Open {
+                    pane: id,
+                    path,
+                    replaced: true,
+                    edit: true,
+                });
             }
             return Response::Opened {
                 pane: id,
@@ -210,11 +216,12 @@ impl Tab {
             self.browsers.insert(id, page);
         }
         warnings.extend(dup);
-        let mut event = json!({"type":"open","pane":id,"path":path,"replaced":true});
-        if edit {
-            event["edit"] = true.into();
-        }
-        self.log_event(event);
+        self.log_event(Event::Open {
+            pane: id,
+            path,
+            replaced: true,
+            edit,
+        });
         Response::Opened { pane: id, warnings }
     }
 
@@ -337,13 +344,20 @@ impl Tab {
             self.browsers.insert(new, page);
         }
         warnings.extend(dup);
-        let mut event = json!({"type": "open", "pane": new, "path": path});
-        if edit {
-            event["edit"] = true.into();
-        }
-        self.log_event(event);
+        self.log_event(Event::Open {
+            pane: new,
+            path,
+            replaced: false,
+            edit,
+        });
         if let Some((start, end)) = highlight {
-            self.log_event(json!({"type": "highlight", "pane": new, "start": start, "end": end}));
+            self.log_event(Event::Highlight {
+                pane: new,
+                start: Some(start),
+                end: Some(end),
+                selector: None,
+                cleared: false,
+            });
         }
         warnings
     }
@@ -466,7 +480,10 @@ impl Tab {
         self.browsers.clear();
         self.browser_sizes.clear();
         self.focus = PTY_PANE;
-        self.log_event(json!({"type": "close", "all": true}));
+        self.log_event(Event::Close {
+            pane: None,
+            all: true,
+        });
         Response::Ok
     }
 
@@ -478,7 +495,7 @@ impl Tab {
             };
         }
         self.focus = pane;
-        self.log_event(json!({"type": "focus", "pane": pane}));
+        self.log_event(Event::Focus { pane });
         Response::Ok
     }
 
@@ -527,7 +544,13 @@ impl Tab {
             let row = p.anchor(&s, &q, &u);
             p.highlight = Some((row, row));
         }
-        self.log_event(json!({"type": "highlight", "pane": target, "selector": sel}));
+        self.log_event(Event::Highlight {
+            pane: target,
+            start: None,
+            end: None,
+            selector: Some(sel.into()),
+            cleared: false,
+        });
         Response::Ok
     }
 
@@ -540,7 +563,13 @@ impl Tab {
         };
         let Some((start, end)) = range else {
             panel.clear_highlight();
-            self.log_event(json!({"type":"highlight","pane":target,"cleared":true}));
+            self.log_event(Event::Highlight {
+                pane: target,
+                start: None,
+                end: None,
+                selector: None,
+                cleared: true,
+            });
             return Response::Ok;
         };
         if panel.source_changed {
@@ -552,7 +581,13 @@ impl Tab {
         }
         panel.set_highlight(start, end);
         let paused = panel.paused;
-        self.log_event(json!({"type":"highlight","pane":target,"start":start,"end":end}));
+        self.log_event(Event::Highlight {
+            pane: target,
+            start: Some(start),
+            end: Some(end),
+            selector: None,
+            cleared: false,
+        });
         if paused {
             return Response::Warning {
                 message: format!(
@@ -588,7 +623,10 @@ impl Tab {
         let want = on.unwrap_or(!panel.diff_view);
         match panel.set_diff_view(want) {
             Ok(()) => {
-                self.log_event(json!({"type":"diff","pane":target,"on":want}));
+                self.log_event(Event::Diff {
+                    pane: target,
+                    on: want,
+                });
                 Response::Ok
             }
             // Refusal is a no-op with a warning surfaced as an error (CLI → stderr).
@@ -638,7 +676,7 @@ impl Tab {
         line: Option<u32>,
         selector: Option<String>,
         body: Option<&str>,
-    ) -> Result<(u32, serde_json::Value), Response> {
+    ) -> Result<(u32, Event), Response> {
         let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
             return Err(Response::Error {
                 message: format!("no pane #{target}"),
@@ -657,17 +695,23 @@ impl Tab {
                     .map_err(|message| Response::Error { message })?;
                 let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
                 let line = row.map_or(0, |r| r as u32 + 1);
-                Ok((
-                    line,
-                    json!({"type": "comment", "pane": target, "selector": sel}),
-                ))
+                let event = Event::Comment {
+                    pane: target,
+                    line: None,
+                    selector: Some(sel),
+                };
+                Ok((line, event))
             }
             (true, ..) => Err(Response::Error {
                 message: format!("pane #{target} is a browser pane: pass a CSS selector"),
             }),
             (false, Some(line), None) => Ok((
                 line,
-                json!({"type": "comment", "pane": target, "line": line}),
+                Event::Comment {
+                    pane: target,
+                    line: Some(line),
+                    selector: None,
+                },
             )),
             (false, ..) => Err(Response::Error {
                 message: format!("pane #{target} is a file pane: pass a line number"),
@@ -678,12 +722,11 @@ impl Tab {
     /// `feedback`: journal the user's sentiment, on the focused pane if any.
     fn feedback(&mut self, sentiment: String, body: Option<String>) -> Response {
         let pane = self.target(None);
-        self.log_event(json!({
-            "type": "feedback",
-            "sentiment": sentiment,
-            "body": body,
-            "pane": pane,
-        }));
+        self.log_event(Event::Feedback {
+            sentiment,
+            body,
+            pane,
+        });
         Response::Ok
     }
 
@@ -716,8 +759,11 @@ impl Tab {
             .map(crate::platform::strip_verbatim)
             // `json!` panics on a path that isn't UTF-8.
             .map(|r| r.to_string_lossy().into_owned());
-        journal
-            .log(json!({"type": "ready", "pid": std::process::id(), "title": title, "root": root}));
+        journal.log(&Event::Ready {
+            pid: std::process::id(),
+            title: title.clone(),
+            root,
+        });
         self.journal = Some(journal);
         if title.is_some() {
             self.title = title;

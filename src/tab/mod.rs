@@ -15,12 +15,11 @@ use portable_pty::CommandBuilder;
 use ratatui::layout::{Margin, Rect};
 
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::browser::{self, Browser, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, is_runtime_temp};
+use crate::journal::{Event, Journal, is_runtime_temp};
 use crate::layout::{Handle, Layout, MIN_PANE, rects, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::platform::runtime_dir;
@@ -506,10 +505,9 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
-    /// Field names and values are public: `laura journal` filters on them and `docs/cli.md` lists them; change both together.
-    pub fn log_event(&self, event: serde_json::Value) {
+    pub(super) fn log_event(&self, event: Event) {
         if let Some(j) = &self.journal {
-            j.log(event);
+            j.log(&event);
         }
     }
 
@@ -556,11 +554,13 @@ impl Tab {
         // Read the count first: a sent review clears the threads.
         let (path, comments) = (p.path.clone(), p.thread_count());
         let res = p.submit_review(pane, body, |r| pty.write(&bracketed_paste(r, true)));
-        let mut event = json!({"type": "review", "pane": pane, "path": path, "comments": comments, "body": body});
-        if let Err(e) = &res {
-            event["error"] = json!(e.to_string());
-        }
-        self.log_event(event);
+        self.log_event(Event::Review {
+            pane,
+            path,
+            comments,
+            body: body.into(),
+            error: res.as_ref().err().map(|e| e.to_string()),
+        });
         // The cause is in the journal; the notice stays fixed.
         res.map_err(|_| Error::SubmitFailed)?;
         if let Some(e) = self.editors.get_mut(&pane) {
@@ -805,7 +805,10 @@ impl Tab {
                 if self.focus == target {
                     self.focus = self.fallback_focus();
                 }
-                self.log_event(json!({"type": "close", "pane": target}));
+                self.log_event(Event::Close {
+                    pane: Some(target),
+                    all: false,
+                });
                 Response::Ok
             }
             Err(message) => Response::Error { message },

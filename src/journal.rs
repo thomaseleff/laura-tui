@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::platform::{data_dir, runtime_dir, strip_verbatim};
+use crate::protocol::PaneId;
 
 /// Where every session's journal lives.
 pub fn sessions_dir() -> PathBuf {
@@ -46,6 +47,86 @@ fn sanitize(s: &str) -> String {
     }
 }
 
+/// One journaled event, written as `{"type": "<variant>", …}`. The field names and values are
+/// public: `laura journal` filters on them and `docs/cli.md` lists them; change both together.
+/// An absent flag or optional value leaves its key out, except where a `null` says "none".
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub(crate) enum Event {
+    /// The agent named its session. `title` and `root` are `null` when unknown.
+    Ready {
+        pid: u32,
+        title: Option<String>,
+        root: Option<String>,
+    },
+    Open {
+        pane: PaneId,
+        path: String,
+        #[serde(skip_serializing_if = "is_false")]
+        replaced: bool,
+        #[serde(skip_serializing_if = "is_false")]
+        edit: bool,
+    },
+    /// One pane, or every pane with `all`.
+    Close {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pane: Option<PaneId>,
+        #[serde(skip_serializing_if = "is_false")]
+        all: bool,
+    },
+    Focus {
+        pane: PaneId,
+    },
+    /// Lines (`start`, `end`), an element (`selector`), or no highlight (`cleared`).
+    Highlight {
+        pane: PaneId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        start: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        end: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+        #[serde(skip_serializing_if = "is_false")]
+        cleared: bool,
+    },
+    Diff {
+        pane: PaneId,
+        on: bool,
+    },
+    /// The agent's comment, on a line or an element.
+    Comment {
+        pane: PaneId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        line: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+    },
+    /// `body` and `pane` are `null` when absent.
+    Feedback {
+        sentiment: String,
+        body: Option<String>,
+        pane: Option<PaneId>,
+    },
+    /// A submitted inline review; `error` when it didn't reach the shell.
+    Review {
+        pane: PaneId,
+        path: String,
+        comments: usize,
+        body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Laura's browser didn't start.
+    Browser {
+        error: String,
+        output: String,
+    },
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
 /// An append-only session log. The file is created lazily on the first `log`, so naming a
 /// session (which returns its path) never writes until there's an event to record.
 pub struct Journal {
@@ -75,8 +156,8 @@ impl Journal {
 
     /// Append one event, stamping `ts` (unix ms), `session`, and `agent`. Best-effort:
     /// a write error is dropped — journaling must never crash the run loop.
-    pub fn log(&self, event: Value) {
-        let Value::Object(mut obj) = event else {
+    pub(crate) fn log(&self, event: &Event) {
+        let Ok(Value::Object(mut obj)) = serde_json::to_value(event) else {
             return;
         };
         stamp(&mut obj, "ts", Value::from(now_ms()));
