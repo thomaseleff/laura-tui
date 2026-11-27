@@ -843,6 +843,40 @@ fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
     Ok(())
 }
 
+/// #251: the canvas that comes back shows three skeleton cards, marked busy for a screen reader,
+/// also after a glance with one card, until Laura's glance replaces them.
+#[test]
+fn the_canvas_that_comes_back_shows_the_skeleton() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = open_glance(&mut r, &path)?;
+    // Laura's frames, replayed: a glance with one card, the canvas hidden, then the glance again.
+    let js = "(() => {
+        const g = document.querySelector('#canvas .glance'), frame = m => ws.onmessage({ data: JSON.stringify(m) });
+        const state = () => [g.querySelectorAll('.gcard.skel').length, g.classList.contains('one'), g.getAttribute('aria-busy')];
+        const glance = { t: 'glance', readme: { name: 'README.md', html: '<p>Hi</p>' }, project: null, sessions: [] };
+        frame(glance);
+        const one = state();
+        frame({ ...layout, t: 'layout', canvas: null });
+        const hidden = state();
+        frame({ ...layout, t: 'layout', canvas: 'glance' });
+        frame(glance);
+        return [one, hidden, state()];
+    })()";
+    assert_eq!(
+        c.eval(js),
+        Ok(json!([
+            [0, true, null],
+            [3, false, "true"],
+            [0, true, null]
+        ]))
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// #258: beside the docked shell, the glance stacks its cards in line with the shell's card. The
 /// README card takes half of the height, and the two lists share the rest.
 #[test]

@@ -470,12 +470,17 @@ export function paintGlance(m) {
   if (m.sessions.length) cards.push(`<div class="gcard"><h3>Recently in this folder</h3><div class="sess">${m.sessions.map(sessionRow).join("")}</div></div>`);
   glance.innerHTML = cards.join("");
   glance.classList.toggle("one", cards.length === 1);
+  glance.removeAttribute("aria-busy");
+  glance.removeAttribute("aria-label");
 }
 
 const glance = $("canvas").querySelector(".glance");
 // Gray cards in the glance's shape, while Laura reads the folder. `paintGlance` replaces them.
 function skeleton() {
   glance.innerHTML = '<div class="gcard skel"><i></i><i></i><i></i><i></i></div>'.repeat(3);
+  glance.classList.remove("one");
+  glance.setAttribute("aria-busy", "true");
+  glance.setAttribute("aria-label", "Reading the folder");
 }
 skeleton();
 const KINDS = { M: "m", A: "a", D: "d", "?": "u" };
