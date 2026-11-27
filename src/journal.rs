@@ -100,6 +100,12 @@ pub(crate) enum Event {
         line: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body: Option<String>,
+    },
+    /// The agent's words to the user (`laura say`).
+    Say {
+        body: String,
     },
     /// `body` and `pane` are `null` when absent.
     Feedback {

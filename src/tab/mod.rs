@@ -1,5 +1,5 @@
-//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, and the socket
-//! that ties them together.
+//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, the chat, and the
+//! socket that ties them together.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -29,6 +29,7 @@ use crate::pty::PtyTab;
 mod act;
 mod apply;
 mod browsers;
+mod chat;
 mod links;
 mod mode;
 mod report;
@@ -356,6 +357,8 @@ pub struct Tab {
     pub title: Option<String>,
     /// Whether the agent waits for the user (`wait.rs`).
     wait: wait::Wait,
+    /// What passed through Laura in the current session (`chat.rs`).
+    chat: chat::Chat,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -441,6 +444,7 @@ impl Tab {
             journal: None,
             title: None,
             wait: wait::Wait::default(),
+            chat: chat::Chat::default(),
             shell_size: None,
             docked: false,
             modes: mode::Modes::default(),
@@ -499,10 +503,17 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
-    pub(super) fn log_event(&self, event: Event) {
+    /// The one place that journals an event, so the chat holds each journaled event.
+    pub(super) fn log_event(&mut self, event: Event) {
         if let Some(j) = &self.journal {
             j.log(&event);
         }
+        self.chat.push(&event);
+    }
+
+    /// The agent's latest `say` in this session, with a count that names it over the tab's life.
+    pub fn latest_say(&self) -> Option<(u64, &str)> {
+        self.chat.latest_say()
     }
 
     /// The terminal that takes pane `pane`'s keys: the shell, or an editor pane's Neovim in its

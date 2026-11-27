@@ -8,7 +8,7 @@ argument-hint: [target]
 
 # laura explain
 
-Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, highlight the lines you're describing with `laura highlight`, and explain them in the chat.
+Run a guided walkthrough: open the relevant files in panes, step through them one range at a time, highlight the lines you're describing with `laura highlight`, and explain them with `laura say`.
 
 In a walkthrough, you **drive**. You open files, highlight lines and explain, while your partner navigates, reviewing and reacting as you go.
 
@@ -16,7 +16,7 @@ In a walkthrough, you **drive**. You open files, highlight lines and explain, wh
 - **Run `laura ready --session "$YOUR_SESSION_ID" --agent <name>`** at the start. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop.
 - **After each step, wait for `Next`.** If your partner asks a question mid-step, answer it, stay on the step, and continue on `Next`.
 - **End with `laura close --all`.**
-- **Keep the chat in view.** Pass `--no-focus` to `laura open`, so your partner keeps reading the chat. In the web app, Laura closes the drawer when a pane takes the focus.
+- **Keep your says in view.** Pass `--no-focus` to `laura open`, so your partner keeps reading what you say. In the web app, Laura closes the drawer when a pane takes the focus.
 - **Let Laura tile.** With no split flags, Laura splits the newest pane and alternates the orientation (a dwindle), so you don't need to pass `--split`.
 - **See the `laura` skill** for the full CLI or run `laura --help`.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
@@ -38,7 +38,7 @@ Compose the walkthrough from these commands, in whatever order the explanation c
 - `laura highlight <a> <b> --pane <id>` highlights lines `a`–`b` in an open pane.
 - `<some-cmd> | laura tail --follow --split <id> --dir v --ratio 30` opens a tail pane below pane `<id>`, when the explanation needs live output next to the code.
 
-A step may highlight one range, move across several ranges of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the commands that set up what your partner should see, then explain the step in the chat.
+A step may highlight one range, move across several ranges of the same file, jump between files, or open a pane with nothing highlighted. For each step, run the commands that set up what your partner should see, then explain the step with `laura say`.
 
 Annotate with `laura comment` only when you need your partner's answer in a thread, for example "which of these two approaches do you prefer?". Until your partner submits or refreshes, you can't close the pane.
 

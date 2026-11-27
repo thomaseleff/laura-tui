@@ -14,6 +14,9 @@ use crate::protocol::{Dir, Message, PTY_PANE, PaneId, Response, Side};
 use super::report::{build_report, fit_rows, overflow_warning};
 use super::{DOCK, Error, Tab, normalized, remove_if_temp};
 
+/// `laura say` with no text.
+const SAY_NEEDS_BODY: &str = "laura say needs a body";
+
 impl Tab {
     /// Build a panel for `path` (follow → highlight → diff, order preserved), insert it at `id`,
     /// and collect the standard open warnings (ready / read-error / git / diff-refusal / overflow).
@@ -439,6 +442,7 @@ impl Tab {
                 title,
             } => self.ready(session, agent, title, area),
             Message::Feedback { sentiment, body } => self.feedback(sentiment, body),
+            Message::Say { body } => self.say(body),
             Message::Update { .. } => Response::Ok, // reserved; not yet emitted
         }
     }
@@ -650,9 +654,15 @@ impl Tab {
         };
         // Default to the session's agent name; `agent_note` falls back to `"agent"`.
         let author = author.or_else(|| self.journal.as_ref().and_then(|j| j.agent()));
-        let (line, event) = match self.comment_anchor(target, line, selector, body.as_deref()) {
+        let (line, selector) = match self.comment_anchor(target, line, selector, body.as_deref()) {
             Ok(anchor) => anchor,
             Err(e) => return e,
+        };
+        let event = Event::Comment {
+            pane: target,
+            line: selector.is_none().then_some(line),
+            selector,
+            body: body.clone(),
         };
         let Some(panel) = self.panels.get_mut(&target) else {
             return Response::Error {
@@ -668,15 +678,15 @@ impl Tab {
         }
     }
 
-    /// The 1-based line an agent comment on pane `target` goes on, and its journal event: `line`
-    /// in a file pane, the element `selector` anchors in a browser pane.
+    /// The 1-based line an agent comment on pane `target` goes on: `line` in a file pane, the row
+    /// of the element `selector` in a browser pane, with the selector.
     fn comment_anchor(
         &mut self,
         target: PaneId,
         line: Option<u32>,
         selector: Option<String>,
         body: Option<&str>,
-    ) -> Result<(u32, Event), Response> {
+    ) -> Result<(u32, Option<String>), Response> {
         let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
             return Err(Response::Error {
                 message: format!("no pane #{target}"),
@@ -695,24 +705,12 @@ impl Tab {
                     .map_err(|message| Response::Error { message })?;
                 let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
                 let line = row.map_or(0, |r| r as u32 + 1);
-                let event = Event::Comment {
-                    pane: target,
-                    line: None,
-                    selector: Some(sel),
-                };
-                Ok((line, event))
+                Ok((line, Some(sel)))
             }
             (true, ..) => Err(Response::Error {
                 message: format!("pane #{target} is a browser pane: pass a CSS selector"),
             }),
-            (false, Some(line), None) => Ok((
-                line,
-                Event::Comment {
-                    pane: target,
-                    line: Some(line),
-                    selector: None,
-                },
-            )),
+            (false, Some(line), None) => Ok((line, None)),
             (false, ..) => Err(Response::Error {
                 message: format!("pane #{target} is a file pane: pass a line number"),
             }),
@@ -727,6 +725,17 @@ impl Tab {
             body,
             pane,
         });
+        Response::Ok
+    }
+
+    /// `say`: journal the agent's words to the user, which the chat shows.
+    fn say(&mut self, body: String) -> Response {
+        if body.trim().is_empty() {
+            return Response::Error {
+                message: SAY_NEEDS_BODY.into(),
+            };
+        }
+        self.log_event(Event::Say { body });
         Response::Ok
     }
 
@@ -753,6 +762,14 @@ impl Tab {
                 .and_then(Journal::agent)
         });
         let journal = Journal::open(&session, agent);
+        // A new session starts an empty chat; a re-`ready` of the same one keeps it.
+        if self
+            .journal
+            .as_ref()
+            .is_some_and(|j| j.path() != journal.path())
+        {
+            self.chat.new_session();
+        }
         let path = journal.path().to_string_lossy().into_owned();
         let root = crate::platform::folder()
             .ok()

@@ -19,6 +19,13 @@ Use different `laura` motions depending on who drives:
 
 In either mode, you compose the workspace, run interactions in panes, and run code, tests and builds.
 
+**Say**
+- **Speak to your partner with `laura say "<text>"`.** Laura is where your partner reads you. Your partner may not open the shell. The text is markdown; pipe a long text in: `laura say < notes.md`.
+- **End every turn with a `laura say`**, also a turn that only answers a question. A turn that ends in the shell alone leaves your partner with your last `say`.
+- **Say what your partner must read, decide or look at**, and point at it with `laura highlight` or `laura open` first. Keep the first sentence short enough to read in the shell button.
+- **Don't repeat the `say`'s text in the shell.**
+- **When your agent CLI asks your partner for a permission**, say so with `laura say` before the tool call when you can, because the prompt stays in the shell.
+
 **Rules**
 - **Run `laura ready --session <id> --agent <name>` at the start of every new chat.** `laura ready` enables commenting and inline reviews. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop. `laura ready` prints JSON with:
   - `journal`: the journal path.
@@ -41,7 +48,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 - **Let Laura tile.** With no split flags, Laura splits the newest pane and alternates the orientation (a dwindle). A stacked pane gets only the rows its file needs, up to half, except markdown in the web app. You don't need to capture ids or pass `--split`. Pass `--dir`, `--ratio` or `--split` only for a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>`, which replaces the pane's content in place.
 - **Your partner can drag the line between two panes.** Laura keeps that size, and `laura layout` reports `"pinned": true` on each pane the line sizes. Leave a pinned size alone: don't work around it with `--ratio`, or by closing and opening panes. Your partner double-clicks the line to give the size back to Laura.
 - **On an `unsubmitted inline review` or `frozen` error**, ask your partner to submit (`Shift+S`) or refresh (`Ctrl+R`). **On an `unsaved edits` error**, ask your partner to save (`:w`) or quit Neovim in that pane. Don't retry either.
-- **Annotate only when you need your partner's answer in a thread.** `laura comment` starts an unsubmitted inline review that only your partner can submit (`Shift+S`) or refresh (`Ctrl+R`). Until your partner does, you can't close the pane or replace its file. To explain something, highlight the lines with `laura highlight` and explain in the chat.
+- **Annotate only when you need your partner's answer in a thread.** `laura comment` starts an unsubmitted inline review that only your partner can submit (`Shift+S`) or refresh (`Ctrl+R`). Until your partner does, you can't close the pane or replace its file. To explain something, highlight the lines with `laura highlight` and explain with `laura say`.
 - **Laura holds `laura` commands while your partner is typing a comment or review body.** Don't kill or retry a command that is waiting.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
 
@@ -113,6 +120,8 @@ laura feedback          Append a feedback signal (layout/render quality, a missi
       --positive        Positive signal.        (one of --positive/--negative is required)
       --negative        Negative signal.
       [<body>]          Optional free-text body.
+laura say [<body>]      Say something to your partner, in markdown (default: piped stdin).
+                        Laura shows it in the chat and the shell button; the TUI as a notice.
 laura journal [FIELD=VALUE…]
                         Print journaled events across every session (NDJSON, oldest first).
                         Works outside a workspace. FIELD=VALUE matches a top-level field
@@ -189,14 +198,14 @@ Each motion is a common sequence of `laura` commands, with when to use it.
 ### Highlight
 
 **Motion**
-1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` to open *and* highlight in one call, leaving your partner's focus in chat.
+1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` to open *and* highlight in one call, leaving your partner's focus where it is.
 2. If the file is open, run `laura highlight <start> [end] --pane <id>` to highlight a different section.
 3. Run `laura highlight` again to move the highlight as the conversation moves on.
 4. Run `laura highlight --off [--pane <id>]` to clear the highlight (or your partner presses `h` on the focused pane).
    - On a frozen pane, `laura highlight` returns an error, but `--off` still clears the highlight.
 5. In a browser pane, run `laura highlight '<selector>' --pane <id>` to highlight an element. Laura outlines the element and scrolls the page to it.
 
-**Use when** you want to show a reference while you talk in the chat, or when your partner asks you to explain something step by step.
+**Use when** you want to show a reference while you explain with `laura say`, or when your partner asks you to explain something step by step.
 
 ### Show what changed
 

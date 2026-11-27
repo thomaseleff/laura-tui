@@ -177,6 +177,12 @@ enum Cmd {
         /// Free-text body.
         body: Option<String>,
     },
+    /// Say something to the user: Laura shows it in the chat and in the shell button.
+    /// Usage: `laura say "Done: the tests pass."`, or pipe the text in.
+    Say {
+        /// The text, in markdown (default: piped stdin).
+        body: Option<String>,
+    },
     /// Print journaled events across sessions (NDJSON, oldest first). Works outside a workspace.
     Journal {
         /// Match a top-level field, e.g. `type=feedback sentiment=+`. Repeat a field to match any of its values.
@@ -333,6 +339,9 @@ fn main() -> Result<()> {
                 body,
             })
         }
+        Some(Cmd::Say { body }) => client_request(Message::Say {
+            body: say_body(body)?,
+        }),
         Some(Cmd::Journal {
             filters,
             since,
@@ -468,6 +477,16 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
 }
 
 /// Send one request to the current workspace's socket ($LAURA_TAB) and print its response. Never touches ratatui.
+/// `laura say`'s text: the argument, else piped stdin, without the trailing newline.
+fn say_body(body: Option<String>) -> Result<String> {
+    let body = match body {
+        Some(b) => b,
+        None if !std::io::stdin().is_terminal() => std::io::read_to_string(std::io::stdin())?,
+        None => String::new(),
+    };
+    Ok(body.trim_end_matches(['\r', '\n']).to_string())
+}
+
 fn client_request(msg: Message) -> Result<()> {
     let Ok(tab) = std::env::var("LAURA_TAB") else {
         bail!("not inside a Laura workspace (LAURA_TAB unset)");

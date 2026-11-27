@@ -108,6 +108,11 @@ laura feedback          Append a feedback signal (layout/render quality, a missi
       --positive        Positive signal.        (one of --positive/--negative is required)
       --negative        Negative signal.
       [<body>]          Optional free-text body.
+laura say [<body>]      Say something to the user. Laura journals the text, and the web app
+                        shows the text in the chat and in the shell button. The TUI shows
+                        the text as a notice. The text is markdown. Without <body>, `laura say`
+                        reads the text from piped stdin: `git log -3 --oneline | laura say`.
+                        A blank text returns the error `laura say needs a body` (exit 1).
 laura journal [FIELD=VALUE…]
                         Print journaled events across every session (NDJSON, oldest first).
                         Works outside a workspace. Matching rules under Journal below.
@@ -261,7 +266,8 @@ Each event's fields:
 | `focus` | `pane` |
 | `highlight` | `pane`, `start`, `end`, or `selector`, or `cleared` |
 | `diff` | `pane`, `on` |
-| `comment` | `pane`, `line` or `selector` |
+| `comment` | `pane`, `line` or `selector`, `body` (the comment's text) |
+| `say` | `body` |
 | `review` | `pane`, `path`, `comments` (thread count), `body`, `error` |
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |
 | `browser` | `error` (why Laura's browser didn't start), `output` (the last 10 lines of Chrome's output) |
