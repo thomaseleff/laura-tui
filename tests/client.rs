@@ -457,6 +457,63 @@ fn a_stale_layout_keeps_the_pane_selectors_focus() -> Result<()> {
     Ok(())
 }
 
+/// #272: the user closes the pane selector before Laura's reply to `Ctrl+P`. Laura's frame from
+/// before it read the close doesn't open the selector again, so `c` goes to the file pane.
+#[test]
+fn a_stale_layout_leaves_the_closed_pane_selector_closed() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    // No `until` between the keystrokes: Laura reads them only at the next pump.
+    c.press(CTRL_P);
+    c.type_text("1");
+    let js = "(() => {
+        ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes: ['selector'] }) });
+        return document.getElementById('popup').hidden;
+    })()";
+    assert_eq!(c.eval(js), Ok(json!(true)));
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #272: the user cancels the comment before Laura's reply to `Esc`. Laura's frame from before it
+/// read the cancel doesn't open the comment's box again.
+#[test]
+fn a_stale_layout_leaves_the_cancelled_draft_closed() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    assert!(c.eval("!!(window.staleDraft = layout.draft)") == Ok(json!(true)));
+    c.press(ESCAPE);
+    let js = "(() => {
+        ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes: ['draft'], draft: staleDraft }) });
+        return !!document.querySelector('.draft textarea');
+    })()";
+    assert_eq!(c.eval(js), Ok(json!(false)));
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// #245: the pane selector moves the focus before it closes, so the user, who never saw the
 /// shell, keeps the wait.
 #[test]

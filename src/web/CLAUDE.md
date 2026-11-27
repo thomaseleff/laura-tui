@@ -23,7 +23,7 @@ Every focus move the user makes calls `focusPane` (`panes.js`), which tells Laur
 
 Laura holds the modes in `Tab` (`src/tab/mode.rs`): the help, the pane selector, the quit question, the lock and the draft. The `layout` frame lists them in `modes`, with the open draft in `draft`. Only the overlay on close and the workspace switcher's menu live in the client. `modes()` lists every mode that is on, first to last: the client's two, then Laura's. `mode()`, its first, takes a keystroke. The keydown listener and `termKeys` ask `mode()`. `ui` holds only what the client draws of a mode, such as the pane selector's row and the draft's text.
 
-A keystroke that changes a mode sends its `act` and patches the client's copy of `layout.modes` (`patchModes`, `setOverlay`), so the next keystroke goes to the new mode before Laura's reply. Laura's next `layout` frame replaces the copy. What a rule decides, such as the focus or the end of the draft, comes only from Laura.
+A keystroke that changes a mode sends its `act` and patches the client's copy of `layout.modes` (`act`'s `patch`), so the next keystroke goes to the new mode before Laura's reply. The copy holds until Laura's `acted` for that act; a `layout` frame from before it keeps the patch. What a rule decides, such as the focus or the end of the draft, comes only from Laura.
 
 The hint line shows the first mode in `modes()` that has a hint, so under the help and the overlay the hint line shows the mode below them. A new mode is a case of `Mode` in `mode.rs`, and of `modes()` only when it lives in the client.
 

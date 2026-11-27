@@ -265,7 +265,9 @@ impl Client {
         self.until(
             r,
             "the focus",
-            &format!("document.getElementById('popup').hidden && layout.focus === {id}"),
+            &format!(
+                "document.getElementById('popup').hidden && layout.focus === {id} && !acts.length"
+            ),
         );
         assert_eq!(r.tab.focus, id, "Laura's focus");
     }

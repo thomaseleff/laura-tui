@@ -368,7 +368,7 @@ export function confirmDraft() {
 export function closeDraft() {
   const d = draft();
   if (!d) return;
-  act({ act: "cancel_draft" });
+  act({ act: "cancel_draft" }, undefined, [null, "draft"]);
   endDraft(d.pane);
 }
 

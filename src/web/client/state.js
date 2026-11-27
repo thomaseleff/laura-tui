@@ -10,7 +10,12 @@
 export let ws, layout = null;
 // Laura's state, as the client keeps it: `setWs` and `setLayout` set it again (`connect`, `onLayout`).
 export const setWs = s => (ws = s);
-export const setLayout = m => (layout = m);
+// A `layout` frame comes before the `acted` replies to the acts that Laura had not read when it built
+// the frame (`WebServer::sync` replies, then sends frames), so the acts in `acts` patch it again.
+export const setLayout = m => {
+  layout = m;
+  for (const a of acts) if (a.patch) patchModes(...a.patch);
+};
 export const $ = id => document.getElementById(id);
 export const root = $("ws");
 
@@ -34,7 +39,7 @@ export const ui = {
 
 export const terms = new Map(); // pane id → xterm, one per PTY pane
 
-export const acts = []; // `{ then, pane }` for `acted` replies, in send order
+export const acts = []; // `{ then, pane, patch }` for `acted` replies, in send order
 
 
 
@@ -45,11 +50,13 @@ export const frame = (id, bytes) => {
   out.set(bytes, 8);
   if (ws?.readyState === 1) ws.send(out);
 };
-export function act(m, then) {
+// `patch`: `patchModes`'s `[add, ...drop]` for the mode that the act changes, kept until Laura's reply.
+export function act(m, then, patch) {
   // The user's press sent Laura an action: the server, not the wait rule below, decides the wait.
   if (ui.press && m.act !== "seen") ui.press.acted = true;
+  if (patch) patchModes(...patch);
   if (ws?.readyState !== 1) return;
-  acts.push({ then, pane: m.pane });
+  acts.push({ then, pane: m.pane, patch });
   send(m);
 }
 
@@ -61,8 +68,8 @@ export const on = m => !!layout?.modes.includes(m);
 export const draft = () => layout?.draft ?? null;
 // Laura's order of its modes (`Tab::modes`).
 const ORDER = ["wizard", "help", "selector", "quit", "locked", "draft"];
-// The client's copy of Laura's modes, with `add` and without `drop`, until Laura's next `layout`
-// frame replaces it: the next keystroke goes to the new mode before Laura's reply.
+// The client's copy of Laura's modes, with `add` and without `drop`, until Laura's reply to the act
+// (`act`'s `patch`): the next keystroke goes to the new mode before Laura's reply.
 export function patchModes(add, ...drop) {
   if (!layout) return;
   const now = new Set(layout.modes.filter(m => !drop.includes(m)));
@@ -72,8 +79,7 @@ export function patchModes(add, ...drop) {
 }
 // Open the help or the pane selector, or close the overlay (`null`).
 export function setOverlay(o) {
-  act({ act: "overlay", overlay: o });
-  patchModes(o, "help", "selector", "quit");
+  act({ act: "overlay", overlay: o }, undefined, [o, "help", "selector", "quit"]);
 }
 // The lock sends a file pane's or a browser pane's keystrokes to the shell; an editor pane keeps them.
 export const toShell = () => on("locked") && focused()?.kind !== "editor";
@@ -109,10 +115,10 @@ addEventListener("click", e => seenAfter(ui.press, ui.press?.overlay || $("p0")?
 
 export const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-// The client tests (tests/client.rs) and the browser tests (tests/browser.rs) read layout, terms and
-// ui, call act, close ws, and take the shell's link provider as the last of terms.get(0)'s link
+// The client tests (tests/client.rs) and the browser tests (tests/browser.rs) read layout, terms, ui
+// and acts, call act, close ws, and take the shell's link provider as the last of terms.get(0)'s link
 // providers. A module's names are not globals, so these lines put them on globalThis: layout and ws
 // as getters, since the client sets them again.
 Object.defineProperty(globalThis, "layout", { get: () => layout });
 Object.defineProperty(globalThis, "ws", { get: () => ws });
-Object.assign(globalThis, { terms, ui, act });
+Object.assign(globalThis, { terms, ui, acts, act });
