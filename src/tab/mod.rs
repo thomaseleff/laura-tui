@@ -770,6 +770,20 @@ impl Tab {
         self.modes.drawer == DrawerView::Shell || self.locked()
     }
 
+    /// The user's `Focus` on pane `pane`, the shell included.
+    pub(super) fn focus_by_user(&mut self, pane: PaneId) -> Result<(), Error> {
+        if pane != PTY_PANE && !self.panels.contains_key(&pane) {
+            return Err(no_pane(pane).into());
+        }
+        self.focus = pane;
+        self.forget_lock_from();
+        // The user's move into the shell: the user sees the agent.
+        if pane == PTY_PANE {
+            self.saw(self.pty.bells());
+        }
+        Ok(())
+    }
+
     /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it
     /// is; on the shell, the drawer flips between the History and the shell.
     pub(super) fn flip_drawer(&mut self) {
