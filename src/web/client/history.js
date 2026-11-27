@@ -35,7 +35,7 @@ const time = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute
 
 // A row of the timeline: the time, a dot on the rail, the verb, then what it acted on. Only a row that
 // a click shows again (`replay`, Laura's rule) is blue, with a chevron and its index.
-const line = (r, i, cls, verb, rest) => `<div class="te hr ${cls}"${r.replay ? ` data-i="${i}" role="button" tabindex="0"` : ""}>`
+const line = (r, i, cls, verb, rest) => `<div class="te hr ${cls}"${r.replay ? ` data-i="${i}" data-at="${r.at}" role="button" tabindex="0"` : ""}>`
   + `<span class="tm">${time(r.at)}</span><i class="pt"></i><span class="verb">${verb}</span>${rest}</div>`;
 
 function row(r, i) {
@@ -114,5 +114,5 @@ export function historyClick(e) {
   // A markdown link in a say opens its file at its heading, as on the glance.
   const l = e.target.closest("a[data-href]");
   if (l) return act({ act: "open_link", pane: 0, href: l.dataset.href });
-  if (r) act({ act: "replay", pane: 0, row: +r.dataset.i });
+  if (r) act({ act: "replay", pane: 0, row: +r.dataset.i, at: +r.dataset.at });
 }

@@ -247,9 +247,11 @@ pub enum UserAction {
     Seen {
         wait: u64,
     },
-    /// A click on History row `row`, which shows its command again (`Tab::replay`).
+    /// A click on History row `row`, which shows its command again (`Tab::replay`). `at`: the
+    /// row's time, as the user saw it.
     Replay {
         row: usize,
+        at: u64,
     },
     /// `Ctrl+.`, the drawer's **History** and **Shell** tabs, and **Show the shell**: the drawer
     /// flips between the History and the shell (`Tab::flip_drawer`). The TUI never sends it.

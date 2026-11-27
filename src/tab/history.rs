@@ -179,8 +179,9 @@ impl History {
         })
     }
 
-    /// Row `row`'s command and path, if a click shows it again.
-    fn replayable(&self, row: usize) -> Option<(Event, String)> {
+    /// Row `row`'s command and path, if a click shows it again. The rows shift only when a
+    /// `ready` adds or clears them, so the index with the row's time `at` names the row the user saw.
+    fn replayable(&self, row: usize, at: u64) -> Option<(Event, String)> {
         match self.rows.get(row) {
             Some(
                 r @ Row {
@@ -191,7 +192,7 @@ impl History {
                         },
                     ..
                 },
-            ) if r.replayable() => Some((event.clone(), path.clone())),
+            ) if r.at == at && r.replayable() => Some((event.clone(), path.clone())),
             _ => None,
         }
     }
@@ -210,11 +211,12 @@ impl History {
 }
 
 impl Tab {
-    /// The user clicked History row `row`: show its command again, and focus its pane, which
-    /// closes the drawer. Laura finds the pane by the row's path, never by its pane id, and
-    /// journals what changes as the user's act. A row that no click shows again does nothing.
-    pub(super) fn replay(&mut self, row: usize) -> Result<(), Error> {
-        let Some((event, path)) = self.history.replayable(row) else {
+    /// The user clicked History row `row`, with time `at`: show its command again, and focus its
+    /// pane, which closes the drawer. Laura finds the pane by the row's path, never by its pane id,
+    /// and journals what changes as the user's act. A row that no click shows again, or that a new
+    /// session replaced, does nothing.
+    pub(super) fn replay(&mut self, row: usize, at: u64) -> Result<(), Error> {
+        let Some((event, path)) = self.history.replayable(row, at) else {
             return Ok(());
         };
         if matches!(event, Event::Open { .. }) {

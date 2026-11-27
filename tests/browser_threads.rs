@@ -467,11 +467,12 @@ fn a_replay_of_a_gone_element_shows_a_notice() -> Result<()> {
     outlined_until(&mut r, &mut ws, "the highlight", id, "Form", (Some(0), &[]));
     // The frame holds the rows from its `from` on.
     let h = h.json();
-    let row = h["from"].as_u64().unwrap_or_default() as usize
-        + h["rows"]
-            .as_array()
-            .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
-            .expect("the highlight row");
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+        .expect("the highlight row");
+    let row = h["from"].as_u64().unwrap_or_default() as usize + i;
+    let at = h["rows"][i]["at"].clone();
     let url = pane_of(&mut r, id)["path"]
         .as_str()
         .expect("a URL")
@@ -482,7 +483,10 @@ fn a_replay_of_a_gone_element_shows_a_notice() -> Result<()> {
         "Runtime.evaluate",
         json!({"expression": "document.querySelector('main > h1').remove()"}),
     );
-    let acted = r.act(&mut ws, json!({"act": "replay", "pane": 0, "row": row}));
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
     let want = laura::tab::NO_ELEMENT
         .replace("{selector}", "main > h1")
         .replace("{n}", &pane);

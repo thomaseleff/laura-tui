@@ -81,9 +81,13 @@ fn count(h: &Value) -> usize {
     h["rows"].as_array().map_or(0, Vec::len)
 }
 
-/// Click History row `row`; Laura's `acted` reply.
+/// Click History row `row`, as the last `history_when` held it; Laura's `acted` reply.
 fn replay(rig: &mut Rig, ws: &mut Ws, row: usize) -> Value {
-    rig.act(ws, json!({"act": "replay", "pane": 0, "row": row}))
+    let at = ROWS.with_borrow(|rows| rows[row]["at"].clone());
+    rig.act(
+        ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    )
 }
 
 /// One row for each command that the agent's `laura` journals, for each say and for each submitted
@@ -217,6 +221,34 @@ fn an_open_row_opens_its_file_again() -> Result<()> {
         "{acted}"
     );
     assert!(rig.tab.panels.is_empty(), "the replay opened a pane");
+    Ok(())
+}
+
+/// A click on a row that a new session replaced does nothing: the row's time names the row the
+/// user saw.
+#[test]
+fn a_replay_of_a_replaced_row_does_nothing() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    rig.drive(&["ready", "--session", &session("history-old")]);
+    let (_a, a) = file("a.rs", &five_lines())?;
+    let (_b, b) = file("b.rs", &five_lines())?;
+    rig.drive(&["open", &a, "--no-focus"]);
+    history_when(&mut rig, &mut ws, "a.rs's row", |c| count(c) == 2);
+    let old = ROWS.with_borrow(|rows| rows[1]["at"].clone());
+    rig.drive(&["ready", "--session", &session("history-new")]);
+    rig.drive(&["open", &b, "--no-focus"]);
+    history_when(&mut rig, &mut ws, "b.rs's row", |c| {
+        count(c) == 2 && c["rows"][1]["target"] == "b.rs"
+    });
+    let acted = rig.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": 1, "at": old}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    assert_eq!(rig.tab.focus, 0, "the old row focused a pane");
+    assert_eq!(replay(&mut rig, &mut ws, 1)["ok"], true);
+    assert_eq!(rig.tab.focus, 2, "b.rs's row focuses b.rs");
     Ok(())
 }
 

@@ -139,7 +139,7 @@ impl Tab {
             A::DrawerHeight { .. } => {} // the web server saves it
             A::Seen { wait } => self.seen(wait),
             A::FlipDrawer => self.flip_drawer(),
-            A::Replay { row } => self.replay(row)?,
+            A::Replay { row, at } => self.replay(row, at)?,
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;
