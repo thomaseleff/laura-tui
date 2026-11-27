@@ -89,6 +89,15 @@ The client tests run the web app's client. They are one test binary, `tests/clie
 
 A change to a keystroke, a focus move or a rule in the client adds a client test. A client test for a known bug is `#[ignore]`, and the reason names the issue that fixes the bug.
 
+#### Waits
+
+A client test that waits for the wrong state passes on a fast machine and fails at random in CI. Each of these rules comes from a test that failed that way.
+
+- **Wait for a state that only Laura's reply makes.** The client patches its copy of the modes at once (`act`'s `patch`), so `layout.modes` is true before Laura reads the act. To wait for Laura, wait also for `!acts.length`, or for what the reply does, such as the focus that `followFocus` moves (`Client::focus`, the drawer's grip test in `tests/browser.rs`).
+- **Measure only a layout at the page's size.** Laura can send the first layout before the page reports its size, and the next layout moves the panes. Before you read a rect, wait until the layout reaches the page's `--cols` (`split_center`, `editor_beside`).
+- **Change the page's size only with `Client::resize`.** It waits for Chrome's `resize` event, which Chrome fires at its next rendering step, also after the test's next check under load.
+- **Test a stale frame by replaying it.** The rig runs Laura only on `pump`, so the acts that the test sent stay unanswered until the next `until`. Send the keystrokes with no `until` between them, then replay Laura's old frame through `ws.onmessage` (`a_stale_layout_leaves_the_closed_pane_selector_closed`). Do not wait for a timing to happen.
+
 `LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
 
 The rig's JS, and the browser tests' JS (`tests/browser.rs`), read some of the client's names. A module's names are not globals, so `state.js` puts these names on `globalThis`, and the note above those lines names them. A test that needs another name reads the DOM, or adds the name to that note and those lines.
