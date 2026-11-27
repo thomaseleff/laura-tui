@@ -10,6 +10,7 @@ use ratatui::text::Line;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::browser::{origin, page_of};
 use crate::layout::Handle;
 use crate::panel::cursor::card_line;
 use crate::panel::{Author, Thread, is_page};
@@ -361,12 +362,8 @@ fn threads_json(p: &Panel) -> Value {
 
 /// A thread's page when the pane shows another: its path on the pane's site, else its URL.
 fn away(here: &str, url: &str) -> Option<String> {
-    if crate::browser::page_of(here) == url {
+    if page_of(here) == url {
         return None;
-    }
-    // `scheme://host`: what comes before the third `/`.
-    fn origin(u: &str) -> &str {
-        u.match_indices('/').nth(2).map_or(u, |(i, _)| &u[..i])
     }
     let o = origin(url);
     Some(if origin(here) == o && url.len() > o.len() {

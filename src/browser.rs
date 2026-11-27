@@ -1791,6 +1791,13 @@ pub fn page_of(url: &str) -> &str {
     }
 }
 
+/// `url`'s site, `scheme://host`: what comes before the third `/`.
+pub(crate) fn origin(url: &str) -> &str {
+    url.match_indices('/')
+        .nth(2)
+        .map_or(url, |(i, _)| &url[..i])
+}
+
 fn now_ms() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

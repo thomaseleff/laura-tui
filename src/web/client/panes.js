@@ -649,7 +649,7 @@ export function followFocus(force) {
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
-  // The History takes the keystrokes the user types to the agent; the lock's go to the shell.
+  // The History's list takes the DOM focus while the drawer shows it; the lock's keystrokes go to the shell.
   if (f.id === 0 && layout.drawer_view === "history" && !on("locked")) return focusHistory();
   const t = toShell() ? terms.get(0) : f.kind !== "file" ? terms.get(f.id) : null;
   if (t) return t.focus();
