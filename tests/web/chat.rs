@@ -68,6 +68,26 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
     assert_eq!(two["rows"][1]["kind"], "commands", "{two}");
     assert_eq!(two["rows"][1]["pane"], 2, "the run's last pane: {two}");
 
+    // The row's click focuses a pane still open after the run.
+    rig.drive(&["close", "2"]);
+    let closed = chat_when(&mut rig, &mut ws, "a close", |c| {
+        c["rows"][1]["text"] == "opened 2 files, closed pane #2"
+    });
+    assert_eq!(closed["rows"][1]["pane"], 1, "pane 2 is closed: {closed}");
+    // The user's own close stays out of the chat, and in the journal.
+    rig.act(&mut ws, json!({"act": "close", "pane": 1}));
+    rig.drive(&["focus", "0"]);
+    let focused = chat_when(&mut rig, &mut ws, "a focus", |c| {
+        c["rows"][1]["text"]
+            .as_str()
+            .is_some_and(|t| t.ends_with("focused the shell"))
+    });
+    assert_eq!(
+        focused["rows"][1]["text"], "opened 2 files, closed pane #2, focused the shell",
+        "{focused}"
+    );
+    assert_eq!(events(&session("chat-fold"), "close").len(), 2);
+
     rig.drive(&["ready", "--session", &session("chat-other")]);
     chat_when(&mut rig, &mut ws, "an empty chat", |c| {
         c["rows"] == json!([])

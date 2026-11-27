@@ -414,7 +414,10 @@ impl Tab {
 
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
-        self.agent_message(msg, area)
+        self.chat.set_agent(true);
+        let resp = self.agent_message(msg, area);
+        self.chat.set_agent(false);
+        resp
     }
 
     /// One function for each message.

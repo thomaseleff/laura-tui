@@ -77,7 +77,7 @@ The drawer shows the chat or the shell. To flip the drawer, press `Ctrl+.`, or c
 The chat shows what passed through Laura in the agent's session:
 
 - Each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell.
-- One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run.
+- One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run that is still open.
 - Each inline review that you submit.
 - `The shell waits for you.`, with **Show the shell** (`Ctrl+.`), when the shell waits and the agent said nothing since you last wrote to the shell.
 

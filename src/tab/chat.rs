@@ -40,6 +40,9 @@ pub(super) struct Chat {
     says: u64,
     /// Counts each change, so the web app sends the chat only when it changed.
     seq: u64,
+    /// A message from the agent is being applied: only its commands fold into the chat. The
+    /// user's close or link click runs the same functions.
+    agent: bool,
 }
 
 impl Chat {
@@ -58,7 +61,12 @@ impl Chat {
             | Event::Focus { .. }
             | Event::Highlight { .. }
             | Event::Diff { .. }
-            | Event::Comment { .. } => return self.command(event),
+            | Event::Comment { .. } => {
+                if self.agent {
+                    self.command(event);
+                }
+                return;
+            }
             Event::Review {
                 pane,
                 path,
@@ -94,6 +102,10 @@ impl Chat {
             (*text, *pane) = (folded, last);
         }
         self.seq += 1;
+    }
+
+    pub(super) fn set_agent(&mut self, on: bool) {
+        self.agent = on;
     }
 
     /// The wait ended: its row loses its button.
@@ -136,14 +148,26 @@ impl Chat {
 
 /// The run's last pane that is still open after it, for the row's click.
 fn run_pane(run: &[Event]) -> Option<PaneId> {
-    run.iter().rev().find_map(|e| match e {
-        Event::Open { pane, .. }
-        | Event::Focus { pane }
-        | Event::Highlight { pane, .. }
-        | Event::Diff { pane, .. }
-        | Event::Comment { pane, .. } => Some(*pane),
-        _ => None,
-    })
+    let mut closed = vec![];
+    for e in run.iter().rev() {
+        let pane = match e {
+            Event::Close { all: true, .. } => return None,
+            Event::Close { pane, .. } => {
+                closed.extend(*pane);
+                continue;
+            }
+            Event::Open { pane, .. }
+            | Event::Focus { pane }
+            | Event::Highlight { pane, .. }
+            | Event::Diff { pane, .. }
+            | Event::Comment { pane, .. } => *pane,
+            _ => continue,
+        };
+        if !closed.contains(&pane) {
+            return Some(pane);
+        }
+    }
+    None
 }
 
 /// The run in one line: one phrase for each verb, in the order the agent first used it, such as
