@@ -1532,10 +1532,11 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
         thread::sleep(Duration::from_millis(50));
     }
     press(&mut ws, id, "F12", 123);
+    // Laura's reply gives the shell the focus back, so the grip takes the focus after it.
     until(
         &mut r,
         &mut eval,
-        "!layout.modes.includes('locked')",
+        "!layout.modes.includes('locked') && !!document.activeElement?.closest('#p0 .term')",
         "the lock stays",
     );
 

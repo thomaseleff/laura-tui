@@ -68,8 +68,9 @@ export const on = m => !!layout?.modes.includes(m);
 export const draft = () => layout?.draft ?? null;
 // Laura's order of its modes (`Tab::modes`).
 const ORDER = ["wizard", "help", "selector", "quit", "locked", "draft"];
-// The client's copy of Laura's modes, with `add` and without `drop`, until Laura's reply to the act
-// (`act`'s `patch`): the next keystroke goes to the new mode before Laura's reply.
+// The client's copy of Laura's modes, with `add` and without `drop`: the next keystroke goes to the
+// new mode before Laura's reply. A patch passed to `act` holds until Laura's `acted` for that act;
+// a direct call holds only until the next `layout` frame.
 export function patchModes(add, ...drop) {
   if (!layout) return;
   const now = new Set(layout.modes.filter(m => !drop.includes(m)));
