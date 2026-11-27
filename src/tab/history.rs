@@ -87,6 +87,9 @@ pub(super) struct History {
     says: u64,
     /// Counts each change, so the web app sends the History only when it changed.
     seq: u64,
+    /// The `seq` of the last change that was not an append (`ready`): until the next one, a view
+    /// that holds the rows needs only the new ones.
+    full: u64,
     /// A message from the agent is being applied: only its commands get a row. The user's close,
     /// link click or replay runs the same functions.
     agent: bool,
@@ -165,6 +168,7 @@ impl History {
             ),
         }
         self.seq += 1;
+        self.full = self.seq;
     }
 
     /// The session's latest say, with its count.
@@ -198,6 +202,10 @@ impl History {
 
     pub(super) fn seq(&self) -> u64 {
         self.seq
+    }
+
+    pub(super) fn full(&self) -> u64 {
+        self.full
     }
 }
 

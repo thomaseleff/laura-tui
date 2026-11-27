@@ -465,10 +465,13 @@ fn a_replay_of_a_gone_element_shows_a_notice() -> Result<()> {
             && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "highlight")))
     });
     outlined_until(&mut r, &mut ws, "the highlight", id, "Form", (Some(0), &[]));
-    let row = h.json()["rows"]
-        .as_array()
-        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
-        .expect("the highlight row");
+    // The frame holds the rows from its `from` on.
+    let h = h.json();
+    let row = h["from"].as_u64().unwrap_or_default() as usize
+        + h["rows"]
+            .as_array()
+            .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+            .expect("the highlight row");
     let url = pane_of(&mut r, id)["path"]
         .as_str()
         .expect("a URL")

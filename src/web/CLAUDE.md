@@ -42,7 +42,7 @@ Laura sends these frames to the view:
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
 | `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, the drawer's view (`drawer_view`: `history` or `shell`), and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
 | `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes, and again each time the canvas comes back. Until then the client shows skeleton cards | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
-| `history` | The History's rows (`Row::json` in `tab/history.rs`): each row's `kind`, its time `at`, a command's `verb`, `target` and `replay` (whether a click shows it again), and a say's HTML, when a row changes | `send_history` (`frames.rs`) | `onHistory` |
+| `history` | The History's rows (`Row::json` in `tab/history.rs`) from `from` on, after the rows the client holds; `from` 0 replaces the list. Each row's `kind`, its time `at`, a command's `verb`, `target` and `replay` (whether a click shows it again), and a say's HTML, when a row changes | `send_history` (`frames.rs`) | `onHistory` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |

@@ -234,8 +234,8 @@ struct View {
     framed: HashSet<PaneId>,
     /// The last `glance` frame.
     glance: Option<String>,
-    /// The History's count (`Tab::history`) in the last `history` frame.
-    history: Option<u64>,
+    /// The History's count (`Tab::history`) at the last `history` frame, and the rows the view holds.
+    history: Option<(u64, usize)>,
     focus: PaneId,
     area: Rect,
     git_shown: bool,

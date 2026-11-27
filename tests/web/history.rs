@@ -4,14 +4,37 @@
 
 use super::*;
 
-/// The next `history` frame on `ws` that `want` matches.
+thread_local! {
+    /// The History as the test's view holds it. A view's first `history` frame is from 0, which
+    /// replaces what another test on the thread left.
+    static ROWS: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The next `history` frame on `ws` after which the History, `{"rows": [...]}`, matches `want`;
+/// with the frame's `from` and the rows it `sent`.
 fn history_when(rig: &mut Rig, ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
-    rig.until(
-        ws,
-        what,
-        |f| matches!(f, Frame::Json(v) if v["t"] == "history" && want(v)),
-    )
-    .json()
+    let v = rig
+        .until(ws, what, |f| match f {
+            Frame::Json(v) if v["t"] == "history" => want(&json!({ "rows": held(v) })),
+            _ => false,
+        })
+        .json();
+    json!({"rows": ROWS.with_borrow(Clone::clone), "from": v["from"], "sent": v["rows"]})
+}
+
+/// The History after `history` frame `v`: the rows before its `from`, then its rows.
+fn held(v: &Value) -> Vec<Value> {
+    ROWS.with_borrow_mut(|rows| {
+        let from = v["from"].as_u64().unwrap_or_default() as usize;
+        assert!(
+            from <= rows.len(),
+            "the test skipped a history frame: from {from}, {} rows held",
+            rows.len()
+        );
+        rows.truncate(from);
+        rows.extend(v["rows"].as_array().into_iter().flatten().cloned());
+        rows.clone()
+    })
 }
 
 /// A session name no other test in this binary journals to.
@@ -77,9 +100,10 @@ fn each_command_gets_a_row() -> Result<()> {
     });
     assert_ne!(h["rows"][0]["replay"], true, "{h}");
     rig.drive(&["ready", "--session", &name, "--title", "flat profile"]);
-    history_when(&mut rig, &mut ws, "the session label", |c| {
+    let h = history_when(&mut rig, &mut ws, "the session label", |c| {
         c["rows"][0]["title"] == "flat profile" && count(c) == 1
     });
+    assert_eq!(h["from"], 0, "a new label sends the whole History: {h}");
 
     let (_a, a) = file("a.rs", &five_lines())?;
     let (_b, b) = file("b.rs", &five_lines())?;
@@ -140,14 +164,17 @@ fn each_command_gets_a_row() -> Result<()> {
     let acted = rig.act(&mut ws, json!({"act": "submit", "pane": 1, "body": ""}));
     assert_eq!(acted["ok"], true, "{acted}");
     let h = history_when(&mut rig, &mut ws, "the review row", |c| count(c) == 9);
+    assert_eq!(h["from"], 8, "a new row sends only the new row: {h}");
+    assert_eq!(h["sent"].as_array().map(Vec::len), Some(1), "{h}");
     assert_eq!(h["rows"][8]["kind"], "review", "{h}");
     assert_eq!(h["rows"][8]["path"], "a.rs", "{h}");
     assert_eq!(h["rows"][8]["comments"], 1, "{h}");
 
     rig.drive(&["ready", "--session", &session("history-other")]);
-    history_when(&mut rig, &mut ws, "a new session", |c| {
+    let h = history_when(&mut rig, &mut ws, "a new session", |c| {
         count(c) == 1 && c["rows"][0]["kind"] == "ready"
     });
+    assert_eq!(h["from"], 0, "a new session sends the whole History: {h}");
     Ok(())
 }
 

@@ -170,16 +170,19 @@ fn pane_json(tab: &Tab, id: PaneId, r: Rect) -> Value {
            "unsaved": editor.is_some_and(|e| e.modified())})
 }
 
-/// Send the History's rows when they changed since the view last saw them. A say's `html` is
+/// Send the History's rows when they changed since the view last saw them: only the new rows,
+/// from `from`, when the History only grew since; else all of them, from 0. A say's `html` is
 /// Laura's, as a `pane` frame's rows.
 pub(super) fn send_history(v: &mut View, tab: &Tab) {
-    let (rows, seq) = tab.history();
-    if v.history == Some(seq) {
-        return;
-    }
-    v.history = Some(seq);
-    let rows: Vec<Value> = rows.iter().map(|r| r.json()).collect();
-    v.text(json!({"t": "history", "rows": rows}));
+    let (rows, seq, full) = tab.history();
+    let from = match v.history {
+        Some((s, _)) if s == seq => return,
+        Some((s, sent)) if full <= s && sent <= rows.len() => sent,
+        _ => 0,
+    };
+    v.history = Some((seq, rows.len()));
+    let rows: Vec<Value> = rows[from..].iter().map(|r| r.json()).collect();
+    v.text(json!({"t": "history", "from": from, "rows": rows}));
 }
 
 /// Send each browser pane's URL, title, whether its page is live (Laura's browser runs it), and

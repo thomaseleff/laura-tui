@@ -778,9 +778,10 @@ impl Tab {
         };
     }
 
-    /// The History's rows, and a count that changes with them (`history.rs`).
-    pub(crate) fn history(&self) -> (&[history::Row], u64) {
-        (self.history.rows(), self.history.seq())
+    /// The History's rows, a count that changes with them, and that count at the last change
+    /// that was not an append (`history.rs`).
+    pub(crate) fn history(&self) -> (&[history::Row], u64, u64) {
+        (self.history.rows(), self.history.seq(), self.history.full())
     }
 
     /// The agent waits for the user (`wait.rs`).

@@ -6,7 +6,7 @@ import { $, act, esc } from "./state.js";
 import { PATH } from "./term.js";
 import { paintShellButton } from "./bottom.js";
 
-// The rows of the last `history` frame.
+// The History's rows: a `history` frame's rows from its `from` on, after the rows before it.
 let rows = [];
 // A hidden list doesn't scroll: focusHistory scrolls it once the History shows.
 let unread = false;
@@ -15,7 +15,7 @@ let heard = false;
 
 export function onHistory(m) {
   const before = latestSay()?.at;
-  rows = m.rows;
+  rows = m.from ? rows.slice(0, m.from).concat(m.rows) : m.rows;
   const say = latestSay();
   if (heard && say && say.at !== before) {
     const text = document.createElement("div");
@@ -23,7 +23,7 @@ export function onHistory(m) {
     $("saylive").textContent = text.textContent;
   }
   heard = true;
-  paintHistory();
+  paintHistory(undefined, m.from);
   paintShellButton();
 }
 
@@ -78,12 +78,20 @@ function linkPaths(list) {
   }
 }
 
-// `list`: the new shell pane's, before its element joins the page.
-export function paintHistory(list = $("p0")?.querySelector(".history .list")) {
+// `list`: the new shell pane's, before its element joins the page. `from`: the first new row, when
+// the list holds the rows before it; the append keeps a focused row focused.
+export function paintHistory(list = $("p0")?.querySelector(".history .list"), from = 0) {
   if (!list) return;
   const grew = list.childElementCount !== rows.length;
-  list.innerHTML = rows.map(row).join("");
-  linkPaths(list);
+  if (from && list.childElementCount === from) {
+    const t = document.createElement("template");
+    t.innerHTML = rows.slice(from).map((r, j) => row(r, from + j)).join("");
+    linkPaths(t.content);
+    list.append(t.content);
+  } else {
+    list.innerHTML = rows.map(row).join("");
+    linkPaths(list);
+  }
   if (grew) {
     list.scrollTop = list.scrollHeight;
     unread = !list.checkVisibility();
