@@ -476,7 +476,6 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
     Ok(())
 }
 
-/// Send one request to the current workspace's socket ($LAURA_TAB) and print its response. Never touches ratatui.
 /// `laura say`'s text: the argument, else piped stdin, without the trailing newline.
 fn say_body(body: Option<String>) -> Result<String> {
     let body = match body {
@@ -487,6 +486,7 @@ fn say_body(body: Option<String>) -> Result<String> {
     Ok(body.trim_end_matches(['\r', '\n']).to_string())
 }
 
+/// Send one request to the current workspace's socket ($LAURA_TAB) and print its response. Never touches ratatui.
 fn client_request(msg: Message) -> Result<()> {
     let Ok(tab) = std::env::var("LAURA_TAB") else {
         bail!("not inside a Laura workspace (LAURA_TAB unset)");
