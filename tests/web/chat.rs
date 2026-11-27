@@ -20,6 +20,11 @@ fn session(name: &str) -> String {
 
 /// The `wait` events in the test home's journal of `session`.
 fn waits(session: &str) -> Vec<Value> {
+    events(session, "wait")
+}
+
+/// The events of type `kind` in the test home's journal of `session`.
+fn events(session: &str, kind: &str) -> Vec<Value> {
     let path = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(".laura/sessions")
         .join(format!("{session}.ndjson"));
@@ -27,7 +32,7 @@ fn waits(session: &str) -> Vec<Value> {
         .unwrap_or_default()
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(|e| e["type"] == "wait")
+        .filter(|e| e["type"] == kind)
         .collect()
 }
 
@@ -124,6 +129,56 @@ fn a_bell_with_no_say_shows_the_shell() -> Result<()> {
     assert!(
         !later.into_iter().any(|f| f.is("chat")),
         "a said wait added a row"
+    );
+    // A message from the message box ends the said wait, as the user's write to the shell.
+    assert_eq!(
+        rig.act(&mut ws, json!({"act": "message", "text": "go on"})),
+        json!({"t": "acted", "ok": true, "text": null})
+    );
+    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
+    Ok(())
+}
+
+/// A message from the message box reaches the shell as one paste, Laura journals it, and the chat
+/// shows it. While the shell waits with no say, Laura turns the box off and the message waits.
+#[cfg(unix)]
+#[test]
+fn a_message_reaches_the_shell() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    let name = session("chat-message");
+    rig.drive(&["ready", "--session", &name]);
+    rig.drive(&["say", "Ready?"]);
+    let ok = rig.act(&mut ws, json!({"act": "message", "text": "hello-msg"}));
+    assert_eq!(ok["ok"], true, "{ok}");
+    rig.shell_shows("hello-msg");
+    let chat = chat_when(&mut rig, &mut ws, "the message row", |c| {
+        c["rows"][1]["kind"] == "message"
+    });
+    assert_eq!(chat["rows"][1]["body"], "hello-msg", "{chat}");
+    assert_eq!(events(&name, "message")[0]["body"], "hello-msg");
+
+    type_in(&mut ws, 0, b"printf '\\007'\r")?;
+    let l = layout_when(&mut rig, &mut ws, "the unsaid wait", |l| {
+        l["unsaid"] == true
+    });
+    assert_eq!(l["message_box"], false, "{l}");
+    let refused = rig.act(&mut ws, json!({"act": "message", "text": "not-sent"}));
+    assert_eq!(refused["text"], laura::tab::MESSAGE_WAITS, "{refused}");
+    rig.idle(&mut ws, 5);
+    assert!(
+        !rig.tab
+            .pty
+            .with_screen(|s| s.contents())
+            .contains("not-sent"),
+        "the message reached the shell"
+    );
+    assert_eq!(
+        events(&name, "message").len(),
+        1,
+        "{:?}",
+        events(&name, "message")
     );
     Ok(())
 }

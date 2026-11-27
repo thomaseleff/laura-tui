@@ -268,6 +268,7 @@ Each event's fields:
 | `diff` | `pane`, `on` |
 | `comment` | `pane`, `line` or `selector`, `body` (the comment's text) |
 | `say` | `body` |
+| `message` | `body` (the text that the user sent from the chat's message box) |
 | `wait` | `said` (`true` when the agent ran `laura say` since the user last wrote to the shell) |
 | `review` | `pane`, `path`, `comments` (thread count), `body`, `error` |
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |

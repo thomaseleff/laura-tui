@@ -52,7 +52,7 @@ While the start canvas shows, the drawer stays open, and ``Ctrl+` `` and the she
 
 Over the start canvas, the drawer shows at least 18 rows of the shell, so the agent's start screen fits, and at most 54% of the workspace. When you set a height, Laura uses your height. After the first pane opens, the drawer goes back to your height, or to 54%. When you change the drawer's height over the start canvas, the start canvas stays where it is, and the drawer covers more or less of it. Laura makes the project at a glance as tall as the room above the drawer at its least height. The drawer covers the lower part of the cards until you drag the drawer's grip down. On a narrow window, Laura stacks the cards, and you scroll the start canvas to see all of them. When you show the shell as a pane, Laura stacks the cards beside the shell, as tall as the shell. The README gets half of that height, and the other two cards share the rest.
 
-The shell button in the middle of the bottom line shows the shell's name. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits), the shell button is amber and shows `Waiting for you`, and the browser tab's icon shows an amber dot.
+The shell button in the middle of the bottom line shows the shell's name. While the drawer is closed, the shell button also shows the agent's latest `laura say`. A long say opens as a card that grows upward from the bottom line. The dot on the shell button pulses while the shell prints. While the agent [waits for you](workspace.md#know-when-the-agent-waits) and said nothing since you last wrote to the shell, the shell button is amber and shows `Waiting for you`. While the agent waits, the browser tab's icon shows an amber dot.
 
 To open the drawer, do one of these:
 
@@ -80,6 +80,10 @@ The chat shows what passed through Laura in the agent's session:
 - One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run.
 - Each inline review that you submit.
 - `The shell waits for you.`, with **Show the shell** (`Ctrl+.`), when the shell waits and the agent said nothing since you last wrote to the shell.
+
+- Each message that you send from the message box.
+
+To write to the agent, type in the message box below the chat and press `Enter`, or click **Send**. `Shift+Enter` starts a new line. Laura writes the message into the shell, as if you typed the message there and pressed `Enter`. While the shell waits and the agent said nothing since you last wrote to the shell, Laura turns the message box off, because a message's `Enter` could answer a question in the shell. A message that you send then shows the notice `⚠ The shell waits for you. Answer in the shell, then send your message.` When the shell stopped, Laura shows `⚠ The shell stopped, so Laura cannot send your message.`, and when the shell doesn't take the message, Laura shows `⚠ Laura did not send your message to the shell.`
 
 The drawer shows the shell until the agent's first `laura say`, and the chat after each say. When the shell waits and the agent said nothing since you last wrote to the shell, Laura shows the shell in the drawer, because the agent's CLI can ask you a question there, such as a permission. When the agent starts a new session with `laura ready --session`, Laura starts an empty chat.
 

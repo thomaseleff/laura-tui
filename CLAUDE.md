@@ -125,7 +125,8 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
 | **drawer** | The chat or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
 | **start canvas** | The page the web app shows beside the shell while no other pane is open: the first steps until the user's first submitted inline review, then the project at a glance, or a short prompt. | welcome screen, empty state, canvas (alone) |
-| **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer. | chip, pill |
+| **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer, and shows the agent's latest say while the drawer is closed. | chip, pill |
+| **message box** | The box below the chat where the user types a message, which Laura writes into the shell. | input, composer, reply box |
 | **chat** | The list in the web app's drawer of what passed through Laura in the agent's session: the agent's says, its other `laura` commands, the user's inline reviews and messages. Use *shell* for the agent CLI's own screen. | timeline, feed |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |

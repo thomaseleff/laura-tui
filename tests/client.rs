@@ -216,7 +216,7 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
         "layout.drawer_view === 'chat' && !acts.length",
         " && document.querySelector('#p0 .chat').checkVisibility()",
         " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
-        " && document.activeElement === document.querySelector('#p0 .chat .list')"
+        " && document.activeElement === document.querySelector('#p0 .msgbox textarea')"
     );
     r.drive(&["say", "hello from the agent"]);
     c.until(&mut r, "the chat", CHAT);
@@ -234,6 +234,52 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
     assert!(r.tab.drawer_shows_shell(), "Laura's drawer view");
     c.press(CTRL_PERIOD);
     c.until(&mut r, "the chat again", CHAT);
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A view that opens after the agent's say shows the say in the chat and in the shell button.
+#[test]
+fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.drive(&["say", "said before the view"]);
+    let c = Client::open(&mut r, &path);
+    c.until(
+        &mut r,
+        "the say in the chat",
+        "document.querySelector('#p0 .chat .te.say')?.textContent.includes('said before the view')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// The chat's message box takes the user's keystrokes, and `Enter` writes the message into the
+/// shell; the box empties once Laura wrote it.
+#[test]
+fn enter_in_the_message_box_sends_the_message() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "Ready when you are"]);
+    c.until(
+        &mut r,
+        "the message box's focus",
+        "layout.drawer_view === 'chat' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+    );
+    c.type_text("hello-box");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the message in the shell, and an empty box",
+        &format!(
+            "{SHELL_LINES}.some(l => l.includes('hello-box')) && !acts.length && document.querySelector('#p0 .msgbox textarea').value === ''"
+        ),
+    );
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

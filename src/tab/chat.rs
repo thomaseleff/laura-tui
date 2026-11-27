@@ -1,6 +1,6 @@
 //! The chat: what passed through Laura in the current session, as the drawer shows it. Each say,
 //! each run of the agent's other commands folded into one row, each submitted inline review, and
-//! each wait with no say since the user's last message.
+//! each message from the message box, and each wait with no say since the user's last message.
 
 use std::path::Path;
 
@@ -25,6 +25,8 @@ pub(crate) enum Row {
         comments: usize,
         body: String,
     },
+    /// The user's message from the message box.
+    Message { body: String },
     /// The shell waits with no say since the user's last message. `done`: the wait ended.
     Wait { done: bool },
 }
@@ -36,7 +38,6 @@ pub(super) struct Chat {
     run: Vec<Event>,
     /// The says over the tab's life, so a front-end tells a new say from the last one it showed.
     says: u64,
-    latest: Option<String>,
     /// Counts each change, so the web app sends the chat only when it changed.
     seq: u64,
 }
@@ -47,7 +48,6 @@ impl Chat {
         let row = match event {
             Event::Say { body } => {
                 self.says += 1;
-                self.latest = Some(body.clone());
                 Row::Say {
                     body: body.clone(),
                     html: crate::render::markdown_html(body),
@@ -71,6 +71,7 @@ impl Chat {
                 comments: *comments,
                 body: body.clone(),
             },
+            Event::Message { body } => Row::Message { body: body.clone() },
             Event::Wait { said: false } => Row::Wait { done: false },
             _ => return,
         };
@@ -113,12 +114,15 @@ impl Chat {
     pub(super) fn new_session(&mut self) {
         self.rows.clear();
         self.run.clear();
-        self.latest = None;
         self.seq += 1;
     }
 
+    /// The session's latest say, with its count.
     pub(super) fn latest_say(&self) -> Option<(u64, &str)> {
-        Some((self.says, self.latest.as_deref()?))
+        self.rows.iter().rev().find_map(|r| match r {
+            Row::Say { body, .. } => Some((self.says, body.as_str())),
+            _ => None,
+        })
     }
 
     pub(super) fn rows(&self) -> &[Row] {

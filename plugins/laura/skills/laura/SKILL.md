@@ -23,7 +23,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 - **Speak to your partner with `laura say "<text>"`.** Laura is where your partner reads you. Your partner may not open the shell. The text is markdown; pipe a long text in: `laura say < notes.md`.
 - **End every turn with a `laura say`**, also a turn that only answers a question. A turn that ends in the shell alone leaves your partner with your last `say`.
 - **Say what your partner must read, decide or look at**, and point at it with `laura highlight` or `laura open` first. Keep the first sentence short enough to read in the shell button.
-- **Don't repeat the `say`'s text in the shell.**
+- **Don't repeat the `say`'s text in the shell.** Your partner answers from the chat's message box, and Laura writes the answer into the shell as your partner's input.
 - **When your agent CLI asks your partner for a permission**, say so with `laura say` before the tool call when you can, because the prompt stays in the shell.
 
 **Rules**
