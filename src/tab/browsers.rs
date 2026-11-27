@@ -202,7 +202,7 @@ impl Tab {
         match &mut self.starting {
             Some((_, p)) => *p = p.or(pane),
             None => {
-                let rx = Browser::launch(&path);
+                let rx = Browser::launch(&path, &[]);
                 self.starting = Some((rx, pane));
             }
         }

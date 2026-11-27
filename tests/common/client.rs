@@ -57,7 +57,10 @@ impl Client {
     /// `r`'s web app in a new headless Chrome at 1280×800, once the client paints its layout.
     #[track_caller]
     pub fn open(r: &mut Rig, chrome: &Path) -> Client {
-        let start = Browser::launch(chrome);
+        // Chrome can route a fast press and its release to different processes when an HTML
+        // page's sandboxed frame runs in its own; the user's own browser runs the web app, and
+        // Laura relies only on `postMessage` across the frame.
+        let start = Browser::launch(chrome, &["IsolateSandboxedIframes"]);
         let t0 = Instant::now();
         let browser = loop {
             if let Some(res) = start.poll() {
@@ -190,12 +193,8 @@ impl Client {
     /// A left click at `x`, `y` CSS px from the viewport's top left: press and release, so the
     /// click moves the DOM focus as the user's click does.
     pub fn click(&self, x: f64, y: f64) {
-        for kind in ["mousePressed", "mouseReleased"] {
-            self.call(
-                "Input.dispatchMouseEvent",
-                json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}),
-            );
-        }
+        self.mouse("mousePressed", (x, y), 1, 1);
+        self.mouse("mouseReleased", (x, y), 0, 1);
     }
 
     /// A left drag from `from` to `to`, in CSS px from the viewport's top left, in one move: a
@@ -208,41 +207,36 @@ impl Client {
     /// `drag` without the release: the user still holds the button at `to`.
     pub fn drag_hold(&self, from: (f64, f64), to: (f64, f64)) {
         // The pointer comes to the point first, as the user's does.
-        self.mouse("mouseMoved", from, 0);
-        self.mouse("mousePressed", from, 1);
-        self.mouse("mouseMoved", to, 1);
+        self.mouse("mouseMoved", from, 0, 1);
+        self.mouse("mousePressed", from, 1, 1);
+        self.mouse("mouseMoved", to, 1, 1);
     }
 
     /// The pointer moves to `x`, `y` CSS px from the viewport's top left, with no button held.
     pub fn hover(&self, x: f64, y: f64) {
-        self.mouse("mouseMoved", (x, y), 0);
+        self.mouse("mouseMoved", (x, y), 0, 1);
     }
 
     /// The release of a [`Client::drag_hold`] at `to`.
     pub fn release(&self, to: (f64, f64)) {
-        self.mouse("mouseReleased", to, 0);
+        self.mouse("mouseReleased", to, 0, 1);
     }
 
-    fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8) {
+    /// The rig's one pointer sender, as a mouse sends: `buttons` holds the left button from the
+    /// press to the release.
+    fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8, count: u8) {
         self.call(
             "Input.dispatchMouseEvent",
-            json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1}),
+            json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": count}),
         );
     }
 
     /// A left double-click at `x`, `y` CSS px from the viewport's top left.
     pub fn double_click(&self, x: f64, y: f64) {
-        self.call(
-            "Input.dispatchMouseEvent",
-            json!({"type": "mouseMoved", "x": x, "y": y}),
-        );
+        self.hover(x, y);
         for count in [1, 2] {
-            for kind in ["mousePressed", "mouseReleased"] {
-                self.call(
-                    "Input.dispatchMouseEvent",
-                    json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": count}),
-                );
-            }
+            self.mouse("mousePressed", (x, y), 1, count);
+            self.mouse("mouseReleased", (x, y), 0, count);
         }
     }
 
