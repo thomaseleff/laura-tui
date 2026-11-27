@@ -82,7 +82,7 @@ impl Tab {
 
     /// Focus the pane already showing the absolute `file`, else open it as `laura open` would,
     /// in the diff view when `diff`.
-    fn open_file(&mut self, file: String, diff: bool) -> Result<PaneId, String> {
+    pub(super) fn open_file(&mut self, file: String, diff: bool) -> Result<PaneId, String> {
         if let Some(id) = self.showing(&file, PTY_PANE) {
             self.focus = id;
             return Ok(id);

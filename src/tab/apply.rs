@@ -537,7 +537,12 @@ impl Tab {
             (true, _) if range.is_some() => Response::Error {
                 message: format!("pane #{target} is a browser pane: pass a CSS selector"),
             },
-            (true, Some(sel)) => self.highlight_element(target, &sel),
+            (true, Some(sel)) => match self.highlight_element(target, &sel) {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error {
+                    message: e.to_string(),
+                },
+            },
             (false, Some(_)) => Response::Error {
                 message: format!("pane #{target} is a file pane: pass a line number"),
             },
@@ -546,11 +551,8 @@ impl Tab {
     }
 
     /// Highlight the element `sel` in browser pane `target`.
-    fn highlight_element(&mut self, target: PaneId, sel: &str) -> Response {
-        let (s, q, u) = match self.element(target, sel) {
-            Ok(e) => e,
-            Err(message) => return Response::Error { message },
-        };
+    pub(super) fn highlight_element(&mut self, target: PaneId, sel: &str) -> Result<(), Error> {
+        let (s, q, u) = self.element(target, sel)?;
         if let Some(p) = self.panels.get_mut(&target) {
             // Not `set_highlight`: the cursor stays where the user left it.
             let row = p.anchor(&s, &q, &u);
@@ -563,7 +565,7 @@ impl Tab {
             selector: Some(sel.into()),
             cleared: false,
         });
-        Response::Ok
+        Ok(())
     }
 
     /// Highlight lines `range` of pane `target`, or clear its highlight with `None`.
@@ -708,9 +710,9 @@ impl Tab {
                 })
             }
             (true, None, Some(sel)) => {
-                let (s, q, u) = self
-                    .element(target, &sel)
-                    .map_err(|message| Response::Error { message })?;
+                let (s, q, u) = self.element(target, &sel).map_err(|e| Response::Error {
+                    message: e.to_string(),
+                })?;
                 let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
                 let line = row.map_or(0, |r| r as u32 + 1);
                 Ok((line, Some(sel)))

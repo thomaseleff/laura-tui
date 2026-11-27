@@ -90,6 +90,13 @@ pub enum Error {
     /// The inline review didn't reach the shell; the cause is in the journal.
     #[error("{}", SUBMIT_FAILED)]
     SubmitFailed,
+    /// The agent's selector finds no element on the browser pane's page.
+    #[error("no element matches {selector} in pane #{pane}")]
+    NoElement { selector: String, pane: PaneId },
+    /// The browser pane's page can't be searched now: it loads, shows a dialog, or Laura's
+    /// browser exited. The text is the agent's.
+    #[error("{0}")]
+    PageNotReady(String),
     #[error("{0}")]
     Text(String),
 }
