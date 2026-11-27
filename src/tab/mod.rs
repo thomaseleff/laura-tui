@@ -34,7 +34,8 @@ mod links;
 mod mode;
 mod report;
 mod wait;
-pub use mode::{Draft, DrawerView, Mode, Overlay};
+use mode::DrawerView;
+pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
 
 /// A link that can't open a pane, in place of `Error::SplitTooSmall`.
@@ -620,7 +621,7 @@ impl Tab {
     }
 
     /// The shell waits with no say since the user's last message (`Wait::unsaid`).
-    pub fn unsaid(&self) -> bool {
+    pub(crate) fn unsaid(&self) -> bool {
         self.wait.unsaid()
     }
 

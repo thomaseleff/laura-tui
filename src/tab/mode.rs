@@ -47,11 +47,10 @@ enum Lock {
     },
 }
 
-/// What the drawer shows: the chat, or the shell (`Tab::drawer_shows_shell`). The web app's
-/// layout frame names it as `drawer_view`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DrawerView {
+/// What the drawer shows: the chat, or the shell. `Tab::drawer_shows_shell` gives the layout
+/// frame's `drawer_view`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) enum DrawerView {
     Chat,
     #[default]
     Shell,
