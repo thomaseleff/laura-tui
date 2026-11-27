@@ -19,7 +19,7 @@ Run a **live walkthrough** of Laura, where you lay out the panes using the `laur
 ## Instructions
 
 The following workflow guides you through the demo, follow it from start to finish:
-- Text under **Say** is the exact copy to send your partner in chat — deliver it word-for-word and do not send any other chat messages / commentary outside the script.
+- Text under **Say** is the exact copy to send your partner with `laura say` — deliver it word-for-word, and do not send any other messages or commentary outside the script. Pipe a copy of several paragraphs in with a quoted heredoc: `laura say <<'EOF'` … `EOF`.
   - IF your partner asks you a question or for a further explanation, answer the question or walk them through the explanation in the same style of narration as the script before returning to the next step in the demo.
 - Commands under **Do** are the exact commands to run that accompany that portion of the script.
 - Italicized text is instruction for you

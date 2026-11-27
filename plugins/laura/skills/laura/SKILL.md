@@ -19,6 +19,14 @@ Use different `laura` motions depending on who drives:
 
 In either mode, you compose the workspace, run interactions in panes, and run code, tests and builds.
 
+**Say**
+- **Speak to your partner with `laura say "<text>"`.** Laura is where your partner reads you. Your partner may not open the shell. The text is markdown; pipe a long text in: `laura say < notes.md`.
+- **End every turn with a `laura say`**, also a turn that only answers a question. A turn that ends in the shell alone leaves your partner with your last `say`.
+- **Say what your partner must read, decide or look at**, and point at it with `laura highlight` or `laura open` first. Keep the first sentence short enough to read in the shell button.
+- **When `web_app` is `true`, don't repeat the `say`'s text in the shell.** Your partner answers from the chat's message box, and Laura writes the answer into the shell as your partner's input.
+- **When `web_app` is `false`, write your words in the shell too, and keep the say's first line short.** Your partner sees only the say's first line, as a notice for 10 seconds.
+- **Say after the last tool call of your turn, never before a tool call that can ask your partner for a permission.** Laura shows your partner the shell, and turns the message box off until your partner types in the shell, only when the shell waits and you said nothing since your partner's last message. After a say, your partner reads the chat, and a message from the message box can answer the permission prompt in the shell.
+
 **Rules**
 - **Run `laura ready --session <id> --agent <name>` at the start of every new chat.** `laura ready` enables commenting and inline reviews. Use your *own* conversation id for `--session`, so the journal matches this chat 1:1. If `laura ready` fails, tell your partner you're not running in a Laura workspace and stop. `laura ready` prints JSON with:
   - `journal`: the journal path.
@@ -29,8 +37,8 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 - **Check `web_app` before you describe what your partner sees.** Every `laura` command works the same in the web app and the TUI. When `web_app` is `false`, your partner is in the TUI and sees markdown and HTML files as plain text. In the web app:
   - Your partner sees each thread right below its line, or below its block in a markdown file, with your name on your comments.
   - Laura hides a narrow pane's file and asks your partner to widen the window. Prefer stacking (`--dir v`) over a side-by-side split that leaves a pane narrow.
-  - When `laura layout` shows `"drawer": true` on pane `0`, your partner sees the panes fill the workspace and the shell in a drawer over the panes. You don't need to leave room for the shell. The shell starts in the drawer: before you open a pane, your partner sees a start canvas above the drawer, which stays open, and your first pane takes the start canvas's place. Pass `--no-focus` on your first `laura open`, so your partner keeps reading the chat. The drawer opens when your partner focuses the shell, presses `Esc` in a pane, or submits an inline review, and closes when a pane takes the focus. `laura open` focuses the new pane, which closes the drawer, so pass `--no-focus` while your partner reads the chat. Your partner presses ``Ctrl+` `` to open or close the drawer, and clicks **Show the shell as a pane** to keep the shell beside the panes.
-  - When you name a file in the chat, write the file's path from the folder Laura started in, with the line, such as `src/profile.ts:41`. Your partner clicks the path to open the file in a pane, with the cursor on that line, in the middle of the pane. For a file in that folder itself, start the path with `./`, such as `./README.md:3`.
+  - When `laura layout` shows `"drawer": true` on pane `0`, your partner sees the panes fill the workspace and the shell in a drawer over the panes. You don't need to leave room for the shell. The shell starts in the drawer: before you open a pane, your partner sees a start canvas above the drawer, which stays open, and your first pane takes the start canvas's place. Pass `--no-focus` on your first `laura open`, so your partner keeps reading the chat. The drawer opens when your partner focuses the shell, presses `Esc` in a pane, or submits an inline review, and closes when a pane takes the focus. `laura open` focuses the new pane, which closes the drawer, so pass `--no-focus` while your partner reads the chat. Your partner presses ``Ctrl+` `` to open or close the drawer, and clicks **Show the shell as a pane** to keep the shell beside the panes. From your first `laura say`, the drawer shows the chat: your says, one row for each run of your other `laura` commands, and your partner's inline reviews. Your partner presses `Ctrl+.` to flip the drawer to the shell. When the shell waits and you said nothing since your partner's last message, Laura shows your partner the shell.
+  - When you name a file in the chat, write the file's path from the folder Laura started in, with the line, such as `src/profile.ts:41`. Your partner clicks the path to open the file in a pane, with the cursor on that line, in the middle of the pane. For a file in that folder itself, start the path with `./`, such as `./README.md:3`. In a `laura say`, you can also link the file by its path from that folder, such as `[the CLI](docs/cli.md#commands)`: your partner clicks the link to open the file at the linked heading.
   - In a markdown file, your partner sees rendered markdown and moves the cursor one block at a time (a heading, paragraph, list item, table, quote or code block), and one line at a time through code lines, table rows and nested list items. When your partner comments on one of those lines, Laura puts the comment on that line. Anywhere else in a block, Laura puts the comment on the block's first line. `laura highlight` on any line of a block highlights the whole block. To show your partner an image, save the image and the markdown file below the folder Laura started in, outside hidden folders, and reference the image by relative path, such as `![Flow](img/flow.png)`. Laura shows only the alt text of an image referenced by an absolute path or a remote URL. Link related files by relative path in what you write, such as `[Setup](setup.md#install)`. Your partner opens the file with a click, in a new pane or the pane that already shows it, with the linked heading in the middle of the pane. You see an `open` event in the journal when Laura opens a new pane.
   - When you open an HTML file you built, your partner sees the page with its scripts running. Keep the page's stylesheets, scripts, images and fonts in the page's folder or below it, outside hidden folders. Reference them by relative path, such as `css/site.css`, not `/css/site.css`. Put the page's data, such as JSON, in the page itself, since Laura serves only those file types. Don't use `alert()`, `localStorage` or cookies: Laura runs the page in a sandbox, where they throw or do nothing. Handle a form's submit in the page's script: Laura keeps the page in the pane when a form submits. A `method="dialog"` form still closes its `<dialog>`. For a page that reads keystrokes, such as a game, put `tabindex="0"` on the element that the user clicks, such as the canvas. Put it on that element itself, not on an element around it: a click inside an element with a `tabindex` keeps the keystrokes with Laura. Your partner clicks the element to play and presses `Esc` to go back to Laura. Your partner clicks an element to move the cursor to the line of its start tag, and comments on that line. To annotate an element, run `laura comment <line>` on the line of its start tag; your partner sees a pin with your initial and the thread's count on the element, while the element shows on the page. `laura highlight` outlines the elements that start on the highlighted lines, so point it at a start tag.
 - **When your partner names the task, run `laura ready` again** with the same `--session` and `--title "<2–4 words>"`, such as `--title "flat elevation profile"`. The title is the session label: Laura records the session label in the journal and keeps the latest one for the workspace.
@@ -41,7 +49,7 @@ In either mode, you compose the workspace, run interactions in panes, and run co
 - **Let Laura tile.** With no split flags, Laura splits the newest pane and alternates the orientation (a dwindle). A stacked pane gets only the rows its file needs, up to half, except markdown in the web app. You don't need to capture ids or pass `--split`. Pass `--dir`, `--ratio` or `--split` only for a custom layout. To swap a file into an existing pane, use `laura open <path> --panel <id>`, which replaces the pane's content in place.
 - **Your partner can drag the line between two panes.** Laura keeps that size, and `laura layout` reports `"pinned": true` on each pane the line sizes. Leave a pinned size alone: don't work around it with `--ratio`, or by closing and opening panes. Your partner double-clicks the line to give the size back to Laura.
 - **On an `unsubmitted inline review` or `frozen` error**, ask your partner to submit (`Shift+S`) or refresh (`Ctrl+R`). **On an `unsaved edits` error**, ask your partner to save (`:w`) or quit Neovim in that pane. Don't retry either.
-- **Annotate only when you need your partner's answer in a thread.** `laura comment` starts an unsubmitted inline review that only your partner can submit (`Shift+S`) or refresh (`Ctrl+R`). Until your partner does, you can't close the pane or replace its file. To explain something, highlight the lines with `laura highlight` and explain in the chat.
+- **Annotate only when you need your partner's answer in a thread.** `laura comment` starts an unsubmitted inline review that only your partner can submit (`Shift+S`) or refresh (`Ctrl+R`). Until your partner does, you can't close the pane or replace its file. To explain something, highlight the lines with `laura highlight` and explain with `laura say`.
 - **Laura holds `laura` commands while your partner is typing a comment or review body.** Don't kill or retry a command that is waiting.
 - **Read the docs** at https://thomaseleff.github.io/laura-tui/llms.txt.
 
@@ -113,6 +121,9 @@ laura feedback          Append a feedback signal (layout/render quality, a missi
       --positive        Positive signal.        (one of --positive/--negative is required)
       --negative        Negative signal.
       [<body>]          Optional free-text body.
+laura say [<body>]      Say something to your partner, in markdown (default: piped stdin).
+                        Laura shows it in the chat and the shell button;
+                        the TUI shows its first line as a notice.
 laura journal [FIELD=VALUE…]
                         Print journaled events across every session (NDJSON, oldest first).
                         Works outside a workspace. FIELD=VALUE matches a top-level field
@@ -189,14 +200,14 @@ Each motion is a common sequence of `laura` commands, with when to use it.
 ### Highlight
 
 **Motion**
-1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` to open *and* highlight in one call, leaving your partner's focus in chat.
+1. If the file is not open yet, run `laura open <path> --highlight <start> [end] --no-focus` to open *and* highlight in one call, leaving your partner's focus where it is.
 2. If the file is open, run `laura highlight <start> [end] --pane <id>` to highlight a different section.
 3. Run `laura highlight` again to move the highlight as the conversation moves on.
 4. Run `laura highlight --off [--pane <id>]` to clear the highlight (or your partner presses `h` on the focused pane).
    - On a frozen pane, `laura highlight` returns an error, but `--off` still clears the highlight.
 5. In a browser pane, run `laura highlight '<selector>' --pane <id>` to highlight an element. Laura outlines the element and scrolls the page to it.
 
-**Use when** you want to show a reference while you talk in the chat, or when your partner asks you to explain something step by step.
+**Use when** you want to show a reference while you explain with `laura say`, or when your partner asks you to explain something step by step.
 
 ### Show what changed
 

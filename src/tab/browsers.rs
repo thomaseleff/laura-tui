@@ -9,7 +9,7 @@ use std::time::Instant;
 use anyhow::Result;
 use ratatui::layout::Rect;
 
-use serde_json::json;
+use crate::journal::Event;
 
 use crate::browser::{self, Browser, Cdp, Page};
 use crate::cdp_proxy;
@@ -168,7 +168,10 @@ impl Tab {
             }
             Err(e) => {
                 let reason = format!("{:#}", e.reason);
-                self.log_event(json!({"type": "browser", "error": reason, "output": e.output}));
+                self.log_event(Event::Browser {
+                    error: reason.clone(),
+                    output: e.output,
+                });
                 if let Some((_, reply)) = parked {
                     reply.send(&Response::Error {
                         message: format!("couldn't start Laura's browser: {reason}"),

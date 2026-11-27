@@ -116,7 +116,7 @@ fn into_the_shell(
         "layout.focus === 0 && !layout.waiting",
     );
     assert_eq!(r.tab.focus, 0, "Laura's focus");
-    assert!(!r.tab.waiting, "the wait");
+    assert!(!r.tab.waiting(), "the wait");
     assert_eq!(c.errors(), json!([]));
     Ok(dir)
 }
@@ -200,6 +200,234 @@ fn ctrl_backquote_focuses_the_shell() -> Result<()> {
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
     let _dir = into_the_shell(&mut r, &c, |_| c.press(CTRL_BACKQUOTE))?;
+    Ok(())
+}
+
+/// A say turns the drawer to the chat, which takes the keystrokes; `Ctrl+.` flips the drawer to the
+/// shell, whose xterm takes them, and back.
+#[test]
+fn ctrl_period_flips_the_drawer() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    const CHAT: &str = concat!(
+        "layout.drawer_view === 'chat' && !acts.length",
+        " && document.querySelector('#p0 .chat').checkVisibility()",
+        " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
+        " && document.activeElement === document.querySelector('#p0 .msgbox textarea')"
+    );
+    r.drive(&["say", "hello from the agent"]);
+    c.until(&mut r, "the chat", CHAT);
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell",
+        concat!(
+            "layout.drawer_view === 'shell' && !acts.length",
+            " && !document.querySelector('#p0 .chat').checkVisibility()",
+            " && document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
+            " && !!document.activeElement.closest('#p0 .term')"
+        ),
+    );
+    assert!(r.tab.drawer_shows_shell(), "Laura's drawer view");
+    c.press(CTRL_PERIOD);
+    c.until(&mut r, "the chat again", CHAT);
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A say that comes while the drawer shows the shell is in view once the chat shows: Laura shows
+/// the chat at the say, and the client scrolls the chat to its last row.
+#[test]
+fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let tall = (1..=40)
+        .map(|i| format!("p{i}"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    r.drive(&["say", &tall]);
+    c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell",
+        "layout.drawer_view === 'shell' && !acts.length",
+    );
+    r.drive(&["say", "the-last-say"]);
+    c.until(
+        &mut r,
+        "the last say in view",
+        concat!(
+            "layout.drawer_view === 'chat' && !acts.length",
+            " && (l => l.textContent.includes('the-last-say') && l.scrollHeight > l.clientHeight",
+            " && l.scrollTop + l.clientHeight >= l.scrollHeight - 1)(document.querySelector('#p0 .chat .list'))"
+        ),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// `F12` over the chat shows the shell, which takes the keystrokes, until the second `F12` brings
+/// the chat back.
+#[test]
+fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "hello from the agent"]);
+    c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    c.press(F12);
+    c.until(
+        &mut r,
+        "the shell, with the keystrokes",
+        "layout.drawer_view === 'shell' && !acts.length && !!document.activeElement.closest('#p0 .term')",
+    );
+    c.type_text("echo locked-key");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the echo in the shell",
+        &format!("{SHELL_LINES}.some(l => l.trim() === 'locked-key')"),
+    );
+    c.press(F12);
+    c.until(
+        &mut r,
+        "the chat again",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A view that opens after the agent's say shows the say in the chat and in the shell button.
+#[test]
+fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.drive(&["say", "said before the view"]);
+    let c = Client::open(&mut r, &path);
+    c.until(
+        &mut r,
+        "the say in the chat",
+        "document.querySelector('#p0 .chat .te.say')?.textContent.includes('said before the view')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A click on a markdown link in a say opens its file, from the folder Laura started in (the
+/// crate, the rig's folder).
+#[test]
+fn a_link_in_a_say_opens_its_file() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "Read [the CLI](docs/cli.md#commands)"]);
+    let at = c.until(
+        &mut r,
+        "the say's link",
+        "(() => { \
+           const b = document.querySelector('#p0 .chat a[data-href]')?.getBoundingClientRect(); \
+           return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "cli.md in a focused file pane",
+        "layout.panes.some(p => p.id === layout.focus && p.kind === 'file' && p.name === 'cli.md')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// The chat's message box takes the user's keystrokes, and `Enter` writes the message into the
+/// shell; the box empties once Laura wrote it. A second `Enter` before Laura's reply sends nothing.
+#[test]
+fn enter_in_the_message_box_sends_the_message() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "Ready when you are"]);
+    c.until(
+        &mut r,
+        "the message box's focus",
+        "layout.drawer_view === 'chat' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+    );
+    c.type_text("hello-box");
+    c.press(ENTER);
+    c.press(ENTER);
+    assert_eq!(
+        c.eval("acts.length"),
+        Ok(json!(1)),
+        "the second Enter sent again"
+    );
+    c.until(
+        &mut r,
+        "the message in the shell, and an empty box",
+        &format!(
+            "{SHELL_LINES}.some(l => l.includes('hello-box')) && !acts.length && document.querySelector('#p0 .msgbox textarea').value === ''"
+        ),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// `Enter` under the help closes the help, and the message box keeps its text.
+#[test]
+fn enter_under_the_help_closes_the_help() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "Ready when you are"]);
+    c.until(
+        &mut r,
+        "the message box's focus",
+        "layout.drawer_view === 'chat' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+    );
+    c.type_text("hi-help");
+    c.press(CTRL_H);
+    c.until(
+        &mut r,
+        "the help",
+        "layout.modes.includes('help') && !acts.length",
+    );
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "no help",
+        "!layout.modes.includes('help') && !acts.length",
+    );
+    assert_eq!(
+        c.eval("document.querySelector('#p0 .msgbox textarea').value"),
+        Ok(json!("hi-help"))
+    );
+    let lines = c.eval(SHELL_LINES).unwrap_or_default();
+    assert!(!lines.to_string().contains("hi-help"), "{lines}");
+    assert_eq!(c.errors(), json!([]));
     Ok(())
 }
 
@@ -544,8 +772,61 @@ fn ctrl_p_to_a_file_pane_keeps_the_wait() -> Result<()> {
         "document.getElementById('popup').hidden && layout.focus === 1",
     );
     if cfg!(unix) {
-        assert!(r.tab.waiting, "the wait");
+        assert!(r.tab.waiting(), "the wait");
     }
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A click in the chat during a wait with no say keeps the wait: only the shell's own view ends it.
+#[test]
+fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    if !cfg!(unix) {
+        return Ok(()); // the shell rings the bell only on unix, as in `ring`
+    }
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "hello from the agent"]);
+    c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell",
+        "layout.drawer_view === 'shell' && !acts.length && !!document.activeElement.closest('#p0 .term')",
+    );
+    // The user's write ends the say, so the bell begins a wait with no say.
+    c.type_text("printf '\\007'");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the wait with no say",
+        "layout.waiting && layout.unsaid && layout.drawer_view === 'shell'",
+    );
+    c.press(CTRL_PERIOD);
+    let at = c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length && (() => { \
+           const b = document.querySelector('#p0 .chat').getBoundingClientRect(); \
+           return b.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    // A round trip after the click's `seen`, if any.
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell again",
+        "layout.drawer_view === 'shell' && !acts.length",
+    );
+    assert!(r.tab.waiting(), "the wait");
+    assert_eq!(c.eval("layout.message_box"), Ok(json!(false)));
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

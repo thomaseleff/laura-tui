@@ -1,6 +1,7 @@
 //! The workspace's input modes, which the TUI and the web app both read: an overlay (the theme
 //! wizard, the help, the pane selector or the quit question), the lock that `F12` turns on, and
 //! the draft of a comment or a review body. The first mode on takes a keystroke before any pane.
+//! Beside them, the drawer's view: the chat or the shell.
 
 use serde::{Deserialize, Serialize};
 
@@ -46,12 +47,22 @@ enum Lock {
     },
 }
 
-/// The modes that are on, behind `Tab`'s methods.
+/// What the drawer shows: the chat, or the shell. `Tab::drawer_shows_shell` gives the layout
+/// frame's `drawer_view`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) enum DrawerView {
+    Chat,
+    #[default]
+    Shell,
+}
+
+/// The modes that are on, behind `Tab`'s methods, and the drawer's view, which no input ends.
 #[derive(Default)]
 pub(super) struct Modes {
     overlay: Option<Overlay>,
     lock: Lock,
     draft: Option<Draft>,
+    pub(super) drawer: DrawerView,
 }
 
 /// A mode that is on, as `Tab::modes` lists it and the web app's layout frame names it.
@@ -120,7 +131,10 @@ impl Tab {
 
     /// A view took over or closed: no mode is on, so the agent never waits on a closed browser tab.
     pub(crate) fn end_modes(&mut self) {
-        self.modes = Modes::default();
+        self.modes = Modes {
+            drawer: self.modes.drawer,
+            ..Modes::default()
+        };
     }
 
     /// `F12`. Alone, the lock moves the focus from a file or browser pane to the shell, and the
@@ -205,7 +219,7 @@ impl Tab {
         let to_shell =
             self.focus == PTY_PANE || (self.locked() && self.pane_pty(self.focus).is_none());
         if self.modes.overlay.is_none() && to_shell {
-            self.answered(bells);
+            self.saw(bells);
         }
     }
 }

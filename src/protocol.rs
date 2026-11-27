@@ -166,6 +166,9 @@ pub enum Message {
         #[serde(default)]
         body: Option<String>,
     },
+    /// The agent's words to the user, in markdown. Laura journals them and shows them in the
+    /// chat; the TUI shows their first line as a notice.
+    Say { body: String },
     /// Reserved re-render nudge; not yet emitted.
     Update { path: String },
 }

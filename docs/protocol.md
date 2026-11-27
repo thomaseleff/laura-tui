@@ -462,6 +462,43 @@ Mark the workspace as hosting an agent, which enables commenting and submitting 
 
 A `ready` without `title`, or with a blank `title`, keeps the workspace's session label. Laura removes the spaces at the start and end of `title`. A `ready` without `agent` for the same `session` keeps the session's agent name. A `ready` with a new `session` starts a new journal, and Laura writes the later events to the new journal.
 
+### `say`
+
+Say something to the user. Laura journals the text as a `say` event, and the web app shows the text in the chat and in the shell button (see [The drawer](navigation.md#the-drawer)). The TUI shows the first line of the text as a notice.
+
+<table class="proto">
+<tr>
+<td valign="top">
+
+<dl>
+<dt><code>body</code> · string · <strong>required</strong></dt>
+<dd>The text, in markdown.</dd>
+</dl>
+
+</td>
+<td valign="top">
+
+<strong>Request</strong>
+<pre>
+{
+  "type": "say",
+  "body": "The tests pass. Look at the retry in pane #2."
+}
+</pre>
+
+<strong>Response</strong> · <code>ok</code>
+<pre>
+{
+  "type": "ok"
+}
+</pre>
+
+</td>
+</tr>
+</table>
+
+A blank `body` returns the error `laura say needs a body`.
+
 ### `update`
 
 Reserved for asking a file pane to reload. The `laura` CLI doesn't send `update` yet, and Laura answers it with `ok`.

@@ -72,9 +72,11 @@ Run before calling anything done: `cargo fmt --check && cargo clippy --all-targe
 
 **A test that fails at random** has a cause, and the fix removes that cause. Do not add a retry or a longer deadline.
 
+Do these steps only when a test fails at random: the test failed and then passed on the same code, or a failed test also fails at random on `main`. A new or changed test that passes needs only the check suite above, with no repeated runs.
+
 - First, look for the test in the failed runs on `main` and on other branches (`gh run list --status failure`, then `gh run view <id> --log-failed`). A failure that is already there is not caused by your change, but you still fix it or open an issue for it.
 - Find the cause with a record that the page or the test writes when the event occurs, for example a `pointerdown` listener or a wrapper in the rig's init script. Do not add an `eval` before the step that fails: each extra round trip changes the timing, and the failure goes away.
-- Prove the fix: the test fails with the fix removed, and passes with it. A test that passes alone can fail under the full suite's load, so run the whole test binary 10 times in a row (the client rules are in [`src/web/CLAUDE.md`](src/web/CLAUDE.md), Waits).
+- Prove the fix: the test fails with the fix removed, and passes with it. A test that passes alone can fail under the full suite's load, so run the whole test binary of the test that fails at random 10 times in a row (the client rules are in [`src/web/CLAUDE.md`](src/web/CLAUDE.md), Waits).
 
 **Manual runs.** `tmp/` is gitignored scratch for manual checks. Build a binary to run by hand with `CARGO_TARGET_DIR=tmp/target cargo build`, so a Laura running from `target/` doesn't lock the build.
 
@@ -123,10 +125,11 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
 | **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id, or a workspace by session label or folder. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
-| **drawer** | The shell floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
+| **drawer** | The chat or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
 | **start canvas** | The page the web app shows beside the shell while no other pane is open: the first steps until the user's first submitted inline review, then the project at a glance, or a short prompt. | welcome screen, empty state, canvas (alone) |
-| **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer. | chip, pill |
-| **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
+| **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer, and shows the agent's latest say while the drawer is closed. | chip, pill |
+| **message box** | The box below the chat where the user types a message, which Laura writes into the shell. | input, composer, reply box |
+| **chat** | The list in the web app's drawer of what passed through Laura in the agent's session: the agent's says, its other `laura` commands, the user's inline reviews and messages. Use *shell* for the agent CLI's own screen. | timeline, feed |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
 | **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`). | web pane, browser tab, preview |

@@ -231,6 +231,8 @@ struct Tui {
     /// A transient bottom-right toast; armed by a queued notice, and once if `git` is missing.
     toast: Option<Toast>,
     git_shown: bool,
+    /// The count of the latest say the toast showed (`Tab::latest_say`).
+    said: u64,
 }
 
 pub fn run(terminal: &mut ratatui::DefaultTerminal, program: Vec<String>) -> Result<()> {
@@ -314,6 +316,7 @@ impl Tui {
             pointer: Pointer::default(),
             toast,
             git_shown: false,
+            said: 0,
         }
     }
 
@@ -334,6 +337,18 @@ impl Tui {
             // The theme's answer ends the wizard, so its notice stays long enough to read.
             let secs = if text == laura::tab::THEME_SET { 10 } else { 5 };
             self.notice(text, secs);
+        }
+        // The TUI has no chat: each new say shows in the toast, over this frame's other notice. The
+        // toast is one row, so it shows the say's first line of text.
+        let say = self.tab.latest_say().map(|(n, body)| {
+            let line = body.lines().find(|l| !l.trim().is_empty());
+            (n, line.unwrap_or_default().to_string())
+        });
+        if let Some((n, body)) = say
+            && n != self.said
+        {
+            self.said = n;
+            self.notice(body, 10);
         }
         // git-presence is a machine-global fact: arm the "install git" toast once,
         // the first time any diff attempt (open or reload) found no `git` binary.

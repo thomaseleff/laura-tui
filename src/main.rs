@@ -144,6 +144,7 @@ enum Cmd {
         #[arg(value_name = "LINE|SELECTOR")]
         target: String,
         /// Comment body — starts a thread or appends a reply.
+        #[arg(allow_hyphen_values = true)]
         body: String,
         /// Attribute the comment to this author (default: the session's `ready --agent` name, else `agent`).
         #[arg(long)]
@@ -175,6 +176,14 @@ enum Cmd {
         #[arg(long)]
         negative: bool,
         /// Free-text body.
+        #[arg(allow_hyphen_values = true)]
+        body: Option<String>,
+    },
+    /// Say something to the user: Laura shows it in the chat and in the shell button.
+    /// Usage: `laura say "Done: the tests pass."`, or pipe the text in.
+    Say {
+        /// The text, in markdown (default: piped stdin).
+        #[arg(allow_hyphen_values = true)]
         body: Option<String>,
     },
     /// Print journaled events across sessions (NDJSON, oldest first). Works outside a workspace.
@@ -333,6 +342,9 @@ fn main() -> Result<()> {
                 body,
             })
         }
+        Some(Cmd::Say { body }) => client_request(Message::Say {
+            body: say_body(body)?,
+        }),
         Some(Cmd::Journal {
             filters,
             since,
@@ -451,8 +463,8 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
         if quit || tab.shell_done() {
             break;
         }
-        if tab.title != title || tab.waiting != waiting || web.visited() != visited {
-            (title, waiting, visited) = (tab.title.clone(), tab.waiting, web.visited());
+        if tab.title != title || tab.waiting() != waiting || web.visited() != visited {
+            (title, waiting, visited) = (tab.title.clone(), tab.waiting(), web.visited());
             record(&web, title.as_deref(), waiting);
         }
         // Past `shell_done`, an exited shell means unsaved edits: tell a user with no browser open.
@@ -465,6 +477,16 @@ fn web(program: Vec<String>, port: u16) -> Result<()> {
     web.unregister();
     web.close();
     Ok(())
+}
+
+/// `laura say`'s text: the argument, else piped stdin, without the trailing newline.
+fn say_body(body: Option<String>) -> Result<String> {
+    let body = match body {
+        Some(b) => b,
+        None if !std::io::stdin().is_terminal() => std::io::read_to_string(std::io::stdin())?,
+        None => String::new(),
+    };
+    Ok(body.trim_end_matches(['\r', '\n']).to_string())
 }
 
 /// Send one request to the current workspace's socket ($LAURA_TAB) and print its response. Never touches ratatui.

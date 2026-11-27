@@ -1,5 +1,5 @@
-//! One workspace: a PTY, its panels, the split tree, the input modes, and the socket that ties them
-//! together.
+//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, the chat, and the
+//! socket that ties them together.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -15,12 +15,11 @@ use portable_pty::CommandBuilder;
 use ratatui::layout::{Margin, Rect};
 
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::browser::{self, Browser, Page};
 use crate::cdp_proxy;
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, is_runtime_temp};
+use crate::journal::{Event, Journal, is_runtime_temp};
 use crate::layout::{Handle, Layout, MIN_PANE, rects, split_rect};
 use crate::panel::{Panel, bracketed_paste};
 use crate::platform::runtime_dir;
@@ -30,9 +29,12 @@ use crate::pty::PtyTab;
 mod act;
 mod apply;
 mod browsers;
+mod chat;
 mod links;
 mod mode;
 mod report;
+mod wait;
+use mode::DrawerView;
 pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
 
@@ -66,6 +68,14 @@ pub const THEME_SET: &str = "✅ Experimental · Editor panes setup complete";
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
 pub const NO_SHELL: &str = "⚠ The shell stopped, so Laura cannot submit the inline review. ";
+/// The message box after the shell exited.
+pub const NO_SHELL_FOR_MESSAGE: &str = "⚠ The shell stopped, so Laura cannot send your message.";
+/// The message box from a wait with no say until the user writes to the shell: the agent CLI may
+/// ask a question there, which a message's `Enter` would answer.
+pub const MESSAGE_WAITS: &str =
+    "⚠ The shell waits for you. Answer in the shell, then send your message.";
+/// The message didn't reach the shell.
+pub const MESSAGE_FAILED: &str = "⚠ Laura did not send your message to the shell.";
 
 /// An error from `Tab::act` or the agent's `open`. A caller matches a variant; `Text` is shown as is.
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -237,6 +247,13 @@ pub enum UserAction {
     Seen {
         wait: u64,
     },
+    /// The message box's **Send** (`Enter`): `text` to the shell (`Tab::message`).
+    Message {
+        text: String,
+    },
+    /// `Ctrl+.`, the drawer's **Chat** and **Shell** tabs, and **Show the shell**: the drawer
+    /// flips between the chat and the shell (`Tab::flip_drawer`). The TUI never sends it.
+    FlipDrawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
     BrowserMouse {
@@ -354,13 +371,10 @@ pub struct Tab {
     pub journal: Option<Journal>,
     /// The session label from the latest `laura ready --title`.
     pub title: Option<String>,
-    /// The shell rang the bell or sent a notification since the user last moved to the shell, used it or submitted an inline review: the agent waits for the user.
-    pub waiting: bool,
-    /// The shell's bell count when the current wait began. The layout frame carries this count,
-    /// and `seen` names it, so a `seen` from before a new wait does not end the new wait.
-    pub wait: u64,
-    /// The shell's bell count that `drain` last saw.
-    bells: u64,
+    /// Whether the agent waits for the user (`wait.rs`).
+    wait: wait::Wait,
+    /// What passed through Laura in the current session (`chat.rs`).
+    chat: chat::Chat,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -445,9 +459,8 @@ impl Tab {
             agent: false,
             journal: None,
             title: None,
-            waiting: false,
-            wait: 0,
-            bells: 0,
+            wait: wait::Wait::default(),
+            chat: chat::Chat::default(),
             shell_size: None,
             docked: false,
             modes: mode::Modes::default(),
@@ -506,11 +519,17 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
-    /// Field names and values are public: `laura journal` filters on them and `docs/cli.md` lists them; change both together.
-    pub fn log_event(&self, event: serde_json::Value) {
+    /// The one place that journals an event, so the chat holds each journaled event.
+    pub(super) fn log_event(&mut self, event: Event) {
         if let Some(j) = &self.journal {
-            j.log(event);
+            j.log(&event);
         }
+        self.chat.push(&event);
+    }
+
+    /// The agent's latest `say` in this session, with a count that names it over the tab's life.
+    pub fn latest_say(&self) -> Option<(u64, &str)> {
+        self.chat.latest_say()
     }
 
     /// The terminal that takes pane `pane`'s keys: the shell, or an editor pane's Neovim in its
@@ -555,12 +574,14 @@ impl Tab {
             .expect("review_gate found the pane");
         // Read the count first: a sent review clears the threads.
         let (path, comments) = (p.path.clone(), p.thread_count());
-        let res = p.submit_review(pane, body, |r| pty.write(&bracketed_paste(r, true)));
-        let mut event = json!({"type": "review", "pane": pane, "path": path, "comments": comments, "body": body});
-        if let Err(e) = &res {
-            event["error"] = json!(e.to_string());
-        }
-        self.log_event(event);
+        let res = p.submit_review(pane, body, |r| paste_into_shell(pty, r));
+        self.log_event(Event::Review {
+            pane,
+            path,
+            comments,
+            body: body.into(),
+            error: res.as_ref().err().map(|e| e.to_string()),
+        });
         // The cause is in the journal; the notice stays fixed.
         res.map_err(|_| Error::SubmitFailed)?;
         if let Some(e) = self.editors.get_mut(&pane) {
@@ -570,6 +591,38 @@ impl Tab {
         self.close_draft();
         self.answered(bells);
         Ok(())
+    }
+
+    /// Whether the message box can send: the shell runs, and no wait with no say began since the
+    /// user last wrote to the shell. The web app's layout frame carries it.
+    pub(crate) fn message_gate(&self) -> Result<(), Error> {
+        if self.pty.has_exited() {
+            return Err(NO_SHELL_FOR_MESSAGE.into());
+        }
+        if self.wait.asked() {
+            return Err(MESSAGE_WAITS.into());
+        }
+        Ok(())
+    }
+
+    /// The message box: write the user's `text` into the shell, as a submit writes an inline
+    /// review, and journal it. The wait ends, as on any write to the shell.
+    fn message(&mut self, text: &str) -> Result<(), Error> {
+        self.message_gate()?;
+        let text = text.trim_end();
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+        let bells = self.pty.bells();
+        paste_into_shell(&self.pty, text).map_err(|_| Error::from(MESSAGE_FAILED))?;
+        self.log_event(Event::Message { body: text.into() });
+        self.answered(bells);
+        Ok(())
+    }
+
+    /// The shell waits with no say since the user's last message (`Wait::unsaid`).
+    pub(crate) fn unsaid(&self) -> bool {
+        self.wait.unsaid()
     }
 
     /// Per-frame upkeep before drawing `content`: take `pending_focus`, move focus off a closed
@@ -699,13 +752,82 @@ impl Tab {
             .and_then(|id| self.panels.get(&id))
     }
 
-    /// The user answered the agent or saw the wait: the wait ends. `bells` is the count the answer
-    /// covers. Input, a paste and a review read it before they reach the shell, so a bell after the
-    /// answer is a new wait. A move into the shell (`Focus`, `Close`) and `Seen` read it at arrival:
-    /// the user now sees the shell.
+    /// The user wrote to the shell (input, a paste, an inline review): the wait ends. `bells` is
+    /// the count the answer covers, read before the write reaches the shell, so a bell after the
+    /// answer is a new wait.
     fn answered(&mut self, bells: u64) {
-        self.waiting = false;
-        self.bells = bells;
+        self.wait.answered(bells);
+        self.chat.end_wait();
+    }
+
+    /// The user saw the shell: a move into the shell (`Focus`, `Close`, the lock, an overlay's
+    /// close) or `Seen`, with `bells` read at arrival. The wait ends; a say since the user's last
+    /// write still counts.
+    fn saw(&mut self, bells: u64) {
+        self.wait.saw(bells);
+        self.chat.end_wait();
+    }
+
+    /// The web app's `seen` of wait `wait` (`Wait::seen`).
+    fn seen(&mut self, wait: u64) {
+        self.wait.seen(wait, self.pty.bells());
+        if !self.wait.waiting() {
+            self.chat.end_wait();
+        }
+    }
+
+    /// A new wait began: Laura journals it, and a wait with no say since the user's last message
+    /// shows the shell in the drawer, where the agent CLI asks.
+    fn wait_began(&mut self) {
+        self.log_event(Event::Wait {
+            said: self.wait.said(),
+        });
+        if self.wait.unsaid() {
+            self.modes.drawer = DrawerView::Shell;
+        }
+    }
+
+    /// The drawer shows the shell, not the chat: before the agent's first say, and from the start
+    /// of each wait with no say since the user's last message (`Tab::say`, `wait_began`), until
+    /// the user flips it (`Ctrl+.`); and while the lock is on, which sends the keystrokes to the
+    /// shell. The unlock brings the chat back.
+    pub fn drawer_shows_shell(&self) -> bool {
+        self.modes.drawer == DrawerView::Shell || self.locked()
+    }
+
+    /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it
+    /// is; on the shell, the drawer flips between the chat and the shell.
+    pub(super) fn flip_drawer(&mut self) {
+        if self.focus != PTY_PANE {
+            self.focus = PTY_PANE;
+            self.forget_lock_from();
+            return self.saw(self.pty.bells());
+        }
+        self.modes.drawer = match self.modes.drawer {
+            DrawerView::Chat => DrawerView::Shell,
+            DrawerView::Shell => DrawerView::Chat,
+        };
+    }
+
+    /// The agent said something: the drawer turns to the chat.
+    pub(super) fn said(&mut self) {
+        self.wait.say();
+        self.modes.drawer = DrawerView::Chat;
+    }
+
+    /// The chat's rows, and a count that changes with them (`chat.rs`).
+    pub(crate) fn chat(&self) -> (&[chat::Row], u64) {
+        (self.chat.rows(), self.chat.seq())
+    }
+
+    /// The agent waits for the user (`wait.rs`).
+    pub fn waiting(&self) -> bool {
+        self.wait.waiting()
+    }
+
+    /// The bell count that names the current wait, for the web app's `seen`.
+    pub(crate) fn wait_id(&self) -> u64 {
+        self.wait.id()
     }
 
     /// Drain queued requests, live-reloading panels before each so it resolves against current disk, then applying it and replying. `area` is the current draw area (for `Layout`/dry-run reports).
@@ -714,13 +836,9 @@ impl Tab {
         self.area = area;
         self.forget_lock_from();
         // Before the hold: a bell while the user types a comment still counts.
-        let bells = self.pty.bells();
-        // A new wait begins; a bell during a wait is the same wait the user sees.
-        if bells != self.bells && !self.waiting {
-            self.wait = bells;
+        if self.wait.bell(self.pty.bells()) {
+            self.wait_began();
         }
-        self.waiting |= bells != self.bells;
-        self.bells = bells;
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
         let browsed = self.poll_browsers();
         if self.held() {
@@ -805,7 +923,10 @@ impl Tab {
                 if self.focus == target {
                     self.focus = self.fallback_focus();
                 }
-                self.log_event(json!({"type": "close", "pane": target}));
+                self.log_event(Event::Close {
+                    pane: Some(target),
+                    all: false,
+                });
                 Response::Ok
             }
             Err(message) => Response::Error { message },
@@ -916,6 +1037,12 @@ impl Drop for Tab {
             let _ = thread.join();
         }
     }
+}
+
+/// Write `text` into the shell as one bracketed paste and press `Enter`, so the agent CLI reads it
+/// as one message. An inline review and the message box write this way.
+fn paste_into_shell(pty: &PtyTab, text: &str) -> std::io::Result<()> {
+    pty.write(&bracketed_paste(text, true))
 }
 
 /// The unsaved-edits refusal, shared by a pane's close and the workspace's quit.

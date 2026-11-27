@@ -5,6 +5,7 @@ import { $, draft, drawerOpen, focused, layout, modes, pane, send, ui } from "./
 import { ch } from "./term.js";
 import { focusPane, followFocus, lastFocus, unseen } from "./panes.js";
 import { frameOf } from "./pages.js";
+import { latestSay } from "./chat.js";
 
 const hintEl = $("hint"), noticeEl = $("notice");
 let notice = "", noticeTimer = 0, noticePane;
@@ -139,19 +140,29 @@ export function paintStatus() {
 }
 
 // The shell button, while the drawer is in use: the shell's name, and `open` while the drawer is.
+// With the drawer closed, the agent's latest say, in full: a long one grows upward as a card. While
+// the shell waits with no say since the user's last message, `Waiting for you` in its place.
 export function paintShellButton() {
   const b = $("sbtn"), s = pane(0);
   b.hidden = !s?.drawer;
-  if (b.hidden) return;
+  if (!layout || b.hidden) return;
   // On the canvas, the drawer stays open: `Ctrl+\`` and the button do nothing.
-  const open = drawerOpen(), t = layout.canvas ? s.name : `${open ? "Hide" : "Show"} the shell  Ctrl+\``;
+  const open = drawerOpen(), t = layout.canvas ? s.name : `${open ? "Hide" : "Show"} the drawer  Ctrl+\``;
+  const html = !open && !layout.unsaid ? latestSay() : null, said = b.querySelector(".said");
+  if (said.dataset.html !== (html ?? "")) {
+    said.innerHTML = html ?? "";
+    said.dataset.html = html ?? "";
+  }
+  said.hidden = !html;
+  b.classList.toggle("says", !!html);
+  b.classList.toggle("long", !!html && (said.childElementCount > 1 || said.textContent.length > 70));
   b.classList.toggle("open", open);
-  b.classList.toggle("wait", layout.waiting);
-  b.querySelector(".say").hidden = !layout.waiting;
+  b.classList.toggle("wait", layout.unsaid);
+  b.querySelector(".say").hidden = !layout.unsaid;
   b.querySelector("b").textContent = s.name;
   for (const k of b.querySelectorAll("kbd")) k.hidden = !!layout.canvas;
   b.dataset.tip = t;
-  b.setAttribute("aria-label", layout.waiting ? `${t} · Waiting for you` : t);
+  b.setAttribute("aria-label", layout.unsaid ? `${t} · Waiting for you` : html ? `${t} · ${said.textContent}` : t);
 }
 
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());

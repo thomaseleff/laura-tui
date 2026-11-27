@@ -4,17 +4,18 @@
 use anyhow::Result;
 use ratatui::layout::Rect;
 
-use serde_json::json;
-
-use crate::browser;
+use crate::browser::{self, Page};
 use crate::editor::{self, Nvim};
-use crate::journal::{Journal, session_path};
+use crate::journal::{Event, Journal, session_path};
 use crate::layout::{Layout, all_panes_fit, infer_split};
 use crate::panel::Panel;
 use crate::protocol::{Dir, Message, PTY_PANE, PaneId, Response, Side};
 
 use super::report::{build_report, fit_rows, overflow_warning};
 use super::{DOCK, Error, Tab, normalized, remove_if_temp};
+
+/// `laura say` with no text.
+const SAY_NEEDS_BODY: &str = "laura say needs a body";
 
 impl Tab {
     /// Build a panel for `path` (follow → highlight → diff, order preserved), insert it at `id`,
@@ -161,7 +162,12 @@ impl Tab {
             if let Err(message) = self.navigate(id, path.clone()) {
                 return Response::Error { message };
             }
-            self.log_event(json!({"type":"open","pane":id,"path":path,"replaced":true}));
+            self.log_event(Event::Open {
+                pane: id,
+                path,
+                replaced: true,
+                edit: false,
+            });
             return Response::Opened {
                 pane: id,
                 warnings: dup.into_iter().collect(),
@@ -176,9 +182,12 @@ impl Tab {
                     p.clear_highlight();
                     p.diff_view = false;
                 }
-                self.log_event(
-                    json!({"type":"open","pane":id,"path":path,"edit":true,"replaced":true}),
-                );
+                self.log_event(Event::Open {
+                    pane: id,
+                    path,
+                    replaced: true,
+                    edit: true,
+                });
             }
             return Response::Opened {
                 pane: id,
@@ -210,11 +219,12 @@ impl Tab {
             self.browsers.insert(id, page);
         }
         warnings.extend(dup);
-        let mut event = json!({"type":"open","pane":id,"path":path,"replaced":true});
-        if edit {
-            event["edit"] = true.into();
-        }
-        self.log_event(event);
+        self.log_event(Event::Open {
+            pane: id,
+            path,
+            replaced: true,
+            edit,
+        });
         Response::Opened { pane: id, warnings }
     }
 
@@ -239,10 +249,52 @@ impl Tab {
         else {
             unreachable!("apply and open_file pass only Message::Open");
         };
-        // A URL opens a browser pane. Its errors come first, one at a time; `--follow`
-        // changes nothing, since the pane always shows the page live.
+        self.open_gates(&path, highlight, diff, edit)?;
+        // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
+        // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
+        // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
+        if let Some(id) = panel {
+            return Ok(self.replace_panel(id, path, follow, highlight, diff, edit, area));
+        }
+        let new = self.next_pane;
         let url = browser::is_url(&path);
-        if url {
+        let fit = (!(edit || diff || follow || url)).then_some(path.as_str());
+        let (target, dir, ratio, side) = self.place(split, dir, ratio, side, fit, area);
+        if dry_run {
+            return Ok(self.dry_run_open(&path, target, dir, ratio, side, area));
+        }
+        if !self.split_fits(target, dir, ratio, side, area) {
+            return Err(Error::SplitTooSmall);
+        }
+        // Open the page before the split, so a page that won't open adds no pane.
+        let page = url.then(|| self.open_page(new, &path)).transpose()?;
+        self.layout.split(target, dir, ratio, side, new)?;
+        self.next_pane += 1;
+        if edit && let Err(e) = self.attach_editor(new, &path, area) {
+            let _ = self.layout.remove(new);
+            return Ok(e);
+        }
+        let warnings = self.install_new(new, path, follow, tail, highlight, diff, edit, page, area);
+        // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
+        if focus && !edit {
+            self.pending_focus = Some(new);
+        }
+        Ok(Response::Opened {
+            pane: new,
+            warnings,
+        })
+    }
+
+    /// `open`'s errors before anything changes. A URL's come first, one at a time; `--follow`
+    /// changes nothing, since a browser pane always shows the page live.
+    fn open_gates(
+        &self,
+        path: &str,
+        highlight: Option<(u32, u32)>,
+        diff: bool,
+        edit: bool,
+    ) -> Result<(), Error> {
+        if browser::is_url(path) {
             self.browser_gate()?;
             let flag = [
                 (highlight.is_some(), browser::NO_HIGHLIGHT),
@@ -259,63 +311,58 @@ impl Tab {
         if edit && (highlight.is_some() || diff) {
             return Err(editor::SHOWS_NEITHER.into());
         }
-        // ponytail: `--panel` short-circuits before the dry_run branch, so a wire-only
-        // `{panel, dry_run:true}` would mutate. The CLI can't send it (--panel/--dry-run
-        // don't conflict but replace ignores dry_run). Guard only if a replace preview is wanted.
-        if let Some(id) = panel {
-            return Ok(self.replace_panel(id, path, follow, highlight, diff, edit, area));
-        }
-        let new = self.next_pane;
-        let fit = (!(edit || diff || follow || url)).then_some(path.as_str());
-        let (target, dir, ratio, side) = self.place(split, dir, ratio, side, fit, area);
-        if dry_run {
-            return Ok(self.dry_run_open(&path, target, dir, ratio, side, area));
-        }
+        Ok(())
+    }
+
+    /// The split of `target` for the next pane leaves every pane its `MIN_PANE`. A split that
+    /// fails passes here: `Layout::split` returns its own error.
+    fn split_fits(&self, target: PaneId, dir: Dir, ratio: u16, side: Side, area: Rect) -> bool {
         let mut probe = self.layout.clone();
-        if probe.split(target, dir, ratio, side, new).is_ok()
-            && !all_panes_fit(&self.shown(&probe), area)
-        {
-            return Err(Error::SplitTooSmall);
+        probe
+            .split(target, dir, ratio, side, self.next_pane)
+            .is_err()
+            || all_panes_fit(&self.shown(&probe), area)
+    }
+
+    /// Fill the new pane `new` with `path`, journal the open, and return its warnings.
+    #[allow(clippy::too_many_arguments)] // one per `open` flag it honors
+    fn install_new(
+        &mut self,
+        new: PaneId,
+        path: String,
+        follow: bool,
+        tail: bool,
+        highlight: Option<(u32, u32)>,
+        diff: bool,
+        edit: bool,
+        page: Option<Page>,
+        area: Rect,
+    ) -> Vec<String> {
+        let dup = self.already_open(&path, new);
+        let mut warnings = self.install_panel(new, &path, follow, highlight, diff, area);
+        if let Some(p) = self.panels.get_mut(&new) {
+            p.tail = tail;
         }
-        // Open the page before the split, so a page that won't open adds no pane.
-        let page = url.then(|| self.open_page(new, &path)).transpose()?;
-        match self.layout.split(target, dir, ratio, side, new) {
-            Ok(()) => {
-                self.next_pane += 1;
-                if edit && let Err(e) = self.attach_editor(new, &path, area) {
-                    let _ = self.layout.remove(new);
-                    return Ok(e);
-                }
-                let dup = self.already_open(&path, new);
-                let mut warnings = self.install_panel(new, &path, follow, highlight, diff, area);
-                if let Some(p) = self.panels.get_mut(&new) {
-                    p.tail = tail;
-                }
-                if let Some(page) = page {
-                    self.browsers.insert(new, page);
-                }
-                warnings.extend(dup);
-                let mut event = json!({"type": "open", "pane": new, "path": path});
-                if edit {
-                    event["edit"] = true.into();
-                }
-                self.log_event(event);
-                if let Some((start, end)) = highlight {
-                    self.log_event(
-                        json!({"type": "highlight", "pane": new, "start": start, "end": end}),
-                    );
-                }
-                // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
-                if focus && !edit {
-                    self.pending_focus = Some(new);
-                }
-                Ok(Response::Opened {
-                    pane: new,
-                    warnings,
-                })
-            }
-            Err(message) => Err(message.into()),
+        if let Some(page) = page {
+            self.browsers.insert(new, page);
         }
+        warnings.extend(dup);
+        self.log_event(Event::Open {
+            pane: new,
+            path,
+            replaced: false,
+            edit,
+        });
+        if let Some((start, end)) = highlight {
+            self.log_event(Event::Highlight {
+                pane: new,
+                start: Some(start),
+                end: Some(end),
+                selector: None,
+                cleared: false,
+            });
+        }
+        warnings
     }
 
     /// Where `open` puts the next pane: the agent's split flags, else an inferred split. `fit`: the
@@ -367,259 +414,338 @@ impl Tab {
 
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
+        self.chat.set_agent(true);
+        let resp = self.agent_message(msg, area);
+        self.chat.set_agent(false);
+        resp
+    }
+
+    /// One function for each message.
+    fn agent_message(&mut self, msg: Message, area: Rect) -> Response {
         match msg {
             msg @ Message::Open { .. } => {
                 self.open(msg, area).unwrap_or_else(|e| Response::Error {
                     message: e.to_string(),
                 })
             }
-            Message::Close { pane, all } => {
-                if all {
-                    // All-or-nothing: one pane under review refuses the whole close.
-                    if let Some(e) = self
-                        .panels
-                        .keys()
-                        .find_map(|&id| self.threads_guard(id).and(self.edits_guard(id)).err())
-                    {
-                        return e;
-                    }
-                    for p in self.panels.values() {
-                        remove_if_temp(&p.path);
-                    }
-                    self.layout = Layout::Pane(PTY_PANE);
-                    self.panels.clear();
-                    self.editors.clear();
-                    self.browsers.clear();
-                    self.browser_sizes.clear();
-                    self.focus = PTY_PANE;
-                    self.log_event(json!({"type": "close", "all": true}));
-                    return Response::Ok;
-                }
-                // Guarded here, not in `close_pane`: the user's `x` key closes through it too.
-                if let Some(id) = pane.or((self.focus != PTY_PANE).then_some(self.focus))
-                    && let Err(e) = self.threads_guard(id)
-                {
-                    return e;
-                }
-                self.close_pane(pane)
-            }
-            Message::Focus { pane } => {
-                if pane == PTY_PANE || self.panels.contains_key(&pane) {
-                    self.focus = pane;
-                    self.log_event(json!({"type": "focus", "pane": pane}));
-                    Response::Ok
-                } else {
-                    Response::Error {
-                        message: format!("no pane #{pane}"),
-                    }
-                }
-            }
+            Message::Close { pane, all } => self.close(pane, all),
+            Message::Focus { pane } => self.focus_pane(pane),
             Message::Highlight {
                 pane,
                 range,
                 selector,
-            } => {
-                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
-                let Some(target) = target else {
-                    return Response::Error {
-                        message: "no pane focused to highlight".into(),
-                    };
-                };
-                if self.editors.contains_key(&target) {
-                    return Response::Error {
-                        message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
-                    };
-                }
-                let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
-                    return Response::Error {
-                        message: format!("no pane #{target}"),
-                    };
-                };
-                match (browser, &selector) {
-                    (true, _) if range.is_some() => {
-                        return Response::Error {
-                            message: format!(
-                                "pane #{target} is a browser pane: pass a CSS selector"
-                            ),
-                        };
-                    }
-                    (true, Some(sel)) => {
-                        let (s, q, u) = match self.element(target, sel) {
-                            Ok(e) => e,
-                            Err(message) => return Response::Error { message },
-                        };
-                        if let Some(p) = self.panels.get_mut(&target) {
-                            // Not `set_highlight`: the cursor stays where the user left it.
-                            let row = p.anchor(&s, &q, &u);
-                            p.highlight = Some((row, row));
-                        }
-                        self.log_event(
-                            json!({"type": "highlight", "pane": target, "selector": sel}),
-                        );
-                        return Response::Ok;
-                    }
-                    (false, Some(_)) => {
-                        return Response::Error {
-                            message: format!("pane #{target} is a file pane: pass a line number"),
-                        };
-                    }
-                    _ => {}
-                }
-                let Some(panel) = self.panels.get_mut(&target) else {
-                    return Response::Error {
-                        message: format!("no pane #{target}"),
-                    };
-                };
-                match range {
-                    Some((start, end)) => {
-                        if panel.source_changed {
-                            return Response::Error {
-                                message: format!(
-                                    "pane #{target} is frozen — its file changed on disk while it has an unsubmitted inline review; ask the user to submit (Shift+S) or refresh (Ctrl+R)"
-                                ),
-                            };
-                        }
-                        panel.set_highlight(start, end);
-                        let paused = panel.paused;
-                        self.log_event(
-                            json!({"type":"highlight","pane":target,"start":start,"end":end}),
-                        );
-                        if paused {
-                            return Response::Warning {
-                                message: format!(
-                                    "pane #{target} is paused — the user doesn't see new output, so Laura highlights the content that the pane holds"
-                                ),
-                            };
-                        }
-                    }
-                    None => {
-                        panel.clear_highlight();
-                        self.log_event(json!({"type":"highlight","pane":target,"cleared":true}));
-                    }
-                }
-                Response::Ok
-            }
-            Message::DiffView { pane, on } => {
-                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
-                let Some(target) = target else {
-                    return Response::Error {
-                        message: "no pane focused for diff view".into(),
-                    };
-                };
-                if self.editors.contains_key(&target) {
-                    return Response::Error {
-                        message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
-                    };
-                }
-                let Some(panel) = self.panels.get_mut(&target) else {
-                    return Response::Error {
-                        message: format!("no pane #{target}"),
-                    };
-                };
-                if panel.browser && on != Some(false) {
-                    return Response::Error {
-                        message: browser::NO_DIFF.into(),
-                    };
-                }
-                let want = on.unwrap_or(!panel.diff_view);
-                match panel.set_diff_view(want) {
-                    Ok(()) => {
-                        self.log_event(json!({"type":"diff","pane":target,"on":want}));
-                        Response::Ok
-                    }
-                    // Refusal is a no-op with a warning surfaced as an error (CLI → stderr).
-                    Err(message) => Response::Error { message },
-                }
-            }
+            } => self.highlight(pane, range, selector),
+            Message::DiffView { pane, on } => self.diff_view(pane, on),
             Message::Comment {
                 pane,
                 line,
                 selector,
                 body,
                 author,
-            } => {
-                let target = pane.or((self.focus != PTY_PANE).then_some(self.focus));
-                let Some(target) = target else {
-                    return Response::Error {
-                        message: "no pane focused to comment on".into(),
-                    };
-                };
-                // Default to the session's agent name; `agent_note` falls back to `"agent"`.
-                let author = author.or_else(|| self.journal.as_ref().and_then(|j| j.agent()));
-                let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
-                    return Response::Error {
-                        message: format!("no pane #{target}"),
-                    };
-                };
-                let (line, event) = match (browser, line, selector) {
-                    // Before the anchor, which the empty body would leave on the pane.
-                    (true, None, Some(_))
-                        if body.as_deref().is_none_or(|b| b.trim().is_empty()) =>
-                    {
-                        return Response::Error {
-                            message: "comment needs a body".into(),
-                        };
-                    }
-                    (true, None, Some(sel)) => {
-                        let (s, q, u) = match self.element(target, &sel) {
-                            Ok(e) => e,
-                            Err(message) => return Response::Error { message },
-                        };
-                        let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
-                        let line = row.map_or(0, |r| r as u32 + 1);
-                        (
-                            line,
-                            json!({"type": "comment", "pane": target, "selector": sel}),
-                        )
-                    }
-                    (true, ..) => {
-                        return Response::Error {
-                            message: format!(
-                                "pane #{target} is a browser pane: pass a CSS selector"
-                            ),
-                        };
-                    }
-                    (false, Some(line), None) => (
-                        line,
-                        json!({"type": "comment", "pane": target, "line": line}),
-                    ),
-                    (false, ..) => {
-                        return Response::Error {
-                            message: format!("pane #{target} is a file pane: pass a line number"),
-                        };
-                    }
-                };
-                let Some(panel) = self.panels.get_mut(&target) else {
-                    return Response::Error {
-                        message: format!("no pane #{target}"),
-                    };
-                };
-                match panel.agent_note(line, body, author) {
-                    Ok(()) => {
-                        self.log_event(event);
-                        Response::Ok
-                    }
-                    Err(message) => Response::Error { message },
-                }
-            }
+            } => self.agent_comment(pane, line, selector, body, author),
             Message::Layout => Response::Report(self.report(area)),
             Message::Ready {
                 session,
                 agent,
                 title,
             } => self.ready(session, agent, title, area),
-            Message::Feedback { sentiment, body } => {
-                let pane = (self.focus != PTY_PANE).then_some(self.focus);
-                self.log_event(json!({
-                    "type": "feedback",
-                    "sentiment": sentiment,
-                    "body": body,
-                    "pane": pane,
-                }));
-                Response::Ok
-            }
+            Message::Feedback { sentiment, body } => self.feedback(sentiment, body),
+            Message::Say { body } => self.say(body),
             Message::Update { .. } => Response::Ok, // reserved; not yet emitted
         }
+    }
+
+    /// The pane an agent verb acts on: `pane`, else the focused pane, else none (the shell).
+    fn target(&self, pane: Option<PaneId>) -> Option<PaneId> {
+        pane.or((self.focus != PTY_PANE).then_some(self.focus))
+    }
+
+    /// `close`: pane `pane` (default: the focused pane), or every pane with `all`.
+    fn close(&mut self, pane: Option<PaneId>, all: bool) -> Response {
+        if all {
+            return self.close_all();
+        }
+        // Guarded here, not in `close_pane`: the user's `x` key closes through it too.
+        if let Some(id) = self.target(pane)
+            && let Err(e) = self.threads_guard(id)
+        {
+            return e;
+        }
+        self.close_pane(pane)
+    }
+
+    /// `close --all`. All-or-nothing: one pane under review refuses the whole close.
+    fn close_all(&mut self) -> Response {
+        if let Some(e) = self
+            .panels
+            .keys()
+            .find_map(|&id| self.threads_guard(id).and(self.edits_guard(id)).err())
+        {
+            return e;
+        }
+        for p in self.panels.values() {
+            remove_if_temp(&p.path);
+        }
+        self.layout = Layout::Pane(PTY_PANE);
+        self.panels.clear();
+        self.editors.clear();
+        self.browsers.clear();
+        self.browser_sizes.clear();
+        self.focus = PTY_PANE;
+        self.log_event(Event::Close {
+            pane: None,
+            all: true,
+        });
+        Response::Ok
+    }
+
+    /// `focus`: move the focus to pane `pane`, the shell included.
+    fn focus_pane(&mut self, pane: PaneId) -> Response {
+        if pane != PTY_PANE && !self.panels.contains_key(&pane) {
+            return Response::Error {
+                message: format!("no pane #{pane}"),
+            };
+        }
+        self.focus = pane;
+        self.log_event(Event::Focus { pane });
+        Response::Ok
+    }
+
+    /// `highlight`: lines of a file pane, an element of a browser pane, or no highlight.
+    fn highlight(
+        &mut self,
+        pane: Option<PaneId>,
+        range: Option<(u32, u32)>,
+        selector: Option<String>,
+    ) -> Response {
+        let Some(target) = self.target(pane) else {
+            return Response::Error {
+                message: "no pane focused to highlight".into(),
+            };
+        };
+        if self.editors.contains_key(&target) {
+            return Response::Error {
+                message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
+            };
+        }
+        let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
+            return Response::Error {
+                message: format!("no pane #{target}"),
+            };
+        };
+        match (browser, selector) {
+            (true, _) if range.is_some() => Response::Error {
+                message: format!("pane #{target} is a browser pane: pass a CSS selector"),
+            },
+            (true, Some(sel)) => self.highlight_element(target, &sel),
+            (false, Some(_)) => Response::Error {
+                message: format!("pane #{target} is a file pane: pass a line number"),
+            },
+            _ => self.highlight_range(target, range),
+        }
+    }
+
+    /// Highlight the element `sel` in browser pane `target`.
+    fn highlight_element(&mut self, target: PaneId, sel: &str) -> Response {
+        let (s, q, u) = match self.element(target, sel) {
+            Ok(e) => e,
+            Err(message) => return Response::Error { message },
+        };
+        if let Some(p) = self.panels.get_mut(&target) {
+            // Not `set_highlight`: the cursor stays where the user left it.
+            let row = p.anchor(&s, &q, &u);
+            p.highlight = Some((row, row));
+        }
+        self.log_event(Event::Highlight {
+            pane: target,
+            start: None,
+            end: None,
+            selector: Some(sel.into()),
+            cleared: false,
+        });
+        Response::Ok
+    }
+
+    /// Highlight lines `range` of pane `target`, or clear its highlight with `None`.
+    fn highlight_range(&mut self, target: PaneId, range: Option<(u32, u32)>) -> Response {
+        let Some(panel) = self.panels.get_mut(&target) else {
+            return Response::Error {
+                message: format!("no pane #{target}"),
+            };
+        };
+        let Some((start, end)) = range else {
+            panel.clear_highlight();
+            self.log_event(Event::Highlight {
+                pane: target,
+                start: None,
+                end: None,
+                selector: None,
+                cleared: true,
+            });
+            return Response::Ok;
+        };
+        if panel.source_changed {
+            return Response::Error {
+                message: format!(
+                    "pane #{target} is frozen — its file changed on disk while it has an unsubmitted inline review; ask the user to submit (Shift+S) or refresh (Ctrl+R)"
+                ),
+            };
+        }
+        panel.set_highlight(start, end);
+        let paused = panel.paused;
+        self.log_event(Event::Highlight {
+            pane: target,
+            start: Some(start),
+            end: Some(end),
+            selector: None,
+            cleared: false,
+        });
+        if paused {
+            return Response::Warning {
+                message: format!(
+                    "pane #{target} is paused — the user doesn't see new output, so Laura highlights the content that the pane holds"
+                ),
+            };
+        }
+        Response::Ok
+    }
+
+    /// `diff`: turn pane `pane`'s diff view on, off, or over (`None`).
+    fn diff_view(&mut self, pane: Option<PaneId>, on: Option<bool>) -> Response {
+        let Some(target) = self.target(pane) else {
+            return Response::Error {
+                message: "no pane focused for diff view".into(),
+            };
+        };
+        if self.editors.contains_key(&target) {
+            return Response::Error {
+                message: format!("pane #{target}: {}", editor::SHOWS_NEITHER),
+            };
+        }
+        let Some(panel) = self.panels.get_mut(&target) else {
+            return Response::Error {
+                message: format!("no pane #{target}"),
+            };
+        };
+        if panel.browser && on != Some(false) {
+            return Response::Error {
+                message: browser::NO_DIFF.into(),
+            };
+        }
+        let want = on.unwrap_or(!panel.diff_view);
+        match panel.set_diff_view(want) {
+            Ok(()) => {
+                self.log_event(Event::Diff {
+                    pane: target,
+                    on: want,
+                });
+                Response::Ok
+            }
+            // Refusal is a no-op with a warning surfaced as an error (CLI → stderr).
+            Err(message) => Response::Error { message },
+        }
+    }
+
+    /// `comment`: the agent's comment with `body` on a line or an element of pane `pane`.
+    fn agent_comment(
+        &mut self,
+        pane: Option<PaneId>,
+        line: Option<u32>,
+        selector: Option<String>,
+        body: Option<String>,
+        author: Option<String>,
+    ) -> Response {
+        let Some(target) = self.target(pane) else {
+            return Response::Error {
+                message: "no pane focused to comment on".into(),
+            };
+        };
+        // Default to the session's agent name; `agent_note` falls back to `"agent"`.
+        let author = author.or_else(|| self.journal.as_ref().and_then(|j| j.agent()));
+        let (line, selector) = match self.comment_anchor(target, line, selector, body.as_deref()) {
+            Ok(anchor) => anchor,
+            Err(e) => return e,
+        };
+        let event = Event::Comment {
+            pane: target,
+            line: selector.is_none().then_some(line),
+            selector,
+            body: body.clone(),
+        };
+        let Some(panel) = self.panels.get_mut(&target) else {
+            return Response::Error {
+                message: format!("no pane #{target}"),
+            };
+        };
+        match panel.agent_note(line, body, author) {
+            Ok(()) => {
+                self.log_event(event);
+                Response::Ok
+            }
+            Err(message) => Response::Error { message },
+        }
+    }
+
+    /// The 1-based line an agent comment on pane `target` goes on: `line` in a file pane, the row
+    /// of the element `selector` in a browser pane, with the selector.
+    fn comment_anchor(
+        &mut self,
+        target: PaneId,
+        line: Option<u32>,
+        selector: Option<String>,
+        body: Option<&str>,
+    ) -> Result<(u32, Option<String>), Response> {
+        let Some(browser) = self.panels.get(&target).map(|p| p.browser) else {
+            return Err(Response::Error {
+                message: format!("no pane #{target}"),
+            });
+        };
+        match (browser, line, selector) {
+            // Before the anchor, which the empty body would leave on the pane.
+            (true, None, Some(_)) if body.is_none_or(|b| b.trim().is_empty()) => {
+                Err(Response::Error {
+                    message: "comment needs a body".into(),
+                })
+            }
+            (true, None, Some(sel)) => {
+                let (s, q, u) = self
+                    .element(target, &sel)
+                    .map_err(|message| Response::Error { message })?;
+                let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
+                let line = row.map_or(0, |r| r as u32 + 1);
+                Ok((line, Some(sel)))
+            }
+            (true, ..) => Err(Response::Error {
+                message: format!("pane #{target} is a browser pane: pass a CSS selector"),
+            }),
+            (false, Some(line), None) => Ok((line, None)),
+            (false, ..) => Err(Response::Error {
+                message: format!("pane #{target} is a file pane: pass a line number"),
+            }),
+        }
+    }
+
+    /// `feedback`: journal the user's sentiment, on the focused pane if any.
+    fn feedback(&mut self, sentiment: String, body: Option<String>) -> Response {
+        let pane = self.target(None);
+        self.log_event(Event::Feedback {
+            sentiment,
+            body,
+            pane,
+        });
+        Response::Ok
+    }
+
+    /// `say`: journal the agent's words to the user, which the chat shows.
+    fn say(&mut self, body: String) -> Response {
+        if body.trim().is_empty() {
+            return Response::Error {
+                message: SAY_NEEDS_BODY.into(),
+            };
+        }
+        self.said();
+        self.log_event(Event::Say { body });
+        Response::Ok
     }
 
     /// `ready`: the agent names its session, so the journal opens and the session label may change.
@@ -645,14 +771,25 @@ impl Tab {
                 .and_then(Journal::agent)
         });
         let journal = Journal::open(&session, agent);
+        // A new session starts an empty chat; a re-`ready` of the same one keeps it.
+        if self
+            .journal
+            .as_ref()
+            .is_some_and(|j| j.path() != journal.path())
+        {
+            self.chat.new_session();
+        }
         let path = journal.path().to_string_lossy().into_owned();
         let root = crate::platform::folder()
             .ok()
             .map(crate::platform::strip_verbatim)
             // `json!` panics on a path that isn't UTF-8.
             .map(|r| r.to_string_lossy().into_owned());
-        journal
-            .log(json!({"type": "ready", "pid": std::process::id(), "title": title, "root": root}));
+        journal.log(&Event::Ready {
+            pid: std::process::id(),
+            title: title.clone(),
+            root,
+        });
         self.journal = Some(journal);
         if title.is_some() {
             self.title = title;

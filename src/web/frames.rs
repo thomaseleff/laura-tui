@@ -83,7 +83,9 @@ pub(super) fn layout_json(
            "modes": tab.modes(), "draft": draft_json(tab),
            // The saved screen's grid, so a new view's xterm parses the replay at its own size.
            "shell": {"cols": cols, "rows": rows},
-           "agent": tab.agent, "waiting": tab.waiting, "wait": tab.wait, "hints": hints, "panes": panes, "splits": splits})
+           "drawer_view": if tab.drawer_shows_shell() { "shell" } else { "chat" },
+           "message_box": tab.message_gate().is_ok(), "unsaid": tab.unsaid(),
+           "agent": tab.agent, "waiting": tab.waiting(), "wait": tab.wait_id(), "hints": hints, "panes": panes, "splits": splits})
     .to_string()
 }
 
@@ -165,6 +167,17 @@ fn pane_json(tab: &Tab, id: PaneId, r: Rect) -> Value {
            "paused": p.filter(|p| p.pausable()).map(|p| p.paused),
            "threads": p.map_or(0, Panel::thread_count),
            "unsaved": editor.is_some_and(|e| e.modified())})
+}
+
+/// Send the chat's rows when they changed since the view last saw them. A say's `html` is
+/// Laura's, as a `pane` frame's rows.
+pub(super) fn send_chat(v: &mut View, tab: &Tab) {
+    let (rows, seq) = tab.chat();
+    if v.chat == Some(seq) {
+        return;
+    }
+    v.chat = Some(seq);
+    v.text(json!({"t": "chat", "rows": rows}));
 }
 
 /// Send each browser pane's URL, title, whether its page is live (Laura's browser runs it), and

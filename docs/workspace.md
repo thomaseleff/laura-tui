@@ -32,13 +32,13 @@ The agent runs in the shell, pane `0`. Laura shows the shell in white, with Laur
 
 The pane header names the shell after the agent: the name that the agent gives with `laura ready --agent`, such as `claude`. Before the agent runs `laura ready`, the pane header shows `shell`. The pane selector shows the same name, also in the TUI.
 
-Laura shows the shell in a drawer. Before the agent opens a pane, Laura shows a start canvas above the drawer. When the agent opens a pane, the panes fill the workspace, and the drawer floats over the panes. Press ``Ctrl+` `` to open or close the drawer. To keep the shell beside the panes, click **Show the shell as a pane** in the drawer. See [The drawer](navigation.md#the-drawer).
+Laura shows the shell in a drawer, with the [chat](navigation.md#the-chat-and-the-shell) of what the agent did through Laura. Before the agent opens a pane, Laura shows a start canvas above the drawer. When the agent opens a pane, the panes fill the workspace, and the drawer floats over the panes. Press ``Ctrl+` `` to open or close the drawer. To keep the shell beside the panes, click **Show the shell as a pane** in the drawer. See [The drawer](navigation.md#the-drawer).
 
 ## Know when the agent waits
 
 When the agent waits for you, for example at a permission prompt, Laura marks the workspace as waiting:
 
-- While the shell is in the drawer, the shell button turns amber and shows `Waiting for you`.
+- While the shell is in the drawer, the shell button turns amber and shows `Waiting for you` when the agent said nothing since you last wrote to the shell. See [The drawer](navigation.md#the-drawer).
 - The browser tab's icon shows an amber dot.
 - The other workspaces show an amber dot in the workspace switcher and `Waiting for you` on this workspace's row. See [Switch workspaces](navigation.md#switch-workspaces).
 - The Laura server's page shows `Waiting for you` on this workspace's row. See [Open a running workspace](#open-a-running-workspace).
@@ -50,9 +50,10 @@ The wait ends when you:
 - Close the pane selector, the list of keystrokes or the list of workspaces while the shell has the focus.
 - Type, paste, scroll or click in the shell.
 - Submit an inline review.
+- Send a message from the chat's message box.
 - Close a pane, and Laura moves the focus to the shell.
 
-The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, or when you come back to the browser tab.
+The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, when you come back to the browser tab, or when you click or type in the chat.
 
 Laura shows a wait when the program in the shell rings the terminal bell or sends a terminal notification.
 

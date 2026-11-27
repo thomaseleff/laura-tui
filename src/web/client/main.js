@@ -9,6 +9,7 @@ import { paintHint, shellBusy, showNotice, visit } from "./bottom.js";
 import { frameOf, onPage, onPane, place, setCommentMode } from "./pages.js";
 import { paintHelp } from "./selector.js";
 import { paintSwitcher, showOverlay } from "./workspaces.js";
+import { onChat } from "./chat.js";
 // The keydown listener and the window's other listeners.
 import "./keys.js";
 
@@ -66,6 +67,9 @@ export function connect() {
         break;
       case "glance":
         paintGlance(m);
+        break;
+      case "chat":
+        onChat(m);
         break;
       case "pane":
       case "rows":
