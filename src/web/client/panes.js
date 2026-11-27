@@ -2,7 +2,7 @@
 // canvas, the drawer with its grip and start height, a browser pane's pointer, and the DOM focus, which
 // follows the workspace's focus.
 
-import { $, act, draft, drawerOpen, esc, focused, layout, on, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
+import { $, act, draft, drawerOpen, esc, focused, layout, mode, on, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
 import { ch, cw, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
@@ -107,7 +107,9 @@ function historyList(el) {
   c.innerHTML = '<div class="list" tabindex="-1"></div>';
   c.addEventListener("click", historyClick);
   // A focused row takes `Enter` and `Space` as a click, and the keydown listener doesn't see them.
+  // A mode, such as the quit question, takes them first, from the keydown listener.
   c.addEventListener("keydown", e => {
+    if (mode()) return;
     if ((e.key === "Enter" || e.key === " ") && e.target.matches(".te.hr[data-i]")) {
       e.preventDefault();
       e.stopPropagation();

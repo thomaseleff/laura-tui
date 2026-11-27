@@ -473,6 +473,53 @@ fn enter_on_a_focused_history_row_shows_its_command_again() -> Result<()> {
     Ok(())
 }
 
+/// A mode takes `Enter` before a focused History row: under the quit question, `Enter` closes the
+/// question and shows no command again.
+#[test]
+fn the_quit_question_takes_enter_from_a_focused_history_row() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let dir = tempfile::tempdir()?;
+    let a = dir.path().join("a.md");
+    std::fs::write(&a, "# A\n\none\n")?;
+    r.drive(&["open", &a.to_string_lossy(), "--no-focus"]);
+    c.until(
+        &mut r,
+        "the open row",
+        "layout.focus === 0 && !acts.length && !!document.querySelector('#p0 .te.hr[data-i]')",
+    );
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the History's list focused",
+        "layout.drawer_view === 'history' && !acts.length \
+         && document.activeElement === document.querySelector('#p0 .history .list')",
+    );
+    c.press(TAB);
+    c.until(
+        &mut r,
+        "the open row focused",
+        "document.activeElement.matches('#p0 .te.hr[data-i]')",
+    );
+    c.press(CTRL_Q);
+    c.until(
+        &mut r,
+        "the quit question",
+        &format!("{QUIT} && !acts.length"),
+    );
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the quit question closes, the shell keeps the focus",
+        &format!("!({QUIT}) && !acts.length && layout.focus === 0"),
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// A view that opens after the agent's say shows the say in the History and in the shell button.
 /// A screen reader reads only a say that comes while the page is open.
 #[test]
