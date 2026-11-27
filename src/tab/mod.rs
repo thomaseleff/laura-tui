@@ -788,9 +788,10 @@ impl Tab {
 
     /// The drawer shows the shell, not the chat: before the agent's first say, and from the start
     /// of each wait with no say since the user's last message (`Tab::say`, `wait_began`), until
-    /// the user flips it (`Ctrl+.`).
+    /// the user flips it (`Ctrl+.`); and while the lock is on, which sends the keystrokes to the
+    /// shell. The unlock brings the chat back.
     pub fn drawer_shows_shell(&self) -> bool {
-        self.modes.drawer == DrawerView::Shell
+        self.modes.drawer == DrawerView::Shell || self.locked()
     }
 
     /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it

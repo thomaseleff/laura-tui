@@ -238,6 +238,44 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
     Ok(())
 }
 
+/// `F12` over the chat shows the shell, which takes the keystrokes, until the second `F12` brings
+/// the chat back.
+#[test]
+fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "hello from the agent"]);
+    c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    c.press(F12);
+    c.until(
+        &mut r,
+        "the shell, with the keystrokes",
+        "layout.drawer_view === 'shell' && !acts.length && !!document.activeElement.closest('#p0 .term')",
+    );
+    c.type_text("echo locked-key");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the echo in the shell",
+        &format!("{SHELL_LINES}.some(l => l.trim() === 'locked-key')"),
+    );
+    c.press(F12);
+    c.until(
+        &mut r,
+        "the chat again",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// A view that opens after the agent's say shows the say in the chat and in the shell button.
 #[test]
 fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
