@@ -211,7 +211,7 @@ In the diff view (`d`), Laura uses the same tints: a `+` row is green, also for 
 
 ### Threads and inline reviews
 
-- Laura shows each thread below its line. Click **Reply…** to add a comment. On a thread that ends with your comment, click **Edit…** or **Delete**.
+- Laura shows each thread below its line, also in the diff view. Click **Reply…** to add a comment. On a thread that ends with your comment, click **Edit…** or **Delete**.
 - Laura shows a collapsed thread as one row below its line, with the line number, the authors of the comments and the number of comments. Click the row to expand the thread.
 - On an HTML page or in a browser pane, Laura hides a collapsed thread.
 - Click the thread count in the pane header to list the pane's threads, then click a thread to move the cursor to it.

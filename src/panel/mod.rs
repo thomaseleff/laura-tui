@@ -966,6 +966,10 @@ impl Panel {
                     change,
                 });
             }
+            // A thread shows below its first source line, as the web app places its card.
+            for t in self.threads.iter().filter(|t| self.thread_source(t).0 == i) {
+                rows.extend(self.thread_rows(t.line, i, inner_w));
+            }
         }
         let eof_start = rows.len();
         removed_at(&mut rows, line_count); // trailing EOF deletion

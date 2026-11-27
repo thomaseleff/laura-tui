@@ -217,7 +217,7 @@ Each motion is a common sequence of `laura` commands, with when to use it.
 
 **Use when** you want to show *what* changed, not just *where*, or your partner asks to see the latest changes to a file.
 
-Laura tints added and modified lines, and shows a red row where lines were deleted, in every file pane. To point your partner at a change, name the tinted rows. On a clean or untracked file, or without `git`, there is nothing to diff: `laura diff` returns an error, and `laura open --diff` warns on stderr.
+Laura tints added and modified lines, and shows a red row where lines were deleted, in every file pane. To point your partner at a change, name the tinted rows. The diff view shows each thread below its line, so `laura comment` on a changed line shows in the diff view too. On a clean or untracked file, or without `git`, there is nothing to diff: `laura diff` returns an error, and `laura open --diff` warns on stderr.
 
 ### Edit a file together
 

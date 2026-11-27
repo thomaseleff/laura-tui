@@ -60,6 +60,36 @@ fn the_web_app_loads_and_paints() -> Result<()> {
     Ok(())
 }
 
+/// `c.txt` committed as `keep`, `old`, then changed on disk to `keep`, `new`, open in pane 1.
+fn changed_open(r: &mut Rig) -> Result<tempfile::TempDir> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("c.txt");
+    std::fs::write(&path, "keep\nold\n")?;
+    for args in [
+        &["init", "-q"][..],
+        &["add", "c.txt"],
+        &["commit", "-q", "-m", "init"],
+    ] {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args([
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()?;
+        assert!(out.status.success(), "git {args:?} failed");
+    }
+    std::fs::write(&path, "keep\nnew\n")?;
+    assert_eq!(r.drive(&["open", &path.to_string_lossy()]), "1");
+    Ok(dir)
+}
+
 /// Pane 1 holds a file, and the pane selector focused pane 1.
 fn file_focused(r: &mut Rig, c: &Client) -> Result<tempfile::TempDir> {
     let dir = open_five(r)?;
@@ -484,6 +514,37 @@ fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
         "the notice in the drawer",
         "document.querySelector('#p0 #notice.on')?.textContent.endsWith('a.md no longer exists.')",
     );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// The diff view shows each thread's card below its line's own row: below `keep`, and below `+new`,
+/// not below the `-old` row before it, which carries the same line.
+#[test]
+fn the_diff_view_shows_each_thread_below_its_line() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = changed_open(&mut r)?;
+    r.drive(&["ready"]);
+    r.drive(&["comment", "1", "first", "--pane", "1"]);
+    r.drive(&["comment", "2", "second", "--pane", "1"]);
+    r.drive(&["diff", "--pane", "1"]);
+    // The row before the thread's card, as `data-line` and its text.
+    const ABOVE: &str = "(n => { const r = document.querySelector(`#p1 .card[data-th=\"${n}\"]`)\
+        ?.closest('.inl')?.previousElementSibling; \
+        return r ? [r.dataset.line, r.textContent.slice(r.querySelector('.g').textContent.length).trimEnd()] : null; })";
+    let above = c.until(
+        &mut r,
+        "both cards in the diff view",
+        &format!(
+            "!!document.querySelector('#p1 .row[data-change=\"removed\"]') \
+             && (a => a[0] && a[1] && a)([{ABOVE}(1), {ABOVE}(2)])"
+        ),
+    );
+    assert_eq!(above, json!([["1", " keep"], ["2", "+new"]]));
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

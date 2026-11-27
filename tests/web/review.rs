@@ -334,3 +334,33 @@ fn ready_lists_no_web_or_browser() -> Result<()> {
     assert!(v["browser_url"].is_null(), "{v}");
     Ok(())
 }
+
+/// The diff view shows a thread below its line, as the file view does: the thread's card adds the
+/// same rows to the pane in both views (`laura layout`'s `content_rows`).
+#[test]
+fn the_diff_view_shows_a_thread() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = changed_file("c.txt", "keep\nold\n", "keep\nnew\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready", "--agent", "claude"]);
+    let rows = |rig: &mut Rig| -> Result<u64> {
+        let report: Value = serde_json::from_str(&rig.drive(&["layout"]))?;
+        Ok(report["panes"][1]["content_rows"]
+            .as_u64()
+            .unwrap_or_default())
+    };
+    let file_bare = rows(&mut rig)?;
+    rig.drive(&["diff", "--pane", "1"]);
+    let diff_bare = rows(&mut rig)?;
+    rig.drive(&["diff", "--pane", "1", "--off"]);
+    rig.drive(&["comment", "1", "look", "--pane", "1"]);
+    let card = rows(&mut rig)? - file_bare;
+    assert!(card > 0, "the file view shows the thread");
+    rig.drive(&["diff", "--pane", "1"]);
+    assert_eq!(
+        rows(&mut rig)?,
+        diff_bare + card,
+        "the diff view shows the thread"
+    );
+    Ok(())
+}
