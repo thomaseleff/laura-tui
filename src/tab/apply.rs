@@ -569,7 +569,11 @@ impl Tab {
     }
 
     /// Highlight lines `range` of pane `target`, or clear its highlight with `None`.
-    fn highlight_range(&mut self, target: PaneId, range: Option<(u32, u32)>) -> Response {
+    pub(super) fn highlight_range(
+        &mut self,
+        target: PaneId,
+        range: Option<(u32, u32)>,
+    ) -> Response {
         let Some(panel) = self.panels.get_mut(&target) else {
             return Response::Error {
                 message: format!("no pane #{target}"),
@@ -613,7 +617,7 @@ impl Tab {
     }
 
     /// `diff`: turn pane `pane`'s diff view on, off, or over (`None`).
-    fn diff_view(&mut self, pane: Option<PaneId>, on: Option<bool>) -> Response {
+    pub(super) fn diff_view(&mut self, pane: Option<PaneId>, on: Option<bool>) -> Response {
         let Some(target) = self.target(pane) else {
             return Response::Error {
                 message: "no pane focused for diff view".into(),
@@ -773,14 +777,12 @@ impl Tab {
                 .and_then(Journal::agent)
         });
         let journal = Journal::open(&session, agent);
-        // A new session starts an empty chat; a re-`ready` of the same one keeps it.
-        if self
+        // A new session starts an empty History; a re-`ready` of the same one keeps it.
+        let new_session = self
             .journal
             .as_ref()
-            .is_some_and(|j| j.path() != journal.path())
-        {
-            self.history.new_session();
-        }
+            .is_some_and(|j| j.path() != journal.path());
+        self.history.ready(title.clone(), new_session);
         let path = journal.path().to_string_lossy().into_owned();
         let root = crate::platform::folder()
             .ok()

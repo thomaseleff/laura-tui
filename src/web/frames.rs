@@ -177,6 +177,7 @@ pub(super) fn send_history(v: &mut View, tab: &Tab) {
         return;
     }
     v.history = Some(seq);
+    let rows: Vec<Value> = rows.iter().map(|r| r.json()).collect();
     v.text(json!({"t": "history", "rows": rows}));
 }
 

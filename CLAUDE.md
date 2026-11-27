@@ -125,10 +125,11 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
 | **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id, or a workspace by session label or folder. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
-| **drawer** | The chat or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
+| **drawer** | The History or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
 | **start canvas** | The page the web app shows beside the shell while no other pane is open: the first steps until the user's first submitted inline review, then the project at a glance, or a short prompt. | welcome screen, empty state, canvas (alone) |
 | **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer, and shows the agent's latest say while the drawer is closed. | chip, pill |
-| **chat** | The list in the web app's drawer of what passed through Laura in the agent's session: the agent's says, its other `laura` commands and the user's inline reviews. Use *shell* for the agent CLI's own screen. | timeline, feed |
+| **History** | The list in the web app's drawer of what the agent did through Laura in its session: one row for each `laura` command, each say and each submitted inline review. A click on a row shows its command again. | chat, timeline, feed, log |
+| **chat** | The agent's conversation, in the shell. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
 | **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`). | web pane, browser tab, preview |

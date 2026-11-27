@@ -347,7 +347,7 @@ fn stamp(obj: &mut Map<String, Value>, key: &str, val: Value) {
     obj.entry(key.to_string()).or_insert(val);
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)

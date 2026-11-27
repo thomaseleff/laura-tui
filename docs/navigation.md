@@ -13,7 +13,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 |---|---|
 | `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. The pane selector also finds a workspace: see [Switch workspaces](#switch-workspaces). |
 | ``Ctrl+` `` | Opens or closes the [drawer](#the-drawer). |
-| `Ctrl+.` | Flips the [drawer](#the-drawer) between the chat and the shell. From another pane, Laura opens the drawer as it was. |
+| `Ctrl+.` | Flips the [drawer](#the-drawer) between the History and the shell. From another pane, Laura opens the drawer as it was. |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Makes the [drawer](#the-drawer) taller or shorter by 5% of the workspace while the drawer is open. |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
@@ -36,7 +36,7 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 ## The drawer
 
-Laura shows the chat and the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus. File panes, browser panes and editor panes fill the workspace.
+Laura shows the History and the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus. File panes, browser panes and editor panes fill the workspace.
 
 When the web app starts, no pane is open yet. Laura shows a start canvas above the drawer:
 
@@ -70,17 +70,34 @@ To show the shell as a pane, click **Show the shell as a pane** in the drawer's 
 
 When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.` and keeps the shell in the drawer.
 
-### The chat and the shell
+### The History and the shell
 
-The drawer shows the chat or the shell. To flip the drawer, press `Ctrl+.`, or click **History** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
+The drawer shows the History or the shell. The drawer shows the shell until you flip it, and keeps the view that you left it on. A say or a wait doesn't flip the drawer. To flip the drawer, press `Ctrl+.`, or click **History** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
 
-The chat shows what passed through Laura in the agent's session:
+The History lists what the agent did through Laura in its session, one row for each event, with its time:
 
-- Each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
-- One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run that is still open.
-- Each inline review that you submit.
+- `ready`, with the session label, when the agent starts the session. When the agent starts a new session with `laura ready --session`, Laura starts an empty History.
+- One row for each `laura` command that the agent ran: `open`, `close`, `focus`, `highlight`, `diff` and `comment`, with the file and its lines or its element. `laura open --highlight` gives an `open` row and a `highlight` row. A command that returned an error, `laura layout` and `laura feedback` give no row.
+- `say`, with each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
+- `review`, with the file and its count of comments, for each inline review that you submit.
 
-The drawer shows the shell until you flip it. A say or a wait doesn't flip the drawer. When the agent starts a new session with `laura ready --session`, Laura starts an empty chat.
+A blue row with a chevron shows its command again when you click the row. Laura never runs the command again, and doesn't add a row for the click. Laura finds the pane by the row's file, not by its pane number, and that pane takes the focus, which closes the drawer. The drawer keeps the History, so ``Ctrl+` `` opens the History again.
+
+- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's or a tail pane's file in a file pane.
+- A `highlight` row highlights the lines or the element again.
+- A `diff` row that turned the diff view on turns the diff view on again.
+- A `comment` row moves the cursor to the comment's line, or highlights the comment's element in a browser pane. Laura adds no comment.
+- A `focus` row focuses the pane again.
+
+A `ready`, `close`, `say` or `review` row, a `highlight` row that cleared the highlight, a `diff` row that turned the diff view off and a `focus` row on the shell show nothing again.
+
+When Laura can't show a command again, Laura changes nothing and shows one of these notices in the drawer:
+
+- `⚠ No pane shows <name>. Click its open row to open it again.` when no pane shows the row's file.
+- `⚠ <path> no longer exists.` when an `open` row's file is gone.
+- `⚠ No element matches <selector> in pane #<n>.` when the element is gone from the page.
+- `⚠ The page in pane #<n> isn't ready. Try again once it has loaded.` while the page loads or shows a dialog.
+- `⚠ Pane #<n> is frozen. Submit or refresh its inline review first.` when the pane is frozen.
 
 To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41, in the middle of the pane. When line 41 is already on screen, Laura moves only the cursor. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
 

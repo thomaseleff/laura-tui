@@ -321,6 +321,56 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
     Ok(())
 }
 
+/// The centre of the History's first row, once the drawer shows the History.
+const ROW_AT: &str = "layout.drawer_view === 'history' && !acts.length && (() => { \
+    const b = document.querySelector('#p0 .te.hr[data-i=\"0\"]')?.getBoundingClientRect(); \
+    return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()";
+
+/// A click on a History row shows its command again: its pane takes the focus, which closes the
+/// drawer, and `` Ctrl+` `` opens the drawer on the History again. A row whose file is gone shows
+/// its notice in the drawer.
+#[test]
+fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let dir = tempfile::tempdir()?;
+    let a = dir.path().join("a.md");
+    std::fs::write(&a, "# A\n\none\n")?;
+    let a = a.to_string_lossy().into_owned();
+    r.drive(&["open", &a, "--no-focus"]);
+    r.drive(&["close", "1"]);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
+    let at = c.until(&mut r, "the open row", ROW_AT);
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "a.md focused, the drawer closed",
+        "layout.focus === 2 && !acts.length && !document.getElementById('p0').classList.contains('open')",
+    );
+    c.press(CTRL_BACKQUOTE);
+    c.until(
+        &mut r,
+        "the drawer on the History",
+        "layout.focus === 0 && layout.drawer_view === 'history' && !acts.length \
+         && document.getElementById('p0').classList.contains('open')",
+    );
+    r.drive(&["close", "2"]);
+    std::fs::remove_file(&a)?;
+    let at = c.until(&mut r, "the open row", ROW_AT);
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "the notice in the drawer",
+        "document.querySelector('#p0 #notice.on')?.textContent.endsWith('a.md no longer exists.')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// A view that opens after the agent's say shows the say in the History and in the shell button.
 #[test]
 fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {

@@ -436,28 +436,40 @@ kbd {
   flex: 1; min-height: 0; overflow: auto; padding: 16px 22px 8px; display: flex; flex-direction: column; gap: 12px;
   outline: none; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent;
 }
-.te { display: flex; gap: 10px; font-size: 13.5px; color: var(--fg); }
-.te > div { flex: 1; min-width: 0; }
-.te .who { margin-bottom: 2px; font-size: 12.5px; color: var(--mute); }
-.te p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-/* A say reads as a short file pane: its paragraphs sit half a line apart. */
-.te.say .md { font: 14px/1.5 var(--sans); overflow-wrap: anywhere; }
-.te.say .md > * { margin: 0; }
-.te.say .md > * + * { margin-top: .5lh; }
-.te.say .md :is(h1, h2, h3) { font-size: 1.1em; padding: 0; border: 0; }
-.te a.path { color: var(--acc); cursor: pointer; text-decoration: underline; }
-/* A run of the agent's other laura commands, folded into one row. A click focuses its pane. */
-.te.cmd {
-  align-self: flex-start; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12.5px; color: var(--mute);
-  background: none; border: 1px solid var(--line2); border-radius: 8px; cursor: pointer; text-align: left;
+.history .list { gap: 0; padding-top: 12px; }
+/* A History row is one line of a timeline: the time, a dot on the rail, the verb, then what it acted
+   on. A say differs only in its body. */
+.te.hr {
+  --rail: 66px; position: relative; display: grid; grid-template-columns: 44px 12px auto 1fr auto; column-gap: 8px;
+  align-items: baseline; padding: 6px 8px; border-radius: 8px; font-size: 12.5px; color: var(--fg);
 }
-.te.cmd:hover { color: var(--fg); background: #f8f8fa; }
-.te.cmd .ic { width: 14px; height: 14px; flex: none; }
-.te.cmd .chev { color: var(--faint); }
-/* The user's own words sit right, in a card. */
-.te.mine { justify-content: flex-end; }
-.te.mine > div { flex: 0 1 auto; max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; }
-.te.mine .bub { padding: 8px 12px; background: #f2f3f6; border-radius: 14px; }
+/* The rail: one line through every row's dot. */
+.te.hr::before { content: ""; position: absolute; left: var(--rail); top: 0; bottom: 0; width: 1.5px; margin-left: -.75px; background: #d3d6de; }
+.te.hr:first-child::before { top: 16px; }
+.te.hr:last-child::before { bottom: calc(100% - 16px); }
+.te.hr .tm { font: 11px var(--mono); color: var(--faint); text-align: right; }
+.te.hr .pt {
+  position: relative; z-index: 1; justify-self: center; align-self: start; margin-top: 6px;
+  width: 7px; height: 7px; border-radius: 50%; background: #fff; border: 1.5px solid var(--faint);
+}
+.te.hr .verb { justify-self: start; padding: 1px 6px; border-radius: 5px; font: 500 11px var(--mono); background: #f0f1f4; color: var(--mute); }
+.te.hr .tg { min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.te.hr.ro .tg { color: var(--mute); }
+.te.hr .chev { color: var(--faint); }
+/* Only a row that a click shows again is blue. The user's inline review is dark, as the user's pin is. */
+.te.hr[data-i] { cursor: pointer; }
+.te.hr[data-i] .pt { border-color: var(--acc); }
+.te.hr[data-i] .verb { background: var(--acc-soft); color: var(--acc); }
+.te.hr[data-i]:hover { background: #f6f7f9; }
+.te.hr[data-i]:hover .chev { color: var(--acc); }
+.te.hr.review .pt { background: #3d4250; border-color: #3d4250; }
+.te.hr.review .verb { background: #3d4250; color: #fff; }
+/* A say reads as a short file pane: its paragraphs sit half a line apart. */
+.te.hr .body { grid-column: 4 / -1; min-width: 0; font: 14px/1.5 var(--sans); overflow-wrap: anywhere; }
+.te.hr .body > * { margin: 0; }
+.te.hr .body > * + * { margin-top: .5lh; }
+.te.hr .body :is(h1, h2, h3) { font-size: 1.1em; padding: 0; border: 0; }
+.te a.path { color: var(--acc); cursor: pointer; text-decoration: underline; }
 /* The drawer's History and Shell tabs, beside the shell's name. */
 .pane.shell .head .dview { margin-left: 8px; }
 /* The drawer's grip, centred on the card's top border (inset 5px). The bar is `::before`, as

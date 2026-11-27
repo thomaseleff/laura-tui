@@ -34,6 +34,7 @@ mod links;
 mod mode;
 mod report;
 mod wait;
+pub use history::{FROZEN, GONE, NO_ELEMENT, NOT_OPEN, PAGE_NOT_READY};
 use mode::DrawerView;
 pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
@@ -246,7 +247,11 @@ pub enum UserAction {
     Seen {
         wait: u64,
     },
-    /// `Ctrl+.`, the drawer's **Chat** and **Shell** tabs, and **Show the shell**: the drawer
+    /// A click on History row `row`, which shows its command again (`Tab::replay`).
+    Replay {
+        row: usize,
+    },
+    /// `Ctrl+.`, the drawer's **History** and **Shell** tabs, and **Show the shell**: the drawer
     /// flips between the History and the shell (`Tab::flip_drawer`). The TUI never sends it.
     FlipDrawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
@@ -519,7 +524,9 @@ impl Tab {
         if let Some(j) = &self.journal {
             j.log(&event);
         }
-        self.history.push(&event);
+        let panels = &self.panels;
+        self.history
+            .push(&event, |pane| panels.get(&pane).map(|p| p.path.clone()));
     }
 
     /// The agent's latest `say` in this session, with a count that names it over the tab's life.
@@ -864,6 +871,11 @@ impl Tab {
         }
         match self.layout.remove(target) {
             Ok(()) => {
+                // Before the remove, so the History's row names the pane's file.
+                self.log_event(Event::Close {
+                    pane: Some(target),
+                    all: false,
+                });
                 if let Some(p) = self.panels.remove(&target) {
                     remove_if_temp(&p.path);
                 }
@@ -874,10 +886,6 @@ impl Tab {
                 if self.focus == target {
                     self.focus = self.fallback_focus();
                 }
-                self.log_event(Event::Close {
-                    pane: Some(target),
-                    all: false,
-                });
                 Response::Ok
             }
             Err(message) => Response::Error { message },

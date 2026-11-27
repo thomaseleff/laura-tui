@@ -1,99 +1,139 @@
-//! The History: what passed through Laura in the current session, as the drawer shows it. Each say,
-//! each run of the agent's other commands folded into one row, and each submitted inline review.
+//! The History: what passed through Laura in the current session, as the drawer shows it. The
+//! session's `ready`, one row for each `laura` command of the agent's that Laura journals, each
+//! say, and each submitted inline review. A click on a command's row shows the command again
+//! (`Tab::replay`), and never runs it again.
 
 use std::path::Path;
 
-use serde::Serialize;
+use serde_json::{Value, json};
 
-use crate::journal::Event;
-use crate::protocol::{PTY_PANE, PaneId};
+use crate::browser;
+use crate::journal::{Event, now_ms};
+use crate::protocol::{PTY_PANE, PaneId, Response};
 
-/// One row of the History. The web app paints the rows as they are.
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum Row {
+use super::{Error, Tab};
+
+/// A highlight, diff, comment or focus row whose file no pane shows.
+pub const NOT_OPEN: &str = "⚠ No pane shows {name}. Click its open row to open it again.";
+/// An open row whose file is gone from the disk.
+pub const GONE: &str = "⚠ {path} no longer exists.";
+/// A highlight or comment row whose element is gone from the page.
+pub const NO_ELEMENT: &str = "⚠ No element matches {selector} in pane #{n}.";
+/// A highlight or comment row on a page that loads, shows a dialog, or lost Laura's browser.
+pub const PAGE_NOT_READY: &str =
+    "⚠ The page in pane #{n} isn't ready. Try again once it has loaded.";
+/// A highlight row on a frozen pane.
+pub const FROZEN: &str = "⚠ Pane #{n} is frozen. Submit or refresh its inline review first.";
+
+/// One row of the History, with its time in ms since the epoch.
+pub(crate) struct Row {
+    at: u64,
+    entry: Entry,
+}
+
+enum Entry {
+    /// The session's `ready`, with its session label.
+    Ready { title: Option<String> },
+    /// One journaled command of the agent's. `path`: the file or URL of the pane that the event
+    /// named when Laura journaled it; the replay finds its pane by it.
+    Command { event: Event, path: Option<String> },
     /// The agent's say, as markdown and as Laura's HTML of it.
     Say { body: String, html: String },
-    /// A run of the agent's other commands, in one line. `pane`: the run's last pane, which a
-    /// click focuses.
-    Commands { text: String, pane: Option<PaneId> },
     /// The user's submitted inline review.
-    Review {
-        pane: PaneId,
-        path: String,
-        comments: usize,
-        body: String,
-    },
+    Review { path: String, comments: usize },
+}
+
+impl Row {
+    /// The row as the `history` frame carries it, so the web app paints it as it is.
+    pub(crate) fn json(&self) -> Value {
+        let at = self.at;
+        match &self.entry {
+            Entry::Ready { title } => json!({"kind": "ready", "at": at, "title": title}),
+            Entry::Command { event, path } => json!({
+                "kind": "command", "at": at, "verb": verb(event),
+                "target": target(event, path.as_deref()), "replay": self.replayable(),
+            }),
+            Entry::Say { html, .. } => json!({"kind": "say", "at": at, "html": html}),
+            Entry::Review { path, comments } => json!({
+                "kind": "review", "at": at, "path": file_name(path), "comments": comments,
+            }),
+        }
+    }
+
+    /// A click shows the row's command again: an open, a highlight that didn't clear, a diff
+    /// view that turned on, a comment, or a focus on a pane.
+    fn replayable(&self) -> bool {
+        let Entry::Command {
+            event,
+            path: Some(_),
+        } = &self.entry
+        else {
+            return false;
+        };
+        match event {
+            Event::Open { .. } | Event::Comment { .. } => true,
+            Event::Highlight { cleared, .. } => !cleared,
+            Event::Diff { on, .. } => *on,
+            Event::Focus { pane } => *pane != PTY_PANE,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Default)]
 pub(super) struct History {
     rows: Vec<Row>,
-    /// The events of the last row while it is `Commands`, which the fold reads.
-    run: Vec<Event>,
     /// The says over the tab's life, so a front-end tells a new say from the last one it showed.
     says: u64,
     /// Counts each change, so the web app sends the History only when it changed.
     seq: u64,
-    /// A message from the agent is being applied: only its commands fold into the History. The
-    /// user's close or link click runs the same functions.
+    /// A message from the agent is being applied: only its commands get a row. The user's close,
+    /// link click or replay runs the same functions.
     agent: bool,
 }
 
 impl History {
-    /// Add one journaled event.
-    pub(super) fn push(&mut self, event: &Event) {
-        let row = match event {
+    /// Add one journaled event. `path_of` gives the path of the pane that the event names.
+    pub(super) fn push(&mut self, event: &Event, path_of: impl FnOnce(PaneId) -> Option<String>) {
+        let entry = match event {
             Event::Say { body } => {
                 self.says += 1;
-                Row::Say {
+                Entry::Say {
                     body: body.clone(),
                     html: crate::render::markdown_html(body),
                 }
             }
-            Event::Open { .. }
-            | Event::Close { .. }
+            Event::Review {
+                path,
+                comments,
+                error: None,
+                ..
+            } => Entry::Review {
+                path: path.clone(),
+                comments: *comments,
+            },
+            Event::Open { path, .. } if self.agent => Entry::Command {
+                event: event.clone(),
+                path: Some(path.clone()),
+            },
+            Event::Close { .. }
             | Event::Focus { .. }
             | Event::Highlight { .. }
             | Event::Diff { .. }
-            | Event::Comment { .. } => {
-                if self.agent {
-                    self.command(event);
+            | Event::Comment { .. }
+                if self.agent =>
+            {
+                Entry::Command {
+                    event: event.clone(),
+                    path: pane_of(event).and_then(path_of),
                 }
-                return;
             }
-            Event::Review {
-                pane,
-                path,
-                comments,
-                body,
-                error: None,
-            } => Row::Review {
-                pane: *pane,
-                path: path.clone(),
-                comments: *comments,
-                body: body.clone(),
-            },
             _ => return,
         };
-        self.run.clear();
-        self.rows.push(row);
-        self.seq += 1;
-    }
-
-    /// The agent's command joins the last row's run, or starts one.
-    fn command(&mut self, event: &Event) {
-        if self.run.is_empty() {
-            self.rows.push(Row::Commands {
-                text: String::new(),
-                pane: None,
-            });
-        }
-        self.run.push(event.clone());
-        let (folded, last) = (fold(&self.run), run_pane(&self.run));
-        if let Some(Row::Commands { text, pane }) = self.rows.last_mut() {
-            (*text, *pane) = (folded, last);
-        }
+        self.rows.push(Row {
+            at: now_ms(),
+            entry,
+        });
         self.seq += 1;
     }
 
@@ -101,19 +141,55 @@ impl History {
         self.agent = on;
     }
 
-    /// A new session (`ready`): an empty chat. The say count goes on.
-    pub(super) fn new_session(&mut self) {
-        self.rows.clear();
-        self.run.clear();
+    /// `ready`: a new session starts an empty History with its ready row first. The same session
+    /// with a session label changes the ready row's label.
+    pub(super) fn ready(&mut self, title: Option<String>, new_session: bool) {
+        if new_session {
+            self.rows.clear();
+        }
+        match self.rows.first_mut() {
+            Some(Row {
+                entry: Entry::Ready { title: label },
+                ..
+            }) => match title {
+                Some(t) => *label = Some(t),
+                None if !new_session => return,
+                None => {}
+            },
+            _ => self.rows.insert(
+                0,
+                Row {
+                    at: now_ms(),
+                    entry: Entry::Ready { title },
+                },
+            ),
+        }
         self.seq += 1;
     }
 
     /// The session's latest say, with its count.
     pub(super) fn latest_say(&self) -> Option<(u64, &str)> {
-        self.rows.iter().rev().find_map(|r| match r {
-            Row::Say { body, .. } => Some((self.says, body.as_str())),
+        self.rows.iter().rev().find_map(|r| match &r.entry {
+            Entry::Say { body, .. } => Some((self.says, body.as_str())),
             _ => None,
         })
+    }
+
+    /// Row `row`'s command and path, if a click shows it again.
+    fn replayable(&self, row: usize) -> Option<(Event, String)> {
+        match self.rows.get(row) {
+            Some(
+                r @ Row {
+                    entry:
+                        Entry::Command {
+                            event,
+                            path: Some(path),
+                        },
+                    ..
+                },
+            ) if r.replayable() => Some((event.clone(), path.clone())),
+            _ => None,
+        }
     }
 
     pub(super) fn rows(&self) -> &[Row] {
@@ -125,79 +201,148 @@ impl History {
     }
 }
 
-/// The run's last pane that is still open after it, for the row's click.
-fn run_pane(run: &[Event]) -> Option<PaneId> {
-    let mut closed = vec![];
-    for e in run.iter().rev() {
-        let pane = match e {
-            Event::Close { all: true, .. } => return None,
-            Event::Close { pane, .. } => {
-                closed.extend(*pane);
-                continue;
-            }
-            Event::Open { pane, .. }
-            | Event::Focus { pane }
-            | Event::Highlight { pane, .. }
-            | Event::Diff { pane, .. }
-            | Event::Comment { pane, .. } => *pane,
-            _ => continue,
+impl Tab {
+    /// The user clicked History row `row`: show its command again, and focus its pane, which
+    /// closes the drawer. Laura finds the pane by the row's path, never by its pane id, and
+    /// journals what changes as the user's act. A row that no click shows again does nothing.
+    pub(super) fn replay(&mut self, row: usize) -> Result<(), Error> {
+        let Some((event, path)) = self.history.replayable(row) else {
+            return Ok(());
         };
-        if !closed.contains(&pane) {
-            return Some(pane);
+        if matches!(event, Event::Open { .. }) {
+            return self.replay_open(&path);
         }
-    }
-    None
-}
-
-/// The run in one line: one phrase for each verb, in the order the agent first used it, such as
-/// "opened notes.md, highlighted L40–52".
-fn fold(run: &[Event]) -> String {
-    let mut verbs: Vec<(std::mem::Discriminant<Event>, Vec<&Event>)> = vec![];
-    for e in run {
-        let d = std::mem::discriminant(e);
-        match verbs.iter_mut().find(|(v, _)| *v == d) {
-            Some((_, es)) => es.push(e),
-            None => verbs.push((d, vec![e])),
+        let pane = self
+            .showing(&path, PTY_PANE)
+            .ok_or_else(|| Error::Text(NOT_OPEN.replace("{name}", &file_name(&path))))?;
+        match event {
+            Event::Highlight {
+                start,
+                end,
+                selector,
+                ..
+            } => self.replay_highlight(pane, start.zip(end), selector)?,
+            Event::Diff { .. } => done(self.diff_view(Some(pane), Some(true)))?,
+            Event::Comment { line, selector, .. } => self.replay_comment(pane, line, selector)?,
+            _ => {}
         }
+        self.focus = pane;
+        self.forget_lock_from();
+        Ok(())
     }
-    verbs
-        .iter()
-        .map(|(_, es)| phrase(es))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 
-/// One verb's events, which share a variant, as a phrase. A verb that sets a state (a highlight,
-/// the diff view, the focus) reads as its last event.
-fn phrase(es: &[&Event]) -> String {
-    let n = es.len();
-    match es[n - 1] {
-        Event::Open { path, .. } if n == 1 => format!("opened {}", file_name(path)),
-        Event::Open { .. } => format!("opened {n} files"),
-        Event::Close { .. }
-            if es
-                .iter()
-                .any(|e| matches!(e, Event::Close { all: true, .. })) =>
+    /// An open row: focus the pane that shows the file or URL, else open it again as a link does.
+    fn replay_open(&mut self, path: &str) -> Result<(), Error> {
+        if self.showing(path, PTY_PANE).is_none()
+            && !browser::is_url(path)
+            && !Path::new(path).is_file()
         {
-            "closed every pane".into()
+            return Err(Error::Text(GONE.replace("{path}", path)));
         }
-        Event::Close { pane, .. } if n == 1 => format!("closed pane #{}", pane.unwrap_or_default()),
-        Event::Close { .. } => format!("closed {n} panes"),
-        Event::Focus { pane } if *pane == PTY_PANE => "focused the shell".into(),
-        Event::Focus { pane } => format!("focused pane #{pane}"),
-        Event::Highlight { cleared: true, .. } => "cleared the highlight".into(),
+        self.open_file(path.into(), false)?;
+        Ok(())
+    }
+
+    /// A highlight row: its lines `range` again, or its element.
+    fn replay_highlight(
+        &mut self,
+        pane: PaneId,
+        range: Option<(u32, u32)>,
+        selector: Option<String>,
+    ) -> Result<(), Error> {
+        if let Some(sel) = selector {
+            return self.replay_element(pane, &sel);
+        }
+        if self.panels.get(&pane).is_some_and(|p| p.source_changed) {
+            return Err(Error::Text(FROZEN.replace("{n}", &pane.to_string())));
+        }
+        done(self.highlight_range(pane, range))
+    }
+
+    /// A comment row: the cursor on its line, or its element highlighted. No thread.
+    fn replay_comment(
+        &mut self,
+        pane: PaneId,
+        line: Option<u32>,
+        selector: Option<String>,
+    ) -> Result<(), Error> {
+        if let Some(sel) = selector {
+            return self.replay_element(pane, &sel);
+        }
+        if let (Some(l), Some(p)) = (line, self.panels.get_mut(&pane)) {
+            p.jump_to_line(l);
+        }
+        Ok(())
+    }
+
+    /// Highlight element `sel` in browser pane `pane` again, with the user's notice for each cause.
+    fn replay_element(&mut self, pane: PaneId, sel: &str) -> Result<(), Error> {
+        self.highlight_element(pane, sel).map_err(|e| match e {
+            Error::NoElement { selector, pane } => Error::Text(
+                NO_ELEMENT
+                    .replace("{selector}", &selector)
+                    .replace("{n}", &pane.to_string()),
+            ),
+            Error::PageNotReady(_) => Error::Text(PAGE_NOT_READY.replace("{n}", &pane.to_string())),
+            e => e,
+        })
+    }
+}
+
+/// A `Response` from the agent's helpers as the user's result: its error's text, else nothing.
+fn done(r: Response) -> Result<(), Error> {
+    match r {
+        Response::Error { message } => Err(Error::Text(message)),
+        _ => Ok(()),
+    }
+}
+
+/// The pane that a command's event names.
+fn pane_of(event: &Event) -> Option<PaneId> {
+    match event {
+        Event::Close { pane, .. } => *pane,
+        Event::Focus { pane }
+        | Event::Highlight { pane, .. }
+        | Event::Diff { pane, .. }
+        | Event::Comment { pane, .. } => Some(*pane),
+        _ => None,
+    }
+}
+
+/// The command's name, as the agent types it.
+fn verb(event: &Event) -> &'static str {
+    match event {
+        Event::Open { .. } => "open",
+        Event::Close { .. } => "close",
+        Event::Focus { .. } => "focus",
+        Event::Highlight { .. } => "highlight",
+        Event::Diff { .. } => "diff",
+        Event::Comment { .. } => "comment",
+        _ => "",
+    }
+}
+
+/// What the command acted on: the file's name, with its lines, its element, or the state it set.
+fn target(event: &Event, path: Option<&str>) -> String {
+    let name = match (path, pane_of(event)) {
+        (Some(p), _) => file_name(p),
+        (None, Some(n)) => format!("pane #{n}"),
+        (None, None) => String::new(),
+    };
+    match event {
+        Event::Close { all: true, .. } => "every pane".into(),
+        Event::Focus { pane } if *pane == PTY_PANE => "the shell".into(),
+        Event::Highlight { cleared: true, .. } => format!("{name} · cleared"),
         Event::Highlight {
             selector: Some(s), ..
-        } => format!("highlighted {s}"),
-        Event::Highlight { start, end, .. } => format!("highlighted {}", lines(*start, *end)),
-        Event::Diff { pane, on: true } => format!("showed the diff of pane #{pane}"),
-        Event::Diff { pane, .. } => format!("hid the diff of pane #{pane}"),
-        Event::Comment { .. } if n > 1 => format!("left {n} comments"),
-        Event::Comment {
+        }
+        | Event::Comment {
             selector: Some(s), ..
-        } => format!("commented on {s}"),
-        Event::Comment { line, .. } => format!("commented on {}", lines(*line, *line)),
-        _ => String::new(),
+        } => format!("{name} {s}"),
+        Event::Highlight { start, end, .. } => format!("{name}:{}", lines(*start, *end)),
+        Event::Comment { line, .. } => format!("{name}:{}", lines(*line, *line)),
+        Event::Diff { on, .. } => format!("{name} · {}", if *on { "on" } else { "off" }),
+        _ => name,
     }
 }
 
@@ -213,7 +358,7 @@ fn lines(start: Option<u32>, end: Option<u32>) -> String {
 
 /// A file's name, or a URL as it is.
 fn file_name(path: &str) -> String {
-    if crate::browser::is_url(path) {
+    if browser::is_url(path) {
         return path.into();
     }
     Path::new(path)

@@ -1,10 +1,9 @@
-// The History in the drawer: the rows of the `history` frame, which Laura folds, and their clicks. A say is Laura's HTML of the agent's markdown; a file path in it opens the file, as
-// the shell's links do.
+// The History in the drawer: the rows of the `history` frame, and their clicks. A click on a command's
+// row asks Laura to show the command again (`Tab::replay`). A say is Laura's HTML of the agent's
+// markdown; a file path in it opens the file, as the shell's links do.
 
-import { $, act, esc, pane } from "./state.js";
+import { $, act, esc } from "./state.js";
 import { PATH } from "./term.js";
-import { ic } from "./head.js";
-import { focusPane } from "./panes.js";
 import { paintShellButton } from "./bottom.js";
 
 // The rows of the last `history` frame.
@@ -21,18 +20,21 @@ export function onHistory(m) {
 // The session's latest say, as Laura's HTML, for the shell button; null before a say.
 export const latestSay = () => rows.findLast(r => r.kind === "say")?.html ?? null;
 
-const name = path => path.split(/[\/\\]/).pop();
+// The row's time, as the user's clock shows it.
+const time = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-function row(r) {
+// A row of the timeline: the time, a dot on the rail, the verb, then what it acted on. Only a row that
+// a click shows again (`replay`, Laura's rule) is blue, with a chevron and its index.
+const line = (r, i, cls, verb, rest) => `<div class="te hr ${cls}"${r.replay ? ` data-i="${i}" role="button" tabindex="-1"` : ""}>`
+  + `<span class="tm">${time(r.at)}</span><i class="pt"></i><span class="verb">${verb}</span>${rest}</div>`;
+
+function row(r, i) {
   switch (r.kind) {
+    case "ready": return line(r, i, "ro", "ready", `<span class="tg">${esc(r.title ?? "")}</span>`);
+    case "command": return line(r, i, "cmd", esc(r.verb), `<span class="tg">${esc(r.target)}</span>${r.replay ? '<span class="chev">›</span>' : ""}`);
     // The say's HTML is Laura's, as in a `pane` frame.
-    case "say": return `<div class="te say"><div class="md">${r.html}</div></div>`;
-    case "commands": return `<button class="te cmd" data-pane="${r.pane ?? ""}">${ic("target")}<span>${esc(r.text)}</span><span class="chev">›</span></button>`;
-    case "review": {
-      const n = `${r.comments} thread${r.comments === 1 ? "" : "s"}`;
-      return `<div class="te mine"><div><div class="who">Inline review · ${esc(name(r.path))} · ${n}</div>`
-        + (r.body ? `<div class="bub"><p>${esc(r.body)}</p></div>` : "") + "</div></div>";
-    }
+    case "say": return line(r, i, "say", "say", `<div class="body md">${r.html}</div>`);
+    case "review": return line(r, i, "review", "review", `<span class="tg">${esc(r.path)} · ${r.comments} comment${r.comments === 1 ? "" : "s"}</span>`);
   }
   return "";
 }
@@ -40,7 +42,7 @@ function row(r) {
 // Each file path in the says' text, as a link that opens the file at its line.
 function linkPaths(list) {
   const walk = document.createTreeWalker(list, NodeFilter.SHOW_TEXT, {
-    acceptNode: n => n.parentElement.closest(".te.say") && !n.parentElement.closest("a") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+    acceptNode: n => n.parentElement.closest(".te.say .body") && !n.parentElement.closest("a") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
   });
   const texts = [];
   while (walk.nextNode()) texts.push(walk.currentNode);
@@ -89,11 +91,10 @@ export function focusHistory() {
 }
 
 export function historyClick(e) {
-  const a = e.target.closest("a.path"), c = e.target.closest(".te.cmd");
+  const a = e.target.closest("a.path"), r = e.target.closest(".te.hr[data-i]");
   if (a) return act({ act: "open_path", pane: 0, path: a.dataset.path, line: a.dataset.line ? +a.dataset.line : undefined });
   // A markdown link in a say opens its file at its heading, as on the glance.
   const l = e.target.closest("a[data-href]");
   if (l) return act({ act: "open_link", pane: 0, href: l.dataset.href });
-  // The run's pane may have closed since.
-  if (c && pane(+c.dataset.pane)) focusPane(+c.dataset.pane);
+  if (r) act({ act: "replay", pane: 0, row: +r.dataset.i });
 }
