@@ -76,11 +76,10 @@ The drawer shows the chat or the shell. To flip the drawer, press `Ctrl+.`, or c
 
 The chat shows what passed through Laura in the agent's session:
 
-- Each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell.
+- Each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
 - One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run that is still open.
 - Each inline review that you submit.
 - `The shell waits for you.`, with **Show the shell** (`Ctrl+.`), when the shell waits and the agent said nothing since you last wrote to the shell.
-
 - Each message that you send from the message box.
 
 To write to the agent, type in the message box below the chat and press `Enter`, or click **Send**. `Shift+Enter` starts a new line. Laura writes the message into the shell, as if you typed the message there and pressed `Enter`. While the shell waits and the agent said nothing since you last wrote to the shell, Laura turns the message box off, because a message's `Enter` could answer a question in the shell. A message that you send then shows the notice `⚠ The shell waits for you. Answer in the shell, then send your message.` When the shell stopped, Laura shows `⚠ The shell stopped, so Laura cannot send your message.`, and when the shell doesn't take the message, Laura shows `⚠ Laura did not send your message to the shell.`

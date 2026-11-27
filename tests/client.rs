@@ -256,6 +256,33 @@ fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
     Ok(())
 }
 
+/// A click on a markdown link in a say opens its file, from the folder Laura started in (the
+/// crate, the rig's folder).
+#[test]
+fn a_link_in_a_say_opens_its_file() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "Read [the CLI](docs/cli.md#commands)"]);
+    let at = c.until(
+        &mut r,
+        "the say's link",
+        "(() => { \
+           const b = document.querySelector('#p0 .chat a[data-href]')?.getBoundingClientRect(); \
+           return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "cli.md in a focused file pane",
+        "layout.panes.some(p => p.id === layout.focus && p.kind === 'file' && p.name === 'cli.md')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// The chat's message box takes the user's keystrokes, and `Enter` writes the message into the
 /// shell; the box empties once Laura wrote it.
 #[test]

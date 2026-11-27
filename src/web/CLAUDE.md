@@ -12,7 +12,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `panes.js`: each pane's element, `onLayout`, the lines between panes, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
 - `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
 - `bottom.js`: the notice, the hint line, the status bar and the shell button.
-- `chat.js`: the chat in the drawer, its rows' clicks, and the links of the file paths in a say.
+- `chat.js`: the chat in the drawer, its rows' clicks, and the links and the file paths in a say.
 - `review.js`: threads, the comment's box, the popovers and the draft.
 - `pages.js`: a file pane's rows and pages, comment mode, and a page's pins.
 - `selector.js`: the pane selector and the help.

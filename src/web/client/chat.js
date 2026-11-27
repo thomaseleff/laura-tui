@@ -114,6 +114,9 @@ export function chatClick(e) {
   if (e.target.closest("[data-act=send]")) return sendMessage();
   const a = e.target.closest("a.path"), c = e.target.closest(".te.cmd"), b = e.target.closest("[data-act=flip_drawer]");
   if (a) return act({ act: "open_path", pane: 0, path: a.dataset.path, line: a.dataset.line ? +a.dataset.line : undefined });
+  // A markdown link in a say opens its file at its heading, as on the glance.
+  const l = e.target.closest("a[data-href]");
+  if (l) return act({ act: "open_link", pane: 0, href: l.dataset.href });
   // The run's pane may have closed since.
   if (c && pane(+c.dataset.pane)) return focusPane(+c.dataset.pane);
   if (b) act({ act: "flip_drawer" });
