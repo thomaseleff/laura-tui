@@ -149,14 +149,6 @@ fn a_markdown_highlight_names_its_source_lines() -> Result<()> {
     Ok(())
 }
 
-/// `bytes` typed into pane `id`, as the web app's terminal sends them.
-fn type_in(ws: &mut Ws, id: u64, bytes: &[u8]) -> Result<()> {
-    let mut frame = id.to_be_bytes().to_vec();
-    frame.extend(bytes);
-    ws.send(Message::binary(frame))?;
-    Ok(())
-}
-
 /// #190: the terminal bell makes the workspace wait; a hover over the shell doesn't end the wait,
 /// and a wheel step does.
 #[cfg(unix)]

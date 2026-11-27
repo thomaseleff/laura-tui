@@ -12,6 +12,7 @@ import { frameOf, place, toHighlight } from "./pages.js";
 import { paintOverlays, paintSelector, pq } from "./selector.js";
 import { mods } from "./keys.js";
 import { paintTitle } from "./workspaces.js";
+import { chatClick, focusChat, paintChat } from "./chat.js";
 
 // The focus that DOM focus last followed (`followFocus`).
 let focusKey = "";
@@ -74,7 +75,7 @@ function makePane(p) {
     if (layout?.focus === p.id) followFocus(true);
     if (el.hlLater && !tooSmall(el)) toHighlight(p.id, el.hlLater.jump);
   }).observe(el.querySelector(".narrow"));
-  if (p.id === 0) grip(el);
+  if (p.id === 0) grip(el), chat(el);
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
@@ -97,6 +98,16 @@ function makePane(p) {
     if (a) act({ act: "open_link", pane: p.id, href: a.dataset.href });
   });
   return el;
+}
+
+// The shell's pane holds the chat beside the shell's xterm; `drawer_view` shows one of them.
+function chat(el) {
+  const c = document.createElement("div");
+  c.className = "chat";
+  c.innerHTML = '<div class="list" tabindex="-1"></div>';
+  c.addEventListener("click", chatClick);
+  el.append(c);
+  paintChat();
 }
 
 // A resize handle: `move(e)` while the user drags `el` with the left button, `done()` on release.
@@ -397,7 +408,7 @@ export function onLayout(m) {
       el.querySelector(".marks")?.remove();
     }
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
-      + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "")
+      + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "") + (p.id === 0 && m.drawer_view === "chat" ? " chatview" : "")
       + (unseen.has(p.id) ? " unseen" : "") + (ui.commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
     // The focus, the diff view and a freeze change how threads show.
@@ -628,7 +639,7 @@ export function focusPane(id) {
 // take focus from anything else.
 export function followFocus(force) {
   const f = focused();
-  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}`;
+  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}:${layout?.drawer_view}`;
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
   // A frame that moves the focus doesn't take the keystrokes from the pane selector.
@@ -638,6 +649,8 @@ export function followFocus(force) {
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
+  // The chat takes the keystrokes the user types to the agent; the lock's go to the shell.
+  if (f.id === 0 && layout.drawer_view === "chat" && !on("locked")) return focusChat();
   const t = toShell() ? terms.get(0) : f.kind !== "file" ? terms.get(f.id) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();

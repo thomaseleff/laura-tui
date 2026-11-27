@@ -51,6 +51,7 @@ export const head = () => `<div class="head"><span class="pid"></span>`
   + `${ic("file")}<span class="name tip-l"><i class="dot"></i><span class="nm"></span></span><input class="url" spellcheck="false" aria-label="Address">`
   + '<span class="delta"><span class="add"></span><span class="del"></span></span>'
   + `<span class="seg tip-c" ${tip("Flip the view  Ctrl+L")}><button data-act="editor">E<span class="tl">ditor</span></button><button data-act="file">F<span class="tl">ile</span></button></span>`
+  + `<span class="seg dview tip-c" ${tip("Flip the drawer  Ctrl+.")}><button data-act="chat">Chat</button><button data-act="shell">Shell</button></span>`
   + '<span class="chips"><span class="chip warn unsaved">● Unsaved</span><span class="chip ok reloaded" hidden>Reloaded</span>'
   + '<span class="chip paused">Paused</span><span class="chip warn frozen">Frozen</span><span class="chip diffc">Diff view</span>'
   + `<button class="chip hlc tip-l" data-act="highlight" data-tip="Scroll to the highlight">${ic("target")}<span class="l"></span>`
@@ -121,6 +122,9 @@ export function paintHead(el, p) {
   show(".add", p.added);
   show(".del", p.removed);
   show(".seg", p.pty && p.id !== 0);
+  show(".dview", p.id === 0);
+  q(".dview [data-act=chat]").classList.toggle("on", layout.drawer_view === "chat");
+  q(".dview [data-act=shell]").classList.toggle("on", layout.drawer_view !== "chat");
   q("[data-act=editor]").classList.toggle("on", p.kind === "editor");
   q("[data-act=file]").classList.toggle("on", p.kind !== "editor");
   show(".unsaved", p.unsaved);
@@ -191,6 +195,11 @@ export function headClick(id, e) {
   if (a === "list") {
     ui.listOpen = ui.listOpen === id ? null : id;
     return paintPops();
+  }
+  // The drawer's tabs: the one that isn't on flips the drawer.
+  if (a === "chat" || a === "shell") {
+    if (layout.drawer_view !== a) act({ act: "flip_drawer" });
+    return;
   }
   if (a === "editor" || a === "file") {
     if ((pane(id)?.kind === "editor") !== (a === "editor")) act({ act: "toggle_editor_view", pane: id });

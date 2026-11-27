@@ -203,6 +203,41 @@ fn ctrl_backquote_focuses_the_shell() -> Result<()> {
     Ok(())
 }
 
+/// A say turns the drawer to the chat, which takes the keystrokes; `Ctrl+.` flips the drawer to the
+/// shell, whose xterm takes them, and back.
+#[test]
+fn ctrl_period_flips_the_drawer() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    const CHAT: &str = concat!(
+        "layout.drawer_view === 'chat' && !acts.length",
+        " && document.querySelector('#p0 .chat').checkVisibility()",
+        " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
+        " && document.activeElement === document.querySelector('#p0 .chat .list')"
+    );
+    r.drive(&["say", "hello from the agent"]);
+    c.until(&mut r, "the chat", CHAT);
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell",
+        concat!(
+            "layout.drawer_view === 'shell' && !acts.length",
+            " && !document.querySelector('#p0 .chat').checkVisibility()",
+            " && document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
+            " && !!document.activeElement.closest('#p0 .term')"
+        ),
+    );
+    assert!(r.tab.drawer_shows_shell(), "Laura's drawer view");
+    c.press(CTRL_PERIOD);
+    c.until(&mut r, "the chat again", CHAT);
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 #[test]
 fn the_shell_button_focuses_the_shell() -> Result<()> {
     let Some((path, _one)) = chrome() else {

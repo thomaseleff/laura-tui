@@ -13,6 +13,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 |---|---|
 | `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. The pane selector also finds a workspace: see [Switch workspaces](#switch-workspaces). |
 | ``Ctrl+` `` | Opens or closes the [drawer](#the-drawer). |
+| `Ctrl+.` | Flips the [drawer](#the-drawer) between the chat and the shell. From another pane, Laura opens the drawer as it was. |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Makes the [drawer](#the-drawer) taller or shorter by 5% of the workspace while the drawer is open. |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
@@ -35,7 +36,7 @@ When the shell exits while Neovim has unsaved edits, Laura stays open:
 
 ## The drawer
 
-Laura shows the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus. File panes, browser panes and editor panes fill the workspace.
+Laura shows the chat and the shell in the drawer. The drawer floats above the bottom line, over the panes, while the shell has focus. File panes, browser panes and editor panes fill the workspace.
 
 When the web app starts, no pane is open yet. Laura shows a start canvas above the drawer:
 
@@ -68,6 +69,19 @@ A screen reader names the grip **Drawer height**. When the grip has the focus, `
 To show the shell as a pane, click **Show the shell as a pane** in the drawer's pane header. Laura puts the shell on the left, at 40% of the width. The shell stays a pane when you open and close panes. Over the start canvas, the start canvas takes the right of the workspace, and the agent's next pane takes the place of the start canvas. To put the shell back in the drawer, click **Show the shell in a drawer** in the shell's pane header.
 
 When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell doesn't fit as a pane. Close a pane or make the window larger.` and keeps the shell in the drawer.
+
+### The chat and the shell
+
+The drawer shows the chat or the shell. To flip the drawer, press `Ctrl+.`, or click **Chat** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
+
+The chat shows what passed through Laura in the agent's session:
+
+- Each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell.
+- One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run.
+- Each inline review that you submit.
+- `The shell waits for you.`, with **Show the shell** (`Ctrl+.`), when the shell waits and the agent said nothing since you last wrote to the shell.
+
+The drawer shows the shell until the agent's first `laura say`, and the chat after each say. When the shell waits and the agent said nothing since you last wrote to the shell, Laura shows the shell in the drawer, because the agent's CLI can ask you a question there, such as a permission. When the agent starts a new session with `laura ready --session`, Laura starts an empty chat.
 
 To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41, in the middle of the pane. When line 41 is already on screen, Laura moves only the cursor. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
 

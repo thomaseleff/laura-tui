@@ -735,6 +735,7 @@ impl Tab {
                 message: SAY_NEEDS_BODY.into(),
             };
         }
+        self.said();
         self.log_event(Event::Say { body });
         Response::Ok
     }

@@ -123,10 +123,10 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
 | **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id, or a workspace by session label or folder. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
-| **drawer** | The shell floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
+| **drawer** | The chat or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
 | **start canvas** | The page the web app shows beside the shell while no other pane is open: the first steps until the user's first submitted inline review, then the project at a glance, or a short prompt. | welcome screen, empty state, canvas (alone) |
 | **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer. | chip, pill |
-| **chat** | An agent's conversation, running in the shell. Use for conversation content; use *shell* for the pane. | — |
+| **chat** | The list in the web app's drawer of what passed through Laura in the agent's session: the agent's says, its other `laura` commands, the user's inline reviews and messages. Use *shell* for the agent CLI's own screen. | timeline, feed |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
 | **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`). | web pane, browser tab, preview |

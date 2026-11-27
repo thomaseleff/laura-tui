@@ -116,7 +116,7 @@ function termKeys(id, term, e) {
   const m = mode();
   if (m) return m === "locked";
   // `code`, so a layout that types another character on that key still shows or hides the shell.
-  if (e.ctrlKey && !e.altKey && e.code === "Backquote") return false;
+  if (e.ctrlKey && !e.altKey && (e.code === "Backquote" || e.code === "Period")) return false;
   if (id === 0 && e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer) return false;
   if (e.key === "Escape" && (ui.listOpen ?? ui.moreOpen) !== null) return false;
   if (e.ctrlKey && !e.altKey && "pPhHqQ".includes(e.key) && e.key.length === 1) return false;
@@ -160,7 +160,7 @@ function webgl(term) {
 // (`foo.test.js/index`, `app.log.1`), which is no link, so backtracking can't link a part of a path.
 // A folder can be a whole `[slug]` or `(group)`, or start with `@` or `+`. Not a home path (`~/a/b.rs`);
 // the link provider skips URLs.
-const PATH = /(?<=(?:^|[\s(\[{<"'`=“‘])(?:\*+(?![\/\\]))?)(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:(?:[@+]?[\p{L}\p{N}_.+-]+|\[[^\]\/\\\s]+\]|\([^)\/\\\s]+\))[\/\\])*\+?[\p{L}\p{N}_.-]*[\p{L}\p{N}_-]\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*(?!\.*[\/\\\p{L}\p{N}_+-])(?::\d+)?/gu;
+export const PATH = /(?<=(?:^|[\s(\[{<"'`=“‘])(?:\*+(?![\/\\]))?)(?:[A-Za-z]:[\/\\]|\.{0,2}[\/\\])?(?:(?:[@+]?[\p{L}\p{N}_.+-]+|\[[^\]\/\\\s]+\]|\([^)\/\\\s]+\))[\/\\])*\+?[\p{L}\p{N}_.-]*[\p{L}\p{N}_-]\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*(?!\.*[\/\\\p{L}\p{N}_+-])(?::\d+)?/gu;
 
 export function makeTerm(id, el) {
   // The saved screen comes at the PTY's size; `fitShell` fits the shell to its box after the first render.

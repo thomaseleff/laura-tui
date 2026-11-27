@@ -119,7 +119,7 @@ function urlKey(e, ctrl, k, url) {
   }
   if (e.key === "Escape") return take(e), root.focus({ preventScroll: true }), true;
   if (ctrl && "rl".includes(k)) return take(e), true; // the viewing browser's reload and address bar
-  return !(ctrl && ("pq".includes(k) || e.code === "Backquote")); // Ctrl+P, Ctrl+Q and Ctrl+` go on to Laura
+  return !(ctrl && ("pq".includes(k) || e.code === "Backquote" || e.code === "Period")); // Ctrl+P, Ctrl+Q, Ctrl+` and Ctrl+. go on to Laura
 }
 
 // A keystroke that no mode takes: the workspace's keystrokes, then the focused pane's.
@@ -138,6 +138,7 @@ function paneKey(e, ctrl, k) {
   if (e.key === "Escape" && ui.commentMode !== null && (f?.kind === "file" || b) && !b?.dialog && !b?.typing) return take(e), setCommentMode(null);
   if (ctrl && k === "p") return take(e), openSelector();
   if (ctrl && e.code === "Backquote") return take(e), toggleShell();
+  if (ctrl && e.code === "Period") return take(e), act({ act: "flip_drawer" });
   if (ctrl && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && pane(0)?.drawer && drawerOpen()) {
     return take(e), stepDrawer(e.key === "ArrowUp" ? 5 : -5);
   }

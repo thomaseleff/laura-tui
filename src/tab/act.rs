@@ -60,7 +60,7 @@ impl Tab {
                 self.forget_lock_from();
                 // The user's move into the shell: the user sees the agent.
                 if pane == PTY_PANE {
-                    self.answered(self.pty.bells());
+                    self.saw(self.pty.bells());
                 }
             }
             A::MoveCursor { pane, delta } => self.panel_mut(pane)?.move_cursor(delta),
@@ -125,7 +125,7 @@ impl Tab {
                 }
                 // The user's close that moves the focus to the shell: the user sees the agent.
                 if from != PTY_PANE && self.focus == PTY_PANE {
-                    self.answered(self.pty.bells());
+                    self.saw(self.pty.bells());
                 }
             }
             A::ToggleEditorView { pane } => {
@@ -137,7 +137,8 @@ impl Tab {
             A::Resize { a, b, ratio } => self.resize(a, b, Some(ratio))?,
             A::Unpin { a, b } => self.resize(a, b, None)?,
             A::DrawerHeight { .. } => {} // the web server saves it
-            A::Seen { wait } => self.wait.seen(wait, self.pty.bells()),
+            A::Seen { wait } => self.seen(wait),
+            A::FlipDrawer => self.flip_drawer(),
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;

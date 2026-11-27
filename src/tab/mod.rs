@@ -34,7 +34,7 @@ mod links;
 mod mode;
 mod report;
 mod wait;
-pub use mode::{Draft, Mode, Overlay};
+pub use mode::{Draft, DrawerView, Mode, Overlay};
 pub use report::overflow_warning;
 
 /// A link that can't open a pane, in place of `Error::SplitTooSmall`.
@@ -238,6 +238,9 @@ pub enum UserAction {
     Seen {
         wait: u64,
     },
+    /// `Ctrl+.`, the drawer's **Chat** and **Shell** tabs, and **Show the shell**: the drawer
+    /// flips between the chat and the shell (`Tab::flip_drawer`). The TUI never sends it.
+    FlipDrawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
     BrowserMouse {
@@ -704,12 +707,71 @@ impl Tab {
             .and_then(|id| self.panels.get(&id))
     }
 
-    /// The user answered the agent or saw the wait: the wait ends. `bells` is the count the answer
-    /// covers. Input, a paste and a review read it before they reach the shell, so a bell after the
-    /// answer is a new wait. A move into the shell (`Focus`, `Close`) and `Seen` read it at arrival:
-    /// the user now sees the shell.
+    /// The user wrote to the shell (input, a paste, an inline review): the wait ends. `bells` is
+    /// the count the answer covers, read before the write reaches the shell, so a bell after the
+    /// answer is a new wait.
     fn answered(&mut self, bells: u64) {
         self.wait.answered(bells);
+        self.chat.end_wait();
+    }
+
+    /// The user saw the shell: a move into the shell (`Focus`, `Close`, the lock, an overlay's
+    /// close) or `Seen`, with `bells` read at arrival. The wait ends; a say since the user's last
+    /// write still counts.
+    fn saw(&mut self, bells: u64) {
+        self.wait.saw(bells);
+        self.chat.end_wait();
+    }
+
+    /// The web app's `seen` of wait `wait` (`Wait::seen`).
+    fn seen(&mut self, wait: u64) {
+        self.wait.seen(wait, self.pty.bells());
+        if !self.wait.waiting() {
+            self.chat.end_wait();
+        }
+    }
+
+    /// A new wait began: Laura journals it, and a wait with no say since the user's last message
+    /// shows the shell in the drawer, where the agent CLI asks.
+    fn wait_began(&mut self) {
+        self.log_event(Event::Wait {
+            said: self.wait.said(),
+        });
+        if self.wait.unsaid() {
+            self.modes.drawer = DrawerView::Shell;
+        }
+    }
+
+    /// The drawer shows the shell, not the chat: before the agent's first say, and from the start
+    /// of each wait with no say since the user's last message (`Tab::say`, `wait_began`), until
+    /// the user flips it (`Ctrl+.`).
+    pub fn drawer_shows_shell(&self) -> bool {
+        self.modes.drawer == DrawerView::Shell
+    }
+
+    /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it
+    /// is; on the shell, the drawer flips between the chat and the shell.
+    pub(super) fn flip_drawer(&mut self) {
+        if self.focus != PTY_PANE {
+            self.focus = PTY_PANE;
+            self.forget_lock_from();
+            return self.saw(self.pty.bells());
+        }
+        self.modes.drawer = match self.modes.drawer {
+            DrawerView::Chat => DrawerView::Shell,
+            DrawerView::Shell => DrawerView::Chat,
+        };
+    }
+
+    /// The agent said something: the drawer turns to the chat.
+    pub(super) fn said(&mut self) {
+        self.wait.say();
+        self.modes.drawer = DrawerView::Chat;
+    }
+
+    /// The chat's rows, and a count that changes with them (`chat.rs`).
+    pub(crate) fn chat(&self) -> (&[chat::Row], u64) {
+        (self.chat.rows(), self.chat.seq())
     }
 
     /// The agent waits for the user (`wait.rs`).
@@ -728,7 +790,9 @@ impl Tab {
         self.area = area;
         self.forget_lock_from();
         // Before the hold: a bell while the user types a comment still counts.
-        self.wait.bell(self.pty.bells());
+        if self.wait.bell(self.pty.bells()) {
+            self.wait_began();
+        }
         // Before the hold: a frame or an exited browser doesn't wait for the user's draft.
         let browsed = self.poll_browsers();
         if self.held() {

@@ -469,7 +469,19 @@ fn shell_hint(tab: &Tab) -> Vec<(&'static str, &'static str)> {
         // On the canvas, the drawer stays open.
         when(
             tab.drawer_in_use() && !tab.canvas_shown(),
-            vec![("Ctrl+`", "hide the shell")],
+            vec![("Ctrl+`", "hide the drawer")],
+        ),
+        // The web app's shell holds the chat too.
+        when(
+            tab.web,
+            vec![(
+                "Ctrl+.",
+                if tab.drawer_shows_shell() {
+                    "the chat"
+                } else {
+                    "the shell"
+                },
+            )],
         ),
         when(
             tab.drawer_in_use(),
@@ -592,13 +604,17 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
         ("Typing a comment or review body", typing),
     ];
     if web {
-        groups[0].1.insert(1, ("Ctrl+`", "Show or hide the shell"));
+        groups[0].1.insert(1, ("Ctrl+`", "Show or hide the drawer"));
+        groups[0].1.insert(
+            2,
+            ("Ctrl+.", "Flip the drawer between the chat and the shell"),
+        );
         groups[0]
             .1
-            .insert(2, ("Ctrl+Shift+↑ ↓", "Make the drawer taller or shorter"));
+            .insert(3, ("Ctrl+Shift+↑ ↓", "Make the drawer taller or shorter"));
         // After the line between panes.
         groups[0].1.insert(
-            7,
+            8,
             (
                 "← → ↑ ↓ Home",
                 "On a focused line: move the line 5%, or give the size back to Laura",

@@ -809,6 +809,24 @@ fn code_html(
     out
 }
 
+/// Markdown text that isn't a file, such as the agent's say, as the web app's HTML. Raw HTML
+/// blocks drop out, as on the start canvas; a render that failed shows the text as is.
+pub(crate) fn markdown_html(md: &str) -> String {
+    let html: String = render_markdown(md)
+        .blocks
+        .iter()
+        .filter(|b| !b.is_html())
+        // A relative image's route: a say has no file, so the image stays a broken link.
+        .map(|b| b.html().replace('\0', ""))
+        .collect();
+    if html.is_empty() && !md.trim().is_empty() {
+        let mut p = "<p>".to_string();
+        escape(&mut p, md);
+        return p + "</p>";
+    }
+    html
+}
+
 /// `s` as HTML text, safe in an element or a quoted attribute.
 pub(crate) fn escape(h: &mut String, s: &str) {
     for c in s.chars() {

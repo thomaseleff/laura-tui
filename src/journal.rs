@@ -50,7 +50,7 @@ fn sanitize(s: &str) -> String {
 /// One journaled event, written as `{"type": "<variant>", …}`. The field names and values are
 /// public: `laura journal` filters on them and `docs/cli.md` lists them; change both together.
 /// An absent flag or optional value leaves its key out, except where a `null` says "none".
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum Event {
     /// The agent named its session. `title` and `root` are `null` when unknown.
@@ -106,6 +106,11 @@ pub(crate) enum Event {
     /// The agent's words to the user (`laura say`).
     Say {
         body: String,
+    },
+    /// The shell began a wait: it rang the bell or sent a notification. `said`: a say came since
+    /// the user's last message.
+    Wait {
+        said: bool,
     },
     /// `body` and `pane` are `null` when absent.
     Feedback {

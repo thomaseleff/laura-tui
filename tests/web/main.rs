@@ -27,6 +27,7 @@ use tungstenite::Message;
 
 use rig::*;
 
+mod chat;
 mod file_panes;
 mod glance;
 mod layout;
@@ -38,6 +39,14 @@ mod review;
 mod shell;
 mod start;
 mod views;
+
+/// `bytes` typed into pane `id`, as the web app's terminal sends them.
+fn type_in(ws: &mut Ws, id: u64, bytes: &[u8]) -> Result<()> {
+    let mut frame = id.to_be_bytes().to_vec();
+    frame.extend(bytes);
+    ws.send(Message::binary(frame))?;
+    Ok(())
+}
 
 /// `body` as `name` in a fresh dir.
 fn file(name: &str, body: &str) -> Result<(tempfile::TempDir, String)> {

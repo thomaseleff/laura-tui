@@ -239,7 +239,7 @@ An earlier Laura saved the theme in `~/.laura/editor-theme`. Laura moves the ans
 
 ## Journal
 
-When the agent runs `laura ready`, Laura starts a journal for the session at `~/.laura/sessions/<session>.ndjson` and prints its path as `journal`. Laura adds one NDJSON line to the journal for each event in the table below. Each line includes `ts` (unix ms), `session`, `agent` (when set), and `version` (Laura's version, plus `+<commit>` when Laura was built from a git checkout). A `review` event includes `error` when Laura couldn't write the inline review into the chat. Laura adds a `browser` event when Laura's browser doesn't start.
+When the agent runs `laura ready`, Laura starts a journal for the session at `~/.laura/sessions/<session>.ndjson` and prints its path as `journal`. Laura adds one NDJSON line to the journal for each event in the table below. Each line includes `ts` (unix ms), `session`, `agent` (when set), and `version` (Laura's version, plus `+<commit>` when Laura was built from a git checkout). A `review` event includes `error` when Laura couldn't write the inline review into the chat. Laura adds a `browser` event when Laura's browser doesn't start, and a `wait` event when the shell rings the bell or sends a notification, and the agent [waits for the user](workspace.md#know-when-the-agent-waits).
 
 Read the journals back with `laura journal`, which merges every session and prints one event per line, unchanged:
 
@@ -268,6 +268,7 @@ Each event's fields:
 | `diff` | `pane`, `on` |
 | `comment` | `pane`, `line` or `selector`, `body` (the comment's text) |
 | `say` | `body` |
+| `wait` | `said` (`true` when the agent ran `laura say` since the user last wrote to the shell) |
 | `review` | `pane`, `path`, `comments` (thread count), `body`, `error` |
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |
 | `browser` | `error` (why Laura's browser didn't start), `output` (the last 10 lines of Chrome's output) |

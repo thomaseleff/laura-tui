@@ -92,11 +92,16 @@ fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()>
     let open = layout_when(&mut rig, &mut ws, "the shell", |v| v["focus"] == 0);
     assert_eq!(
         open["hints"]["pane"][0],
-        json!(["Ctrl+`", "hide the shell"]),
+        json!(["Ctrl+`", "hide the drawer"]),
         "{open}"
     );
     assert_eq!(
         open["hints"]["pane"][1],
+        json!(["Ctrl+.", "the chat"]),
+        "{open}"
+    );
+    assert_eq!(
+        open["hints"]["pane"][2],
         json!(["Ctrl+Shift+↑ ↓", "drawer height"]),
         "{open}"
     );
@@ -295,6 +300,11 @@ fn a_new_workspace_starts_in_the_drawer_over_the_start_canvas() -> Result<()> {
     // Over the canvas, the drawer stays open: no `Ctrl+`` to hide it.
     assert_eq!(
         first["hints"]["pane"][0],
+        json!(["Ctrl+.", "the chat"]),
+        "{first}"
+    );
+    assert_eq!(
+        first["hints"]["pane"][1],
         json!(["Ctrl+Shift+↑ ↓", "drawer height"]),
         "{first}"
     );

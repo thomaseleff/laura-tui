@@ -35,7 +35,7 @@ use crate::{Panel, Rect, Tab, UserAction, view};
 mod frames;
 mod glance;
 mod html;
-use frames::{Canvas, layout_json, send_browsers, send_panes};
+use frames::{Canvas, layout_json, send_browsers, send_chat, send_panes};
 use glance::Glance;
 use html::tag_lines;
 
@@ -77,6 +77,11 @@ pub(crate) const ASSETS: &[(&str, &str, &[u8])] = &[
         "/bottom.js",
         "text/javascript",
         include_bytes!("client/bottom.js"),
+    ),
+    (
+        "/chat.js",
+        "text/javascript",
+        include_bytes!("client/chat.js"),
     ),
     (
         "/review.js",
@@ -229,6 +234,8 @@ struct View {
     framed: HashSet<PaneId>,
     /// The last `glance` frame.
     glance: Option<String>,
+    /// The chat's count (`Tab::chat`) in the last `chat` frame.
+    chat: Option<u64>,
     focus: PaneId,
     area: Rect,
     git_shown: bool,
@@ -248,6 +255,7 @@ impl View {
             browsers: HashMap::new(),
             framed: HashSet::new(),
             glance: None,
+            chat: None,
             focus,
             area: Rect::default(),
             git_shown: false,
@@ -627,6 +635,8 @@ impl WebServer {
         let canvas = self.canvas.pick(tab, &self.root, &self.root_base);
         // Before `layout`, so the canvas shows with its cards once Laura has read them.
         send_canvas(v, canvas, self.canvas.frame());
+        // Before `layout`, so the drawer that turns to the chat shows its rows.
+        send_chat(v, tab);
         let drawer = drawer_frame(self.drawer, canvas);
         let layout = layout_json(tab, &rects, area, &self.bases, canvas, drawer);
         if v.layout != layout {
