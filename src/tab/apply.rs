@@ -414,6 +414,11 @@ impl Tab {
 
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
+        self.agent_message(msg, area)
+    }
+
+    /// One function for each message.
+    fn agent_message(&mut self, msg: Message, area: Rect) -> Response {
         match msg {
             msg @ Message::Open { .. } => {
                 self.open(msg, area).unwrap_or_else(|e| Response::Error {
