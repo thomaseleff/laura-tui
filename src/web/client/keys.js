@@ -51,8 +51,7 @@ function take(e) {
 function lockKey(e) {
   take(e);
   const unlock = on("locked");
-  act({ act: "lock" });
-  patchModes(unlock ? null : "locked", "locked");
+  act({ act: "lock" }, undefined, [unlock ? null : "locked", "locked"]);
   if (pane(0)?.drawer) $("p0").classList.toggle("open", drawerOpen()), paintShellButton();
   // The unlock can give the focus back to a pane: until Laura's reply, no terminal takes the keystrokes.
   // shortcut: F12 F12 within one round trip leaves no terminal focused until the next layout frame; follow the focus in the reply if users hit it.

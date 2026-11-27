@@ -95,6 +95,32 @@ fn a_clean_tree_shows_the_latest_commit() -> Result<()> {
     Ok(())
 }
 
+/// Laura in a subfolder counts only the changes and the commits in that folder (#252).
+#[test]
+fn a_change_outside_the_folder_leaves_the_latest_commit() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let (dir, _) = file("a.rs", "one\n")?;
+    let d = dir.path();
+    std::fs::create_dir(d.join("sub"))?;
+    std::fs::write(d.join("sub/b.rs"), "b\n")?;
+    git(d, &["init", "-q"]);
+    git(d, &["add", "."]);
+    git(d, &["commit", "-q", "-m", "Start"]);
+    std::fs::write(d.join("a.rs"), "two\n")?;
+    git(d, &["commit", "-q", "-am", "Outside"]);
+    std::fs::write(d.join("a.rs"), "ONE\n")?;
+    let (_child, g) = glance_in(&d.join("sub"), home.path())?;
+    let p = &g["project"];
+    assert_eq!(p["kind"], "latest", "{g}");
+    assert_eq!(p["subject"], "Start", "the folder's latest commit: {g}");
+    assert_eq!(
+        p["files"],
+        json!([{"status": "A", "path": "b.rs", "add": 1, "del": 0}]),
+        "{g}"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_merge_commit_lists_its_files() -> Result<()> {
     let home = tempfile::tempdir()?;
@@ -203,6 +229,27 @@ fn a_session_in_the_folder_shows_its_label() -> Result<()> {
         ]),
         "{g}"
     );
+    Ok(())
+}
+
+/// The canvas that comes back after the last pane closes gets the glance frame again, unchanged,
+/// to paint over its skeleton cards (#251).
+#[test]
+fn the_canvas_that_comes_back_gets_the_glance_again() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    let dir = tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("README.md"),
+        "# Ridgeline\n\nPlan a day hike.\n",
+    )?;
+    journal_review(home.path(), false)?;
+    let (_child, mut ws) = laura_web_at(dir.path(), home.path())?;
+    let (first, _) = first_frames(&mut ws, "glance");
+    send(&mut ws, json!({"act": "open_path", "path": "README.md"}));
+    raw_layout_when(&mut ws, "pane 1", |v| !pane_of(v, 1).is_null());
+    send(&mut ws, json!({"act": "close", "pane": 1}));
+    let (again, _) = first_frames(&mut ws, "glance");
+    assert_eq!(again, first);
     Ok(())
 }
 

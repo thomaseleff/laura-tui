@@ -243,6 +243,14 @@ fn laura_web_at(dir: &Path, home: &Path) -> Result<(Kill, Ws)> {
     Ok((child, connect_to(port, Some(&token), Some(&origin))?))
 }
 
+/// Pane `id`'s entry in a `layout` frame.
+fn pane_of(layout: &Value, id: u64) -> &Value {
+    layout["panes"]
+        .as_array()
+        .and_then(|ps| ps.iter().find(|p| p["id"] == id))
+        .unwrap_or(&Value::Null)
+}
+
 /// The first `layout` frame on a raw view that `want` accepts.
 fn raw_layout_when(ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
     let start = Instant::now();

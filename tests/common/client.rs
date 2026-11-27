@@ -245,6 +245,10 @@ impl Client {
             "Emulation.setDeviceMetricsOverride",
             json!({"width": width, "height": height, "deviceScaleFactor": 0, "mobile": false}),
         );
+        // Chrome fires `resize` at its next rendering step, which can come after the test's next
+        // check under load; that step runs before the second frame's callbacks.
+        let frames = "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))";
+        self.eval(frames).expect("the page's resize");
     }
 
     /// `s`, typed into the focused element as an input method types it.
@@ -265,7 +269,9 @@ impl Client {
         self.until(
             r,
             "the focus",
-            &format!("document.getElementById('popup').hidden && layout.focus === {id}"),
+            &format!(
+                "document.getElementById('popup').hidden && layout.focus === {id} && !acts.length"
+            ),
         );
         assert_eq!(r.tab.focus, id, "Laura's focus");
     }

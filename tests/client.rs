@@ -457,6 +457,63 @@ fn a_stale_layout_keeps_the_pane_selectors_focus() -> Result<()> {
     Ok(())
 }
 
+/// #272: the user closes the pane selector before Laura's reply to `Ctrl+P`. Laura's frame from
+/// before it read the close doesn't open the selector again, so `c` goes to the file pane.
+#[test]
+fn a_stale_layout_leaves_the_closed_pane_selector_closed() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    // No `until` between the keystrokes: Laura reads them only at the next pump.
+    c.press(CTRL_P);
+    c.type_text("1");
+    let js = "(() => {
+        ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes: ['selector'] }) });
+        return document.getElementById('popup').hidden;
+    })()";
+    assert_eq!(c.eval(js), Ok(json!(true)));
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #272: the user cancels the comment before Laura's reply to `Esc`. Laura's frame from before it
+/// read the cancel doesn't open the comment's box again.
+#[test]
+fn a_stale_layout_leaves_the_cancelled_draft_closed() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    assert!(c.eval("!!(window.staleDraft = layout.draft)") == Ok(json!(true)));
+    c.press(ESCAPE);
+    let js = "(() => {
+        ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes: ['draft'], draft: staleDraft }) });
+        return !!document.querySelector('.draft textarea');
+    })()";
+    assert_eq!(c.eval(js), Ok(json!(false)));
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// #245: the pane selector moves the focus before it closes, so the user, who never saw the
 /// shell, keeps the wait.
 #[test]
@@ -786,6 +843,40 @@ fn the_glance_shows_in_full_over_the_least_drawer() -> Result<()> {
     Ok(())
 }
 
+/// #251: the canvas that comes back shows three skeleton cards, marked busy for a screen reader,
+/// also after a glance with one card, until Laura's glance replaces them.
+#[test]
+fn the_canvas_that_comes_back_shows_the_skeleton() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = open_glance(&mut r, &path)?;
+    // Laura's frames, replayed: a glance with one card, the canvas hidden, then the glance again.
+    let js = "(() => {
+        const g = document.querySelector('#canvas .glance'), frame = m => ws.onmessage({ data: JSON.stringify(m) });
+        const state = () => [g.querySelectorAll('.gcard.skel').length, g.classList.contains('one'), g.getAttribute('aria-busy')];
+        const glance = { t: 'glance', readme: { name: 'README.md', html: '<p>Hi</p>' }, project: null, sessions: [] };
+        frame(glance);
+        const one = state();
+        frame({ ...layout, t: 'layout', canvas: null });
+        const hidden = state();
+        frame({ ...layout, t: 'layout', canvas: 'glance' });
+        frame(glance);
+        return [one, hidden, state()];
+    })()";
+    assert_eq!(
+        c.eval(js),
+        Ok(json!([
+            [0, true, null],
+            [3, false, "true"],
+            [0, true, null]
+        ]))
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// #258: beside the docked shell, the glance stacks its cards in line with the shell's card. The
 /// README card takes half of the height, and the two lists share the rest.
 #[test]
@@ -980,13 +1071,16 @@ fn the_shell_links_these_paths() -> Result<()> {
     Ok(())
 }
 
-/// The center of the line between two panes, in CSS px, once the web app shows it.
+/// The center of the line between two panes, in CSS px, once the web app shows it at the page's
+/// size: a layout from before the page's size (`--cols`) puts the line elsewhere, and the next
+/// layout moves it from under the press.
 fn split_center(r: &mut Rig, c: &Client) -> (f64, f64) {
     let at = c.until(
         r,
-        "the line between the panes",
-        "(() => { const b = document.querySelector('#ws > .split')?.getBoundingClientRect(); \
-           return b?.height && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+        "the line between the panes, at the page's size",
+        "(() => { const s = layout.splits[0], b = document.querySelector('#ws > .split')?.getBoundingClientRect(); \
+           return s?.x + s?.w === +document.documentElement.style.getPropertyValue('--cols') \
+             && b?.height && [b.x + b.width / 2, b.y + b.height / 2]; })()",
     );
     (at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0))
 }

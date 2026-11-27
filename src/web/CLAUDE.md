@@ -23,7 +23,7 @@ Every focus move the user makes calls `focusPane` (`panes.js`), which tells Laur
 
 Laura holds the modes in `Tab` (`src/tab/mode.rs`): the help, the pane selector, the quit question, the lock and the draft. The `layout` frame lists them in `modes`, with the open draft in `draft`. Only the overlay on close and the workspace switcher's menu live in the client. `modes()` lists every mode that is on, first to last: the client's two, then Laura's. `mode()`, its first, takes a keystroke. The keydown listener and `termKeys` ask `mode()`. `ui` holds only what the client draws of a mode, such as the pane selector's row and the draft's text.
 
-A keystroke that changes a mode sends its `act` and patches the client's copy of `layout.modes` (`patchModes`, `setOverlay`), so the next keystroke goes to the new mode before Laura's reply. Laura's next `layout` frame replaces the copy. What a rule decides, such as the focus or the end of the draft, comes only from Laura.
+A keystroke that changes a mode sends its `act` and patches the client's copy of `layout.modes` (`act`'s `patch`), so the next keystroke goes to the new mode before Laura's reply. The copy holds until Laura's `acted` for that act; a `layout` frame from before it keeps the patch. What a rule decides, such as the focus or the end of the draft, comes only from Laura.
 
 The hint line shows the first mode in `modes()` that has a hint, so under the help and the overlay the hint line shows the mode below them. A new mode is a case of `Mode` in `mode.rs`, and of `modes()` only when it lives in the client.
 
@@ -40,7 +40,7 @@ Laura sends these frames to the view:
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
 | `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
-| `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
+| `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes, and again each time the canvas comes back. Until then the client shows skeleton cards | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |
@@ -88,6 +88,15 @@ The web tests are one test binary, `tests/web/`, with one module for each featur
 The client tests run the web app's client. They are one test binary, `tests/client.rs`, and their rig is `tests/common/client.rs`. The rig's `//!` paragraph and the docs of its methods tell how a test opens the page, presses keys and waits.
 
 A change to a keystroke, a focus move or a rule in the client adds a client test. A client test for a known bug is `#[ignore]`, and the reason names the issue that fixes the bug.
+
+#### Waits
+
+A client test that waits for the wrong state passes on a fast machine and fails at random in CI. Each of these rules comes from a test that failed that way.
+
+- **Wait for a state that only Laura's reply makes.** The client patches its copy of the modes at once (`act`'s `patch`), so `layout.modes` is true before Laura reads the act. To wait for Laura, wait also for `!acts.length`, or for what the reply does, such as the focus that `followFocus` moves (`Client::focus`, the drawer's grip test in `tests/browser.rs`).
+- **Measure only a layout at the page's size.** Laura can send the first layout before the page reports its size, and the next layout moves the panes. Before you read a rect, wait until the layout reaches the page's `--cols` (`split_center`, `editor_beside`).
+- **Change the page's size only with `Client::resize`.** It waits for Chrome's `resize` event, which Chrome fires at its next rendering step, also after the test's next check under load.
+- **Test a stale frame by replaying it.** The rig runs Laura only on `pump`, so the acts that the test sent stay unanswered until the next `until`. Send the keystrokes with no `until` between them, then replay Laura's old frame through `ws.onmessage` (`a_stale_layout_leaves_the_closed_pane_selector_closed`). Do not wait for a timing to happen.
 
 `LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
 
