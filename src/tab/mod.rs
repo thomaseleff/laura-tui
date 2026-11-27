@@ -524,7 +524,8 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
-    /// The one place that journals an event, so the History holds each journaled event.
+    /// The one place that journals an event, so each command, say and review that the History
+    /// lists gets its row here.
     pub(super) fn log_event(&mut self, event: Event) {
         if let Some(j) = &self.journal {
             j.log(&event);

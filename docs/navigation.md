@@ -91,7 +91,7 @@ A blue row with a chevron shows its command again when you click the row. Laura 
 
 To show a command again from the keyboard, press `Tab` in the History until a blue row has the focus, then press `Enter` or `Space`. Laura does the same as for a click.
 
-- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's file in a file pane.
+- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens the file in a plain file pane, without the editor of `--edit`, the diff view of `--diff` or the autoscroll of `--follow`.
 - When the browser pane of an `open`, `highlight` or `comment` row moved to another page of the same site, Laura uses that browser pane: Laura focuses the pane, and highlights the element again for a `highlight` or `comment` row.
 - A `highlight` row highlights the lines or the element again.
 - A `diff` row that turned the diff view on turns the diff view on again.
@@ -102,7 +102,7 @@ A `ready`, `close`, `say` or `review` row, the `open` row of `laura tail`, a `hi
 
 When Laura can't show a command again, Laura changes nothing and shows one of these notices in the drawer:
 
-- `⚠ No pane shows <name>. Click its open row to open it again.` when no pane shows the row's file.
+- `⚠ No pane shows <name>. Open it again to show this row.` when no pane shows the row's file.
 - `⚠ <path> no longer exists.` when an `open` row's file is gone.
 - `⚠ No element matches <selector> in pane #<n>.` when the element is gone from the page.
 - `⚠ The page in pane #<n> isn't ready. Try again once it has loaded.` while the page loads or shows a dialog.

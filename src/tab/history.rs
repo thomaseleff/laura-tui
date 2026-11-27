@@ -14,7 +14,7 @@ use crate::protocol::{PTY_PANE, PaneId, Response};
 use super::{Error, Tab};
 
 /// A highlight, diff, comment or focus row whose file no pane shows.
-pub const NOT_OPEN: &str = "⚠ No pane shows {name}. Click its open row to open it again.";
+pub const NOT_OPEN: &str = "⚠ No pane shows {name}. Open it again to show this row.";
 /// An open row whose file is gone from the disk.
 pub const GONE: &str = "⚠ {path} no longer exists.";
 /// A highlight or comment row whose element is gone from the page.
