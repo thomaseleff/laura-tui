@@ -1,5 +1,5 @@
 //! What the user does on the workspace goes through `Tab::act`: the gates, the source-line
-//! mapping, untrusted fields, and `tick`'s upkeep. State, not pixels.
+//! mapping, the input modes, untrusted fields, and `tick`'s upkeep. State, not pixels.
 
 mod common;
 
@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
 use laura::tab::{
-    NEEDS_READY, NO_COMMENT_IN_DIFF, NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_THREADS,
+    Draft, Mode, NEEDS_READY, NO_COMMENT_IN_DIFF, NO_ROOM_TO_RESIZE, NO_ROOM_TO_UNPIN, NO_THREADS,
+    Overlay,
 };
 use laura::{Rect, Tab, UserAction};
 
@@ -139,6 +140,47 @@ fn comment(line: u32, text: &str) -> UserAction {
 
 fn shell_text(tab: &Tab) -> String {
     tab.pty.with_screen(|s| s.contents())
+}
+
+/// #245: in the TUI as in the web app, `F12` from a file pane moves the focus to the shell, and the
+/// unlock moves it back. Under the help, the user hasn't reached the shell: the focus stays.
+#[test]
+fn f12_moves_the_focus_to_the_shell_and_back() -> Result<()> {
+    let (mut tab, _dir, _) = tab_with("a.rs", &five_lines())?;
+    tab.act(UserAction::Focus { pane: 1 })?;
+    tab.act(UserAction::Lock)?;
+    assert_eq!((tab.focus, tab.modes()), (0, vec![Mode::Locked]));
+    tab.act(UserAction::Lock)?;
+    assert_eq!((tab.focus, tab.mode()), (1, None));
+    let help = Some(Overlay::Help);
+    tab.act(UserAction::Overlay { overlay: help })?;
+    tab.act(UserAction::Lock)?;
+    assert_eq!(
+        (tab.focus, tab.modes()),
+        (1, vec![Mode::Help, Mode::Locked])
+    );
+    Ok(())
+}
+
+/// #245: a comment that Laura can't add keeps its draft, so the user can try again.
+#[test]
+fn a_failed_comment_keeps_its_draft() -> Result<()> {
+    let (mut tab, _dir, _) = tab_with("a.rs", &five_lines())?;
+    drive(&mut tab, &["ready"]);
+    tab.act(UserAction::BeginComment { pane: 1 })?;
+    let draft = Draft::Comment {
+        pane: 1,
+        line: 1,
+        edit: false,
+    };
+    assert_eq!(tab.draft(), Some(&draft));
+    tab.agent = false;
+    assert_eq!(tab.act(comment(1, "x")), Err(NEEDS_READY.into()));
+    assert_eq!(tab.draft(), Some(&draft));
+    tab.agent = true;
+    tab.act(comment(1, "x"))?;
+    assert_eq!(tab.draft(), None);
+    Ok(())
 }
 
 #[test]

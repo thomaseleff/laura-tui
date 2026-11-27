@@ -292,6 +292,17 @@ impl Rig {
         self.wait_for(ws, "acted", |f| f.is("acted"), true).json()
     }
 
+    /// The open comment's `line` and `anchor` (selector and quote), as the layout frame's `draft`
+    /// names them.
+    pub fn draft(&self) -> Value {
+        let line = match self.tab.draft() {
+            Some(&laura::tab::Draft::Comment { line, .. }) => Some(line),
+            _ => None,
+        };
+        let anchor = self.tab.draft_anchor().map(|a| [&a.selector, &a.quote]);
+        serde_json::json!({"line": line, "anchor": anchor})
+    }
+
     /// Start `laura <args>` against the workspace without pumping; its output once it exits.
     pub fn start(&self, args: &[&str]) -> mpsc::Receiver<Output> {
         let name = self.tab.socket.clone();

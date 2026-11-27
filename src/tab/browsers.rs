@@ -60,6 +60,7 @@ impl Tab {
             return true;
         }
         let (now, mut changed, mut closed, mut crashed) = (Instant::now(), false, vec![], vec![]);
+        let held = self.held();
         for (id, page) in &mut self.browsers {
             for event in page.poll(now) {
                 changed = true;
@@ -91,7 +92,7 @@ impl Tab {
                 }
             }
             if let Some(p) = self.panels.get(id) {
-                page.draw(p.scene(self.focus == *id, self.hold));
+                page.draw(p.scene(self.focus == *id, held));
             }
         }
         // A capture of a page that no pane shows, such as one the tools opened, shows nothing.

@@ -1,7 +1,7 @@
 // The workspace's bottom line and corner: the notice, the hint line, the status bar and the shell
 // button.
 
-import { $, drawerOpen, focused, layout, modes, pane, send, ui } from "./state.js";
+import { $, draft, drawerOpen, focused, layout, modes, pane, send, ui } from "./state.js";
 import { ch } from "./term.js";
 import { focusPane, followFocus, lastFocus, unseen } from "./panes.js";
 import { frameOf } from "./pages.js";
@@ -52,11 +52,12 @@ export function paintHint() {
   const own = ui.commentMode !== null && (f?.kind === "file" || b) && here === h.pane ? h.comment_mode : here;
   // The first mode with a hint shows it, so under the help and the overlay the hint line shows the
   // mode below them; with no such mode, the hint line shows the pane's.
+  // Laura's `mode` hint is its first mode's with a hint; until Laura's reply to a new mode, the pane's.
   const by = {
-    quit: h.quit, locked: h.locked, draft: ui.draft?.hint, menu: h.workspace,
-    selector: $("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.panes,
+    quit: h.mode, locked: h.mode, draft: h.mode, menu: h.workspace,
+    selector: $("prows").querySelector(".prow.on")?.dataset.url ? h.workspace : h.mode,
   };
-  const m = modes().find(k => k in by), pairs = m ? by[m] : own;
+  const m = modes().find(k => k in by), pairs = (m && by[m]) ?? own;
   const groups = (pairs ?? []).map(([k, label], i) => {
     const s = document.createElement("span");
     s.textContent = label;
@@ -125,7 +126,7 @@ export function paintStatus() {
     return b;
   };
   const review = p => {
-    const d = ui.draft?.pane === p.id && ui.draft.kind === "review" ? ui.draft : null;
+    const d = draft()?.pane === p.id && draft().kind === "review" ? ui.box : null;
     const state = d?.busy ? "submitting" : d?.failed ? "submission failed" : d ? "review body open" : "in progress";
     return item(p, "unsubmitted inline review", d?.failed ? "bad" : "acc", `Unsubmitted inline review: ${state}`);
   };
@@ -155,7 +156,7 @@ export function paintShellButton() {
 
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());
 
-$("sbtn").addEventListener("click", () => (ui.draft ? followFocus(true) : toggleShell()));
+$("sbtn").addEventListener("click", () => (draft() ? followFocus(true) : toggleShell()));
 
 // The dot pulses for a second after each of the shell's frames.
 export function shellBusy() {
@@ -178,7 +179,7 @@ $("sbar").addEventListener("mousedown", e => e.preventDefault());
 $("sbar").addEventListener("click", e => {
   const b = e.target.closest("[data-id]");
   if (!b) return;
-  if (ui.draft) return followFocus(true);
+  if (draft()) return followFocus(true);
   focusPane(+b.dataset.id);
 });
 

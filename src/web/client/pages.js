@@ -1,7 +1,7 @@
 // A file pane's rows and pages: the rows from Laura, an HTML file's page in its frame, the
 // highlight's scroll, comment mode, the place of the cursor's thread on a page, and a page's pins.
 
-import { $, act, layout, pane, root, send, ui } from "./state.js";
+import { $, act, draft, layout, pane, root, send, ui } from "./state.js";
 import { tooSmall } from "./head.js";
 import { focusPane, followFocus, placePlus } from "./panes.js";
 import { emuFit, pinWho } from "./browser-pane.js";
@@ -205,7 +205,7 @@ addEventListener("message", e => {
     f.rect = r.every(Number.isFinite) ? r : null;
     return place(id);
   }
-  if (ui.draft) return followFocus(true);
+  if (draft()) return followFocus(true);
   if (m.laura === "line") {
     if (m.pin === true) return pinClick(id, m.line);
     focusPane(id);

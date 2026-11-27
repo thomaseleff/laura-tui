@@ -87,8 +87,9 @@ fn a_comment_on_a_block_lands_on_its_first_line() -> Result<()> {
     // `set_cursor` on a folded paragraph's second line lands on its first.
     let acted = rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
     assert_eq!(acted["ok"], true, "{acted}");
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 3, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 3, "{draft}");
     let acted = rig.act(
         &mut ws,
         json!({"act": "comment", "pane": 1, "line": 3, "text": "block note"}),
@@ -119,8 +120,9 @@ fn arrow_keys_reach_every_row_of_a_markdown_pane() -> Result<()> {
             json!({"act": "move_cursor", "pane": 1, "delta": delta}),
         );
         assert_eq!(acted["ok"], true, "{acted}");
-        let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-        lines.push(acted["line"].clone());
+        rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+        let draft = rig.draft();
+        lines.push(draft["line"].clone());
     }
     assert_eq!(lines, [5, 7, 8, 9, 9, 8, 7, 5, 4], "{lines:?}");
     Ok(())
@@ -323,16 +325,18 @@ fn a_thread_on_an_inner_line_shows_under_its_block() -> Result<()> {
     );
     assert_eq!(acted["ok"], true, "{acted}");
     // `↓` in the last block keeps the thread's row.
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 5, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 5, "{draft}");
     // `↑` from the card goes to its block.
     let acted = rig.act(
         &mut ws,
         json!({"act": "move_cursor", "pane": 1, "delta": -1}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 3, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 3, "{draft}");
     Ok(())
 }
 
@@ -351,8 +355,9 @@ fn a_comment_beside_a_collapsed_thread_goes_on_the_blocks_first_line() -> Result
         let acted = rig.act(&mut ws, act);
         assert_eq!(acted["ok"], true, "{acted}");
     }
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 3, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 3, "{draft}");
     Ok(())
 }
 
@@ -517,8 +522,9 @@ fn a_comment_in_a_followed_markdown_pane_lands_on_the_blocks_first_line() -> Res
     let (_dir, path) = file("doc.md", "# T\n\n> a\n>\n> b\n")?;
     rig.drive(&["open", "--follow", &path]);
     rig.drive(&["ready"]);
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 3, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 3, "{draft}");
     Ok(())
 }
 
@@ -688,8 +694,9 @@ fn arrow_up_from_an_inner_row_leaves_the_block() -> Result<()> {
         json!({"act": "move_cursor", "pane": 1, "delta": -1}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 2, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 2, "{draft}");
     Ok(())
 }
 
@@ -716,13 +723,15 @@ fn a_code_line_is_its_own_unit() -> Result<()> {
             &mut ws,
             json!({"act": "move_cursor", "pane": 1, "delta": delta}),
         );
-        let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-        lines.push(acted["line"].clone());
+        rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+        let draft = rig.draft();
+        lines.push(draft["line"].clone());
     }
     assert_eq!(lines, [5, 6, 8, 6], "{lines:?}");
     rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 5}));
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 5, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 5, "{draft}");
     let acted = rig.act(
         &mut ws,
         json!({"act": "comment", "pane": 1, "line": 5, "text": "line note"}),
@@ -789,8 +798,9 @@ fn a_table_row_is_its_own_unit() -> Result<()> {
         "{table}"
     );
     rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 4, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 4, "{draft}");
     let acted = rig.act(
         &mut ws,
         json!({"act": "comment", "pane": 1, "line": 4, "text": "row note"}),

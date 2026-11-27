@@ -1,12 +1,11 @@
 // The web app's client starts here: it loads the fonts, measures the grid's cell, and connects to
 // Laura. `connect` reads each frame from Laura and hands it to the module that paints it.
 
-import { $, act, acts, pane, root, send, setWs, terms, ui, ws } from "./state.js";
+import { $, act, acts, draft, layout, pane, patchModes, root, setWs, terms, ui, ws } from "./state.js";
 import { fitShell, makeProbe, measure, report } from "./term.js";
 import { forgetDrawer, onLayout, paintGlance, resetFocus } from "./panes.js";
 import { onAgent, onBrowser, onFrame, onShot, paintMarks } from "./browser-pane.js";
 import { paintHint, shellBusy, showNotice, visit } from "./bottom.js";
-import { closeDraft } from "./review.js";
 import { frameOf, onPage, onPane, place, setCommentMode } from "./pages.js";
 import { paintHelp } from "./selector.js";
 import { paintSwitcher, showOverlay } from "./workspaces.js";
@@ -59,16 +58,9 @@ export function connect() {
         paintSwitcher();
         break;
       case "layout":
-        // A draft open when the socket dropped: hold again and refocus its pane, or close it.
-        if (!laid && ui.draft) {
-          if (m.panes.some(p => p.id === ui.draft.pane)) {
-            send({ hold: true });
-            // Not the user's move, so not `focusPane`: `layout` is still the old frame here.
-            act({ act: "focus", pane: ui.draft.pane });
-            m.focus = ui.draft.pane;
-            ui.draft.busy = false;
-          } else closeDraft();
-        }
+        // A draft open when the socket dropped, which Laura ended: begin it again on its pane, else
+        // the box goes (`followDraft`).
+        if (!laid && ui.box && draft() && m.panes.some(p => p.id === draft().pane)) reopenDraft(m, draft());
         laid = true;
         onLayout(m);
         break;
@@ -143,6 +135,17 @@ export function connect() {
     // Hard-coded: with no connection, the page never got a `strings` frame.
     showOverlay("This tab cannot connect to the workspace. Make sure that Laura did not stop and that you used the full URL from the terminal.", false);
   };
+}
+
+// Begin draft `d` again, as the user's `c` or `Shift+S` on its line did, and keep its box meanwhile.
+// Not the user's move, so not `focusPane`: `layout` is still the old frame here.
+function reopenDraft(m, d) {
+  act({ act: "focus", pane: d.pane });
+  if (d.kind === "comment") act({ act: "set_cursor", pane: d.pane, line: d.line });
+  // Laura's notice shows a failed begin; the box closes with it.
+  act({ act: d.kind === "comment" ? "begin_comment" : "begin_review", pane: d.pane }, r => r.ok || (patchModes(null, "draft"), onLayout(layout)));
+  Object.assign(m, { focus: d.pane, draft: d, modes: [...m.modes, "draft"] });
+  ui.box.busy = false;
 }
 
 // The cell size comes from the bundled mono font, not a fallback, so load both before measuring.

@@ -1,7 +1,7 @@
 // The other workspaces: the workspace switcher and its menu, the browser tab's title and icon, a
 // visit to another workspace, and the overlay when this view ends.
 
-import { $, layout, ui } from "./state.js";
+import { $, draft, layout, on, ui } from "./state.js";
 import { followFocus } from "./panes.js";
 import { paintHint } from "./bottom.js";
 import { paintSelector } from "./selector.js";
@@ -17,7 +17,7 @@ export function go(url, tab) {
   // The user leaves for another workspace.
   if (ui.press) ui.press.acted = true;
   if (tab) return window.open(url, "_blank");
-  leaving = ui.draft === null;
+  leaving = !draft();
   location.assign(url);
 }
 
@@ -74,7 +74,7 @@ export function paintSwitcher() {
   }
   if (!menu) closeMenu();
   else if (!$("menu").hidden) paintMenu();
-  if (ui.popup !== null) paintSelector();
+  if (on("selector")) paintSelector();
 }
 
 // A middle click opens a new tab through the `href`.

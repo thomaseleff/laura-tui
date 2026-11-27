@@ -13,6 +13,7 @@ mod common;
 mod rig;
 
 use anyhow::Result;
+use laura::tab::Mode;
 use serde_json::{Value, json};
 
 use browser_rig::{bare, chrome};
@@ -156,6 +157,41 @@ fn a_second_f12_focuses_the_file_pane_again() -> Result<()> {
     Ok(())
 }
 
+/// #230: the user moves the focus to pane 2 and back to the shell under the lock, so the unlock
+/// leaves the focus on the shell. The agent's moves come in a frame, as a click's do.
+#[test]
+fn the_unlock_keeps_the_shell_after_a_focus_move() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let dir = file_focused(&mut r, &c)?;
+    let other = dir.path().join("b.rs");
+    std::fs::write(&other, "fn b() {}\n")?;
+    r.drive(&["open", "--no-focus", &other.to_string_lossy()]);
+    c.until(
+        &mut r,
+        "pane 2",
+        "layout.focus === 1 && layout.panes.length === 3",
+    );
+    c.press(F12);
+    c.until(
+        &mut r,
+        "the lock, with the shell's focus",
+        "layout.modes.includes('locked') && layout.focus === 0",
+    );
+    r.drive(&["focus", "2"]);
+    c.until(&mut r, "pane 2's focus", "layout.focus === 2");
+    r.drive(&["focus", "0"]);
+    c.until(&mut r, "the shell's focus", "layout.focus === 0");
+    c.press(F12);
+    c.until(&mut r, "the unlock", "!layout.modes.includes('locked')");
+    assert_eq!(r.tab.focus, 0, "the unlock gave pane 1 its focus back");
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 #[test]
 fn ctrl_backquote_focuses_the_shell() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -199,6 +235,81 @@ fn the_pane_selector_focuses_the_shell() -> Result<()> {
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
     let _dir = into_the_shell(&mut r, &c, |r| c.focus(r, 0))?;
+    Ok(())
+}
+
+/// #245: Laura ends the draft when the socket drops. The web app begins the draft again on the
+/// new socket and keeps the text in the comment's box.
+#[test]
+fn a_reconnect_begins_the_draft_again() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    c.type_text("Kept text");
+    c.eval("globalThis.old = ws; ws.close()")
+        .map_err(anyhow::Error::msg)?;
+    c.until(
+        &mut r,
+        "the draft on the new socket",
+        "ws !== globalThis.old && ws.readyState === 1 && layout.modes.includes('draft') \
+         && document.querySelector('.draft textarea')?.value === 'Kept text'",
+    );
+    // The client shows `draft` in its copy of the modes before Laura begins the draft.
+    let t0 = std::time::Instant::now();
+    while !r.tab.held() {
+        assert!(t0.elapsed().as_secs() < 10, "Laura begins the draft again");
+        r.pump();
+    }
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the saved comment",
+        "!document.querySelector('.draft textarea')",
+    );
+    let threads = &r.tab.panels[&1].threads;
+    assert_eq!(threads.len(), 1);
+    assert_eq!(threads[0].root.body, "Kept text");
+    Ok(())
+}
+
+/// #245: after a reconnect, a draft that Laura can't begin again closes, and Laura's notice says why.
+#[test]
+fn a_failed_reconnect_closes_the_draft() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    r.tab.agent = true;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    c.press(C);
+    c.until(
+        &mut r,
+        "the comment's box",
+        "document.activeElement?.matches('.draft textarea')",
+    );
+    c.type_text("Lost text");
+    c.eval("globalThis.old = ws; ws.close()")
+        .map_err(anyhow::Error::msg)?;
+    // `begin_comment` on the new socket fails with `NEEDS_READY`.
+    r.tab.agent = false;
+    c.until(
+        &mut r,
+        "the box closes on the new socket",
+        "ws !== globalThis.old && ws.readyState === 1 && !layout.modes.includes('draft') \
+         && !document.querySelector('.draft textarea')",
+    );
+    assert!(!r.tab.held());
     Ok(())
 }
 
@@ -276,6 +387,142 @@ fn ctrl_p_opens_the_pane_selector() -> Result<()> {
         &mut r,
         "the pane selector closes",
         "document.getElementById('popup').hidden",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: `Ctrl+H` under the pane selector shows the help in its place, as in the TUI.
+#[test]
+fn ctrl_h_under_the_pane_selector_shows_the_help() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.press(CTRL_P);
+    c.until(
+        &mut r,
+        "the pane selector",
+        "!document.getElementById('popup').hidden",
+    );
+    c.press(CTRL_H);
+    c.until(
+        &mut r,
+        "the help in place of the pane selector",
+        "!document.getElementById('help').hidden && document.getElementById('popup').hidden",
+    );
+    let t0 = std::time::Instant::now();
+    while r.tab.modes() != [Mode::Help] {
+        assert!(t0.elapsed().as_secs() < 10, "Laura holds the help");
+        r.pump();
+    }
+    // The help hid the selector's input; the shell takes the keystrokes again once the help closes.
+    c.press(ESCAPE);
+    c.until(
+        &mut r,
+        "the shell with the focus",
+        "document.getElementById('help').hidden && document.activeElement?.closest('#p0 .xterm')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: a `layout` frame that Laura sent before it read `Ctrl+P` hides the pane selector for a
+/// frame (#272); the input has the focus again when the selector shows.
+#[test]
+fn a_stale_layout_keeps_the_pane_selectors_focus() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.press(CTRL_P);
+    c.until(
+        &mut r,
+        "the pane selector, with the focus",
+        "!document.getElementById('popup').hidden && document.activeElement?.id === 'pq'",
+    );
+    // Laura's frames, replayed: one sent before the act, then one sent after. Chrome moves the
+    // focus off the hidden input at its next render, at no fixed time, so the blur stands in.
+    let js = "(() => {
+        const frame = modes => ws.onmessage({ data: JSON.stringify({ ...layout, t: 'layout', modes }) });
+        frame([]);
+        document.activeElement.blur();
+        frame(['selector']);
+        return [!document.getElementById('popup').hidden, document.activeElement?.id];
+    })()";
+    assert_eq!(c.eval(js), Ok(json!([true, "pq"])));
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: the pane selector moves the focus before it closes, so the user, who never saw the
+/// shell, keeps the wait.
+#[test]
+fn ctrl_p_to_a_file_pane_keeps_the_wait() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = open_five(&mut r)?;
+    c.until(
+        &mut r,
+        "the file's rows",
+        "document.querySelector('#p1 .rows > [data-row]')",
+    );
+    c.focus(&mut r, 0);
+    ring(&mut r, &c)?;
+    c.press(CTRL_P);
+    c.until(
+        &mut r,
+        "the pane selector",
+        "!document.getElementById('popup').hidden",
+    );
+    c.type_text("1");
+    c.until(
+        &mut r,
+        "the file pane's focus",
+        "document.getElementById('popup').hidden && layout.focus === 1",
+    );
+    if cfg!(unix) {
+        assert!(r.tab.waiting, "the wait");
+    }
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #245: F12 under the workspace switcher's menu closes the menu, then locks. The user sees the
+/// shell, and the wait ends.
+#[test]
+fn f12_closes_the_workspace_menu_and_locks() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    ring(&mut r, &c)?;
+    // The rig hosts one workspace and no Laura server, so the test enables the button as a second
+    // workspace would.
+    c.eval("const w = document.getElementById('wsw'); w.disabled = false; w.click()")
+        .unwrap();
+    c.until(
+        &mut r,
+        "the workspace switcher's menu",
+        "!document.getElementById('menu').hidden",
+    );
+    c.press(F12);
+    let waits = if cfg!(unix) {
+        " && !layout.waiting"
+    } else {
+        ""
+    };
+    c.until(
+        &mut r,
+        "the menu closes, with the shell's focus",
+        &format!("document.getElementById('menu').hidden && layout.focus === 0{waits}"),
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())

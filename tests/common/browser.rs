@@ -578,20 +578,21 @@ pub fn press_key(ws: &mut Ws, id: u64, (key, code, key_code, mods, text): Keystr
     }
 }
 
-/// Pick the element at the point in pane `id` and comment `text` on it, as the web app does.
+/// Pick the element at the point in pane `id` and comment `text` on it, as the web app does: the
+/// draft it commented on.
 pub fn comment_at(r: &mut Rig, ws: &mut Ws, id: u64, (x, y): (f64, f64), text: &str) -> Value {
     let acted = r.act(
         ws,
         json!({"act": "browser_pick", "pane": id, "x": x, "y": y}),
     );
     assert_eq!(acted["ok"], true, "{acted}");
+    let draft = r.draft();
     let done = r.act(
         ws,
-        json!({"act": "comment", "pane": id, "line": acted["line"], "text": text}),
+        json!({"act": "comment", "pane": id, "line": draft["line"], "text": text}),
     );
     assert_eq!(done["ok"], true, "{done}");
-    send(ws, json!({"hold": false}));
-    acted
+    draft
 }
 
 /// Open `/keep` and wait for its first load's title: the pane's id and the page's URL.

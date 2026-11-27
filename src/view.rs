@@ -9,6 +9,7 @@ use crate::editor::Nvim;
 use crate::panel::DECOR;
 use crate::protocol::{PTY_PANE, PaneId};
 use crate::render::CODE_BG;
+use crate::tab::{Draft, Mode};
 use crate::{ChangeKind, Panel, PanelLayout, Tab};
 
 /// The border's `+N -M` colors.
@@ -297,6 +298,28 @@ pub enum Hint {
     BrowserDialog,
     /// A browser pane's page asks to leave: Chrome's `beforeunload` dialog.
     BrowserLeave,
+}
+
+/// The hint of the first mode on that has one (`Tab::modes`); `None`: the focused pane's. The
+/// help has none, so under it the hint line shows the mode below.
+pub fn mode_hint(tab: &Tab) -> Option<Hint> {
+    tab.modes().into_iter().find_map(|m| match m {
+        Mode::Wizard => Some(Hint::Wizard),
+        Mode::Help => None,
+        Mode::Selector => Some(Hint::Panes),
+        Mode::Quit => Some(Hint::Quit),
+        Mode::Locked => Some(Hint::Locked),
+        Mode::Draft => match tab.draft()? {
+            // A browser pane's comment names its element.
+            &Draft::Comment { line, edit, .. } => Some(Hint::Comment {
+                at: tab
+                    .draft_anchor()
+                    .map_or_else(|| format!("L{line}"), |a| cut_left(&a.selector, 40)),
+                edit,
+            }),
+            Draft::Review { .. } => Some(Hint::Review),
+        },
+    })
 }
 
 /// A hint line: `(keystroke, label)` pairs. An empty keystroke is plain text.

@@ -422,8 +422,9 @@ fn a_comment_on_an_element_quotes_its_tag() -> Result<()> {
     rig.drive(&["ready"]);
     // A click on the button reports its tag's line.
     rig.act(&mut ws, json!({"act": "set_cursor", "pane": 1, "line": 4}));
-    let acted = rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
-    assert_eq!(acted["line"], 4, "{acted}");
+    rig.act(&mut ws, json!({"act": "begin_comment", "pane": 1}));
+    let draft = rig.draft();
+    assert_eq!(draft["line"], 4, "{draft}");
     rig.act(
         &mut ws,
         json!({"act": "comment", "pane": 1, "line": 4, "text": "q"}),

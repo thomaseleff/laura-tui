@@ -2,14 +2,14 @@
 // canvas, the drawer with its grip and start height, a browser pane's pointer, and the DOM focus, which
 // follows the workspace's focus.
 
-import { $, act, drawerOpen, esc, focused, layout, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
+import { $, act, draft, drawerOpen, esc, focused, layout, on, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
 import { ch, cw, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
 import { paintHint, paintNotice, paintStatus } from "./bottom.js";
-import { begin, cardClick, draftBox, paintThreads } from "./review.js";
+import { begin, cardClick, draftBox, followDraft, paintThreads } from "./review.js";
 import { frameOf, place, toHighlight } from "./pages.js";
-import { paintSelector, pq } from "./selector.js";
+import { paintOverlays, paintSelector, pq } from "./selector.js";
 import { mods } from "./keys.js";
 import { paintTitle } from "./workspaces.js";
 
@@ -40,7 +40,7 @@ function makePane(p) {
   }
   const rows = el.querySelector(".rows"), btn = el.querySelector(".cbtn");
   btn.addEventListener("click", () => {
-    if (ui.draft) return followFocus(true);
+    if (draft()) return followFocus(true);
     focusPane(p.id);
     act({ act: "set_cursor", pane: p.id, line: +btn.dataset.line });
     begin(p.id, "comment");
@@ -83,12 +83,12 @@ function makePane(p) {
   url.addEventListener("blur", () => ((url.value = pane(p.id)?.path ?? ""), paintHint()));
   el.addEventListener("mousedown", () => {
     const k = pane(p.id)?.kind;
-    if (!ui.draft && k && k !== "file") focusPane(p.id);
+    if (!draft() && k && k !== "file") focusPane(p.id);
   });
   el.addEventListener("click", e => {
     if (!getSelection().isCollapsed) return;
     // A draft keeps its pane and line; a click only gives the draft its focus back.
-    if (ui.draft) return followFocus(true);
+    if (draft()) return followFocus(true);
     if (pane(p.id)?.kind !== "file") return;
     focusPane(p.id);
     const row = e.target.closest("[data-line]");
@@ -332,7 +332,7 @@ export function placePlus(id) {
   const u = h && rows.querySelector(`:scope > [data-row="${h.row}"]`);
   const t = h?.inner ? u?.querySelector(`[data-line="${h.line}"]`) : u;
   // No `+` while a comment is open, in the diff view, or before `laura ready`, which a comment needs.
-  const show = t && !ui.draft && q?.kind === "file" && !q.diff && layout.agent;
+  const show = t && !draft() && q?.kind === "file" && !q.diff && layout.agent;
   btn.style.visibility = show ? "" : "hidden";
   if (!show) return;
   // A block's text, past its gutter and its padding.
@@ -364,6 +364,9 @@ export function onLayout(m) {
   }
   unseen.delete(m.focus);
   setLayout(m);
+  // Laura's modes: the draft's box, the help and the pane selector.
+  followDraft();
+  paintOverlays();
   // A drag keeps the height under the pointer until the release.
   fitDrawer();
   paintCanvas(m);
@@ -417,7 +420,7 @@ export function onLayout(m) {
   paintTitle();
   paintNotice();
   // A pane that closes or freezes changes the pane selector's rows.
-  if (ui.popup !== null) paintSelector();
+  if (on("selector")) paintSelector();
 }
 
 // The canvas while no pane but the shell is open: *Get started*, the project at a glance or the calm canvas, under the
@@ -551,7 +554,7 @@ function pointer(el, id) {
     el.move = el.wheel = null;
   };
   const later = () => (el.raf ||= requestAnimationFrame(flush));
-  const off = () => pane(id)?.kind !== "browser" || el.dialog || ui.draft;
+  const off = () => pane(id)?.kind !== "browser" || el.dialog || draft();
   // In comment mode, a click picks the element under it, and the page gets no press.
   c.addEventListener("pointerdown", e => {
     if (off() || ui.commentMode === id) return;
@@ -611,13 +614,13 @@ export function focusPane(id) {
 // take focus from anything else.
 export function followFocus(force) {
   const f = focused();
-  const key = `${layout?.focus}:${f?.kind}:${ui.locked}:${!!ui.draft}`;
+  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}`;
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
   // A frame that moves the focus doesn't take the keystrokes from the pane selector.
-  if (ui.popup !== null) return pq.focus();
+  if (on("selector")) return pq.focus();
   const box = draftBox();
-  if (ui.draft && !ui.locked && box) return box.focus();
+  if (draft() && !on("locked") && box) return box.focus();
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;

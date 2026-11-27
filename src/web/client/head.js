@@ -1,6 +1,6 @@
 // The pane header: its icons, its buttons and chips, and its fit in a narrow pane.
 
-import { $, act, layout, pane, ui } from "./state.js";
+import { $, act, draft, layout, pane, ui } from "./state.js";
 import { focusPane, followFocus } from "./panes.js";
 import { begin, confirmDraft, paintPops } from "./review.js";
 import { setCommentMode, toHighlight } from "./pages.js";
@@ -176,8 +176,8 @@ export function headClick(id, e) {
   if (!b) return;
   e.stopPropagation();
   // **Retry submit** retries, as the review body's **Retry** does.
-  if (b.dataset.act === "review" && ui.draft?.kind === "review" && ui.draft.pane === id && ui.draft.failed) return confirmDraft();
-  if (ui.draft) return followFocus(true);
+  if (b.dataset.act === "review" && draft()?.kind === "review" && draft().pane === id && ui.box?.failed) return confirmDraft();
+  if (draft()) return followFocus(true);
   const a = b.dataset.act;
   if (a === "more") {
     ui.moreOpen = ui.moreOpen === id ? null : id;

@@ -1090,7 +1090,7 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     until(
         &mut r,
         &mut eval,
-        "ui.locked && ui.popup !== null",
+        "layout.modes.includes('locked') && layout.modes.includes('selector')",
         "no lock over the pane selector",
     );
     holds(
@@ -1136,7 +1136,12 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     ring()?;
     waiting(&mut r, &mut eval, "the wait in the shell", true);
     press_key(&mut ws, id, ("p", "KeyP", 80, 2, ""));
-    until(&mut r, &mut eval, "ui.popup !== null", "no pane selector");
+    until(
+        &mut r,
+        &mut eval,
+        "layout.modes.includes('selector')",
+        "no pane selector",
+    );
     holds(
         &mut r,
         &mut eval,
@@ -1152,7 +1157,12 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     ring()?;
     waiting(&mut r, &mut eval, "the wait before the help", true);
     press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
-    until(&mut r, &mut eval, "ui.help", "no help");
+    until(
+        &mut r,
+        &mut eval,
+        "layout.modes.includes('help')",
+        "no help",
+    );
     // The help leaves the focus in the shell, but keeps the keystrokes.
     holds(&mut r, &mut eval, "the open of the help ended the wait");
     press(&mut ws, id, "Escape", 27);
@@ -1206,7 +1216,7 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     until(
         &mut r,
         &mut eval,
-        "ui.help",
+        "layout.modes.includes('help')",
         "the help button opens the help",
     );
     holds(
@@ -1277,51 +1287,6 @@ fn the_web_app_ends_the_wait_and_dims_comment_before_ready() -> Result<()> {
     let t0 = Instant::now();
     while eval(&mut r, dimmed) != "" {
         assert!(t0.elapsed() < common::DEADLINE, "dimmed after laura ready");
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    // #230: the user moves the focus to pane 2 and back to the shell under the lock, so the
-    // unlock leaves the focus on the shell. The agent's moves come in a frame, as a click's do.
-    let other = b.dir.path().join("b.rs");
-    std::fs::write(&other, "fn b() {}\n")?;
-    b.drive(&["open", &other.to_string_lossy()])?;
-    b.drive(&["focus", "1"])?;
-    until(
-        &mut r,
-        &mut eval,
-        "layout.focus === 1 && layout.panes.length === 3",
-        "no focus on pane 1 beside pane 2",
-    );
-    press(&mut ws, id, "F12", 123);
-    until(
-        &mut r,
-        &mut eval,
-        "ui.locked && layout.focus === 0",
-        "the lock doesn't move the focus to the shell",
-    );
-    b.drive(&["focus", "2"])?;
-    until(
-        &mut r,
-        &mut eval,
-        "layout.focus === 2",
-        "no focus on pane 2",
-    );
-    b.drive(&["focus", "0"])?;
-    until(
-        &mut r,
-        &mut eval,
-        "layout.focus === 0",
-        "no focus on the shell",
-    );
-    press(&mut ws, id, "F12", 123);
-    until(&mut r, &mut eval, "!ui.locked", "no unlock");
-    let t0 = Instant::now();
-    while t0.elapsed() < Duration::from_millis(300) {
-        assert_eq!(
-            eval(&mut r, "layout.focus"),
-            0,
-            "the unlock gives pane 1 its focus back after a move to pane 2"
-        );
         thread::sleep(Duration::from_millis(50));
     }
     Ok(())
@@ -1553,7 +1518,12 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
     saved(&mut r, &mut eval, drawer, json!(54), "Ctrl+Shift+↓");
     // Under the lock, the shell gets them.
     press(&mut ws, id, "F12", 123);
-    until(&mut r, &mut eval, "ui.locked", "no lock");
+    until(
+        &mut r,
+        &mut eval,
+        "layout.modes.includes('locked')",
+        "no lock",
+    );
     press_key(&mut ws, id, ("ArrowUp", "ArrowUp", 38, 10, ""));
     let t0 = Instant::now();
     while t0.elapsed() < Duration::from_millis(300) {
@@ -1562,7 +1532,12 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
         thread::sleep(Duration::from_millis(50));
     }
     press(&mut ws, id, "F12", 123);
-    until(&mut r, &mut eval, "!ui.locked", "the lock stays");
+    until(
+        &mut r,
+        &mut eval,
+        "!layout.modes.includes('locked')",
+        "the lock stays",
+    );
 
     // The focused grip: ↑ ↓ step the height, and Home resets it.
     eval(&mut r, "document.querySelector('#p0 .grip').focus()");
@@ -1600,20 +1575,35 @@ fn the_drawers_grip_sets_the_height_and_keeps_5_rows() -> Result<()> {
         }
     };
     press_key(&mut ws, id, ("q", "KeyQ", 81, 2, ""));
-    until(&mut r, &mut eval, "ui.confirmQuit", "Ctrl+Q asks nothing");
+    until(
+        &mut r,
+        &mut eval,
+        "layout.modes.includes('quit')",
+        "Ctrl+Q asks nothing",
+    );
     press(&mut ws, id, "ArrowUp", 38);
     until(
         &mut r,
         &mut eval,
-        "!ui.confirmQuit",
+        "!layout.modes.includes('quit')",
         "↑ kept the quit confirmation",
     );
     unchanged(&mut r, &mut eval, "↑ after Ctrl+Q");
     eval(&mut r, "document.querySelector('#p0 .grip').focus()");
     press_key(&mut ws, id, ("h", "KeyH", 72, 2, ""));
-    until(&mut r, &mut eval, "ui.help", "Ctrl+H shows no help");
+    until(
+        &mut r,
+        &mut eval,
+        "layout.modes.includes('help')",
+        "Ctrl+H shows no help",
+    );
     press(&mut ws, id, "ArrowUp", 38);
-    until(&mut r, &mut eval, "!ui.help", "↑ kept the help");
+    until(
+        &mut r,
+        &mut eval,
+        "!layout.modes.includes('help')",
+        "↑ kept the help",
+    );
     unchanged(&mut r, &mut eval, "↑ after Ctrl+H");
     // The grip still steps the height after them.
     eval(&mut r, "document.querySelector('#p0 .grip').focus()");

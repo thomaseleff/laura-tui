@@ -16,7 +16,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Makes the [drawer](#the-drawer) taller or shorter by 5% of the workspace while the drawer is open. |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
-| `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. While the drawer is in use, Laura shows the drawer until you press `F12` again. In an editor pane, Laura keeps the drawer closed, and `F12` sends the keystrokes to Neovim. From a file pane or a browser pane, Laura moves the focus to the shell, and back to that pane when you press `F12` again, unless you or the agent moved the focus to another pane while the lock was on. Under the pane selector, the help, the quit question or a draft, Laura keeps the focus on the pane. |
+| `F12` | Sends every keystroke to the shell, or to the focused editor pane, until you press `F12` again. While the drawer is in use, Laura shows the drawer until you press `F12` again. In an editor pane, Laura keeps the drawer closed, and `F12` sends the keystrokes to Neovim. From a file pane or a browser pane, Laura moves the focus to the shell, and back to that pane when you press `F12` again, unless you or the agent moved the focus to another pane while the lock was on. Under the pane selector, the help, the quit question or a draft, Laura keeps the focus on the pane. Laura also closes the workspace switcher's list. |
 | `Ctrl+Shift+V` | Pastes. Laura passes `Ctrl+V` itself to the shell, as a terminal does. |
 
 - Click a pane to focus it, and click a line in a file pane to move the cursor to it.
@@ -289,7 +289,7 @@ An editor pane has two views. Click **Editor** | **File** in the pane header or 
   - Press `Ctrl+W` then `d` to show the thread under the cursor. On Windows and Linux, the browser keeps `Ctrl+W`, so run `:wincmd d` instead.
 - **File view**: you comment on the saved file and submit the inline review, as in a file pane. Save (`:w`) before you flip. Threads stay on their lines and don't follow your edits. Diff (`d`) and highlight (`h`) don't work.
 
-When you submit from the file view, Laura flips the pane back to the editor view. Laura never focuses an editor pane when it opens. To leave the pane, press `Ctrl+P` then a pane id. Laura asks about [its theme](tui-navigation.md#lauras-theme) only in the TUI.
+When you submit from the file view, Laura flips the pane back to the editor view. Laura never focuses an editor pane when it opens. To leave the pane, press `Ctrl+P` then a pane id. Laura asks about [its theme](tui-navigation.md#lauras-theme) only in the TUI. After the user answers `y` or `n`, Laura shows the notice "✅ Experimental · Editor panes setup complete".
 
 ## One workspace per run
 

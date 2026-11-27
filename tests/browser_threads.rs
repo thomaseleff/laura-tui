@@ -36,46 +36,52 @@ fn a_pick_names_the_element() -> Result<()> {
     assert_eq!(acted["text"], laura::tab::NEEDS_READY, "{acted}");
     r.tab.agent = true;
     // A unique id names the element; the quote collapses its spaces.
-    let acted = pick(&mut r, &mut ws, 50.0, 25.0);
-    assert_eq!(acted["anchor"], json!(["#b", "Save draft"]), "{acted}");
-    assert_eq!(acted["line"], 1, "{acted}");
-    let acted = pick(&mut r, &mut ws, 50.0, 125.0);
+    pick(&mut r, &mut ws, 50.0, 25.0);
+    let draft = r.draft();
+    assert_eq!(draft["anchor"], json!(["#b", "Save draft"]), "{draft}");
+    assert_eq!(draft["line"], 1, "{draft}");
+    pick(&mut r, &mut ws, 50.0, 125.0);
+    let draft = r.draft();
     // The first of two paragraphs counts among its siblings.
     assert_eq!(
-        acted["anchor"],
+        draft["anchor"],
         json!(["p:nth-of-type(1)", "Some text"]),
-        "{acted}"
+        "{draft}"
     );
-    let acted = pick(&mut r, &mut ws, 60.0, 230.0);
+    pick(&mut r, &mut ws, 60.0, 230.0);
+    let draft = r.draft();
     assert_eq!(
-        acted["anchor"],
+        draft["anchor"],
         json!(["ul > li:nth-of-type(2)", "Two"]),
-        "{acted}"
+        "{draft}"
     );
-    assert_eq!(acted["line"], 3, "{acted}");
+    assert_eq!(draft["line"], 3, "{draft}");
     // A quote keeps the first 60 characters.
-    let acted = pick(&mut r, &mut ws, 50.0, 325.0);
+    pick(&mut r, &mut ws, 50.0, 325.0);
+    let draft = r.draft();
     let digits = "0123456789".repeat(6);
     assert_eq!(
-        acted["anchor"],
+        draft["anchor"],
         json!(["p:nth-of-type(2)", digits]),
-        "{acted}"
+        "{draft}"
     );
     // The same element again is the same row.
-    let acted = pick(&mut r, &mut ws, 30.0, 10.0);
-    assert_eq!(acted["line"], 1, "{acted}");
+    pick(&mut r, &mut ws, 30.0, 10.0);
+    let draft = r.draft();
+    assert_eq!(draft["line"], 1, "{draft}");
     // Another element at a thread's path is a new row.
     click(&mut ws, id, 50.0, 425.0);
     state_until(&mut r, &mut ws, "the added item", id, |v| {
         v["title"] == "Added"
     });
-    let acted = pick(&mut r, &mut ws, 60.0, 230.0);
+    pick(&mut r, &mut ws, 60.0, 230.0);
+    let draft = r.draft();
     assert_eq!(
-        acted["anchor"],
+        draft["anchor"],
         json!(["ul > li:nth-of-type(2)", "One"]),
-        "{acted}"
+        "{draft}"
     );
-    assert_eq!(acted["line"], 5, "{acted}");
+    assert_eq!(draft["line"], 5, "{draft}");
     let acted = pick(&mut r, &mut ws, 600.0, 500.0);
     assert_eq!(acted["text"], browser::NO_ELEMENT, "{acted}");
     Ok(())
@@ -101,12 +107,13 @@ fn a_browser_review_quotes_selectors() -> Result<()> {
     state_until(&mut r, &mut ws, "the new text", id, |v| {
         v["title"] == "Saved"
     });
-    let acted = r.act(
+    r.act(
         &mut ws,
         json!({"act": "browser_pick", "pane": id, "x": 50.0, "y": 25.0}),
     );
-    assert_eq!(acted["anchor"], json!(["#b", "Save draft"]), "{acted}");
-    assert_eq!(acted["line"], 1, "{acted}");
+    let draft = r.draft();
+    assert_eq!(draft["anchor"], json!(["#b", "Save draft"]), "{draft}");
+    assert_eq!(draft["line"], 1, "{draft}");
     r.act(&mut ws, json!({"act": "begin_review", "pane": id}));
     let acted = r.act(
         &mut ws,
@@ -254,8 +261,8 @@ fn a_thread_on_another_page_is_not_lost() -> Result<()> {
     let (mut r, mut ws) = rig(path)?;
     r.tab.agent = true;
     let (id, url) = load(&mut r, &mut ws, "/one");
-    let acted = comment_at(&mut r, &mut ws, id, (50.0, 25.0), "Link");
-    assert_eq!(acted["anchor"][0], "a", "{acted}");
+    let draft = comment_at(&mut r, &mut ws, id, (50.0, 25.0), "Link");
+    assert_eq!(draft["anchor"][0], "a", "{draft}");
     click(&mut ws, id, 50.0, 25.0);
     let two = format!("{url}/two");
     let shown = state_until(&mut r, &mut ws, "the second page", id, |v| {
@@ -309,8 +316,8 @@ fn a_hash_route_is_a_page() -> Result<()> {
     state_until(&mut r, &mut ws, "the first route", id, |v| {
         v["title"] == "#/a"
     });
-    let acted = comment_at(&mut r, &mut ws, id, (50.0, 25.0), "Route A");
-    assert_eq!(acted["anchor"][0], "#a", "{acted}");
+    let draft = comment_at(&mut r, &mut ws, id, (50.0, 25.0), "Route A");
+    assert_eq!(draft["anchor"][0], "#a", "{draft}");
     click(&mut ws, id, 50.0, 125.0);
     let shown = state_until(&mut r, &mut ws, "the second route", id, |v| {
         v["title"] == "#/b"
