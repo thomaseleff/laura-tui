@@ -8,7 +8,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::browser;
-use crate::journal::{Event, now_ms};
+use crate::journal::{Event, is_runtime_temp, now_ms};
 use crate::protocol::{PTY_PANE, PaneId, Response};
 
 use super::{Error, Tab};
@@ -19,9 +19,11 @@ pub const NOT_OPEN: &str = "⚠ No pane shows {name}. Click its open row to open
 pub const GONE: &str = "⚠ {path} no longer exists.";
 /// A highlight or comment row whose element is gone from the page.
 pub const NO_ELEMENT: &str = "⚠ No element matches {selector} in pane #{n}.";
-/// A highlight or comment row on a page that loads, shows a dialog, or lost Laura's browser.
+/// A highlight or comment row on a page that loads or shows a dialog.
 pub const PAGE_NOT_READY: &str =
     "⚠ The page in pane #{n} isn't ready. Try again once it has loaded.";
+/// A highlight row of lines, or a diff row, whose file an editor pane shows.
+pub const IN_EDITOR: &str = "⚠ Pane #{n} is an editor pane, which shows no highlight or diff.";
 /// A highlight row on a frozen pane.
 pub const FROZEN: &str = "⚠ Pane #{n} is frozen. Submit or refresh its inline review first.";
 
@@ -71,7 +73,9 @@ impl Row {
             return false;
         };
         match event {
-            Event::Open { .. } | Event::Comment { .. } => true,
+            // `laura tail`'s spool: Laura deletes it with its pane.
+            Event::Open { path, .. } => !is_runtime_temp(path),
+            Event::Comment { .. } => true,
             Event::Highlight { cleared, .. } => !cleared,
             Event::Diff { on, .. } => *on,
             Event::Focus { pane } => *pane != PTY_PANE,
@@ -226,6 +230,13 @@ impl Tab {
         let pane = self
             .showing(&path, PTY_PANE)
             .ok_or_else(|| Error::Text(NOT_OPEN.replace("{name}", &file_name(&path))))?;
+        let lines_or_diff = matches!(
+            event,
+            Event::Highlight { selector: None, .. } | Event::Diff { .. }
+        );
+        if lines_or_diff && self.editors.contains_key(&pane) {
+            return Err(Error::Text(IN_EDITOR.replace("{n}", &pane.to_string())));
+        }
         match event {
             Event::Highlight {
                 start,
@@ -305,6 +316,7 @@ impl Tab {
                     .replace("{n}", &pane.to_string()),
             ),
             Error::PageNotReady(_) => Error::Text(PAGE_NOT_READY.replace("{n}", &pane.to_string())),
+            Error::BrowserExited => Error::Text(browser::EXITED.into()),
             e => e,
         })
     }

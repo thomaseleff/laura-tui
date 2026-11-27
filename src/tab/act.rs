@@ -302,10 +302,7 @@ impl Tab {
         pane: PaneId,
         selector: &str,
     ) -> Result<(String, String, String), Error> {
-        let page = self
-            .browsers
-            .get(&pane)
-            .ok_or_else(|| Error::PageNotReady(browser::EXITED_AGENT.into()))?;
+        let page = self.browsers.get(&pane).ok_or(Error::BrowserExited)?;
         if page.dialog_open() {
             return Err(Error::PageNotReady(format!(
                 "pane #{pane}'s page is showing a dialog: answer it with your browser tool, \

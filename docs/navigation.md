@@ -91,13 +91,13 @@ A blue row with a chevron shows its command again when you click the row. Laura 
 
 To show a command again from the keyboard, press `Tab` in the History until a blue row has the focus, then press `Enter` or `Space`. Laura does the same as for a click.
 
-- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's or a tail pane's file in a file pane. When the browser pane of an `open` row moved to another page of the same site, Laura focuses that browser pane.
+- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's file in a file pane. When the browser pane of an `open` row moved to another page of the same site, Laura focuses that browser pane.
 - A `highlight` row highlights the lines or the element again.
 - A `diff` row that turned the diff view on turns the diff view on again.
 - A `comment` row moves the cursor to the comment's line, or highlights the comment's element in a browser pane. Laura adds no comment.
 - A `focus` row focuses the pane again.
 
-A `ready`, `close`, `say` or `review` row, a `highlight` row that cleared the highlight, a `diff` row that turned the diff view off and a `focus` row on the shell show nothing again.
+A `ready`, `close`, `say` or `review` row, the `open` row of `laura tail`, a `highlight` row that cleared the highlight, a `diff` row that turned the diff view off and a `focus` row on the shell show nothing again.
 
 When Laura can't show a command again, Laura changes nothing and shows one of these notices in the drawer:
 
@@ -106,6 +106,8 @@ When Laura can't show a command again, Laura changes nothing and shows one of th
 - `⚠ No element matches <selector> in pane #<n>.` when the element is gone from the page.
 - `⚠ The page in pane #<n> isn't ready. Try again once it has loaded.` while the page loads or shows a dialog.
 - `⚠ Pane #<n> is frozen. Submit or refresh its inline review first.` when the pane is frozen.
+- `⚠ Pane #<n> is an editor pane, which shows no highlight or diff.` when an editor pane shows the file of a `highlight` row of lines or a `diff` row.
+- `⚠ To start Laura's browser again, press Ctrl+R in a browser pane.` when Laura's browser exited.
 
 To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41, in the middle of the pane. When line 41 is already on screen, Laura moves only the cursor. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
 

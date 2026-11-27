@@ -34,7 +34,7 @@ mod links;
 mod mode;
 mod report;
 mod wait;
-pub use history::{FROZEN, GONE, NO_ELEMENT, NOT_OPEN, PAGE_NOT_READY};
+pub use history::{FROZEN, GONE, IN_EDITOR, NO_ELEMENT, NOT_OPEN, PAGE_NOT_READY};
 use mode::DrawerView;
 pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
@@ -86,10 +86,13 @@ pub enum Error {
     /// The agent's selector finds no element on the browser pane's page.
     #[error("no element matches {selector} in pane #{pane}")]
     NoElement { selector: String, pane: PaneId },
-    /// The browser pane's page can't be searched now: it loads, shows a dialog, or Laura's
-    /// browser exited. The text is the agent's.
+    /// The browser pane's page can't be searched now: it loads or shows a dialog. The text is the
+    /// agent's.
     #[error("{0}")]
     PageNotReady(String),
+    /// Laura's browser exited, and the browser pane has no page.
+    #[error("{}", browser::EXITED_AGENT)]
+    BrowserExited,
     #[error("{0}")]
     Text(String),
 }

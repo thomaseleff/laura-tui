@@ -494,6 +494,52 @@ fn a_replay_of_a_gone_element_shows_a_notice() -> Result<()> {
     Ok(())
 }
 
+/// A History row's highlight on a page whose browser exited shows the user's notice.
+#[test]
+fn a_replay_after_the_browser_exited_shows_a_notice() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let id = form(&mut r, &mut ws);
+    let pane = id.to_string();
+    r.drive(&["highlight", "main > h1", "--pane", &pane]);
+    let h = r
+        .until(&mut ws, "the highlight row", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "history"
+                && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "highlight")))
+        })
+        .json();
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+        .expect("the highlight row");
+    let (row, at) = (
+        h["from"].as_u64().unwrap_or_default() as usize + i,
+        h["rows"][i]["at"].clone(),
+    );
+    let url = r
+        .tab
+        .browser
+        .as_ref()
+        .expect("Laura's browser")
+        .ws_url
+        .clone();
+    let (mut cdp, _) = tungstenite::connect(url)?;
+    cdp.send(tungstenite::Message::text(
+        json!({"id": 1, "method": "Browser.close"}).to_string(),
+    ))?;
+    r.until(&mut ws, "not live", |f| {
+        matches!(f, Frame::Json(v) if v["t"] == "browser" && v["id"] == id && v["live"] == false)
+    });
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
+    assert_eq!(acted["text"], browser::EXITED, "{acted}");
+    Ok(())
+}
+
 /// An open row whose browser pane moved to another page of the same site focuses that pane, and
 /// opens no second one.
 #[test]

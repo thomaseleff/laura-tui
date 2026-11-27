@@ -301,6 +301,44 @@ fn a_highlight_row_finds_its_pane_by_file() -> Result<()> {
     Ok(())
 }
 
+/// A highlight row of lines whose file an editor pane shows now shows `IN_EDITOR`.
+#[test]
+fn a_highlight_row_in_an_editor_pane_shows_a_notice() -> Result<()> {
+    let mut rig = Rig::new()?;
+    rig.tab.editor = Ok(fake_nvim());
+    let mut ws = rig.connect();
+    let (_a, a) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &a, "--no-focus", "--highlight", "2", "3"]);
+    rig.drive(&["open", &a, "--panel", "1", "--edit"]);
+    history_when(&mut rig, &mut ws, "the edit row", |c| count(c) == 3);
+    assert!(rig.tab.editors.contains_key(&1), "pane 1 is an editor pane");
+    let acted = replay(&mut rig, &mut ws, 1);
+    assert_eq!(
+        acted["text"],
+        laura::tab::IN_EDITOR.replace("{n}", "1"),
+        "{acted}"
+    );
+    Ok(())
+}
+
+/// `laura tail`'s open row shows nothing again: Laura deletes the tail's file with its pane.
+#[test]
+fn a_tail_open_row_shows_nothing_again() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    assert!(rig.run(&["tail", "--title", "t"]).status.success());
+    let h = history_when(&mut rig, &mut ws, "the tail's open row", |c| {
+        verbs(c).contains(&"open".to_string())
+    });
+    let open = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().find(|r| r["verb"] == "open"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(open["replay"], false, "{h}");
+    Ok(())
+}
+
 /// A diff row that turned the diff view on turns it on again; the row that turned it off shows nothing again.
 #[test]
 fn a_diff_row_turns_the_diff_view_on_again() -> Result<()> {
