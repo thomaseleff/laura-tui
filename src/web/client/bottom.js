@@ -182,10 +182,12 @@ export function paintShellButton() {
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());
 
 // A mouse over the shell button opens the say after a moment, so a mouse that passes over the bottom
-// line doesn't flash the card; keyboard focus opens it at once, and `Esc` folds it (WCAG 1.4.13).
+// line doesn't flash the card; keyboard focus opens it at once, and `Esc` or leaving it folds it
+// (WCAG 1.4.13).
 $("sbtn").addEventListener("mouseenter", () => (clearTimeout(hoverTimer), (hoverTimer = setTimeout(() => fold(false), 400))));
 $("sbtn").addEventListener("mouseleave", () => fold(true));
 $("sbtn").addEventListener("focus", () => fold(false));
+$("sbtn").addEventListener("blur", () => fold(true));
 $("sbtn").addEventListener("keydown", e => {
   if (e.key !== "Escape" || folded) return;
   e.preventDefault();

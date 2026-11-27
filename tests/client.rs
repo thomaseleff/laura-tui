@@ -326,7 +326,7 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
 
 /// #275: a new say opens in full, as a card over the panes, and a click in a pane folds it to one
 /// line. A mouse over the shell button opens it after a moment, and the mouse leaving folds it.
-/// Keyboard focus opens it, and `Esc` folds it. A hovered pane never covers the card.
+/// Keyboard focus opens it, and the focus leaving or `Esc` folds it. A hovered pane never covers the card.
 #[test]
 fn the_shell_buttons_say_folds_while_the_user_works_in_a_pane() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -376,6 +376,11 @@ fn the_shell_buttons_say_folds_while_the_user_works_in_a_pane() -> Result<()> {
     c.eval("document.getElementById('sbtn').focus()")
         .map_err(anyhow::Error::msg)?;
     c.until(&mut r, "the card on focus", CARD);
+    c.press(TAB);
+    c.until(&mut r, "the say folded on the focus leaving", FOLDED);
+    c.eval("document.getElementById('sbtn').focus()")
+        .map_err(anyhow::Error::msg)?;
+    c.until(&mut r, "the card on focus again", CARD);
     c.press(ESCAPE);
     c.until(
         &mut r,

@@ -57,7 +57,7 @@ The shell button in the middle of the bottom line shows the shell's name. While 
 A long say opens as a card that grows upward from the bottom line, over the panes:
 
 - When you click or type in a pane, Laura folds the say to one line, cut with `…`.
-- To read the say in full again, point at the shell button for a moment, or move the keyboard focus to the shell button. Laura folds the say again when the pointer leaves the shell button, or when you press `Esc` on the shell button.
+- To read the say in full again, point at the shell button for a moment, or move the keyboard focus to the shell button. Laura folds the say again when the pointer leaves the shell button, when the keyboard focus leaves it, or when you press `Esc` on the shell button.
 - Each new say opens in full again. A screen reader reads each new say. While the agent [waits for you](workspace.md#know-when-the-agent-waits) and said nothing since you last wrote to the shell, the shell button is amber and shows `Waiting for you`. While the agent waits, the browser tab's icon shows an amber dot.
 
 To open the drawer, do one of these:
