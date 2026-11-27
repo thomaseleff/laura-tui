@@ -733,6 +733,59 @@ fn ctrl_p_to_a_file_pane_keeps_the_wait() -> Result<()> {
     Ok(())
 }
 
+/// A click in the chat during a wait with no say keeps the wait: only the shell's own view ends it.
+#[test]
+fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    if !cfg!(unix) {
+        return Ok(()); // the shell rings the bell only on unix, as in `ring`
+    }
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    r.drive(&["say", "hello from the agent"]);
+    c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length",
+    );
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell",
+        "layout.drawer_view === 'shell' && !acts.length && !!document.activeElement.closest('#p0 .term')",
+    );
+    // The user's write ends the say, so the bell begins a wait with no say.
+    c.type_text("printf '\\007'");
+    c.press(ENTER);
+    c.until(
+        &mut r,
+        "the wait with no say",
+        "layout.waiting && layout.unsaid && layout.drawer_view === 'shell'",
+    );
+    c.press(CTRL_PERIOD);
+    let at = c.until(
+        &mut r,
+        "the chat",
+        "layout.drawer_view === 'chat' && !acts.length && (() => { \
+           const b = document.querySelector('#p0 .chat').getBoundingClientRect(); \
+           return b.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    // A round trip after the click's `seen`, if any.
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the shell again",
+        "layout.drawer_view === 'shell' && !acts.length",
+    );
+    assert!(r.tab.waiting(), "the wait");
+    assert_eq!(c.eval("layout.message_box"), Ok(json!(false)));
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
 /// #245: F12 under the workspace switcher's menu closes the menu, then locks. The user sees the
 /// shell, and the wait ends.
 #[test]

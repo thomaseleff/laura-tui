@@ -52,7 +52,7 @@ The wait ends when you:
 - Submit an inline review.
 - Close a pane, and Laura moves the focus to the shell.
 
-The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, or when you come back to the browser tab.
+The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, when you come back to the browser tab, or when you click or type in the chat.
 
 Laura shows a wait when the program in the shell rings the terminal bell or sends a terminal notification.
 
