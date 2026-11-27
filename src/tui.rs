@@ -338,8 +338,12 @@ impl Tui {
             let secs = if text == laura::tab::THEME_SET { 10 } else { 5 };
             self.notice(text, secs);
         }
-        // The TUI has no chat: each new say shows in the toast, over this frame's other notice.
-        let say = self.tab.latest_say().map(|(n, body)| (n, body.to_string()));
+        // The TUI has no chat: each new say shows in the toast, over this frame's other notice. The
+        // toast is one row, so it shows the say's first line.
+        let say = self
+            .tab
+            .latest_say()
+            .map(|(n, body)| (n, body.lines().next().unwrap_or_default().to_string()));
         if let Some((n, body)) = say
             && n != self.said
         {

@@ -45,7 +45,7 @@ The TUI shows these notices in place of the browser's banner and buttons:
 
 - A frozen pane shows `⚠ <file> changed on disk — Shift+S submit · Ctrl+R refresh (discards unsubmitted inline review)`, shortened to `⚠ Shift+S submit · Ctrl+R discards inline review` in a narrow pane.
 - A failed submit shows `⚠ inline review submission failed — Enter to retry · Esc to cancel`. `Enter` retries, and `Esc` closes the review body and keeps the threads. Laura records the cause in the journal's `review` event.
-- When the agent runs [`laura say`](cli.md#commands), the TUI shows the agent's text as a notice for 10 seconds. The TUI has no chat: the agent's other words, and your answers, stay in the shell.
+- When the agent runs [`laura say`](cli.md#commands), the TUI shows the first line of the agent's text as a notice for 10 seconds. The TUI has no chat: the agent's other words, and your answers, stay in the shell.
 
 ## In an editor pane
 
