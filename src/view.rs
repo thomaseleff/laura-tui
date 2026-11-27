@@ -471,13 +471,13 @@ fn shell_hint(tab: &Tab) -> Vec<(&'static str, &'static str)> {
             tab.drawer_in_use() && !tab.canvas_shown(),
             vec![("Ctrl+`", "hide the drawer")],
         ),
-        // The web app's shell holds the chat too.
+        // The web app's shell holds the History too.
         when(
             tab.web,
             vec![(
                 "Ctrl+.",
                 if tab.drawer_shows_shell() {
-                    "the chat"
+                    "the history"
                 } else {
                     "the shell"
                 },
@@ -607,7 +607,10 @@ pub fn help(web: bool) -> Vec<(&'static str, Vec<(&'static str, &'static str)>)>
         groups[0].1.insert(1, ("Ctrl+`", "Show or hide the drawer"));
         groups[0].1.insert(
             2,
-            ("Ctrl+.", "Flip the drawer between the chat and the shell"),
+            (
+                "Ctrl+.",
+                "Flip the drawer between the History and the shell",
+            ),
         );
         groups[0]
             .1

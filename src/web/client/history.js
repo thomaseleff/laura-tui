@@ -17,8 +17,8 @@ export function onHistory(m) {
   paintShellButton();
 }
 
-// The session's latest say, as Laura's HTML, for the shell button; null before a say.
-export const latestSay = () => rows.findLast(r => r.kind === "say")?.html ?? null;
+// The session's latest say, `{at, html}` with Laura's HTML, for the shell button; null before a say.
+export const latestSay = () => rows.findLast(r => r.kind === "say") ?? null;
 
 // The row's time, as the user's clock shows it.
 const time = at => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

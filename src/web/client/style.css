@@ -748,8 +748,9 @@ kbd {
 
 /* The bottom line, right below the grid: the hint line on the left, the status bar on the right,
    and the shell button in the middle while the drawer is in use. */
+/* Above the panes, so a hovered pane (`.pane:hover`) never covers the say's card. */
 #status {
-  position: absolute; top: calc(44px + var(--ch) * var(--rows)); left: 0; right: 0; height: 34px; box-sizing: border-box;
+  position: absolute; z-index: 5; top: calc(44px + var(--ch) * var(--rows)); left: 0; right: 0; height: 34px; box-sizing: border-box;
   display: flex; align-items: center; gap: 16px; padding: 0 calc(var(--side, 0px) + 5px); font-size: 12px; color: var(--mute);
 }
 /* One row of the bottom line's height, so a long say's card grows upward out of it. */
@@ -757,7 +758,7 @@ kbd {
 #status:has(#sbtn:not([hidden])) #sbar { justify-self: end; max-width: 100%; }
 /* The shell button: the drawer's handle. The dot pulses while the shell prints. */
 .sbtn {
-  display: inline-flex; align-items: center; gap: 8px; padding: 2px 6px 2px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box; padding: 2px 6px 2px 10px; cursor: pointer;
   font: 12.5px var(--sans); color: var(--fg); background: #fff; border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow);
 }
 .sbtn[hidden], .sbtn kbd[hidden] { display: none; }
@@ -791,6 +792,11 @@ kbd {
 .sbtn.long .said > * { display: block; }
 .sbtn.long .said > * + *::before { content: none; }
 .sbtn.long .said pre { white-space: pre-wrap; font: 12px/1.5 var(--mono); }
+/* Read by a screen reader only: each new say. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* While the drawer shows the History, the shell's pane header shows Laura's icon and name. */
+.head > img.logo { width: 16px; height: 16px; flex: none; }
+.head.hist > .ic, .head:not(.hist) > img.logo { display: none; }
 @keyframes pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .sbtn.busy .dot { animation: none; } }
 #hint { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }

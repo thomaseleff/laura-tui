@@ -48,7 +48,7 @@ export const TOOLS = [
 // pane hides.
 export const head = () => `<div class="head"><span class="pid"></span>`
   + `<span class="navb"><button class="tool" data-act="back" ${tip("Back  Alt+←")}>${ic("back")}</button><button class="tool" data-act="fwd" ${tip("Forward  Alt+→")}>${ic("fwd")}</button></span>`
-  + `${ic("file")}<span class="name tip-l"><i class="dot"></i><span class="nm"></span></span><input class="url" spellcheck="false" aria-label="Address">`
+  + `${ic("file")}<img class="logo" src="logo.svg" alt=""><span class="name tip-l"><i class="dot"></i><span class="nm"></span></span><input class="url" spellcheck="false" aria-label="Address">`
   + '<span class="delta"><span class="add"></span><span class="del"></span></span>'
   + `<span class="seg tip-c" ${tip("Flip the view  Ctrl+L")}><button data-act="editor">E<span class="tl">ditor</span></button><button data-act="file">F<span class="tl">ile</span></button></span>`
   + `<span class="seg dview tip-c" ${tip("Flip the drawer  Ctrl+.")}><button data-act="history">History</button><button data-act="shell">Shell</button></span>`
@@ -112,7 +112,10 @@ export function paintHead(el, p) {
   q(".pid").textContent = p.id;
   // `open --panel` can show a page or a log in a file's pane.
   q("> .ic").innerHTML = I[p.id === 0 ? "term" : p.icon ?? "file"];
-  q(".nm").textContent = p.name;
+  // The History is Laura's: its header shows Laura's icon and name, and the shell's the agent's.
+  const hist = p.id === 0 && layout.drawer_view === "history";
+  el.querySelector(".head").classList.toggle("hist", hist);
+  q(".nm").textContent = hist ? "Laura" : p.name;
   // The shell has no path, and an empty `data-tip` would show an empty box.
   if (p.path) q(".name").dataset.tip = p.path;
   else delete q(".name").dataset.tip;

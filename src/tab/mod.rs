@@ -595,6 +595,11 @@ impl Tab {
         Ok(())
     }
 
+    /// A say came since the user last wrote to the shell (`Wait::said`): the shell button shows it.
+    pub(crate) fn said(&self) -> bool {
+        self.wait.said()
+    }
+
     /// The shell waits with no say since the user last wrote to it (`Wait::unsaid`).
     pub(crate) fn unsaid(&self) -> bool {
         self.wait.unsaid()

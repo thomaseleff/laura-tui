@@ -233,7 +233,10 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
             "layout.drawer_view === 'history' && !acts.length",
             " && document.querySelector('#p0 .history').checkVisibility()",
             " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
-            " && document.activeElement === document.querySelector('#p0 .history .list')"
+            " && document.activeElement === document.querySelector('#p0 .history .list')",
+            // The History is Laura's: its pane header shows Laura's icon and name.
+            " && document.querySelector('#p0 .head img.logo').checkVisibility()",
+            " && document.querySelector('#p0 .head .nm').textContent === 'Laura'"
         ),
     );
     assert!(!r.tab.drawer_shows_shell(), "Laura's drawer view");
@@ -316,6 +319,68 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
         &mut r,
         "the History again",
         "layout.drawer_view === 'history' && !acts.length",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// #275: a new say opens in full, as a card over the panes, and a click in a pane folds it to one
+/// line. A mouse over the shell button opens it after a moment, and the mouse leaving folds it.
+/// Keyboard focus opens it, and `Esc` folds it. A hovered pane never covers the card.
+#[test]
+fn the_shell_buttons_say_folds_while_the_user_works_in_a_pane() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = file_focused(&mut r, &c)?;
+    const CARD: &str = "document.getElementById('sbtn').classList.contains('long')";
+    const FOLDED: &str = "!document.getElementById('sbtn').classList.contains('long') \
+         && document.querySelector('#sbtn .said').checkVisibility()";
+    let xy = |v: Value| (v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0));
+    r.drive(&["say", &"A long say about the change. ".repeat(6)]);
+    let card = xy(c.until(
+        &mut r,
+        "the card",
+        &format!(
+            "{CARD} && (b => [b.x + b.width / 2, b.y + 8])(document.getElementById('sbtn').getBoundingClientRect())"
+        ),
+    ));
+    let pane = xy(c.until(
+        &mut r,
+        "a point on the pane",
+        "(b => [b.x + 40, b.y + 60])(document.getElementById('p1').getBoundingClientRect())",
+    ));
+    c.hover(pane.0, pane.1);
+    c.until(
+        &mut r,
+        "the card over the hovered pane",
+        &format!(
+            "document.getElementById('p1').matches(':hover') \
+             && !!document.elementFromPoint({}, {})?.closest('#sbtn')",
+            card.0, card.1
+        ),
+    );
+    c.click(pane.0, pane.1);
+    c.until(&mut r, "the folded say", FOLDED);
+    let button = xy(c.until(
+        &mut r,
+        "the shell button",
+        "(b => [b.x + b.width / 2, b.y + b.height / 2])(document.getElementById('sbtn').getBoundingClientRect())",
+    ));
+    c.hover(button.0, button.1);
+    c.until(&mut r, "the card on a mouse over", CARD);
+    c.hover(pane.0, pane.1);
+    c.until(&mut r, "the say folded on the mouse leaving", FOLDED);
+    c.eval("document.getElementById('sbtn').focus()")
+        .map_err(anyhow::Error::msg)?;
+    c.until(&mut r, "the card on focus", CARD);
+    c.press(ESCAPE);
+    c.until(
+        &mut r,
+        "the say folded on Esc",
+        &format!("{FOLDED} && layout.focus === 1"),
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())

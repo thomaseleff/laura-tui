@@ -212,6 +212,11 @@ impl Client {
         self.mouse("mouseMoved", to, 1);
     }
 
+    /// The pointer moves to `x`, `y` CSS px from the viewport's top left, with no button held.
+    pub fn hover(&self, x: f64, y: f64) {
+        self.mouse("mouseMoved", (x, y), 0);
+    }
+
     /// The release of a [`Client::drag_hold`] at `to`.
     pub fn release(&self, to: (f64, f64)) {
         self.mouse("mouseReleased", to, 0);

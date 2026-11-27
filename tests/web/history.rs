@@ -333,3 +333,20 @@ fn a_wait_keeps_the_drawer_view() -> Result<()> {
     );
     Ok(())
 }
+
+/// The layout frame's `said` holds from a say until the user writes to the shell, and the next say
+/// sets it again: the shell button shows the say only while `said` holds.
+#[test]
+fn said_holds_until_the_user_writes_to_the_shell() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    let l = layout_when(&mut rig, &mut ws, "layout", |_| true);
+    assert_eq!(l["said"], false, "{l}");
+    rig.drive(&["say", "hi"]);
+    layout_when(&mut rig, &mut ws, "said", |l| l["said"] == true);
+    type_in(&mut ws, 0, b"x")?;
+    layout_when(&mut rig, &mut ws, "written", |l| l["said"] == false);
+    rig.drive(&["say", "again"]);
+    layout_when(&mut rig, &mut ws, "said again", |l| l["said"] == true);
+    Ok(())
+}
