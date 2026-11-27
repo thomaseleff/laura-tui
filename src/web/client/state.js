@@ -101,7 +101,7 @@ export const MODIFIERS = ["Control", "Shift", "Alt", "Meta"];
 // after the event's handlers, so the close of the pane selector, the help or the menu counts, and the
 // open doesn't. It runs on `click`, not on `mousedown`, which comes before the click that opens the
 // help. A click counts in the shell, or when an overlay was open at the press; then the shell's
-// terminal, not the chat, must have the focus. An event that sends Laura an action or opens another
+// terminal, not the History, must have the focus. An event that sends Laura an action or opens another
 // workspace leaves the wait to the server, which ends it on the
 // user's move to the shell: the focus moves only after the reply. `seen` names the wait shown at the
 // press, so a wait that began later stays. Not a focus listener: the agent's `laura focus` and a

@@ -190,11 +190,12 @@ pub struct Browser {
 
 impl Browser {
     /// Start `path` headless on a fresh profile with CDP on a port the OS picks, and connect to
-    /// it on another thread. The receiver gets Laura's browser, or why it didn't start.
-    pub fn launch(path: &Path) -> Start {
+    /// it on another thread, with Chrome's `disabled` features off beside Laura's own. The receiver
+    /// gets Laura's browser, or why it didn't start.
+    pub fn launch(path: &Path, disabled: &[&str]) -> Start {
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
-        match Browser::spawn(path) {
+        match Browser::spawn(path, disabled) {
             Ok(proc) => {
                 let (path, cancel) = (path.to_path_buf(), cancel.clone());
                 std::thread::spawn(move || {
@@ -212,7 +213,7 @@ impl Browser {
     }
 
     /// Start `path`'s process on a fresh profile.
-    fn spawn(path: &Path) -> Result<Proc> {
+    fn spawn(path: &Path, disabled: &[&str]) -> Result<Proc> {
         let profile =
             std::env::temp_dir().join(format!("laura-browser-{}", crate::http::nonce(8)?));
         std::fs::create_dir_all(&profile)
@@ -240,9 +241,13 @@ impl Browser {
             "--disable-default-apps",
             "--disable-breakpad",
             "--disable-client-side-phishing-detection",
-            "--disable-features=Translate,OptimizationHints,MediaRouter",
             "--disable-smooth-scrolling",
         ])
+        // Chrome reads only one `--disable-features`.
+        .arg(format!(
+            "--disable-features=Translate,OptimizationHints,MediaRouter{}",
+            disabled.iter().map(|f| format!(",{f}")).collect::<String>()
+        ))
         .arg(format!("--force-device-scale-factor={DENSITY}"))
         .arg("--remote-debugging-port=0")
         .arg(format!("--user-data-dir={}", profile.display()))
@@ -1789,6 +1794,13 @@ pub fn page_of(url: &str) -> &str {
         Some((page, f)) if !f.starts_with('/') && !f.starts_with("!/") => page,
         _ => url,
     }
+}
+
+/// `url`'s site, `scheme://host`: what comes before the third `/`.
+pub(crate) fn origin(url: &str) -> &str {
+    url.match_indices('/')
+        .nth(2)
+        .map_or(url, |(i, _)| &url[..i])
 }
 
 fn now_ms() -> f64 {

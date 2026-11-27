@@ -97,7 +97,7 @@ fn a_pane_fills_the_workspace_and_the_shell_floats_in_the_drawer() -> Result<()>
     );
     assert_eq!(
         open["hints"]["pane"][1],
-        json!(["Ctrl+.", "the chat"]),
+        json!(["Ctrl+.", "the history"]),
         "{open}"
     );
     assert_eq!(
@@ -300,7 +300,7 @@ fn a_new_workspace_starts_in_the_drawer_over_the_start_canvas() -> Result<()> {
     // Over the canvas, the drawer stays open: no `Ctrl+`` to hide it.
     assert_eq!(
         first["hints"]["pane"][0],
-        json!(["Ctrl+.", "the chat"]),
+        json!(["Ctrl+.", "the history"]),
         "{first}"
     );
     assert_eq!(

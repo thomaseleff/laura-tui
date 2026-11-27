@@ -449,6 +449,192 @@ fn the_agent_highlights_by_selector() -> Result<()> {
     Ok(())
 }
 
+/// A History row's highlight on an element that left the page shows the user's notice.
+#[test]
+fn a_replay_of_a_gone_element_shows_a_notice() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let id = form(&mut r, &mut ws);
+    let pane = id.to_string();
+    r.drive(&["highlight", "main > h1", "--pane", &pane]);
+    // Laura sends the History before the page's marks.
+    let h = r.until(&mut ws, "the highlight row", |f| {
+        matches!(f, Frame::Json(v) if v["t"] == "history"
+            && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "highlight")))
+    });
+    outlined_until(&mut r, &mut ws, "the highlight", id, "Form", (Some(0), &[]));
+    // The frame holds the rows from its `from` on.
+    let h = h.json();
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+        .expect("the highlight row");
+    let row = h["from"].as_u64().unwrap_or_default() as usize + i;
+    let at = h["rows"][i]["at"].clone();
+    let url = pane_of(&mut r, id)["path"]
+        .as_str()
+        .expect("a URL")
+        .to_string();
+    let mut tools = Tools::attach(&mut r, &url);
+    tools.call(
+        &mut r,
+        "Runtime.evaluate",
+        json!({"expression": "document.querySelector('main > h1').remove()"}),
+    );
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
+    let want = laura::tab::NO_ELEMENT
+        .replace("{selector}", "main > h1")
+        .replace("{n}", &pane);
+    assert_eq!(acted["text"], want, "{acted}");
+    Ok(())
+}
+
+/// A History row's highlight on a page whose browser exited shows the user's notice.
+#[test]
+fn a_replay_after_the_browser_exited_shows_a_notice() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let id = form(&mut r, &mut ws);
+    let pane = id.to_string();
+    r.drive(&["highlight", "main > h1", "--pane", &pane]);
+    let h = r
+        .until(&mut ws, "the highlight row", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "history"
+                && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "highlight")))
+        })
+        .json();
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+        .expect("the highlight row");
+    let (row, at) = (
+        h["from"].as_u64().unwrap_or_default() as usize + i,
+        h["rows"][i]["at"].clone(),
+    );
+    let url = r
+        .tab
+        .browser
+        .as_ref()
+        .expect("Laura's browser")
+        .ws_url
+        .clone();
+    let (mut cdp, _) = tungstenite::connect(url)?;
+    cdp.send(tungstenite::Message::text(
+        json!({"id": 1, "method": "Browser.close"}).to_string(),
+    ))?;
+    r.until(&mut ws, "not live", |f| {
+        matches!(f, Frame::Json(v) if v["t"] == "browser" && v["id"] == id && v["live"] == false)
+    });
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
+    assert_eq!(acted["text"], browser::EXITED, "{acted}");
+    Ok(())
+}
+
+/// An open row whose browser pane moved to another page of the same site focuses that pane, and
+/// opens no second one.
+#[test]
+fn an_open_row_focuses_its_browser_pane_on_the_same_site() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let url = format!("{}/form", serve());
+    let id = open(&mut r, &url);
+    // Laura sends the History before the page loads.
+    let h = r
+        .until(&mut ws, "the open row", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "history"
+                && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "open")))
+        })
+        .json();
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "open"))
+        .expect("the open row");
+    let (row, at) = (
+        h["from"].as_u64().unwrap_or_default() as usize + i,
+        h["rows"][i]["at"].clone(),
+    );
+    state_until(&mut r, &mut ws, "the form", id, |v| v["title"] == "Form");
+    let mut tools = Tools::attach(&mut r, &url);
+    tools.call(
+        &mut r,
+        "Runtime.evaluate",
+        json!({"expression": "location.assign('/click')"}),
+    );
+    state_until(&mut r, &mut ws, "the second page", id, |v| {
+        v["title"] == "Click" && v["url"].as_str().is_some_and(|u| u.ends_with("/click"))
+    });
+    r.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
+    assert_eq!(acted["ok"], true, "{acted}");
+    assert_eq!(r.tab.focus, id, "the replay focuses the browser pane");
+    assert_eq!(r.tab.browsers.len(), 1, "the replay opened a second page");
+    Ok(())
+}
+
+/// A highlight row whose browser pane moved to another page of the same site still finds that
+/// pane: the user sees the pane's own notice for the element, not that no pane shows the page.
+#[test]
+fn a_highlight_row_finds_its_browser_pane_on_the_same_site() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let (mut r, mut ws) = rig(path)?;
+    let id = form(&mut r, &mut ws);
+    let pane = id.to_string();
+    r.drive(&["highlight", "main > h1", "--pane", &pane]);
+    let h = r
+        .until(&mut ws, "the highlight row", |f| {
+            matches!(f, Frame::Json(v) if v["t"] == "history"
+                && v["rows"].as_array().is_some_and(|rs| rs.iter().any(|r| r["verb"] == "highlight")))
+        })
+        .json();
+    let i = h["rows"]
+        .as_array()
+        .and_then(|rs| rs.iter().position(|r| r["verb"] == "highlight"))
+        .expect("the highlight row");
+    let (row, at) = (
+        h["from"].as_u64().unwrap_or_default() as usize + i,
+        h["rows"][i]["at"].clone(),
+    );
+    let url = pane_of(&mut r, id)["path"]
+        .as_str()
+        .expect("a URL")
+        .to_string();
+    let mut tools = Tools::attach(&mut r, &url);
+    tools.call(
+        &mut r,
+        "Runtime.evaluate",
+        json!({"expression": "location.assign('/click')"}),
+    );
+    state_until(&mut r, &mut ws, "the second page", id, |v| {
+        v["title"] == "Click" && v["url"].as_str().is_some_and(|u| u.ends_with("/click"))
+    });
+    let acted = r.act(
+        &mut ws,
+        json!({"act": "replay", "pane": 0, "row": row, "at": at}),
+    );
+    let want = laura::tab::NO_ELEMENT
+        .replace("{selector}", "main > h1")
+        .replace("{n}", &pane);
+    assert_eq!(acted["text"], want, "{acted}");
+    Ok(())
+}
+
 #[test]
 fn laura_draws_no_marks_in_the_page() -> Result<()> {
     let Some((path, _one)) = chrome() else {

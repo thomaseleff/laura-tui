@@ -11,6 +11,7 @@ Standard Rust, plus the organization rules below. Public names and signatures fo
 - **Edition:** latest stable (2024). Toolchain pinned in `rust-toolchain.toml`.
 - **Errors:** `anyhow` at binary boundaries. In the library, an error a caller branches on is a variant of its module's `Error` enum (`thiserror`, as `tab::Error`); never compare error text. `Result<_, String>` is only for text Laura shows as is, to the user or the agent. No `.unwrap()`/`.expect()` in code that handles runtime input (PTY bytes, socket messages, files) — reserve them for invariants that can't fail, with the reason in the `.expect()` string.
 - **Comments/docstrings:** terse; explain *why*, not *what*. Match the surrounding file's density.
+- **Events from two sources:** don't depend on the order in which events from two sources come, such as Chrome's events and a page's report, or a `layout` and a `history` frame. Key the state to an identity, such as a row's `at`. Don't tell events apart with a time window; wait for a reply (#205).
 
 ### Code organization
 
@@ -75,8 +76,8 @@ Run before calling anything done: `cargo fmt --check && cargo clippy --all-targe
 Do these steps only when a test fails at random: the test failed and then passed on the same code, or a failed test also fails at random on `main`. A new or changed test that passes needs only the check suite above, with no repeated runs.
 
 - First, look for the test in the failed runs on `main` and on other branches (`gh run list --status failure`, then `gh run view <id> --log-failed`). A failure that is already there is not caused by your change, but you still fix it or open an issue for it.
-- Find the cause with a record that the page or the test writes when the event occurs, for example a `pointerdown` listener or a wrapper in the rig's init script. Do not add an `eval` before the step that fails: each extra round trip changes the timing, and the failure goes away.
-- Prove the fix: the test fails with the fix removed, and passes with it. A test that passes alone can fail under the full suite's load, so run the whole test binary of the test that fails at random 10 times in a row (the client rules are in [`src/web/CLAUDE.md`](src/web/CLAUDE.md), Waits).
+- Find the cause with a record that the page or the test writes when the event occurs. A client test that times out prints the page's last events (`INIT` in `tests/common/client.rs`): read them first. Add a record only for an event that they do not show, for example a listener or a wrapper in `INIT`. Do not add an `eval` before the step that fails: each extra round trip changes the timing, and the failure goes away.
+- Prove the fix: the test fails with the fix removed, and passes with it. A test that passes alone can fail under the full suite's load, so run `scripts/stress.sh <test binary>`: the script runs the whole test binary 10 times, each beside a second copy as load, and stops at the first failure with its log (the client rules are in [`src/web/CLAUDE.md`](src/web/CLAUDE.md), Waits).
 
 **Manual runs.** `tmp/` is gitignored scratch for manual checks. Build a binary to run by hand with `CARGO_TARGET_DIR=tmp/target cargo build`, so a Laura running from `target/` doesn't lock the build.
 
@@ -125,11 +126,11 @@ The following glossary defines the vocabulary for Laura's components and interac
 | **pane header** | The top bar of a pane in the web app, with the pane's name, state and buttons. | title bar, toolbar |
 | **pane selector** | `Ctrl+P` in the web app, which finds a pane by file name or pane id, or a workspace by session label or folder. | popup, palette |
 | **shell** | A terminal running the shell or agent CLI, pane `0`. | PTY, PTY pane, shell pane |
-| **drawer** | The chat or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
+| **drawer** | The History or the shell, floating above the web app's bottom line, over the panes, while the shell has focus. | popover, overlay, panel |
 | **start canvas** | The page the web app shows beside the shell while no other pane is open: the first steps until the user's first submitted inline review, then the project at a glance, or a short prompt. | welcome screen, empty state, canvas (alone) |
 | **shell button** | The button in the middle of the web app's bottom line that opens and closes the drawer, and shows the agent's latest say while the drawer is closed. | chip, pill |
-| **message box** | The box below the chat where the user types a message, which Laura writes into the shell. | input, composer, reply box |
-| **chat** | The list in the web app's drawer of what passed through Laura in the agent's session: the agent's says, its other `laura` commands, the user's inline reviews and messages. Use *shell* for the agent CLI's own screen. | timeline, feed |
+| **History** | The list in the web app's drawer of what the agent did through Laura in its session: one row for each `laura` command, each say and each submitted inline review. A click on a row shows its command again. | chat, timeline, feed, log |
+| **chat** | The agent's conversation, in the shell. | — |
 | **file pane** | A pane rendering a file (`open`, `diff`). | panel, doc pane |
 | **tail pane** | A file pane opened by `laura tail`. | log pane |
 | **browser pane** | A pane showing a page from a URL through Laura's browser (`open <url>`). | web pane, browser tab, preview |

@@ -179,7 +179,7 @@ enum Cmd {
         #[arg(allow_hyphen_values = true)]
         body: Option<String>,
     },
-    /// Say something to the user: Laura shows it in the chat and in the shell button.
+    /// Say something to the user: Laura shows it in the History and in the shell button.
     /// Usage: `laura say "Done: the tests pass."`, or pipe the text in.
     Say {
         /// The text, in markdown (default: piped stdin).

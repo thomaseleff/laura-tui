@@ -109,7 +109,7 @@ laura feedback          Append a feedback signal (layout/render quality, a missi
       --negative        Negative signal.
       [<body>]          Optional free-text body.
 laura say [<body>]      Say something to the user. Laura journals the text, and the web app
-                        shows the text in the chat and in the shell button. The TUI shows
+                        shows the text in the History and in the shell button. The TUI shows
                         the text's first line as a notice. The text is markdown. Without
                         <body>, `laura say` reads the text from piped stdin:
                         `git log -3 --oneline | laura say`.
@@ -269,7 +269,7 @@ Each event's fields:
 | `diff` | `pane`, `on` |
 | `comment` | `pane`, `line` or `selector`, `body` (the comment's text) |
 | `say` | `body` |
-| `message` | `body` (the text that the user sent from the chat's message box) |
+| `message` | `body` (the text that the user sent from the chat's message box). Laura no longer writes this event, but an older journal can hold it. |
 | `wait` | `said` (`true` when the agent ran `laura say` since the user last wrote to the shell) |
 | `review` | `pane`, `path`, `comments` (thread count), `body`, `error` |
 | `feedback` | `sentiment` (`+` / `-`), `body`, `pane` |

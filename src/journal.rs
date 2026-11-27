@@ -107,12 +107,8 @@ pub(crate) enum Event {
     Say {
         body: String,
     },
-    /// The user's message from the chat's message box, which Laura wrote into the shell.
-    Message {
-        body: String,
-    },
     /// The shell began a wait: it rang the bell or sent a notification. `said`: a say came since
-    /// the user's last message.
+    /// the user last wrote to the shell.
     Wait {
         said: bool,
     },
@@ -351,7 +347,7 @@ fn stamp(obj: &mut Map<String, Value>, key: &str, val: Value) {
     obj.entry(key.to_string()).or_insert(val);
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)

@@ -16,6 +16,7 @@ use crate::rig::Rig;
 
 pub const F12: Keystroke = ("F12", "F12", 123, 0, "");
 pub const ENTER: Keystroke = ("Enter", "Enter", 13, 0, "\r");
+pub const TAB: Keystroke = ("Tab", "Tab", 9, 0, "");
 pub const ESCAPE: Keystroke = ("Escape", "Escape", 27, 0, "");
 pub const CTRL_H: Keystroke = ("h", "KeyH", 72, 2, "");
 pub const CTRL_BACKQUOTE: Keystroke = ("`", "Backquote", 192, 2, "");
@@ -30,13 +31,41 @@ pub const N: Keystroke = ("n", "KeyN", 78, 0, "n");
 pub const ARROW_RIGHT: Keystroke = ("ArrowRight", "ArrowRight", 39, 0, "");
 pub const HOME: Keystroke = ("Home", "Home", 36, 0, "");
 
-/// Each error, unhandled rejection and `console.error` of the page, in `window.__errors`, from
-/// before the page's own scripts run.
-const ERRORS: &str = "(() => {
+/// The rig's init script, run before the page's own scripts:
+/// - each error, unhandled rejection and `console.error` of the page, in `window.__errors`;
+/// - the page's last 100 events, in `window.__events` as `<ms> <type> <detail>` lines, which
+///   `Client::until` prints on a timeout: the pointer, the keys, the window's focus, the frames'
+///   messages and the websocket's text frames both ways.
+const INIT: &str = "(() => {
   const errors = window.__errors = [], error = console.error;
   addEventListener('error', e => errors.push(String(e.message)));
   addEventListener('unhandledrejection', e => errors.push('unhandled rejection: ' + e.reason));
   console.error = (...a) => (errors.push(a.join(' ')), error(...a));
+  const events = window.__events = [];
+  const log = (type, detail) => {
+    events.push(Math.round(performance.now()) + ' ' + type + ' ' + detail);
+    if (events.length > 100) events.shift();
+  };
+  const el = t => t instanceof Element
+    ? t.tagName.toLowerCase() + (t.id ? '#' + t.id : '') + ' in ' + (t.closest('.pane')?.id ?? '-')
+    : String(t);
+  for (const type of ['pointerdown', 'pointerup', 'click', 'keydown'])
+    addEventListener(type, e => log(type, el(e.target) + (e.key ? ' ' + e.key : '')), true);
+  for (const type of ['blur', 'focus'])
+    addEventListener(type, e => e.target === window && log(type, el(document.activeElement)));
+  addEventListener('message', e => e.data?.laura && log('message', e.data.laura));
+  // Laura's frames name themselves in `t`; the view's, by their first key (`act`, `size`, `view`).
+  const field = d => { try { const m = JSON.parse(d); return m.t ?? (m.act ? 'act ' + m.act : Object.keys(m)[0]); } catch { return '?'; } };
+  window.WebSocket = class extends WebSocket {
+    constructor(...a) {
+      super(...a);
+      this.addEventListener('message', e => typeof e.data === 'string' && log('ws<', field(e.data)));
+    }
+    send(d) {
+      if (typeof d === 'string') log('ws>', field(d));
+      super.send(d);
+    }
+  };
 })()";
 
 /// The web app has its layout and the shell's pane.
@@ -56,7 +85,10 @@ impl Client {
     /// `r`'s web app in a new headless Chrome at 1280×800, once the client paints its layout.
     #[track_caller]
     pub fn open(r: &mut Rig, chrome: &Path) -> Client {
-        let start = Browser::launch(chrome);
+        // Chrome can route a fast press and its release to different processes when an HTML
+        // page's sandboxed frame runs in its own; the user's own browser runs the web app, and
+        // Laura relies only on `postMessage` across the frame.
+        let start = Browser::launch(chrome, &["IsolateSandboxedIframes"]);
         let t0 = Instant::now();
         let browser = loop {
             if let Some(res) = start.poll() {
@@ -96,7 +128,7 @@ impl Client {
         c.call("Page.enable", json!({}));
         c.call(
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": ERRORS}),
+            json!({"source": INIT}),
         );
         // No wait for the reply: Laura serves the page only while the rig pumps.
         c.browser.cdp.send(
@@ -139,7 +171,7 @@ impl Client {
     }
 
     /// Pump `r` until `js` is truthy, and return its value; fail after `common::DEADLINE` with
-    /// `what`, `js`'s last error and the page's errors.
+    /// `what`, `js`'s last error, the page's errors and its last events (see `INIT`).
     #[track_caller]
     pub fn until(&self, r: &mut Rig, what: &str, js: &str) -> Value {
         let t0 = Instant::now();
@@ -159,15 +191,25 @@ impl Client {
             }
             assert!(
                 t0.elapsed() < common::DEADLINE,
-                "timed out: {what}; the last error: {last}; the page's errors: {}",
-                self.errors()
+                "timed out: {what}; the last error: {last}; the page's errors: {}; the page's last events:\n{}",
+                self.errors(),
+                self.events()
             );
         }
     }
 
-    /// The page's errors so far (see `ERRORS`).
+    /// The page's errors so far (see `INIT`).
     pub fn errors(&self) -> Value {
         self.eval("window.__errors").unwrap_or(Value::Null)
+    }
+
+    /// The page's last events, one per line (see `INIT`); read only after a deadline, since each
+    /// eval changes the timing.
+    fn events(&self) -> String {
+        self.eval("window.__events.join('\\n')")
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
     }
 
     /// `k`'s press and release: `key`, `code`, the virtual key code, CDP's modifiers and the text.
@@ -189,12 +231,8 @@ impl Client {
     /// A left click at `x`, `y` CSS px from the viewport's top left: press and release, so the
     /// click moves the DOM focus as the user's click does.
     pub fn click(&self, x: f64, y: f64) {
-        for kind in ["mousePressed", "mouseReleased"] {
-            self.call(
-                "Input.dispatchMouseEvent",
-                json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}),
-            );
-        }
+        self.mouse("mousePressed", (x, y), 1, 1);
+        self.mouse("mouseReleased", (x, y), 0, 1);
     }
 
     /// A left drag from `from` to `to`, in CSS px from the viewport's top left, in one move: a
@@ -207,36 +245,36 @@ impl Client {
     /// `drag` without the release: the user still holds the button at `to`.
     pub fn drag_hold(&self, from: (f64, f64), to: (f64, f64)) {
         // The pointer comes to the point first, as the user's does.
-        self.mouse("mouseMoved", from, 0);
-        self.mouse("mousePressed", from, 1);
-        self.mouse("mouseMoved", to, 1);
+        self.mouse("mouseMoved", from, 0, 1);
+        self.mouse("mousePressed", from, 1, 1);
+        self.mouse("mouseMoved", to, 1, 1);
+    }
+
+    /// The pointer moves to `x`, `y` CSS px from the viewport's top left, with no button held.
+    pub fn hover(&self, x: f64, y: f64) {
+        self.mouse("mouseMoved", (x, y), 0, 1);
     }
 
     /// The release of a [`Client::drag_hold`] at `to`.
     pub fn release(&self, to: (f64, f64)) {
-        self.mouse("mouseReleased", to, 0);
+        self.mouse("mouseReleased", to, 0, 1);
     }
 
-    fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8) {
+    /// The rig's one pointer sender, as a mouse sends: `buttons` holds the left button from the
+    /// press to the release.
+    fn mouse(&self, kind: &str, (x, y): (f64, f64), buttons: u8, count: u8) {
         self.call(
             "Input.dispatchMouseEvent",
-            json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": 1}),
+            json!({"type": kind, "x": x, "y": y, "button": "left", "buttons": buttons, "clickCount": count}),
         );
     }
 
     /// A left double-click at `x`, `y` CSS px from the viewport's top left.
     pub fn double_click(&self, x: f64, y: f64) {
-        self.call(
-            "Input.dispatchMouseEvent",
-            json!({"type": "mouseMoved", "x": x, "y": y}),
-        );
+        self.hover(x, y);
         for count in [1, 2] {
-            for kind in ["mousePressed", "mouseReleased"] {
-                self.call(
-                    "Input.dispatchMouseEvent",
-                    json!({"type": kind, "x": x, "y": y, "button": "left", "clickCount": count}),
-                );
-            }
+            self.mouse("mousePressed", (x, y), 1, count);
+            self.mouse("mouseReleased", (x, y), 0, count);
         }
     }
 

@@ -1,7 +1,7 @@
 //! The workspace's input modes, which the TUI and the web app both read: an overlay (the theme
 //! wizard, the help, the pane selector or the quit question), the lock that `F12` turns on, and
 //! the draft of a comment or a review body. The first mode on takes a keystroke before any pane.
-//! Beside them, the drawer's view: the chat or the shell.
+//! Beside them, the drawer's view: the History or the shell.
 
 use serde::{Deserialize, Serialize};
 
@@ -47,11 +47,11 @@ enum Lock {
     },
 }
 
-/// What the drawer shows: the chat, or the shell. `Tab::drawer_shows_shell` gives the layout
+/// What the drawer shows: the History, or the shell. `Tab::drawer_shows_shell` gives the layout
 /// frame's `drawer_view`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) enum DrawerView {
-    Chat,
+    History,
     #[default]
     Shell,
 }

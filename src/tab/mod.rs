@@ -1,4 +1,4 @@
-//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, the chat, and the
+//! One workspace: a PTY, its panels, the split tree, the input modes, the wait, the History, and the
 //! socket that ties them together.
 
 use std::borrow::Cow;
@@ -29,11 +29,12 @@ use crate::pty::PtyTab;
 mod act;
 mod apply;
 mod browsers;
-mod chat;
+mod history;
 mod links;
 mod mode;
 mod report;
 mod wait;
+pub use history::{FROZEN, GONE, IN_EDITOR, NO_ELEMENT, NOT_OPEN, PAGE_NOT_READY};
 use mode::DrawerView;
 pub use mode::{Draft, Mode, Overlay};
 pub use report::overflow_warning;
@@ -68,14 +69,6 @@ pub const THEME_SET: &str = "✅ Experimental · Editor panes setup complete";
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
 pub const NO_SHELL: &str = "⚠ The shell stopped, so Laura cannot submit the inline review. ";
-/// The message box after the shell exited.
-pub const NO_SHELL_FOR_MESSAGE: &str = "⚠ The shell stopped, so Laura cannot send your message.";
-/// The message box from a wait with no say until the user writes to the shell: the agent CLI may
-/// ask a question there, which a message's `Enter` would answer.
-pub const MESSAGE_WAITS: &str =
-    "⚠ The shell waits for you. Answer in the shell, then send your message.";
-/// The message didn't reach the shell.
-pub const MESSAGE_FAILED: &str = "⚠ Laura did not send your message to the shell.";
 
 /// An error from `Tab::act` or the agent's `open`. A caller matches a variant; `Text` is shown as is.
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -90,6 +83,16 @@ pub enum Error {
     /// The inline review didn't reach the shell; the cause is in the journal.
     #[error("{}", SUBMIT_FAILED)]
     SubmitFailed,
+    /// The agent's selector finds no element on the browser pane's page.
+    #[error("no element matches {selector} in pane #{pane}")]
+    NoElement { selector: String, pane: PaneId },
+    /// The browser pane's page can't be searched now: it loads or shows a dialog. The text is the
+    /// agent's.
+    #[error("{0}")]
+    PageNotReady(String),
+    /// Laura's browser exited, and the browser pane has no page.
+    #[error("{}", browser::EXITED_AGENT)]
+    BrowserExited,
     #[error("{0}")]
     Text(String),
 }
@@ -247,12 +250,14 @@ pub enum UserAction {
     Seen {
         wait: u64,
     },
-    /// The message box's **Send** (`Enter`): `text` to the shell (`Tab::message`).
-    Message {
-        text: String,
+    /// A click on History row `row`, which shows its command again (`Tab::replay`). `at`: the
+    /// row's time, as the user saw it.
+    Replay {
+        row: usize,
+        at: u64,
     },
-    /// `Ctrl+.`, the drawer's **Chat** and **Shell** tabs, and **Show the shell**: the drawer
-    /// flips between the chat and the shell (`Tab::flip_drawer`). The TUI never sends it.
+    /// `Ctrl+.`, the drawer's **History** and **Shell** tabs, and **Show the shell**: the drawer
+    /// flips between the History and the shell (`Tab::flip_drawer`). The TUI never sends it.
     FlipDrawer,
     /// A browser pane's pointer, keystrokes and paste. The web app sends these without waiting
     /// for a reply: they change only the page's frames.
@@ -373,8 +378,8 @@ pub struct Tab {
     pub title: Option<String>,
     /// Whether the agent waits for the user (`wait.rs`).
     wait: wait::Wait,
-    /// What passed through Laura in the current session (`chat.rs`).
-    chat: chat::Chat,
+    /// What passed through Laura in the current session (`history.rs`).
+    history: history::History,
     /// The shell's size (rows, cols) from the web app, which fits xterm.js to the shell's own
     /// type; `None` sizes the shell to its pane, as the TUI always does.
     pub shell_size: Option<(u16, u16)>,
@@ -460,7 +465,7 @@ impl Tab {
             journal: None,
             title: None,
             wait: wait::Wait::default(),
-            chat: chat::Chat::default(),
+            history: history::History::default(),
             shell_size: None,
             docked: false,
             modes: mode::Modes::default(),
@@ -519,17 +524,20 @@ impl Tab {
     }
 
     /// Append one event to this tab's journal, if a session has been named (`ready`). Best-effort.
-    /// The one place that journals an event, so the chat holds each journaled event.
+    /// The one place that journals an event, so each command, say and review that the History
+    /// lists gets its row here.
     pub(super) fn log_event(&mut self, event: Event) {
         if let Some(j) = &self.journal {
             j.log(&event);
         }
-        self.chat.push(&event);
+        let panels = &self.panels;
+        self.history
+            .push(&event, |pane| panels.get(&pane).map(|p| p.path.clone()));
     }
 
     /// The agent's latest `say` in this session, with a count that names it over the tab's life.
     pub fn latest_say(&self) -> Option<(u64, &str)> {
-        self.chat.latest_say()
+        self.history.latest_say()
     }
 
     /// The terminal that takes pane `pane`'s keys: the shell, or an editor pane's Neovim in its
@@ -593,34 +601,12 @@ impl Tab {
         Ok(())
     }
 
-    /// Whether the message box can send: the shell runs, and no wait with no say began since the
-    /// user last wrote to the shell. The web app's layout frame carries it.
-    pub(crate) fn message_gate(&self) -> Result<(), Error> {
-        if self.pty.has_exited() {
-            return Err(NO_SHELL_FOR_MESSAGE.into());
-        }
-        if self.wait.asked() {
-            return Err(MESSAGE_WAITS.into());
-        }
-        Ok(())
+    /// A say came since the user last wrote to the shell (`Wait::said`): the shell button shows it.
+    pub(crate) fn said(&self) -> bool {
+        self.wait.said()
     }
 
-    /// The message box: write the user's `text` into the shell, as a submit writes an inline
-    /// review, and journal it. The wait ends, as on any write to the shell.
-    fn message(&mut self, text: &str) -> Result<(), Error> {
-        self.message_gate()?;
-        let text = text.trim_end();
-        if text.trim().is_empty() {
-            return Ok(());
-        }
-        let bells = self.pty.bells();
-        paste_into_shell(&self.pty, text).map_err(|_| Error::from(MESSAGE_FAILED))?;
-        self.log_event(Event::Message { body: text.into() });
-        self.answered(bells);
-        Ok(())
-    }
-
-    /// The shell waits with no say since the user's last message (`Wait::unsaid`).
+    /// The shell waits with no say since the user last wrote to it (`Wait::unsaid`).
     pub(crate) fn unsaid(&self) -> bool {
         self.wait.unsaid()
     }
@@ -757,7 +743,6 @@ impl Tab {
     /// answer is a new wait.
     fn answered(&mut self, bells: u64) {
         self.wait.answered(bells);
-        self.chat.end_wait();
     }
 
     /// The user saw the shell: a move into the shell (`Focus`, `Close`, the lock, an overlay's
@@ -765,38 +750,28 @@ impl Tab {
     /// write still counts.
     fn saw(&mut self, bells: u64) {
         self.wait.saw(bells);
-        self.chat.end_wait();
     }
 
     /// The web app's `seen` of wait `wait` (`Wait::seen`).
     fn seen(&mut self, wait: u64) {
         self.wait.seen(wait, self.pty.bells());
-        if !self.wait.waiting() {
-            self.chat.end_wait();
-        }
     }
 
-    /// A new wait began: Laura journals it, and a wait with no say since the user's last message
-    /// shows the shell in the drawer, where the agent CLI asks.
+    /// A new wait began: Laura journals it. The drawer keeps its view.
     fn wait_began(&mut self) {
         self.log_event(Event::Wait {
             said: self.wait.said(),
         });
-        if self.wait.unsaid() {
-            self.modes.drawer = DrawerView::Shell;
-        }
     }
 
-    /// The drawer shows the shell, not the chat: before the agent's first say, and from the start
-    /// of each wait with no say since the user's last message (`Tab::say`, `wait_began`), until
-    /// the user flips it (`Ctrl+.`); and while the lock is on, which sends the keystrokes to the
-    /// shell. The unlock brings the chat back.
+    /// The drawer shows the shell, not the History: until the user flips it (`Ctrl+.`), and while
+    /// the lock is on, which sends the keystrokes to the shell.
     pub fn drawer_shows_shell(&self) -> bool {
         self.modes.drawer == DrawerView::Shell || self.locked()
     }
 
     /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it
-    /// is; on the shell, the drawer flips between the chat and the shell.
+    /// is; on the shell, the drawer flips between the History and the shell.
     pub(super) fn flip_drawer(&mut self) {
         if self.focus != PTY_PANE {
             self.focus = PTY_PANE;
@@ -804,20 +779,15 @@ impl Tab {
             return self.saw(self.pty.bells());
         }
         self.modes.drawer = match self.modes.drawer {
-            DrawerView::Chat => DrawerView::Shell,
-            DrawerView::Shell => DrawerView::Chat,
+            DrawerView::History => DrawerView::Shell,
+            DrawerView::Shell => DrawerView::History,
         };
     }
 
-    /// The agent said something: the drawer turns to the chat.
-    pub(super) fn said(&mut self) {
-        self.wait.say();
-        self.modes.drawer = DrawerView::Chat;
-    }
-
-    /// The chat's rows, and a count that changes with them (`chat.rs`).
-    pub(crate) fn chat(&self) -> (&[chat::Row], u64) {
-        (self.chat.rows(), self.chat.seq())
+    /// The History's rows, a count that changes with them, and that count at the last change
+    /// that was not an append (`history.rs`).
+    pub(crate) fn history(&self) -> (&[history::Row], u64, u64) {
+        (self.history.rows(), self.history.seq(), self.history.full())
     }
 
     /// The agent waits for the user (`wait.rs`).
@@ -913,6 +883,11 @@ impl Tab {
         }
         match self.layout.remove(target) {
             Ok(()) => {
+                // Before the remove, so the History's row names the pane's file.
+                self.log_event(Event::Close {
+                    pane: Some(target),
+                    all: false,
+                });
                 if let Some(p) = self.panels.remove(&target) {
                     remove_if_temp(&p.path);
                 }
@@ -923,10 +898,6 @@ impl Tab {
                 if self.focus == target {
                     self.focus = self.fallback_focus();
                 }
-                self.log_event(Event::Close {
-                    pane: Some(target),
-                    all: false,
-                });
                 Response::Ok
             }
             Err(message) => Response::Error { message },

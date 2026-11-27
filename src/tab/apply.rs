@@ -275,7 +275,7 @@ impl Tab {
             return Ok(e);
         }
         let warnings = self.install_new(new, path, follow, tail, highlight, diff, edit, page, area);
-        // An editor pane never takes focus: typing into the chat mustn't land in Neovim.
+        // An editor pane never takes focus: typing into the drawer mustn't land in Neovim.
         if focus && !edit {
             self.pending_focus = Some(new);
         }
@@ -414,9 +414,9 @@ impl Tab {
 
     /// Apply one request to layout/panel state and produce its response.
     pub(super) fn apply(&mut self, msg: Message, area: Rect) -> Response {
-        self.chat.set_agent(true);
+        self.history.set_agent(true);
         let resp = self.agent_message(msg, area);
-        self.chat.set_agent(false);
+        self.history.set_agent(false);
         resp
     }
 
@@ -537,7 +537,12 @@ impl Tab {
             (true, _) if range.is_some() => Response::Error {
                 message: format!("pane #{target} is a browser pane: pass a CSS selector"),
             },
-            (true, Some(sel)) => self.highlight_element(target, &sel),
+            (true, Some(sel)) => match self.highlight_element(target, &sel) {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error {
+                    message: e.to_string(),
+                },
+            },
             (false, Some(_)) => Response::Error {
                 message: format!("pane #{target} is a file pane: pass a line number"),
             },
@@ -546,11 +551,8 @@ impl Tab {
     }
 
     /// Highlight the element `sel` in browser pane `target`.
-    fn highlight_element(&mut self, target: PaneId, sel: &str) -> Response {
-        let (s, q, u) = match self.element(target, sel) {
-            Ok(e) => e,
-            Err(message) => return Response::Error { message },
-        };
+    pub(super) fn highlight_element(&mut self, target: PaneId, sel: &str) -> Result<(), Error> {
+        let (s, q, u) = self.element(target, sel)?;
         if let Some(p) = self.panels.get_mut(&target) {
             // Not `set_highlight`: the cursor stays where the user left it.
             let row = p.anchor(&s, &q, &u);
@@ -563,11 +565,15 @@ impl Tab {
             selector: Some(sel.into()),
             cleared: false,
         });
-        Response::Ok
+        Ok(())
     }
 
     /// Highlight lines `range` of pane `target`, or clear its highlight with `None`.
-    fn highlight_range(&mut self, target: PaneId, range: Option<(u32, u32)>) -> Response {
+    pub(super) fn highlight_range(
+        &mut self,
+        target: PaneId,
+        range: Option<(u32, u32)>,
+    ) -> Response {
         let Some(panel) = self.panels.get_mut(&target) else {
             return Response::Error {
                 message: format!("no pane #{target}"),
@@ -611,7 +617,7 @@ impl Tab {
     }
 
     /// `diff`: turn pane `pane`'s diff view on, off, or over (`None`).
-    fn diff_view(&mut self, pane: Option<PaneId>, on: Option<bool>) -> Response {
+    pub(super) fn diff_view(&mut self, pane: Option<PaneId>, on: Option<bool>) -> Response {
         let Some(target) = self.target(pane) else {
             return Response::Error {
                 message: "no pane focused for diff view".into(),
@@ -708,9 +714,9 @@ impl Tab {
                 })
             }
             (true, None, Some(sel)) => {
-                let (s, q, u) = self
-                    .element(target, &sel)
-                    .map_err(|message| Response::Error { message })?;
+                let (s, q, u) = self.element(target, &sel).map_err(|e| Response::Error {
+                    message: e.to_string(),
+                })?;
                 let row = self.panels.get_mut(&target).map(|p| p.anchor(&s, &q, &u));
                 let line = row.map_or(0, |r| r as u32 + 1);
                 Ok((line, Some(sel)))
@@ -736,14 +742,14 @@ impl Tab {
         Response::Ok
     }
 
-    /// `say`: journal the agent's words to the user, which the chat shows.
+    /// `say`: journal the agent's words to the user, which the History shows.
     fn say(&mut self, body: String) -> Response {
         if body.trim().is_empty() {
             return Response::Error {
                 message: SAY_NEEDS_BODY.into(),
             };
         }
-        self.said();
+        self.wait.say();
         self.log_event(Event::Say { body });
         Response::Ok
     }
@@ -771,14 +777,13 @@ impl Tab {
                 .and_then(Journal::agent)
         });
         let journal = Journal::open(&session, agent);
-        // A new session starts an empty chat; a re-`ready` of the same one keeps it.
-        if self
+        // A session after an earlier one starts an empty History; the first `ready` and a
+        // re-`ready` of the same session keep it.
+        let new_session = self
             .journal
             .as_ref()
-            .is_some_and(|j| j.path() != journal.path())
-        {
-            self.chat.new_session();
-        }
+            .is_some_and(|j| j.path() != journal.path());
+        self.history.ready(title.clone(), new_session);
         let path = journal.path().to_string_lossy().into_owned();
         let root = crate::platform::folder()
             .ok()

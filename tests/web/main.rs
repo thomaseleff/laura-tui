@@ -27,9 +27,9 @@ use tungstenite::Message;
 
 use rig::*;
 
-mod chat;
 mod file_panes;
 mod glance;
+mod history;
 mod layout;
 mod links;
 mod markdown;

@@ -12,7 +12,7 @@ The client is ES modules with no build step. `index.html` loads `main.js` as `ty
 - `panes.js`: each pane's element, `onLayout`, the lines between panes, the start canvas and the project at a glance, the drawer and its grip and start height, a browser pane's pointer, `focusPane` and `followFocus`.
 - `browser-pane.js`: a browser pane's screen frames, live badge, marks, pins and dialog.
 - `bottom.js`: the notice, the hint line, the status bar and the shell button.
-- `chat.js`: the chat in the drawer, its rows' clicks, and the links and the file paths in a say.
+- `history.js`: the History in the drawer, its rows' clicks (a `replay` act with the row's index `row` and time `at`), and the links and the file paths in a say.
 - `review.js`: threads, the comment's box, the popovers and the draft.
 - `pages.js`: a file pane's rows and pages, comment mode, and a page's pins.
 - `selector.js`: the pane selector and the help.
@@ -40,9 +40,9 @@ Laura sends these frames to the view:
 |---|---|---|---|
 | `strings` | The help, the hint texts and the overlay texts, once per view | `WebServer::sync`, on connect | `paintHelp`, `paintSwitcher` |
 | `workspaces` | The running workspaces, when the list changes | the thread in `WebServer::watch` | `paintSwitcher` |
-| `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, the drawer's view (`drawer_view`: `chat` or `shell`), and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
+| `layout` | The panes, their rects, the focus, the `modes` on and the open `draft`, the hint line (with `hints.mode`, the first mode's), the status bar, the `canvas` while no pane but the shell is open, the drawer's height with its `drawer_fit`, the drawer's view (`drawer_view`: `history` or `shell`), and the `splits` the user drags (`Tab::handles`) | `layout_json` (`frames.rs`) | `onLayout` |
 | `glance` | The project at a glance: the README as HTML, the git changes or latest commit, and the recent sessions, when the thread that reads it finishes, and again each time the canvas comes back. Until then the client shows skeleton cards | `send_canvas` (`mod.rs`), from `Glance` (`glance.rs`) | `paintGlance` |
-| `chat` | The chat's rows (`tab/chat.rs`), with each say's HTML, when a row changes | `send_chat` (`frames.rs`) | `onChat` |
+| `history` | The History's rows (`Row::json` in `tab/history.rs`) from `from` on, after the rows the client holds; `from` 0 replaces the list. Each row's `kind`, its time `at`, a command's `verb`, `target` and `replay` (whether a click shows it again), and a say's HTML, when a row changes | `send_history` (`frames.rs`) | `onHistory` |
 | `pane` | A file pane's rows as HTML, in full | `send_panes` (`frames.rs`) | `onPane` |
 | `rows` | Only the rows of a file pane that changed | `send_panes` (`frames.rs`) | `onPane` |
 | `page` | An HTML page in a file pane | `send_panes` (`frames.rs`) | `onPage` |
@@ -59,7 +59,7 @@ The view sends these frames to Laura, and `sync` reads each one in its inbound b
 
 ## Escaping
 
-The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames, the README's HTML in the `glance` frame, and a say's HTML in the `chat` frame, goes in as markup. `html.rs` and `render.rs` build that HTML, and escape the file text.
+The client puts each string into the DOM through `esc` (`state.js`). Only the HTML of Laura's `pane` and `rows` frames, the README's HTML in the `glance` frame, and a say's HTML in the `history` frame, goes in as markup. `html.rs` and `render.rs` build that HTML, and escape the file text.
 
 ## Parity
 
@@ -80,7 +80,7 @@ Before a change to the web app, ask: does the TUI need the same change?
 
 Assert on frames, not pixels.
 
-The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `chat`, `file_panes`, `markdown`, `pages`, `review`, `modes`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
+The web tests are one test binary, `tests/web/`, with one module for each feature: `views`, `layout`, `shell`, `history`, `file_panes`, `markdown`, `pages`, `review`, `modes`, `start`, `glance` and `links`. The `//!` paragraph of each module tells what the module covers.
 
 - Add a web test to the module for its feature.
 - Put a helper that one module calls in that module, and a helper that two or more modules call in `main.rs`.
@@ -99,6 +99,9 @@ A client test that waits for the wrong state passes on a fast machine and fails 
 - **Measure only a layout at the page's size.** Laura can send the first layout before the page reports its size, and the next layout moves the panes. Before you read a rect, wait until the layout reaches the page's `--cols` (`split_center`, `editor_beside`).
 - **Change the page's size only with `Client::resize`.** It waits for Chrome's `resize` event, which Chrome fires at its next rendering step, also after the test's next check under load.
 - **Test a stale frame by replaying it.** The rig runs Laura only on `pump`, so the acts that the test sent stay unanswered until the next `until`. Send the keystrokes with no `until` between them, then replay Laura's old frame through `ws.onmessage` (`a_stale_layout_leaves_the_closed_pane_selector_closed`). Do not wait for a timing to happen.
+- **Keep each frame that a wait did not check.** Wait for the state that the check needs. A frame that comes before an `acted` can be the frame that the next wait needs (`act()`, #205).
+- **Click into an HTML page only after the page reports from inside its frame**, such as its `rect` (`a_click_in_an_html_page_folds_the_shell_buttons_say`). Before that report, the page's script can miss the click.
+- **Send input only through `Client`'s methods.** They send what a mouse and a keyboard send, such as `buttons` from the press to the release. A test that needs a hover first calls `hover`: `click` does not move the pointer.
 
 `LINKS` in `tests/client.rs` lists the shell's lines and the links in each. A change to `PATH` or to the shell's link provider adds rows to `LINKS`.
 

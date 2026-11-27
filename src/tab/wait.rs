@@ -13,9 +13,6 @@ pub(super) struct Wait {
     bells: u64,
     /// A say came since the user's last write to the shell.
     said: bool,
-    /// A wait began with no say, and the user hasn't written to the shell since: the shell may
-    /// hold a question. A look at the shell (`saw`, `seen`) leaves it on.
-    asked: bool,
 }
 
 impl Wait {
@@ -25,7 +22,6 @@ impl Wait {
         let new = bells != self.bells && !self.waiting;
         if new {
             self.wait = bells;
-            self.asked |= !self.said;
         }
         self.waiting |= bells != self.bells;
         self.bells = bells;
@@ -39,12 +35,11 @@ impl Wait {
         self.bells = bells;
     }
 
-    /// The user wrote to the shell: keystrokes, a paste, an inline review or a message. The wait
+    /// The user wrote to the shell: keystrokes, a paste or an inline review. The wait
     /// ends, and a say must come again before the next wait counts as said.
     pub(super) fn answered(&mut self, bells: u64) {
         self.saw(bells);
         self.said = false;
-        self.asked = false;
     }
 
     /// The web app's `seen` ends only the wait it names: `wait` is untrusted, and a late `seen`
@@ -68,15 +63,10 @@ impl Wait {
         self.said
     }
 
-    /// The shell waits with no say since the user's last message: a permission prompt, or a turn
-    /// that ended in the shell alone. The drawer then shows the shell.
+    /// The shell waits with no say since the user last wrote to it: a permission prompt, or a turn
+    /// that ended in the shell alone.
     pub(super) fn unsaid(&self) -> bool {
         self.waiting && !self.said
-    }
-
-    /// A wait with no say began since the user last wrote to the shell.
-    pub(super) fn asked(&self) -> bool {
-        self.asked
     }
 
     /// The bell count that names the current wait.

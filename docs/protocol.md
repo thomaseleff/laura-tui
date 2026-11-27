@@ -464,7 +464,7 @@ A `ready` without `title`, or with a blank `title`, keeps the workspace's sessio
 
 ### `say`
 
-Say something to the user. Laura journals the text as a `say` event, and the web app shows the text in the chat and in the shell button (see [The drawer](navigation.md#the-drawer)). The TUI shows the first line of the text as a notice.
+Say something to the user. Laura journals the text as a `say` event, and the web app shows the text in the History and in the shell button (see [The History and the shell](navigation.md#the-history-and-the-shell)). The TUI shows the first line of the text as a notice.
 
 <table class="proto">
 <tr>

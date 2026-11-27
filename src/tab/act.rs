@@ -139,7 +139,7 @@ impl Tab {
             A::DrawerHeight { .. } => {} // the web server saves it
             A::Seen { wait } => self.seen(wait),
             A::FlipDrawer => self.flip_drawer(),
-            A::Message { text } => self.message(&text)?,
+            A::Replay { row, at } => self.replay(row, at)?,
             A::Input { pane, bytes } => {
                 let bells = self.pty.bells();
                 self.write_keys(pane, &bytes)?;
@@ -301,24 +301,23 @@ impl Tab {
         &self,
         pane: PaneId,
         selector: &str,
-    ) -> Result<(String, String, String), String> {
-        let page = self
-            .browsers
-            .get(&pane)
-            .ok_or_else(|| browser::EXITED_AGENT.to_string())?;
+    ) -> Result<(String, String, String), Error> {
+        let page = self.browsers.get(&pane).ok_or(Error::BrowserExited)?;
         if page.dialog_open() {
-            return Err(format!(
+            return Err(Error::PageNotReady(format!(
                 "pane #{pane}'s page is showing a dialog: answer it with your browser tool, \
                  or ask the user to answer it in the pane"
-            ));
+            )));
         }
         if page.loading() {
-            return Err(format!(
+            return Err(Error::PageNotReady(format!(
                 "pane #{pane}'s page is still loading: run the command again when the page has loaded"
-            ));
+            )));
         }
-        page.find(selector)?
-            .ok_or_else(|| format!("no element matches {selector} in pane #{pane}"))
+        page.find(selector)?.ok_or_else(|| Error::NoElement {
+            selector: selector.into(),
+            pane,
+        })
     }
 
     /// Load `url` in browser pane `id`'s page, which keeps the pane's threads; open the page if

@@ -5,7 +5,7 @@ import { $, draft, drawerOpen, focused, layout, modes, pane, send, ui } from "./
 import { ch } from "./term.js";
 import { focusPane, followFocus, lastFocus, unseen } from "./panes.js";
 import { frameOf } from "./pages.js";
-import { latestSay } from "./chat.js";
+import { latestSay } from "./history.js";
 
 const hintEl = $("hint"), noticeEl = $("notice");
 let notice = "", noticeTimer = 0, noticePane;
@@ -139,23 +139,37 @@ export function paintStatus() {
   paintShellButton();
 }
 
+// The shell button's say folds to one line while the user works in a pane, so the card doesn't cover
+// the pane (#275). `sayAt`: the time of the say the user last saw open, so a new say opens in full.
+let folded = false, sayAt = null, hoverTimer = 0;
+const fold = on => {
+  clearTimeout(hoverTimer);
+  if (folded !== on) (folded = on), paintShellButton();
+};
+
 // The shell button, while the drawer is in use: the shell's name, and `open` while the drawer is.
-// With the drawer closed, the agent's latest say, in full: a long one grows upward as a card. While
-// the shell waits with no say since the user's last message, `Waiting for you` in its place.
+// With the drawer closed, and only while Laura's `said` holds, the agent's latest say: a long one
+// grows upward as a card until the user folds it. While the shell waits with no say since the user
+// last wrote to the shell, `Waiting for you` in its place.
 export function paintShellButton() {
   const b = $("sbtn"), s = pane(0);
   b.hidden = !s?.drawer;
   if (!layout || b.hidden) return;
   // On the canvas, the drawer stays open: `Ctrl+\`` and the button do nothing.
   const open = drawerOpen(), t = layout.canvas ? s.name : `${open ? "Hide" : "Show"} the drawer  Ctrl+\``;
-  const html = !open && !layout.unsaid ? latestSay() : null, said = b.querySelector(".said");
+  const say = latestSay();
+  if (say && say.at !== sayAt) {
+    sayAt = say.at;
+    folded = false;
+  }
+  const html = !open && layout.said && !layout.unsaid ? say?.html ?? null : null, said = b.querySelector(".said");
   if (said.dataset.html !== (html ?? "")) {
     said.innerHTML = html ?? "";
     said.dataset.html = html ?? "";
   }
   said.hidden = !html;
   b.classList.toggle("says", !!html);
-  b.classList.toggle("long", !!html && (said.childElementCount > 1 || said.textContent.length > 70));
+  b.classList.toggle("long", !!html && !folded && (said.childElementCount > 1 || said.textContent.length > 70));
   b.classList.toggle("open", open);
   b.classList.toggle("wait", layout.unsaid);
   b.querySelector(".say").hidden = !layout.unsaid;
@@ -166,6 +180,25 @@ export function paintShellButton() {
 }
 
 $("sbtn").addEventListener("mousedown", e => e.preventDefault());
+
+// A mouse over the shell button opens the say after a moment, so a mouse that passes over the bottom
+// line doesn't flash the card; keyboard focus opens it at once, and `Esc` or leaving it folds it
+// (WCAG 1.4.13).
+$("sbtn").addEventListener("mouseenter", () => (clearTimeout(hoverTimer), (hoverTimer = setTimeout(() => fold(false), 400))));
+$("sbtn").addEventListener("mouseleave", () => fold(true));
+$("sbtn").addEventListener("focus", () => fold(false));
+$("sbtn").addEventListener("blur", () => fold(true));
+$("sbtn").addEventListener("keydown", e => {
+  if (e.key !== "Escape" || folded) return;
+  e.preventDefault();
+  e.stopPropagation();
+  fold(true);
+});
+// The first click or keystroke in a pane folds the say.
+addEventListener("pointerdown", e => e.target.closest?.(".pane") && fold(true), true);
+addEventListener("keydown", e => e.target !== $("sbtn") && fold(true), true);
+// A page's frame sends its click as a message, which the window's `pointerdown` doesn't see.
+export const foldSay = () => fold(true);
 
 $("sbtn").addEventListener("click", () => (draft() ? followFocus(true) : toggleShell()));
 

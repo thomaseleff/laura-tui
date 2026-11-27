@@ -2,7 +2,7 @@
 // canvas, the drawer with its grip and start height, a browser pane's pointer, and the DOM focus, which
 // follows the workspace's focus.
 
-import { $, act, draft, drawerOpen, esc, focused, layout, on, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
+import { $, act, draft, drawerOpen, esc, focused, layout, mode, on, pane, root, send, setLayout, terms, toShell, ui, ws } from "./state.js";
 import { ch, cw, fitShell, makeTerm, rowsPx } from "./term.js";
 import { fitHead, fitNarrow, head, headClick, ic, paintChipDot, paintHead, tip, tooSmall } from "./head.js";
 import { drawFrame, emuFit, paintMarks } from "./browser-pane.js";
@@ -12,7 +12,7 @@ import { frameOf, place, toHighlight } from "./pages.js";
 import { paintOverlays, paintSelector, pq } from "./selector.js";
 import { mods } from "./keys.js";
 import { paintTitle } from "./workspaces.js";
-import { chatClick, focusChat, msgKey, paintChat, paintMsgBox } from "./chat.js";
+import { historyClick, focusHistory, paintHistory } from "./history.js";
 
 // The focus that DOM focus last followed (`followFocus`).
 let focusKey = "";
@@ -75,7 +75,7 @@ function makePane(p) {
     if (layout?.focus === p.id) followFocus(true);
     if (el.hlLater && !tooSmall(el)) toHighlight(p.id, el.hlLater.jump);
   }).observe(el.querySelector(".narrow"));
-  if (p.id === 0) grip(el), chat(el);
+  if (p.id === 0) grip(el), historyList(el);
   pointer(el, p.id);
   // The address field: a click selects the URL, Enter goes there (the keydown listener), and
   // leaving it puts the pane's URL back.
@@ -100,18 +100,24 @@ function makePane(p) {
   return el;
 }
 
-// The shell's pane holds the chat beside the shell's xterm; `drawer_view` shows one of them.
-function chat(el) {
+// The shell's pane holds the History beside the shell's xterm; `drawer_view` shows one of them.
+function historyList(el) {
   const c = document.createElement("div");
-  c.className = "chat";
-  c.innerHTML = '<div class="list" tabindex="-1"></div><div class="msgbox"><textarea rows="1" aria-label="Message to the agent"></textarea>'
-    + '<button class="btn pri" data-act="send">Send <kbd>Enter</kbd></button></div>';
-  c.addEventListener("click", chatClick);
-  c.querySelector("textarea").addEventListener("keydown", msgKey);
-  // The button keeps no focus, so the box keeps the keystrokes.
-  c.querySelector(".msgbox button").addEventListener("mousedown", e => e.preventDefault());
+  c.className = "history";
+  c.innerHTML = '<div class="list" tabindex="-1"></div>';
+  c.addEventListener("click", historyClick);
+  // A focused row takes `Enter` and `Space` as a click, and the keydown listener doesn't see them.
+  // A mode, such as the quit question, takes them first, from the keydown listener.
+  c.addEventListener("keydown", e => {
+    if (mode()) return;
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches(".te.hr[data-i]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      historyClick(e);
+    }
+  });
   el.append(c);
-  paintChat(c.querySelector(".list"));
+  paintHistory(c.querySelector(".list"));
 }
 
 // A resize handle: `move(e)` while the user drags `el` with the left button, `done()` on release.
@@ -412,7 +418,7 @@ export function onLayout(m) {
       el.querySelector(".marks")?.remove();
     }
     el.className = `pane ${p.kind}${p.id === m.focus ? " focused" : ""}${p.frozen ? " frozen" : ""}`
-      + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "") + (p.id === 0 && m.drawer_view === "chat" ? " chatview" : "")
+      + (p.drawer ? ` drawer${drawerOpen() ? " open" : ""}` : "") + (p.id === 0 && m.drawer_view === "history" ? " historyview" : "")
       + (unseen.has(p.id) ? " unseen" : "") + (ui.commentMode === p.id ? " comment-mode" : "");
     paintHead(el, p);
     // The focus, the diff view and a freeze change how threads show.
@@ -429,7 +435,6 @@ export function onLayout(m) {
     terms.delete(id);
     el.remove();
   }
-  paintMsgBox();
   followFocus();
   paintHint();
   paintStatus();
@@ -644,7 +649,7 @@ export function focusPane(id) {
 // take focus from anything else.
 export function followFocus(force) {
   const f = focused();
-  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}:${layout?.drawer_view}:${layout?.message_box}`;
+  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}:${layout?.drawer_view}`;
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
   // A frame that moves the focus doesn't take the keystrokes from the pane selector.
@@ -654,8 +659,8 @@ export function followFocus(force) {
   // A click in a page's text field, the address field or a dialog's field keeps the field's focus.
   if (document.activeElement === frameOf(f.id)) return;
   if (document.activeElement?.closest?.(`#p${f.id} :is(.head .url, .dlg input)`)) return;
-  // The chat takes the keystrokes the user types to the agent; the lock's go to the shell.
-  if (f.id === 0 && layout.drawer_view === "chat" && !on("locked")) return focusChat();
+  // The History's list takes the DOM focus while the drawer shows it; the lock's keystrokes go to the shell.
+  if (f.id === 0 && layout.drawer_view === "history" && !on("locked")) return focusHistory();
   const t = toShell() ? terms.get(0) : f.kind !== "file" ? terms.get(f.id) : null;
   if (t) return t.focus();
   for (const t of terms.values()) t.blur();
