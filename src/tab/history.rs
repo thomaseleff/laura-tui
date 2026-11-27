@@ -212,15 +212,16 @@ impl History {
 
 impl Tab {
     /// The user clicked History row `row`, with time `at`: show its command again, and focus its
-    /// pane, which closes the drawer. Laura finds the pane by the row's path, never by its pane id,
-    /// and journals what changes as the user's act. A row that no click shows again, or that a new
+    /// pane, which closes the drawer. Laura finds the pane by the row's path, and by its pane id
+    /// only for an open row's browser pane that moved within the site (`replay_open`). Laura
+    /// journals what changes as the user's act. A row that no click shows again, or that a new
     /// session replaced, does nothing.
     pub(super) fn replay(&mut self, row: usize, at: u64) -> Result<(), Error> {
         let Some((event, path)) = self.history.replayable(row, at) else {
             return Ok(());
         };
-        if matches!(event, Event::Open { .. }) {
-            return self.replay_open(&path);
+        if let Event::Open { pane, .. } = event {
+            return self.replay_open(&path, pane);
         }
         let pane = self
             .showing(&path, PTY_PANE)
@@ -241,12 +242,22 @@ impl Tab {
         Ok(())
     }
 
-    /// An open row: focus the pane that shows the file or URL, else open it again as a link does.
-    fn replay_open(&mut self, path: &str) -> Result<(), Error> {
-        if self.showing(path, PTY_PANE).is_none()
-            && !browser::is_url(path)
-            && !Path::new(path).is_file()
+    /// An open row: focus the pane that shows the file or URL, else the row's browser pane
+    /// `pane` while it shows another page of the URL's site, else open it again as a link does.
+    fn replay_open(&mut self, path: &str, pane: PaneId) -> Result<(), Error> {
+        let shown = self.showing(path, PTY_PANE).is_some();
+        if !shown
+            && browser::is_url(path)
+            && self
+                .panels
+                .get(&pane)
+                .is_some_and(|p| p.browser && browser::origin(&p.path) == browser::origin(path))
         {
+            self.focus = pane;
+            self.forget_lock_from();
+            return Ok(());
+        }
+        if !shown && !browser::is_url(path) && !Path::new(path).is_file() {
             return Err(Error::Text(GONE.replace("{path}", path)));
         }
         self.open_file(path.into(), false)?;

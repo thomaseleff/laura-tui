@@ -87,11 +87,11 @@ The History lists what the agent did through Laura in its session, one row for e
 - `say`, with each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
 - `review`, with the file and its count of comments, for each inline review that you submit.
 
-A blue row with a chevron shows its command again when you click the row. Laura never runs the command again, and doesn't add a row for the click. Laura finds the pane by the row's file, not by its pane number, and that pane takes the focus, which closes the drawer. The drawer keeps the History, so ``Ctrl+` `` opens the History again.
+A blue row with a chevron shows its command again when you click the row. Laura never runs the command again, and doesn't add a row for the click. Laura finds the pane by the row's file, not by its pane number, except for an `open` row of a page (below), and that pane takes the focus, which closes the drawer. The drawer keeps the History, so ``Ctrl+` `` opens the History again.
 
 To show a command again from the keyboard, press `Tab` in the History until a blue row has the focus, then press `Enter` or `Space`. Laura does the same as for a click.
 
-- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's or a tail pane's file in a file pane.
+- An `open` row focuses the pane that shows the file or the page, or opens the file or the page again. Laura opens an editor pane's or a tail pane's file in a file pane. When the browser pane of an `open` row moved to another page of the same site, Laura focuses that browser pane.
 - A `highlight` row highlights the lines or the element again.
 - A `diff` row that turned the diff view on turns the diff view on again.
 - A `comment` row moves the cursor to the comment's line, or highlights the comment's element in a browser pane. Laura adds no comment.
