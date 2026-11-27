@@ -1,9 +1,9 @@
-//! The chat in the drawer: the agent's says, its other commands folded into one row, a new
-//! session's empty chat, and the drawer on the shell while the shell waits with no say.
+//! The History in the drawer: the agent's says, its other commands folded into one row, a new
+//! session's empty History, and a drawer that keeps its view through a say and a wait.
 
 use super::*;
 
-/// The next `chat` frame on `ws` that `want` matches.
+/// The next `history` frame on `ws` that `want` matches.
 fn history_when(rig: &mut Rig, ws: &mut Ws, what: &str, want: impl Fn(&Value) -> bool) -> Value {
     rig.until(
         ws,
@@ -36,10 +36,10 @@ fn events(session: &str, kind: &str) -> Vec<Value> {
         .collect()
 }
 
-/// A say shows in the chat as Laura's HTML, the drawer turns to the chat, and the agent's next
-/// commands fold into one row. A new session starts an empty chat.
+/// A say shows in the History as Laura's HTML, the drawer stays on the shell, and the agent's next
+/// commands fold into one row. A new session starts an empty History.
 #[test]
-fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
+fn a_say_and_the_commands_after_it_fold_into_the_history() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     let first = layout_when(&mut rig, &mut ws, "layout", |_| true);
@@ -51,9 +51,10 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
     });
     let html = chat["rows"][0]["html"].as_str().unwrap_or_default();
     assert!(html.contains("<strong>this</strong>"), "{chat}");
-    layout_when(&mut rig, &mut ws, "the chat", |l| {
-        l["drawer_view"] == "history"
-    });
+    assert!(
+        rig.tab.drawer_shows_shell(),
+        "a say keeps the drawer's view"
+    );
 
     let (_a, a) = file("a.rs", &five_lines())?;
     let (_b, b) = file("b.rs", &five_lines())?;
@@ -74,7 +75,7 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
         c["rows"][1]["text"] == "opened 2 files, closed pane #2"
     });
     assert_eq!(closed["rows"][1]["pane"], 1, "pane 2 is closed: {closed}");
-    // The user's own close stays out of the chat, and in the journal.
+    // The user's own close stays out of the History, and in the journal.
     rig.act(&mut ws, json!({"act": "close", "pane": 1}));
     rig.drive(&["focus", "0"]);
     let focused = history_when(&mut rig, &mut ws, "a focus", |c| {
@@ -89,37 +90,36 @@ fn a_say_and_the_commands_after_it_fold_into_the_chat() -> Result<()> {
     assert_eq!(events(&session("chat-fold"), "close").len(), 2);
 
     rig.drive(&["ready", "--session", &session("chat-other")]);
-    history_when(&mut rig, &mut ws, "an empty chat", |c| {
+    history_when(&mut rig, &mut ws, "an empty History", |c| {
         c["rows"] == json!([])
     });
     Ok(())
 }
 
-/// A bell with no say since the user's last message shows the shell in the drawer, adds a wait row
-/// and journals `said: false`. A bell after a say journals `said: true`, and the drawer keeps the
-/// chat.
+/// A wait keeps the drawer's view, adds no row, and journals whether a say came since the user
+/// last wrote to the shell.
 #[cfg(unix)]
 #[test]
-fn a_bell_with_no_say_shows_the_shell() -> Result<()> {
+fn a_wait_keeps_the_drawer_view() -> Result<()> {
     let mut rig = Rig::new()?;
     let mut ws = rig.connect();
     layout_when(&mut rig, &mut ws, "layout", |_| true);
-    let name = session("chat-bell");
+    let name = session("history-bell");
     rig.drive(&["ready", "--session", &name]);
     rig.drive(&["say", "hi"]);
-    layout_when(&mut rig, &mut ws, "the chat", |l| {
+    history_when(&mut rig, &mut ws, "the say", |c| {
+        c["rows"][0]["kind"] == "say"
+    });
+    rig.act(&mut ws, json!({"act": "flip_drawer"}));
+    layout_when(&mut rig, &mut ws, "the History", |l| {
         l["drawer_view"] == "history"
     });
     // The user's keystrokes come after the say, so the bell comes with no say since.
     type_in(&mut ws, 0, b"printf '\\007'\r")?;
-    // Laura sends the chat before the layout of the same turn.
-    let chat = history_when(&mut rig, &mut ws, "the wait row", |c| {
-        c["rows"][1]["kind"] == "wait"
+    let l = layout_when(&mut rig, &mut ws, "the unsaid wait", |l| {
+        l["unsaid"] == true
     });
-    layout_when(&mut rig, &mut ws, "the shell", |l| {
-        l["waiting"] == true && l["drawer_view"] == "shell"
-    });
-    assert_eq!(chat["rows"][1]["done"], false, "{chat}");
+    assert_eq!(l["drawer_view"], "history", "{l}");
     assert_eq!(waits(&name)[0]["said"], false, "{:?}", waits(&name));
 
     // The shell rings once the test makes `go`, after the agent's say.
@@ -130,15 +130,12 @@ fn a_bell_with_no_say_shows_the_shell() -> Result<()> {
         go.display()
     );
     type_in(&mut ws, 0, cmd.as_bytes())?;
-    history_when(&mut rig, &mut ws, "the wait ended", |c| {
-        c["rows"][1]["done"] == true
+    layout_when(&mut rig, &mut ws, "the wait ended", |l| {
+        l["waiting"] == false
     });
     rig.drive(&["say", "Run the tests?"]);
     history_when(&mut rig, &mut ws, "the second say", |c| {
-        c["rows"][2]["kind"] == "say"
-    });
-    layout_when(&mut rig, &mut ws, "the chat again", |l| {
-        l["waiting"] == false && l["drawer_view"] == "history"
+        c["rows"][1]["kind"] == "say"
     });
     std::fs::write(&go, "")?;
     let l = layout_when(&mut rig, &mut ws, "the said wait", |l| l["waiting"] == true);
@@ -148,88 +145,7 @@ fn a_bell_with_no_say_shows_the_shell() -> Result<()> {
     let later = rig.idle(&mut ws, 5);
     assert!(
         !later.into_iter().any(|f| f.is("history")),
-        "a said wait added a row"
+        "a wait added a row"
     );
-    // A message from the message box ends the said wait, as the user's write to the shell.
-    assert_eq!(
-        rig.act(&mut ws, json!({"act": "message", "text": "go on"})),
-        json!({"t": "acted", "ok": true, "text": null})
-    );
-    layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
-    Ok(())
-}
-
-/// A message from the message box reaches the shell as one paste, Laura journals it, and the chat
-/// shows it. While the shell waits with no say, Laura turns the box off and the message waits.
-#[cfg(unix)]
-#[test]
-fn a_message_reaches_the_shell() -> Result<()> {
-    let mut rig = Rig::new()?;
-    let mut ws = rig.connect();
-    layout_when(&mut rig, &mut ws, "layout", |_| true);
-    let name = session("chat-message");
-    rig.drive(&["ready", "--session", &name]);
-    rig.drive(&["say", "Ready?"]);
-    let ok = rig.act(&mut ws, json!({"act": "message", "text": "hello-msg"}));
-    assert_eq!(ok["ok"], true, "{ok}");
-    rig.shell_shows("hello-msg");
-    let chat = history_when(&mut rig, &mut ws, "the message row", |c| {
-        c["rows"][1]["kind"] == "message"
-    });
-    assert_eq!(chat["rows"][1]["body"], "hello-msg", "{chat}");
-    assert_eq!(events(&name, "message")[0]["body"], "hello-msg");
-
-    type_in(&mut ws, 0, b"printf '\\007'\r")?;
-    let l = layout_when(&mut rig, &mut ws, "the unsaid wait", |l| {
-        l["unsaid"] == true
-    });
-    assert_eq!(l["message_box"], false, "{l}");
-    let refused = rig.act(&mut ws, json!({"act": "message", "text": "not-sent"}));
-    assert_eq!(refused["text"], laura::tab::MESSAGE_WAITS, "{refused}");
-    rig.idle(&mut ws, 5);
-    assert!(
-        !rig.tab
-            .pty
-            .with_screen(|s| s.contents())
-            .contains("not-sent"),
-        "the message reached the shell"
-    );
-    assert_eq!(
-        events(&name, "message").len(),
-        1,
-        "{:?}",
-        events(&name, "message")
-    );
-    Ok(())
-}
-
-/// A look at the shell ends the wait, but the shell may still hold the agent CLI's question, so the
-/// message box stays off until the user writes to the shell.
-#[cfg(unix)]
-#[test]
-fn a_look_at_the_shell_keeps_the_message_box_off() -> Result<()> {
-    let mut rig = Rig::new()?;
-    let mut ws = rig.connect();
-    layout_when(&mut rig, &mut ws, "layout", |_| true);
-    let name = session("chat-look");
-    rig.drive(&["ready", "--session", &name]);
-    rig.drive(&["say", "Ready?"]);
-    let ok = rig.act(&mut ws, json!({"act": "message", "text": "first"}));
-    assert_eq!(ok["ok"], true, "{ok}");
-
-    type_in(&mut ws, 0, b"printf '\\007'\r")?;
-    let l = layout_when(&mut rig, &mut ws, "the unsaid wait", |l| {
-        l["unsaid"] == true
-    });
-    rig.act(&mut ws, json!({"act": "seen", "wait": l["wait"]}));
-    let l = layout_when(&mut rig, &mut ws, "no wait", |l| l["waiting"] == false);
-    assert_eq!(l["message_box"], false, "{l}");
-    let refused = rig.act(&mut ws, json!({"act": "message", "text": "not-sent"}));
-    assert_eq!(refused["text"], laura::tab::MESSAGE_WAITS, "{refused}");
-
-    type_in(&mut ws, 0, b"\r")?;
-    layout_when(&mut rig, &mut ws, "the message box on", |l| {
-        l["message_box"] == true
-    });
     Ok(())
 }

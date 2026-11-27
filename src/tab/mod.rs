@@ -68,14 +68,6 @@ pub const THEME_SET: &str = "✅ Experimental · Editor panes setup complete";
 pub const SHELL_EXITED: &str = "⚠ To close Laura after the shell stopped, save or quit Neovim. ";
 /// `Shift+S` / `Enter` after the shell exited, which would write the inline review nowhere.
 pub const NO_SHELL: &str = "⚠ The shell stopped, so Laura cannot submit the inline review. ";
-/// The message box after the shell exited.
-pub const NO_SHELL_FOR_MESSAGE: &str = "⚠ The shell stopped, so Laura cannot send your message.";
-/// The message box from a wait with no say until the user writes to the shell: the agent CLI may
-/// ask a question there, which a message's `Enter` would answer.
-pub const MESSAGE_WAITS: &str =
-    "⚠ The shell waits for you. Answer in the shell, then send your message.";
-/// The message didn't reach the shell.
-pub const MESSAGE_FAILED: &str = "⚠ Laura did not send your message to the shell.";
 
 /// An error from `Tab::act` or the agent's `open`. A caller matches a variant; `Text` is shown as is.
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -253,10 +245,6 @@ pub enum UserAction {
     /// frame's `wait` at the press, so a wait that began after the press stays. Focus stays where it is.
     Seen {
         wait: u64,
-    },
-    /// The message box's **Send** (`Enter`): `text` to the shell (`Tab::message`).
-    Message {
-        text: String,
     },
     /// `Ctrl+.`, the drawer's **Chat** and **Shell** tabs, and **Show the shell**: the drawer
     /// flips between the History and the shell (`Tab::flip_drawer`). The TUI never sends it.
@@ -600,34 +588,7 @@ impl Tab {
         Ok(())
     }
 
-    /// Whether the message box can send: the shell runs, and no wait with no say began since the
-    /// user last wrote to the shell. The web app's layout frame carries it.
-    pub(crate) fn message_gate(&self) -> Result<(), Error> {
-        if self.pty.has_exited() {
-            return Err(NO_SHELL_FOR_MESSAGE.into());
-        }
-        if self.wait.asked() {
-            return Err(MESSAGE_WAITS.into());
-        }
-        Ok(())
-    }
-
-    /// The message box: write the user's `text` into the shell, as a submit writes an inline
-    /// review, and journal it. The wait ends, as on any write to the shell.
-    fn message(&mut self, text: &str) -> Result<(), Error> {
-        self.message_gate()?;
-        let text = text.trim_end();
-        if text.trim().is_empty() {
-            return Ok(());
-        }
-        let bells = self.pty.bells();
-        paste_into_shell(&self.pty, text).map_err(|_| Error::from(MESSAGE_FAILED))?;
-        self.log_event(Event::Message { body: text.into() });
-        self.answered(bells);
-        Ok(())
-    }
-
-    /// The shell waits with no say since the user's last message (`Wait::unsaid`).
+    /// The shell waits with no say since the user last wrote to it (`Wait::unsaid`).
     pub(crate) fn unsaid(&self) -> bool {
         self.wait.unsaid()
     }
@@ -764,7 +725,6 @@ impl Tab {
     /// answer is a new wait.
     fn answered(&mut self, bells: u64) {
         self.wait.answered(bells);
-        self.history.end_wait();
     }
 
     /// The user saw the shell: a move into the shell (`Focus`, `Close`, the lock, an overlay's
@@ -772,32 +732,22 @@ impl Tab {
     /// write still counts.
     fn saw(&mut self, bells: u64) {
         self.wait.saw(bells);
-        self.history.end_wait();
     }
 
     /// The web app's `seen` of wait `wait` (`Wait::seen`).
     fn seen(&mut self, wait: u64) {
         self.wait.seen(wait, self.pty.bells());
-        if !self.wait.waiting() {
-            self.history.end_wait();
-        }
     }
 
-    /// A new wait began: Laura journals it, and a wait with no say since the user's last message
-    /// shows the shell in the drawer, where the agent CLI asks.
+    /// A new wait began: Laura journals it. The drawer keeps its view.
     fn wait_began(&mut self) {
         self.log_event(Event::Wait {
             said: self.wait.said(),
         });
-        if self.wait.unsaid() {
-            self.modes.drawer = DrawerView::Shell;
-        }
     }
 
-    /// The drawer shows the shell, not the History: before the agent's first say, and from the start
-    /// of each wait with no say since the user's last message (`Tab::say`, `wait_began`), until
-    /// the user flips it (`Ctrl+.`); and while the lock is on, which sends the keystrokes to the
-    /// shell. The unlock brings the History back.
+    /// The drawer shows the shell, not the History: until the user flips it (`Ctrl+.`), and while
+    /// the lock is on, which sends the keystrokes to the shell.
     pub fn drawer_shows_shell(&self) -> bool {
         self.modes.drawer == DrawerView::Shell || self.locked()
     }
@@ -814,12 +764,6 @@ impl Tab {
             DrawerView::History => DrawerView::Shell,
             DrawerView::Shell => DrawerView::History,
         };
-    }
-
-    /// The agent said something: the drawer turns to the History.
-    pub(super) fn said(&mut self) {
-        self.wait.say();
-        self.modes.drawer = DrawerView::History;
     }
 
     /// The History's rows, and a count that changes with them (`history.rs`).

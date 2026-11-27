@@ -50,7 +50,6 @@ The wait ends when you:
 - Close the pane selector, the list of keystrokes or the list of workspaces while the shell has the focus.
 - Type, paste, scroll or click in the shell.
 - Submit an inline review.
-- Send a message from the chat's message box.
 - Close a pane, and Laura moves the focus to the shell.
 
 The wait does not end when you move the pointer over the shell, when the agent moves the focus to the shell, when you come back to the browser tab, or when you click or type in the chat.

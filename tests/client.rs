@@ -203,8 +203,8 @@ fn ctrl_backquote_focuses_the_shell() -> Result<()> {
     Ok(())
 }
 
-/// A say turns the drawer to the chat, which takes the keystrokes; `Ctrl+.` flips the drawer to the
-/// shell, whose xterm takes them, and back.
+/// The drawer stays on the shell through a say, and its xterm takes the keystrokes; `Ctrl+.` flips
+/// the drawer to the History, which takes them, and back.
 #[test]
 fn ctrl_period_flips_the_drawer() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -212,34 +212,39 @@ fn ctrl_period_flips_the_drawer() -> Result<()> {
     };
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
-    const CHAT: &str = concat!(
-        "layout.drawer_view === 'history' && !acts.length",
-        " && document.querySelector('#p0 .history').checkVisibility()",
-        " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
-        " && document.activeElement === document.querySelector('#p0 .msgbox textarea')"
+    const SHELL: &str = concat!(
+        "layout.drawer_view === 'shell' && !acts.length",
+        " && !document.querySelector('#p0 .history').checkVisibility()",
+        " && document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
+        " && !!document.activeElement.closest('#p0 .term')"
     );
     r.drive(&["say", "hello from the agent"]);
-    c.until(&mut r, "the chat", CHAT);
+    c.until(
+        &mut r,
+        "the say",
+        "!!document.querySelector('#p0 .history .te.say')",
+    );
+    c.until(&mut r, "the shell", SHELL);
     c.press(CTRL_PERIOD);
     c.until(
         &mut r,
-        "the shell",
+        "the History",
         concat!(
-            "layout.drawer_view === 'shell' && !acts.length",
-            " && !document.querySelector('#p0 .history').checkVisibility()",
-            " && document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
-            " && !!document.activeElement.closest('#p0 .term')"
+            "layout.drawer_view === 'history' && !acts.length",
+            " && document.querySelector('#p0 .history').checkVisibility()",
+            " && !document.querySelector('#p0 .term').checkVisibility({visibilityProperty: true})",
+            " && document.activeElement === document.querySelector('#p0 .history .list')"
         ),
     );
-    assert!(r.tab.drawer_shows_shell(), "Laura's drawer view");
+    assert!(!r.tab.drawer_shows_shell(), "Laura's drawer view");
     c.press(CTRL_PERIOD);
-    c.until(&mut r, "the chat again", CHAT);
+    c.until(&mut r, "the shell again", SHELL);
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
 
-/// A say that comes while the drawer shows the shell is in view once the chat shows: Laura shows
-/// the chat at the say, and the client scrolls the chat to its last row.
+/// A say that comes while the drawer shows the shell is in view once the History shows: the client
+/// scrolls the History to its last row.
 #[test]
 fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -254,16 +259,16 @@ fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
     r.drive(&["say", &tall]);
     c.until(
         &mut r,
-        "the chat",
-        "layout.drawer_view === 'history' && !acts.length",
-    );
-    c.press(CTRL_PERIOD);
-    c.until(
-        &mut r,
-        "the shell",
-        "layout.drawer_view === 'shell' && !acts.length",
+        "the tall say's row",
+        "document.querySelector('#p0 .history .list').textContent.includes('p40') && layout.focus === 0 && !acts.length",
     );
     r.drive(&["say", "the-last-say"]);
+    c.until(
+        &mut r,
+        "the last say's row",
+        "document.querySelector('#p0 .history .list').textContent.includes('the-last-say')",
+    );
+    c.press(CTRL_PERIOD);
     c.until(
         &mut r,
         "the last say in view",
@@ -277,8 +282,8 @@ fn a_say_while_the_shell_shows_is_in_view() -> Result<()> {
     Ok(())
 }
 
-/// `F12` over the chat shows the shell, which takes the keystrokes, until the second `F12` brings
-/// the chat back.
+/// `F12` over the History shows the shell, which takes the keystrokes, until the second `F12`
+/// brings the History back.
 #[test]
 fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -286,10 +291,11 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
     };
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
-    r.drive(&["say", "hello from the agent"]);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
     c.until(
         &mut r,
-        "the chat",
+        "the History",
         "layout.drawer_view === 'history' && !acts.length",
     );
     c.press(F12);
@@ -308,14 +314,14 @@ fn f12_shows_the_shell_until_the_unlock() -> Result<()> {
     c.press(F12);
     c.until(
         &mut r,
-        "the chat again",
+        "the History again",
         "layout.drawer_view === 'history' && !acts.length",
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
 
-/// A view that opens after the agent's say shows the say in the chat and in the shell button.
+/// A view that opens after the agent's say shows the say in the History and in the shell button.
 #[test]
 fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -326,7 +332,7 @@ fn a_view_that_opens_after_a_say_shows_it() -> Result<()> {
     let c = Client::open(&mut r, &path);
     c.until(
         &mut r,
-        "the say in the chat",
+        "the say in the History",
         "document.querySelector('#p0 .history .te.say')?.textContent.includes('said before the view')",
     );
     assert_eq!(c.errors(), json!([]));
@@ -343,6 +349,12 @@ fn a_link_in_a_say_opens_its_file() -> Result<()> {
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
     r.drive(&["say", "Read [the CLI](docs/cli.md#commands)"]);
+    c.until(
+        &mut r,
+        "the say's row",
+        "!!document.querySelector('#p0 .history a[data-href]') && layout.focus === 0 && !acts.length",
+    );
+    c.press(CTRL_PERIOD);
     let at = c.until(
         &mut r,
         "the say's link",
@@ -360,41 +372,7 @@ fn a_link_in_a_say_opens_its_file() -> Result<()> {
     Ok(())
 }
 
-/// The chat's message box takes the user's keystrokes, and `Enter` writes the message into the
-/// shell; the box empties once Laura wrote it. A second `Enter` before Laura's reply sends nothing.
-#[test]
-fn enter_in_the_message_box_sends_the_message() -> Result<()> {
-    let Some((path, _one)) = chrome() else {
-        return Ok(());
-    };
-    let mut r = bare()?;
-    let c = Client::open(&mut r, &path);
-    r.drive(&["say", "Ready when you are"]);
-    c.until(
-        &mut r,
-        "the message box's focus",
-        "layout.drawer_view === 'history' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
-    );
-    c.type_text("hello-box");
-    c.press(ENTER);
-    c.press(ENTER);
-    assert_eq!(
-        c.eval("acts.length"),
-        Ok(json!(1)),
-        "the second Enter sent again"
-    );
-    c.until(
-        &mut r,
-        "the message in the shell, and an empty box",
-        &format!(
-            "{SHELL_LINES}.some(l => l.includes('hello-box')) && !acts.length && document.querySelector('#p0 .msgbox textarea').value === ''"
-        ),
-    );
-    assert_eq!(c.errors(), json!([]));
-    Ok(())
-}
-
-/// `Enter` under the help closes the help, and the message box keeps its text.
+/// `Enter` under the help closes the help over the History, and writes nothing into the shell.
 #[test]
 fn enter_under_the_help_closes_the_help() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -402,13 +380,13 @@ fn enter_under_the_help_closes_the_help() -> Result<()> {
     };
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
-    r.drive(&["say", "Ready when you are"]);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
     c.until(
         &mut r,
-        "the message box's focus",
-        "layout.drawer_view === 'history' && !acts.length && document.activeElement === document.querySelector('#p0 .msgbox textarea')",
+        "the History's focus",
+        "layout.drawer_view === 'history' && !acts.length && document.activeElement === document.querySelector('#p0 .history .list')",
     );
-    c.type_text("hi-help");
     c.press(CTRL_H);
     c.until(
         &mut r,
@@ -422,11 +400,10 @@ fn enter_under_the_help_closes_the_help() -> Result<()> {
         "!layout.modes.includes('help') && !acts.length",
     );
     assert_eq!(
-        c.eval("document.querySelector('#p0 .msgbox textarea').value"),
-        Ok(json!("hi-help"))
+        c.eval("layout.drawer_view"),
+        Ok(json!("history")),
+        "Enter flipped the drawer"
     );
-    let lines = c.eval(SHELL_LINES).unwrap_or_default();
-    assert!(!lines.to_string().contains("hi-help"), "{lines}");
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
@@ -778,9 +755,9 @@ fn ctrl_p_to_a_file_pane_keeps_the_wait() -> Result<()> {
     Ok(())
 }
 
-/// A click in the chat during a wait with no say keeps the wait: only the shell's own view ends it.
+/// A click in the History during a wait with no say keeps the wait: only the shell's own view ends it.
 #[test]
-fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
+fn a_click_in_the_history_keeps_the_wait() -> Result<()> {
     let Some((path, _one)) = chrome() else {
         return Ok(());
     };
@@ -789,19 +766,12 @@ fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
     }
     let mut r = bare()?;
     let c = Client::open(&mut r, &path);
-    r.drive(&["say", "hello from the agent"]);
-    c.until(
-        &mut r,
-        "the chat",
-        "layout.drawer_view === 'history' && !acts.length",
-    );
-    c.press(CTRL_PERIOD);
     c.until(
         &mut r,
         "the shell",
         "layout.drawer_view === 'shell' && !acts.length && !!document.activeElement.closest('#p0 .term')",
     );
-    // The user's write ends the say, so the bell begins a wait with no say.
+    // No say came, so the bell begins a wait with no say.
     c.type_text("printf '\\007'");
     c.press(ENTER);
     c.until(
@@ -812,7 +782,7 @@ fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
     c.press(CTRL_PERIOD);
     let at = c.until(
         &mut r,
-        "the chat",
+        "the History",
         "layout.drawer_view === 'history' && !acts.length && (() => { \
            const b = document.querySelector('#p0 .history').getBoundingClientRect(); \
            return b.width && [b.x + b.width / 2, b.y + b.height / 2]; })()",
@@ -826,7 +796,6 @@ fn a_click_in_the_chat_keeps_the_wait() -> Result<()> {
         "layout.drawer_view === 'shell' && !acts.length",
     );
     assert!(r.tab.waiting(), "the wait");
-    assert_eq!(c.eval("layout.message_box"), Ok(json!(false)));
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }

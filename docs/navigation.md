@@ -72,19 +72,15 @@ When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell do
 
 ### The chat and the shell
 
-The drawer shows the chat or the shell. To flip the drawer, press `Ctrl+.`, or click **Chat** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
+The drawer shows the chat or the shell. To flip the drawer, press `Ctrl+.`, or click **History** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
 
 The chat shows what passed through Laura in the agent's session:
 
 - Each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
 - One row for each run of the agent's other `laura` commands, such as `opened 2 files, highlighted L40–52`. Click the row to focus the last pane of the run that is still open.
 - Each inline review that you submit.
-- `The shell waits for you.`, with **Show the shell** (`Ctrl+.`), when the shell waits and the agent said nothing since you last wrote to the shell.
-- Each message that you send from the message box.
 
-To write to the agent, type in the message box below the chat and press `Enter`, or click **Send**. `Shift+Enter` starts a new line. Laura writes the message into the shell, as if you typed the message there and pressed `Enter`. When the shell waits and the agent said nothing since you last wrote to the shell, Laura turns the message box off until you type in the shell, because a message's `Enter` could answer a question in the shell. A message that you send then shows the notice `⚠ The shell waits for you. Answer in the shell, then send your message.` When the shell stopped, Laura shows `⚠ The shell stopped, so Laura cannot send your message.`, and when the shell doesn't take the message, Laura shows `⚠ Laura did not send your message to the shell.`
-
-The drawer shows the shell until the agent's first `laura say`, and the chat after each say. When the shell waits and the agent said nothing since you last wrote to the shell, Laura shows the shell in the drawer, because the agent's CLI can ask you a question there, such as a permission. When the agent starts a new session with `laura ready --session`, Laura starts an empty chat.
+The drawer shows the shell until you flip it. A say or a wait doesn't flip the drawer. When the agent starts a new session with `laura ready --session`, Laura starts an empty chat.
 
 To open a file that the agent names in the chat, click the file's path in the shell, such as `src/profile.ts:41`. Laura opens the file in a pane, or focuses the pane that shows the file, and puts the cursor on line 41, in the middle of the pane. When line 41 is already on screen, Laura moves only the cursor. In an editor pane, Laura puts the cursor of the file view on line 41. The pane takes the focus, so Laura closes the drawer.
 

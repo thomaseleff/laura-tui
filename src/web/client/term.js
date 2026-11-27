@@ -221,9 +221,9 @@ export function makeTerm(id, el) {
     } });
   }
   // Laura brackets a paste, as the TUI does; xterm.js mustn't send it too. A box in an editor
-  // pane (a comment, the review body) and the chat's message box take their own paste.
+  // pane (a comment, the review body) takes its own paste.
   el.addEventListener("paste", e => {
-    if (e.target.closest?.(".draft, .pop, .msgbox")) return;
+    if (e.target.closest?.(".draft, .pop")) return;
     e.preventDefault();
     e.stopPropagation();
     act({ act: "paste", pane: id, text: e.clipboardData.getData("text") });

@@ -107,12 +107,8 @@ pub(crate) enum Event {
     Say {
         body: String,
     },
-    /// The user's message from the chat's message box, which Laura wrote into the shell.
-    Message {
-        body: String,
-    },
     /// The shell began a wait: it rang the bell or sent a notification. `said`: a say came since
-    /// the user's last message.
+    /// the user last wrote to the shell.
     Wait {
         said: bool,
     },

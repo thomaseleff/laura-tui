@@ -1,8 +1,7 @@
-// The History in the drawer: the rows of the `history` frame, which Laura folds, their clicks, and the
-// message box. A say is Laura's HTML of the agent's markdown; a file path in it opens the file, as
+// The History in the drawer: the rows of the `history` frame, which Laura folds, and their clicks. A say is Laura's HTML of the agent's markdown; a file path in it opens the file, as
 // the shell's links do.
 
-import { $, act, acts, esc, layout, mode, pane } from "./state.js";
+import { $, act, esc, pane } from "./state.js";
 import { PATH } from "./term.js";
 import { ic } from "./head.js";
 import { focusPane } from "./panes.js";
@@ -34,9 +33,6 @@ function row(r) {
       return `<div class="te mine"><div><div class="who">Inline review · ${esc(name(r.path))} · ${n}</div>`
         + (r.body ? `<div class="bub"><p>${esc(r.body)}</p></div>` : "") + "</div></div>";
     }
-    case "message": return `<div class="te mine"><div><div class="bub"><p>${esc(r.body)}</p></div></div></div>`;
-    case "wait": return `<div class="te warn${r.done ? " done" : ""}"><span>The shell waits for you.</span>`
-      + (r.done ? "" : '<button class="btn" data-act="flip_drawer">Show the shell <kbd>Ctrl+.</kbd></button>') + "</div>";
   }
   return "";
 }
@@ -82,58 +78,22 @@ export function paintHistory(list = $("p0")?.querySelector(".history .list")) {
   }
 }
 
-// The History takes the DOM focus while the drawer shows it: the message box, unless Laura turned it off.
+// The History's list takes the DOM focus while the drawer shows it.
 export function focusHistory() {
-  const box = msgBox(), list = $("p0")?.querySelector(".history .list");
+  const list = $("p0")?.querySelector(".history .list");
   if (unread && list) {
     list.scrollTop = list.scrollHeight;
     unread = false;
   }
-  (box && !box.disabled ? box : list)?.focus({ preventScroll: true });
-}
-
-const msgBox = () => $("p0")?.querySelector(".msgbox textarea");
-
-// Laura turns the message box off from a wait with no say until the user writes to the shell
-// (`Tab::message_gate`): the agent CLI may ask a question there, which the message's `Enter` would
-// answer.
-export function paintMsgBox() {
-  const box = msgBox();
-  if (!box) return;
-  box.disabled = !layout.message_box;
-  box.placeholder = layout.message_box ? "Reply" : `${pane(0)?.name ?? "The agent"} waits for you in the shell`;
-  box.closest(".msgbox").querySelector("button").disabled = box.disabled;
-}
-
-// The send that waits in `acts` for Laura's reply. A lost socket empties `acts`, which frees the box.
-let sending = null;
-
-// `Enter` or **Send**: the message goes to the shell, and the box empties once Laura wrote it. A
-// second `Enter` before Laura's reply sends nothing, so the shell gets the message once.
-function sendMessage() {
-  const box = msgBox(), text = box.value;
-  if (!text.trim() || box.disabled || acts.some(a => a.then === sending)) return;
-  sending = m => m.ok && box.value === text && (box.value = "");
-  act({ act: "message", pane: 0, text }, sending);
-}
-
-// The message box's keystrokes: `Enter` sends, `Shift+Enter` adds a line, and the others type. A
-// mode on top (the help, the quit question) takes `Enter` first: this listener runs before keys.js's.
-export function msgKey(e) {
-  if (mode() || e.key !== "Enter" || e.shiftKey || e.isComposing) return;
-  e.preventDefault();
-  e.stopPropagation();
-  sendMessage();
+  list?.focus({ preventScroll: true });
 }
 
 export function historyClick(e) {
-  if (e.target.closest("[data-act=send]")) return sendMessage();
-  const a = e.target.closest("a.path"), c = e.target.closest(".te.cmd"), b = e.target.closest("[data-act=flip_drawer]");
+  const a = e.target.closest("a.path"), c = e.target.closest(".te.cmd");
   if (a) return act({ act: "open_path", pane: 0, path: a.dataset.path, line: a.dataset.line ? +a.dataset.line : undefined });
   // A markdown link in a say opens its file at its heading, as on the glance.
   const l = e.target.closest("a[data-href]");
   if (l) return act({ act: "open_link", pane: 0, href: l.dataset.href });
   // The run's pane may have closed since.
-  if (c && pane(+c.dataset.pane)) return focusPane(+c.dataset.pane);
-  if (b) act({ act: "flip_drawer" });
+  if (c && pane(+c.dataset.pane)) focusPane(+c.dataset.pane);
 }

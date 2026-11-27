@@ -12,7 +12,7 @@ import { frameOf, place, toHighlight } from "./pages.js";
 import { paintOverlays, paintSelector, pq } from "./selector.js";
 import { mods } from "./keys.js";
 import { paintTitle } from "./workspaces.js";
-import { historyClick, focusHistory, msgKey, paintHistory, paintMsgBox } from "./history.js";
+import { historyClick, focusHistory, paintHistory } from "./history.js";
 
 // The focus that DOM focus last followed (`followFocus`).
 let focusKey = "";
@@ -104,12 +104,8 @@ function makePane(p) {
 function historyList(el) {
   const c = document.createElement("div");
   c.className = "history";
-  c.innerHTML = '<div class="list" tabindex="-1"></div><div class="msgbox"><textarea rows="1" aria-label="Message to the agent"></textarea>'
-    + '<button class="btn pri" data-act="send">Send <kbd>Enter</kbd></button></div>';
+  c.innerHTML = '<div class="list" tabindex="-1"></div>';
   c.addEventListener("click", historyClick);
-  c.querySelector("textarea").addEventListener("keydown", msgKey);
-  // The button keeps no focus, so the box keeps the keystrokes.
-  c.querySelector(".msgbox button").addEventListener("mousedown", e => e.preventDefault());
   el.append(c);
   paintHistory(c.querySelector(".list"));
 }
@@ -429,7 +425,6 @@ export function onLayout(m) {
     terms.delete(id);
     el.remove();
   }
-  paintMsgBox();
   followFocus();
   paintHint();
   paintStatus();
@@ -644,7 +639,7 @@ export function focusPane(id) {
 // take focus from anything else.
 export function followFocus(force) {
   const f = focused();
-  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}:${layout?.drawer_view}:${layout?.message_box}`;
+  const key = `${layout?.focus}:${f?.kind}:${on("locked")}:${!!draft()}:${layout?.drawer_view}`;
   if (!f || (key === focusKey && !force)) return;
   focusKey = key;
   // A frame that moves the focus doesn't take the keystrokes from the pane selector.

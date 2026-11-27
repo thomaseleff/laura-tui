@@ -1,6 +1,5 @@
 //! The History: what passed through Laura in the current session, as the drawer shows it. Each say,
-//! each run of the agent's other commands folded into one row, each submitted inline review, and
-//! each message from the message box, and each wait with no say since the user's last message.
+//! each run of the agent's other commands folded into one row, and each submitted inline review.
 
 use std::path::Path;
 
@@ -25,10 +24,6 @@ pub(crate) enum Row {
         comments: usize,
         body: String,
     },
-    /// The user's message from the message box.
-    Message { body: String },
-    /// The shell waits with no say since the user's last message. `done`: the wait ended.
-    Wait { done: bool },
 }
 
 #[derive(Default)]
@@ -79,8 +74,6 @@ impl History {
                 comments: *comments,
                 body: body.clone(),
             },
-            Event::Message { body } => Row::Message { body: body.clone() },
-            Event::Wait { said: false } => Row::Wait { done: false },
             _ => return,
         };
         self.run.clear();
@@ -106,20 +99,6 @@ impl History {
 
     pub(super) fn set_agent(&mut self, on: bool) {
         self.agent = on;
-    }
-
-    /// The wait ended: its row loses its button.
-    pub(super) fn end_wait(&mut self) {
-        if let Some(Row::Wait { done }) = self
-            .rows
-            .iter_mut()
-            .rev()
-            .find(|r| matches!(r, Row::Wait { .. }))
-            && !*done
-        {
-            *done = true;
-            self.seq += 1;
-        }
     }
 
     /// A new session (`ready`): an empty chat. The say count goes on.
