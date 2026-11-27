@@ -770,10 +770,15 @@ impl Tab {
         self.modes.drawer == DrawerView::Shell || self.locked()
     }
 
-    /// The user's `Focus` on pane `pane`, the shell included.
+    /// The user's `Focus` on pane `pane`, the shell included. A move into the shell while the shell
+    /// button shows a say opens the drawer on the shell, where the user answers; otherwise the
+    /// drawer keeps its view.
     pub(super) fn focus_by_user(&mut self, pane: PaneId) -> Result<(), Error> {
         if pane != PTY_PANE && !self.panels.contains_key(&pane) {
             return Err(no_pane(pane).into());
+        }
+        if pane == PTY_PANE && self.focus != PTY_PANE && self.said() {
+            self.modes.drawer = DrawerView::Shell;
         }
         self.focus = pane;
         self.forget_lock_from();
@@ -784,13 +789,13 @@ impl Tab {
         Ok(())
     }
 
-    /// `Ctrl+.`: away from the shell, the focus moves to the shell, which opens the drawer as it
-    /// is; on the shell, the drawer flips between the History and the shell.
+    /// `Ctrl+.`: away from the shell, the focus moves to the shell as `Focus` moves it; on the
+    /// shell, the drawer flips between the History and the shell.
     pub(super) fn flip_drawer(&mut self) {
         if self.focus != PTY_PANE {
-            self.focus = PTY_PANE;
-            self.forget_lock_from();
-            return self.saw(self.pty.bells());
+            return self
+                .focus_by_user(PTY_PANE)
+                .expect("the shell is always a pane");
         }
         self.modes.drawer = match self.modes.drawer {
             DrawerView::History => DrawerView::Shell,

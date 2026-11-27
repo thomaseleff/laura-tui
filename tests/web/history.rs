@@ -1,6 +1,7 @@
 //! The History in the drawer: one row for each `laura` command of the agent's, each say and each
-//! submitted inline review; a click that shows a command again; and a drawer that keeps its view
-//! through a say and a wait.
+//! submitted inline review; a click that shows a command again; a drawer that keeps its view
+//! through a say and a wait; and a move into the shell under a say, which opens the drawer on the
+//! shell.
 
 use super::*;
 
@@ -460,5 +461,51 @@ fn said_holds_until_the_user_writes_to_the_shell() -> Result<()> {
     layout_when(&mut rig, &mut ws, "written", |l| l["said"] == false);
     rig.drive(&["say", "again"]);
     layout_when(&mut rig, &mut ws, "said again", |l| l["said"] == true);
+    Ok(())
+}
+
+/// While the shell button shows a say, a move into the shell from a pane opens the drawer on the
+/// shell, where the user answers: by `focus` and by `flip_drawer`. With no say, the drawer keeps
+/// the History.
+#[test]
+fn a_move_into_the_shell_opens_the_drawer_on_the_shell_while_a_say_shows() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mut ws = rig.connect();
+    layout_when(&mut rig, &mut ws, "layout", |_| true);
+    let (_a, a) = file("a.rs", &five_lines())?;
+    rig.drive(&["open", &a, "--no-focus"]);
+    let to_history = |rig: &mut Rig, ws: &mut Ws| {
+        rig.act(ws, json!({"act": "flip_drawer"}));
+        assert!(!rig.tab.drawer_shows_shell(), "the History");
+    };
+    to_history(&mut rig, &mut ws);
+    rig.drive(&["say", "Run the tests?"]);
+    layout_when(&mut rig, &mut ws, "said", |l| l["said"] == true);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    assert!(
+        !rig.tab.drawer_shows_shell(),
+        "a move into a pane keeps the view"
+    );
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    assert!(rig.tab.drawer_shows_shell(), "focus 0 under a say");
+
+    to_history(&mut rig, &mut ws);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.act(&mut ws, json!({"act": "flip_drawer"}));
+    assert_eq!(rig.tab.focus, 0);
+    assert!(
+        rig.tab.drawer_shows_shell(),
+        "Ctrl+. from a pane under a say"
+    );
+
+    to_history(&mut rig, &mut ws);
+    type_in(&mut ws, 0, b"x")?;
+    layout_when(&mut rig, &mut ws, "answered", |l| l["said"] == false);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    assert!(
+        !rig.tab.drawer_shows_shell(),
+        "no say: the drawer keeps the History"
+    );
     Ok(())
 }

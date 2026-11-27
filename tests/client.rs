@@ -444,8 +444,8 @@ const ROW_AT: &str = "layout.drawer_view === 'history' && !acts.length && (() =>
     return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()";
 
 /// A click on a History row shows its command again: its pane takes the focus, which closes the
-/// drawer, and `` Ctrl+` `` opens the drawer on the History again. A row whose file is gone shows
-/// its notice in the drawer.
+/// drawer, and `` Ctrl+` `` opens the drawer on the History again, with no say on the shell button.
+/// A row whose file is gone shows its notice in the drawer.
 #[test]
 fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -483,6 +483,41 @@ fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
         &mut r,
         "the notice in the drawer",
         "document.querySelector('#p0 #notice.on')?.textContent.endsWith('a.md no longer exists.')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A click on the shell button while it shows a say opens the drawer on the shell, where the user
+/// answers, though the drawer last showed the History.
+#[test]
+fn a_click_on_the_shell_buttons_say_opens_the_drawer_on_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the History",
+        "layout.drawer_view === 'history' && !acts.length",
+    );
+    let _dir = file_focused(&mut r, &c)?;
+    r.drive(&["say", "Run the tests?"]);
+    let at = c.until(
+        &mut r,
+        "the say on the shell button",
+        "layout.said && !acts.length && document.querySelector('#sbtn .said').checkVisibility() \
+         && (b => [b.x + b.width / 2, b.y + b.height / 2])(document.getElementById('sbtn').getBoundingClientRect())",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "the drawer on the shell",
+        "layout.focus === 0 && layout.drawer_view === 'shell' && !acts.length \
+         && document.getElementById('p0').classList.contains('open')",
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())
