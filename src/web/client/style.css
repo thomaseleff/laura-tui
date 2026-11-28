@@ -781,7 +781,12 @@ kbd {
 /* With the drawer closed, the agent's latest say. A short one stays on the bottom line. */
 .sbtn .said { max-width: min(46vw, 620px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .sbtn .said > * { display: inline; margin: 0; font: inherit; }
-.sbtn .said > * + *::before { content: " "; }
+/* Folded, every block joins the one line, a space apart: a list's items, a table's cells, a code
+   block's lines and a callout's title. A hard break and a rule show nothing. */
+.sbtn:not(.long) .said * { display: inline; white-space: inherit; }
+.sbtn:not(.long) .said :is(ul, ol) { padding: 0; }
+.sbtn:not(.long) .said :is(br, hr) { display: none; }
+.sbtn:not(.long) .said :is(p, li, th, td, pre, blockquote, h1, h2, h3, h4, h5, h6)::before { content: " "; }
 .sbtn .said code { font: 12px var(--mono); }
 .sbtn.says .dot { background: var(--acc); }
 /* A long say grows upward from the bottom line as a card: the name and the keystroke on top, the

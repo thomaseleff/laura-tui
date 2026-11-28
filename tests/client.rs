@@ -367,10 +367,18 @@ fn the_shell_buttons_say_folds_while_the_user_works_in_a_pane() -> Result<()> {
     let c = Client::open(&mut r, &path);
     let _dir = file_focused(&mut r, &c)?;
     const CARD: &str = "document.getElementById('sbtn').classList.contains('long')";
+    // Folded, the say keeps to one line, with each kind of markdown block in it.
     const FOLDED: &str = "!document.getElementById('sbtn').classList.contains('long') \
-         && document.querySelector('#sbtn .said').checkVisibility()";
+         && document.querySelector('#sbtn .said').checkVisibility() \
+         && document.querySelector('#sbtn .said').getBoundingClientRect().height < 30";
     let xy = |v: Value| (v[0].as_f64().unwrap_or(0.0), v[1].as_f64().unwrap_or(0.0));
-    r.drive(&["say", &"A long say about the change. ".repeat(6)]);
+    let say = format!(
+        "{}\n\n- One item.\n  - A nested one.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n\
+         ```rust\nfn x() {{}}\nlet y = 1;\n```\n\n> [!NOTE]\n> A callout.\n\n\
+         Line one  \nline two\n\n# Heading\n\n---\n\nEnd.\n",
+        "A long say about the change. ".repeat(6)
+    );
+    r.drive(&["say", &say]);
     let card = xy(c.until(
         &mut r,
         "the card",
