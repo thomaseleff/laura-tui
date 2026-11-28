@@ -192,8 +192,8 @@ async def scene(user, agent, camera, other):
     # The History and a click that shows a command again, as the demo skill's web app line.
     await agent.laura("say", "I applied your inline review: L8 now adds Spanish.")
     await agent.say(
-        "New: I speak to you with laura say. Laura shows my latest say on the shell button, and opens the "
-        "drawer on the shell, so you can answer me.\n\n"
+        "New: I speak to you with laura say. Laura shows my latest say on the shell button. When you open "
+        "the drawer, Laura shows the shell, so you can answer me.\n\n"
         "Press Ctrl+. to see the History: each laura command I ran, each say and your inline review. "
         "Click the plan's open row, and Laura focuses the plan again."
     )

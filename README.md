@@ -9,7 +9,7 @@ Your agent can open the file you're discussing, the plan you're following, the d
 > [!TIP]
 > **New:**
 >
-> - The agent tells you what it did with [`laura say`](docs/cli.md#commands). Laura shows the agent's latest say on the shell button, and opens the drawer on the shell, so you can answer. See [The drawer](docs/navigation.md#the-drawer).
+> - The agent tells you what it did with [`laura say`](docs/cli.md#commands). Laura shows the agent's latest say on the shell button. When you open the drawer, Laura shows the shell, so you can answer. See [The drawer](docs/navigation.md#the-drawer).
 > - Laura lists each `laura` command, each say and each inline review of the agent's session in the drawer's History. Click a row, and Laura shows its command again. See [The History and the shell](docs/navigation.md#the-history-and-the-shell).
 > - While Laura reads the folder, Laura shows gray placeholder cards in the project at a glance. See [The drawer](docs/navigation.md#the-drawer).
 

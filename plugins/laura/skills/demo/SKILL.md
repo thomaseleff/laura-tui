@@ -193,7 +193,7 @@ EOF
 >
 > Send `Next` to review the code that implements your inline review.
 
-_If `laura ready` printed `web_app` as `true`, also say before "Send `Next`…": "**New:** I speak to you with `laura say`. Laura shows my latest say on the shell button, and opens the drawer on the shell, so you can answer me. Press `Ctrl+.` in the drawer to see the History: each `laura` command I ran, each say and your inline review. Click the plan's `open` row, and Laura focuses the plan again. Press ``Ctrl+` `` to come back here."_
+_If `laura ready` printed `web_app` as `true`, also say before "Send `Next`…": "**New:** I speak to you with `laura say`. Laura shows my latest say on the shell button. When you open the drawer, Laura shows the shell, so you can answer me. Press `Ctrl+.` in the drawer to see the History: each `laura` command I ran, each say and your inline review. Click the plan's `open` row, and Laura focuses the plan again. Press ``Ctrl+` `` to come back here."_
 
 _Then **wait for `Next`**, and `laura close --all`._
 
