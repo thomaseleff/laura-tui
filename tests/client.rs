@@ -616,18 +616,37 @@ fn a_history_rows_time_stays_on_one_line() -> Result<()> {
     r.drive(&["open", &a.to_string_lossy(), "--no-focus"]);
     c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
     c.press(CTRL_PERIOD);
-    // A text takes one rect for each line; a target that doesn't wrap overflows its column.
-    const ONE_LINE: &str = "layout.drawer_view === 'history' && !acts.length && (row => { \
-        if (!row) return false; \
-        const lines = el => { const g = document.createRange(); g.selectNodeContents(el.firstChild); \
-            return g.getClientRects().length; }; \
-        const tm = row.querySelector('.tm'), tg = row.querySelector('.tg'); \
-        return /[AP]M$/.test(tm.textContent) && lines(tm) === 1 && tm.scrollWidth <= tm.clientWidth \
-            && tg.scrollWidth > tg.clientWidth; \
-        })(document.querySelector('#p0 .te.hr[data-i=\"0\"]'))";
-    c.until(&mut r, "the time on one line", ONE_LINE);
+    // Row `i`'s time ends in `clock`, on one line in its column. A text takes one rect for each line;
+    // a target that doesn't wrap overflows its column.
+    let one_line = |i: u32, clock: &str| {
+        format!(
+            "layout.drawer_view === 'history' && !acts.length && (row => {{ \
+            if (!row) return false; \
+            const lines = el => {{ const g = document.createRange(); g.selectNodeContents(el.firstChild); \
+                return g.getClientRects().length; }}; \
+            const tm = row.querySelector('.tm'), tg = row.querySelector('.tg'); \
+            return {clock}.test(tm.textContent) && lines(tm) === 1 && tm.scrollWidth <= tm.clientWidth \
+                && tg.scrollWidth > tg.clientWidth; \
+            }})(document.querySelector('#p0 .te.hr[data-i=\"{i}\"]'))"
+        )
+    };
+    c.until(&mut r, "the time on one line", &one_line(0, "/[AP]M$/"));
     c.resize(420, 800);
-    c.until(&mut r, "the time on one line, narrow", ONE_LINE);
+    c.until(
+        &mut r,
+        "the time on one line, narrow",
+        &one_line(0, "/[AP]M$/"),
+    );
+    // A clock that is wider than "12:59 PM" widens the time column.
+    c.set_locale("en-CA");
+    let b = dir.path().join(format!("{}.md", "other-name-".repeat(12)));
+    std::fs::write(&b, "# B\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--no-focus"]);
+    c.until(
+        &mut r,
+        "the en-CA time on one line",
+        &one_line(1, "/[ap]\\.m\\.$/"),
+    );
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
