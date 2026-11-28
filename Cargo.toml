@@ -60,7 +60,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 # Already transitive (ratatui, syntect) at this exact pin; promoted direct for the errors a
 # caller matches (#220).
-thiserror = "=2.0.20"
+thiserror = "=2.0.21"
 tui-term = "=0.3.4"
 # The web app's websocket (#88), over std sockets.
 tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
