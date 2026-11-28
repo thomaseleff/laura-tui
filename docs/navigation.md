@@ -82,6 +82,8 @@ The drawer shows the History or the shell. The drawer shows the shell until you 
 
 While the shell button shows a say, Laura opens the drawer on the shell when you move from a pane to the shell, so you can answer the agent: with ``Ctrl+` ``, the shell button, `Esc` in a pane or `Ctrl+.`. After you write to the shell, the drawer keeps the view that you left it on again.
 
+When you show the shell as a pane, the pane keeps the view that you left it on.
+
 To flip the drawer, press `Ctrl+.`, or click **History** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
 
 The History lists what the agent did through Laura in its session, one row for each event, with its time:

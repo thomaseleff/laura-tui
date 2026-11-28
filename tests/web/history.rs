@@ -507,5 +507,17 @@ fn a_move_into_the_shell_opens_the_drawer_on_the_shell_while_a_say_shows() -> Re
         !rig.tab.drawer_shows_shell(),
         "no say: the drawer keeps the History"
     );
+
+    // A docked shell has no drawer: the pane keeps the view the user left it on.
+    rig.act(&mut ws, json!({"act": "dock"}));
+    assert!(!rig.tab.drawer_shows_shell(), "the docked History");
+    rig.drive(&["say", "Ship it?"]);
+    layout_when(&mut rig, &mut ws, "said again", |l| l["said"] == true);
+    rig.act(&mut ws, json!({"act": "focus", "pane": 1}));
+    rig.act(&mut ws, json!({"act": "focus", "pane": 0}));
+    assert!(
+        !rig.tab.drawer_shows_shell(),
+        "a docked shell keeps the History under a say"
+    );
     Ok(())
 }

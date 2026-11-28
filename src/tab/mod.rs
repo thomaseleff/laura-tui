@@ -770,14 +770,14 @@ impl Tab {
         self.modes.drawer == DrawerView::Shell || self.locked()
     }
 
-    /// The user's `Focus` on pane `pane`, the shell included. A move into the shell while the shell
-    /// button shows a say opens the drawer on the shell, where the user answers; otherwise the
-    /// drawer keeps its view.
+    /// The user's `Focus` on pane `pane`, the shell included. A move into the shell while the drawer
+    /// is in use and the shell button shows a say opens the drawer on the shell, where the user
+    /// answers; otherwise the drawer, or the docked shell, keeps its view.
     pub(super) fn focus_by_user(&mut self, pane: PaneId) -> Result<(), Error> {
         if pane != PTY_PANE && !self.panels.contains_key(&pane) {
             return Err(no_pane(pane).into());
         }
-        if pane == PTY_PANE && self.focus != PTY_PANE && self.said() {
+        if pane == PTY_PANE && self.focus != PTY_PANE && self.said() && self.drawer_in_use() {
             self.modes.drawer = DrawerView::Shell;
         }
         self.focus = pane;
