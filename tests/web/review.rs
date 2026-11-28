@@ -364,3 +364,21 @@ fn the_diff_view_shows_a_thread() -> Result<()> {
     );
     Ok(())
 }
+
+/// The diff view of a file whose last committed lines were deleted puts a thread on the new last
+/// line below the `-` rows, as the web app orders them.
+#[test]
+fn the_diff_view_shows_a_last_line_thread_below_the_deleted_end_of_file() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let (_dir, path) = changed_file("c.txt", "keep\nlast\ngone\n", "keep\nlast\n")?;
+    rig.drive(&["open", &path]);
+    rig.drive(&["ready", "--agent", "claude"]);
+    rig.drive(&["comment", "2", "look", "--pane", "1"]);
+    rig.drive(&["diff", "--pane", "1"]);
+    let l = rig.tab.panels[&1].layout(80);
+    assert!(!l.eof.is_empty(), "the `-` row of the deleted end");
+    assert!(l.rows[l.eof.clone()].iter().all(|r| !r.comment));
+    let card = l.rows.iter().position(|r| r.comment);
+    assert!(card >= Some(l.eof.end), "the card follows the `-` rows");
+    Ok(())
+}

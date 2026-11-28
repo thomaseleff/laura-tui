@@ -60,11 +60,12 @@ fn the_web_app_loads_and_paints() -> Result<()> {
     Ok(())
 }
 
-/// `c.txt` committed as `keep`, `old`, then changed on disk to `keep`, `new`, open in pane 1.
+/// `c.txt` committed as `keep`, `old`, `last`, `gone`, then changed on disk to `keep`, `new`, `last`,
+/// open in pane 1.
 fn changed_open(r: &mut Rig) -> Result<tempfile::TempDir> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("c.txt");
-    std::fs::write(&path, "keep\nold\n")?;
+    std::fs::write(&path, "keep\nold\nlast\ngone\n")?;
     for args in [
         &["init", "-q"][..],
         &["add", "c.txt"],
@@ -85,7 +86,7 @@ fn changed_open(r: &mut Rig) -> Result<tempfile::TempDir> {
             .output()?;
         assert!(out.status.success(), "git {args:?} failed");
     }
-    std::fs::write(&path, "keep\nnew\n")?;
+    std::fs::write(&path, "keep\nnew\nlast\n")?;
     assert_eq!(r.drive(&["open", &path.to_string_lossy()]), "1");
     Ok(dir)
 }
@@ -519,7 +520,8 @@ fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
 }
 
 /// The diff view shows each thread's card below its line's own row: below `keep`, and below `+new`,
-/// not below the `-old` row before it, which carries the same line.
+/// not below the `-old` row before it, which carries the same line. The last line's card follows the
+/// deleted end of the file, `-gone`, and the tint stays on `last`.
 #[test]
 fn the_diff_view_shows_each_thread_below_its_line() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -531,6 +533,7 @@ fn the_diff_view_shows_each_thread_below_its_line() -> Result<()> {
     r.drive(&["ready"]);
     r.drive(&["comment", "1", "first", "--pane", "1"]);
     r.drive(&["comment", "2", "second", "--pane", "1"]);
+    r.drive(&["comment", "3", "third", "--pane", "1"]);
     r.drive(&["diff", "--pane", "1"]);
     // The row before the thread's card, as `data-line` and its text.
     const ABOVE: &str = "(n => { const r = document.querySelector(`#p1 .card[data-th=\"${n}\"]`)\
@@ -538,13 +541,21 @@ fn the_diff_view_shows_each_thread_below_its_line() -> Result<()> {
         return r ? [r.dataset.line, r.textContent.slice(r.querySelector('.g').textContent.length).trimEnd()] : null; })";
     let above = c.until(
         &mut r,
-        "both cards in the diff view",
+        "the three cards in the diff view",
         &format!(
-            "!!document.querySelector('#p1 .row[data-change=\"removed\"]') \
-             && (a => a[0] && a[1] && a)([{ABOVE}(1), {ABOVE}(2)])"
+            "[...document.querySelectorAll('#p1 .row[data-change=\"removed\"]')].some(r => r.textContent.includes('-gone')) \
+             && (a => a.every(Boolean) && a)([{ABOVE}(1), {ABOVE}(2), {ABOVE}(3)])"
         ),
     );
-    assert_eq!(above, json!([["1", " keep"], ["2", "+new"]]));
+    assert_eq!(
+        above,
+        json!([["1", " keep"], ["2", "+new"], ["3", "-gone"]])
+    );
+    let tinted = c.eval(
+        "[...document.querySelectorAll('#p1 .row.has-th')]\
+         .map(r => r.textContent.slice(r.querySelector('.g').textContent.length).trimEnd())",
+    );
+    assert_eq!(tinted, Ok(json!([" keep", "+new", " last"])));
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
