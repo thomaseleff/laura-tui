@@ -45,7 +45,8 @@ function cardHTML(p, t, on, drafting) {
     + `${p.frozen ? '<span class="chip warn sm">Snapshot</span>' : ""}<span class="grow"></span>`
     + `<button class="mini" data-act="collapse" ${tip("Collapse  r")}>–</button></div>`
     + (edit ? t.notes.slice(0, -1) : t.notes).map(c => `<div class="cm">${av(c.author)}<div><b>${esc(who(c.author))}</b><p>${esc(c.body)}</p></div></div>`).join("")
-    + (edit ? `<div class="cm">${av(null)}<div><b>${who(null)}</b><i class="slot"></i></div></div>` : drafting ? '<i class="slot"></i>' : t.notes.at(-1)?.author === null
+    // The diff view takes no comment, so its card offers no Reply, Edit or Delete.
+    + (edit ? `<div class="cm">${av(null)}<div><b>${who(null)}</b><i class="slot"></i></div></div>` : drafting ? '<i class="slot"></i>' : p.diff ? "" : t.notes.at(-1)?.author === null
       ? '<button class="reply" data-act="reply">Edit…</button><button class="reply" data-act="delete">Delete</button>'
       : '<button class="reply" data-act="reply">Reply…</button>') + "</div>";
 }
@@ -92,14 +93,14 @@ export function keepDraft(fn) {
 // Each thread as a card below its line, after the last unit at or above the line, and the draft
 // in its line's thread, or below its line. A page shows the cursor's thread below its element (`place`), unless the thread is
 // collapsed or comment mode just ended on it (`el.shut`), so the card doesn't cover the page. A page shows no thread whose
-// element the page lost: that thread and its draft are in the thread list (`paintPop`). The diff view shows none.
+// element the page lost: that thread and its draft are in the thread list (`paintPop`). The diff view shows each
+// thread below its line's own row, after the line's removed (`-`) rows, which carry the same `data-line`.
 export function paintThreads(id) {
   const el = $("p" + id), rows = el?.querySelector(".rows"), p = pane(id);
   if (!rows || !p) return;
   const f = frameOf(id), all = el.threads ?? [];
   const d = draft()?.pane === id && draft().kind === "comment" ? draft() : null;
-  let ts = p.diff ? [] : all;
-  if (f) ts = ts.filter(t => t.line === el.line && t.line !== el.shut && !t.collapsed && !t.lost);
+  const ts = f ? all.filter(t => t.line === el.line && t.line !== el.shut && !t.collapsed && !t.lost) : all;
   const us = [...units(rows)];
   // The cards start at the text column, past the gutter.
   const g = us[0]?.querySelector(".g");
@@ -112,7 +113,7 @@ export function paintThreads(id) {
     if (!groups.has(u)) groups.set(u, []);
     groups.get(u).push([line, item]);
   };
-  // A thread the pane doesn't show (the diff view) leaves the draft a card of its own.
+  // A thread the pane doesn't show leaves the draft a card of its own.
   // A draft whose element the page lost, also mid-draft, goes in its thread's card in the thread list.
   const lost = d && all.find(t => t.line === d.line && t.lost);
   if (lost) (ui.listOpen = id), (el.lostOpen = lost.line);
@@ -125,8 +126,8 @@ export function paintThreads(id) {
     draftCard.className = host ? "draft" : "card draft on";
     if (!host) put(d.line + 0.5, '<i class="slot"></i>');
   }
-  // The thread's line is tinted, not a removed-lines row below it; a thread that wasn't there before eases in.
-  const anchored = new Set(ts.map(t => f ? null : us.findLast(u => +u.dataset.line <= t.line && !u.classList.contains("gap")) ?? null));
+  // The thread's line is tinted, not a removed-lines row or a `-` row below it; a thread that wasn't there before eases in.
+  const anchored = new Set(ts.map(t => f ? null : us.findLast(u => +u.dataset.line <= t.line && u.dataset.change !== "removed") ?? null));
   for (const u of us) u.classList.toggle("has-th", anchored.has(u));
   const fresh = el.thLines ? ts.filter(t => !el.thLines.has(t.line)) : [];
   el.thLines = new Set(all.map(t => t.line));

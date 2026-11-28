@@ -924,6 +924,7 @@ impl Panel {
         let lines: Vec<&str> = self.source_lines.iter().map(String::as_str).collect();
         let mut rows = vec![];
         let mut starts = vec![];
+        let mut eof = 0..0;
         // Emit the red `-` rows queued *before* source line `at` (deletions key here).
         let removed_at = |rows: &mut Vec<PanelRow>, at: usize| {
             for (idx, texts) in self.removed.iter().filter(|(i, _)| *i == at) {
@@ -966,11 +967,19 @@ impl Panel {
                     change,
                 });
             }
+            // The EOF deletion sits between the last line and its card, as the web app orders them.
+            if i + 1 == line_count {
+                let start = rows.len();
+                removed_at(&mut rows, line_count);
+                eof = start..rows.len();
+            }
+            // A thread shows below its first source line, as the web app places its card.
+            for t in self.threads.iter().filter(|t| self.thread_source(t).0 == i) {
+                rows.extend(self.thread_rows(t.line, i, inner_w));
+            }
         }
-        let eof_start = rows.len();
-        removed_at(&mut rows, line_count); // trailing EOF deletion
         PanelLayout {
-            eof: eof_start..rows.len(),
+            eof,
             rows,
             starts,
             gutter_width,

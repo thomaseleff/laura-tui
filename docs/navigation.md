@@ -13,7 +13,7 @@ Laura passes the keystrokes that it doesn't use to the shell, or to Neovim in an
 |---|---|
 | `Ctrl+P` | Opens the pane selector. Type part of a file name or a pane id, then press `Enter`. A pane id that only one pane matches focuses that pane at once, and `0` focuses the shell. The pane selector also finds a workspace: see [Switch workspaces](#switch-workspaces). |
 | ``Ctrl+` `` | Opens or closes the [drawer](#the-drawer). |
-| `Ctrl+.` | Flips the [drawer](#the-drawer) between the History and the shell. From another pane, Laura opens the drawer as it was. |
+| `Ctrl+.` | Flips the [drawer](#the-drawer) between the History and the shell. From another pane, Laura opens the drawer as it was, or on the shell while the shell button shows a say. |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Makes the [drawer](#the-drawer) taller or shorter by 5% of the workspace while the drawer is open. |
 | `Ctrl+H` | Shows the keystrokes. |
 | `Ctrl+Q` | Quits, after you press `y`. While Neovim has unsaved edits, Laura shows a notice that names the pane instead. |
@@ -78,7 +78,13 @@ When a pane can't fit beside the shell, Laura shows the notice `⚠ The shell do
 
 ### The History and the shell
 
-The drawer shows the History or the shell. The drawer shows the shell until you flip it, and keeps the view that you left it on. A say or a wait doesn't flip the drawer. To flip the drawer, press `Ctrl+.`, or click **History** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
+The drawer shows the History or the shell. The drawer shows the shell until you flip it, and keeps the view that you left it on. A say or a wait doesn't flip the drawer.
+
+While the shell button shows a say, Laura opens the drawer on the shell when you move from a pane to the shell, so you can answer the agent: with ``Ctrl+` ``, the shell button, `Esc` in a pane or `Ctrl+.`. After you write to the shell, the drawer keeps the view that you left it on again.
+
+When you show the shell as a pane, the pane keeps the view that you left it on.
+
+To flip the drawer, press `Ctrl+.`, or click **History** or **Shell** in the drawer's pane header. When you show the shell as a pane, the pane flips the same way.
 
 The History lists what the agent did through Laura in its session, one row for each event, with its time:
 
@@ -87,7 +93,7 @@ The History lists what the agent did through Laura in its session, one row for e
 - `say`, with each text that the agent sends with [`laura say`](cli.md#commands). Laura shows the text as markdown. Click a file path in the text, such as `src/profile.ts:41`, to open the file, as in the shell. Click a link to a file, such as `[the CLI](docs/cli.md#commands)`, to open the file at the link's heading. Laura reads the link's path from the folder Laura started in.
 - `review`, with the file and its count of comments, for each inline review that you submit.
 
-A blue row with a chevron shows its command again when you click the row. Laura never runs the command again, and doesn't add a row for the click. Laura finds the pane by the row's file, not by its pane number, except for a row of a page whose browser pane moved to another page of the same site (below), and that pane takes the focus, which closes the drawer. The drawer keeps the History, so ``Ctrl+` `` opens the History again.
+A blue row with a chevron shows its command again when you click the row. Laura never runs the command again, and doesn't add a row for the click. Laura finds the pane by the row's file, not by its pane number, except for a row of a page whose browser pane moved to another page of the same site (below), and that pane takes the focus, which closes the drawer. The drawer keeps the History, so ``Ctrl+` `` opens the History again, unless the shell button shows a say.
 
 To show a command again from the keyboard, press `Tab` in the History until a blue row has the focus, then press `Enter` or `Space`. Laura does the same as for a click.
 
@@ -207,7 +213,7 @@ In the diff view (`d`), Laura uses the same tints: a `+` row is green, also for 
 
 ### Threads and inline reviews
 
-- Laura shows each thread below its line. Click **Reply…** to add a comment. On a thread that ends with your comment, click **Edit…** or **Delete**.
+- Laura shows each thread below its line, also in the diff view. Click **Reply…** to add a comment. On a thread that ends with your comment, click **Edit…** or **Delete**.
 - Laura shows a collapsed thread as one row below its line, with the line number, the authors of the comments and the number of comments. Click the row to expand the thread.
 - On an HTML page or in a browser pane, Laura hides a collapsed thread.
 - Click the thread count in the pane header to list the pane's threads, then click a thread to move the cursor to it.

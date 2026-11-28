@@ -60,6 +60,37 @@ fn the_web_app_loads_and_paints() -> Result<()> {
     Ok(())
 }
 
+/// `c.txt` committed as `keep`, `old`, `last`, `gone`, then changed on disk to `keep`, `new`, `last`,
+/// open in pane 1.
+fn changed_open(r: &mut Rig) -> Result<tempfile::TempDir> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("c.txt");
+    std::fs::write(&path, "keep\nold\nlast\ngone\n")?;
+    for args in [
+        &["init", "-q"][..],
+        &["add", "c.txt"],
+        &["commit", "-q", "-m", "init"],
+    ] {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args([
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()?;
+        assert!(out.status.success(), "git {args:?} failed");
+    }
+    std::fs::write(&path, "keep\nnew\nlast\n")?;
+    assert_eq!(r.drive(&["open", &path.to_string_lossy()]), "1");
+    Ok(dir)
+}
+
 /// Pane 1 holds a file, and the pane selector focused pane 1.
 fn file_focused(r: &mut Rig, c: &Client) -> Result<tempfile::TempDir> {
     let dir = open_five(r)?;
@@ -444,8 +475,8 @@ const ROW_AT: &str = "layout.drawer_view === 'history' && !acts.length && (() =>
     return b?.width && [b.x + b.width / 2, b.y + b.height / 2]; })()";
 
 /// A click on a History row shows its command again: its pane takes the focus, which closes the
-/// drawer, and `` Ctrl+` `` opens the drawer on the History again. A row whose file is gone shows
-/// its notice in the drawer.
+/// drawer, and `` Ctrl+` `` opens the drawer on the History again, with no say on the shell button.
+/// A row whose file is gone shows its notice in the drawer.
 #[test]
 fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
     let Some((path, _one)) = chrome() else {
@@ -483,6 +514,138 @@ fn a_click_on_a_history_row_shows_its_command_again() -> Result<()> {
         &mut r,
         "the notice in the drawer",
         "document.querySelector('#p0 #notice.on')?.textContent.endsWith('a.md no longer exists.')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// The diff view shows each thread's card below its line's own row: below `keep`, and below `+new`,
+/// not below the `-old` row before it, which carries the same line. The last line's card follows the
+/// deleted end of the file, `-gone`, and the tint stays on `last`.
+#[test]
+fn the_diff_view_shows_each_thread_below_its_line() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    let _dir = changed_open(&mut r)?;
+    r.drive(&["ready"]);
+    r.drive(&["comment", "1", "first", "--pane", "1"]);
+    r.drive(&["comment", "2", "second", "--pane", "1"]);
+    r.drive(&["comment", "3", "third", "--pane", "1"]);
+    r.drive(&["diff", "--pane", "1"]);
+    // The row before the thread's card, as `data-line` and its text.
+    const ABOVE: &str = "(n => { const r = document.querySelector(`#p1 .card[data-th=\"${n}\"]`)\
+        ?.closest('.inl')?.previousElementSibling; \
+        return r ? [r.dataset.line, r.textContent.slice(r.querySelector('.g').textContent.length).trimEnd()] : null; })";
+    let above = c.until(
+        &mut r,
+        "the three cards in the diff view",
+        &format!(
+            "[...document.querySelectorAll('#p1 .row[data-change=\"removed\"]')].some(r => r.textContent.includes('-gone')) \
+             && (a => a.every(Boolean) && a)([{ABOVE}(1), {ABOVE}(2), {ABOVE}(3)])"
+        ),
+    );
+    assert_eq!(
+        above,
+        json!([["1", " keep"], ["2", "+new"], ["3", "-gone"]])
+    );
+    let tinted = c.eval(
+        "[...document.querySelectorAll('#p1 .row.has-th')]\
+         .map(r => r.textContent.slice(r.querySelector('.g').textContent.length).trimEnd())",
+    );
+    assert_eq!(tinted, Ok(json!([" keep", "+new", " last"])));
+    assert_eq!(
+        c.eval("document.querySelectorAll('#p1 .card .reply').length"),
+        Ok(json!(0)),
+        "a diff view card offers no Reply, Edit or Delete"
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// A click on the shell button while it shows a say opens the drawer on the shell, where the user
+/// answers, though the drawer last showed the History.
+#[test]
+fn a_click_on_the_shell_buttons_say_opens_the_drawer_on_the_shell() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
+    c.until(
+        &mut r,
+        "the History",
+        "layout.drawer_view === 'history' && !acts.length",
+    );
+    let _dir = file_focused(&mut r, &c)?;
+    r.drive(&["say", "Run the tests?"]);
+    let at = c.until(
+        &mut r,
+        "the say on the shell button",
+        "layout.said && !acts.length && document.querySelector('#sbtn .said').checkVisibility() \
+         && (b => [b.x + b.width / 2, b.y + b.height / 2])(document.getElementById('sbtn').getBoundingClientRect())",
+    );
+    c.click(at[0].as_f64().unwrap_or(0.0), at[1].as_f64().unwrap_or(0.0));
+    c.until(
+        &mut r,
+        "the drawer on the shell",
+        "layout.focus === 0 && layout.drawer_view === 'shell' && !acts.length \
+         && document.getElementById('p0').classList.contains('open')",
+    );
+    assert_eq!(c.errors(), json!([]));
+    Ok(())
+}
+
+/// The History's first row keeps its time on one line in a 12-hour clock: the time fits its column,
+/// and in a narrow window the long target ends in `…` instead.
+#[test]
+fn a_history_rows_time_stays_on_one_line() -> Result<()> {
+    let Some((path, _one)) = chrome() else {
+        return Ok(());
+    };
+    let mut r = bare()?;
+    let c = Client::open(&mut r, &path);
+    c.set_locale("en-US");
+    let dir = tempfile::tempdir()?;
+    let a = dir.path().join(format!("{}.md", "long-name-".repeat(12)));
+    std::fs::write(&a, "# A\n")?;
+    r.drive(&["open", &a.to_string_lossy(), "--no-focus"]);
+    c.until(&mut r, "the shell", "layout.focus === 0 && !acts.length");
+    c.press(CTRL_PERIOD);
+    // Row `i`'s time ends in `clock`, on one line in its column. A text takes one rect for each line;
+    // a target that doesn't wrap overflows its column.
+    let one_line = |i: u32, clock: &str| {
+        format!(
+            "layout.drawer_view === 'history' && !acts.length && (row => {{ \
+            if (!row) return false; \
+            const lines = el => {{ const g = document.createRange(); g.selectNodeContents(el.firstChild); \
+                return g.getClientRects().length; }}; \
+            const tm = row.querySelector('.tm'), tg = row.querySelector('.tg'); \
+            return {clock}.test(tm.textContent) && lines(tm) === 1 && tm.scrollWidth <= tm.clientWidth \
+                && tg.scrollWidth > tg.clientWidth; \
+            }})(document.querySelector('#p0 .te.hr[data-i=\"{i}\"]'))"
+        )
+    };
+    c.until(&mut r, "the time on one line", &one_line(0, "/[AP]M$/"));
+    c.resize(420, 800);
+    c.until(
+        &mut r,
+        "the time on one line, narrow",
+        &one_line(0, "/[AP]M$/"),
+    );
+    // A clock that is wider than "12:59 PM" widens the time column.
+    c.set_locale("en-CA");
+    let b = dir.path().join(format!("{}.md", "other-name-".repeat(12)));
+    std::fs::write(&b, "# B\n")?;
+    r.drive(&["open", &b.to_string_lossy(), "--no-focus"]);
+    c.until(
+        &mut r,
+        "the en-CA time on one line",
+        &one_line(1, "/[ap]\\.m\\.$/"),
     );
     assert_eq!(c.errors(), json!([]));
     Ok(())

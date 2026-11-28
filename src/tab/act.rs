@@ -52,17 +52,7 @@ impl Tab {
     pub fn act(&mut self, action: UserAction) -> Result<Option<String>, Error> {
         use UserAction as A;
         match action {
-            A::Focus { pane } => {
-                if pane != PTY_PANE && !self.panels.contains_key(&pane) {
-                    return Err(no_pane(pane).into());
-                }
-                self.focus = pane;
-                self.forget_lock_from();
-                // The user's move into the shell: the user sees the agent.
-                if pane == PTY_PANE {
-                    self.saw(self.pty.bells());
-                }
-            }
+            A::Focus { pane } => self.focus_by_user(pane)?,
             A::MoveCursor { pane, delta } => self.panel_mut(pane)?.move_cursor(delta),
             A::ScrollH { pane, delta } => self.panel_mut(pane)?.scroll_h(delta),
             A::ToggleDiff { pane } => {

@@ -132,7 +132,7 @@ async def scene(user, agent, camera, other):
         "Here's a Fibonacci sequence, one number per pane.\n\n"
         "The panes fill the workspace, and this chat floats in a drawer over them. Press Ctrl+` to close "
         "the drawer and see every pane, and Ctrl+` again to come back here.\n\n"
-        "New: Drag the line between two panes to resize them, and drag the drawer's top edge or press "
+        "Drag the line between two panes to resize them, and drag the drawer's top edge or press "
         "Ctrl+Shift+↑ ↓ to set its height. Laura keeps your sizes.\n\n"
         "Send Next to learn how to interact with your agent in a pane."
     )
@@ -162,7 +162,7 @@ async def scene(user, agent, camera, other):
         "[2 / 7] The pane interactions\n\n"
         "I opened a plan in a new pane and left you a question on L8. Press c to reply, "
         "r to collapse the thread, then Shift+S to submit your inline review.\n\n"
-        "New: A collapsed thread shows as one row, with its line, its authors and its number of comments."
+        "A collapsed thread shows as one row, with its line, its authors and its number of comments."
     )
     await user.goto_line(doc, 8)
     await user.press("c")
@@ -189,6 +189,27 @@ async def scene(user, agent, camera, other):
     await camera.shot("reloaded")
     await user.press("Control+Backquote")
     await user.focused(0)
+    # The History and a click that shows a command again, as the demo skill's web app line.
+    await agent.laura("say", "I applied your inline review: L8 now adds Spanish.")
+    await agent.say(
+        "New: I speak to you with laura say. Laura shows my latest say on the shell button. When you open "
+        "the drawer, Laura shows the shell, so you can answer me.\n\n"
+        "Press Ctrl+. to see the History: each laura command I ran, each say and your inline review. "
+        "Click the plan's open row, and Laura focuses the plan again."
+    )
+    await user.press("Control+Period")
+    await user.page.locator("#p0 .history").wait_for(state="visible")
+    await camera.pause(1200)
+    await camera.shot("history")
+    row = user.page.locator("#p0 .te.hr[data-i]").filter(has=user.page.locator(".verb", has_text="open"))
+    await user.click(row.filter(has_text="plan.md").last)
+    await user.focused(doc)
+    await camera.pause(1500)
+    await camera.shot("replayed")
+    await user.press("Control+Backquote")
+    await user.focused(0)
+    await camera.pause(1000)
+    await camera.shot("say")
     await reply(user)
     await agent.laura("close", "--all")
 
@@ -199,7 +220,7 @@ async def scene(user, agent, camera, other):
         "[3 / 7] Code review\n\n"
         "Here's the code change that implements the plan. I opened the full diff in a new pane. "
         "Press Ctrl+P, then the pane's number, to focus the diff. Press d to turn the diff view off and on.\n\n"
-        "New: With the diff view off, Laura tints the changed lines.\n\n"
+        "With the diff view off, Laura tints the changed lines.\n\n"
         "Send Next to debug with live logs."
     )
     await user.focus(diff)

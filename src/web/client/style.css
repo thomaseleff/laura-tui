@@ -440,16 +440,23 @@ kbd {
 /* A History row is one line of a timeline: the time, a dot on the rail, the verb, then what it acted
    on. A say differs only in its body. */
 .te.hr {
-  --rail: 66px; position: relative; display: grid; grid-template-columns: 44px 12px auto 1fr auto; column-gap: 8px;
+  /* The time column fits the user's clock in any locale ("12:59 PM", "12:59 p.m."). In the mono font,
+     with a 2-digit hour, each row's time has the same width, so the dots line up. */
+  display: grid; grid-template-columns: max-content 12px auto 1fr auto; column-gap: 8px;
   align-items: baseline; padding: 6px 8px; border-radius: 8px; font-size: 12.5px; color: var(--fg);
 }
-/* The rail: one line through every row's dot. */
-.te.hr::before { content: ""; position: absolute; left: var(--rail); top: 0; bottom: 0; width: 1.5px; margin-left: -.75px; background: #d3d6de; }
-.te.hr:first-child::before { top: 16px; }
-.te.hr:last-child::before { bottom: calc(100% - 16px); }
-.te.hr .tm { font: 11px var(--mono); color: var(--faint); text-align: right; }
+/* The rail: one line through every row's dot. The rail sits in the dot's column, so it follows the
+   time column's width, and runs through the row's padding to the next row's rail. */
+.te.hr::before {
+  content: ""; grid-area: 1 / 2 / span 2; justify-self: center; align-self: stretch;
+  width: 1.5px; margin: -6px 0; background: #d3d6de;
+}
+.te.hr:first-child::before { margin-top: 10px; }
+.te.hr:last-child::before { align-self: start; height: 16px; }
+.te.hr:only-child::before { content: none; }
+.te.hr .tm { font: 11px var(--mono); color: var(--faint); text-align: right; white-space: nowrap; }
 .te.hr .pt {
-  position: relative; z-index: 1; justify-self: center; align-self: start; margin-top: 6px;
+  grid-area: 1 / 2; position: relative; z-index: 1; justify-self: center; align-self: start; margin-top: 6px;
   width: 7px; height: 7px; border-radius: 50%; background: #fff; border: 1.5px solid var(--faint);
 }
 .te.hr .verb { justify-self: start; padding: 1px 6px; border-radius: 5px; font: 500 11px var(--mono); background: #f0f1f4; color: var(--mute); }
@@ -758,10 +765,12 @@ kbd {
 #status:has(#sbtn:not([hidden])) #sbar { justify-self: end; max-width: 100%; }
 /* The shell button: the drawer's handle. The dot pulses while the shell prints. */
 .sbtn {
-  display: inline-flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box; padding: 2px 6px 2px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; min-height: 30px; box-sizing: border-box; padding: 2px 10px 2px 16px; cursor: pointer;
   font: 12.5px var(--sans); color: var(--fg); background: #fff; border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow);
 }
 .sbtn[hidden], .sbtn kbd[hidden] { display: none; }
+/* With no `Ctrl+`` key to end it (the start canvas), the name gets the dot's room on the right. */
+.sbtn:not(:has(kbd:not([hidden]))) { padding-right: 16px; }
 .sbtn b { font-weight: 600; }
 .sbtn .dot { background: var(--faint); }
 .sbtn.busy .dot { background: var(--acc); animation: pulse 1.2s infinite; }

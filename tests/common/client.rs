@@ -290,6 +290,11 @@ impl Client {
         self.eval(frames).expect("the page's resize");
     }
 
+    /// The page's locale, as the user's system sets it: the clock and the date formats follow it.
+    pub fn set_locale(&self, locale: &str) {
+        self.call("Emulation.setLocaleOverride", json!({ "locale": locale }));
+    }
+
     /// `s`, typed into the focused element as an input method types it.
     pub fn type_text(&self, s: &str) {
         self.call("Input.insertText", json!({"text": s}));
