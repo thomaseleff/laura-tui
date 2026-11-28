@@ -480,8 +480,8 @@ fn assemble_markdown(md: &str) -> (Vec<Line<'static>>, Vec<(usize, usize)>, Vec<
     (styled, source, out_blocks)
 }
 
-/// A code block as an unindented fence with no info string. tui-markdown runs an indented block's,
-/// or an indented fence's, lines into one row; a bare fence keeps one row per line.
+/// A code block as an unindented fence with no info string, so tui-markdown renders every code
+/// block the same way: no indent, one row per source line.
 fn fence_code(slice: &str) -> String {
     let mut body: String = Parser::new(slice)
         .filter_map(|ev| match ev {
