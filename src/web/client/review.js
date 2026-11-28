@@ -45,7 +45,8 @@ function cardHTML(p, t, on, drafting) {
     + `${p.frozen ? '<span class="chip warn sm">Snapshot</span>' : ""}<span class="grow"></span>`
     + `<button class="mini" data-act="collapse" ${tip("Collapse  r")}>–</button></div>`
     + (edit ? t.notes.slice(0, -1) : t.notes).map(c => `<div class="cm">${av(c.author)}<div><b>${esc(who(c.author))}</b><p>${esc(c.body)}</p></div></div>`).join("")
-    + (edit ? `<div class="cm">${av(null)}<div><b>${who(null)}</b><i class="slot"></i></div></div>` : drafting ? '<i class="slot"></i>' : t.notes.at(-1)?.author === null
+    // The diff view takes no comment, so its card offers no Reply, Edit or Delete.
+    + (edit ? `<div class="cm">${av(null)}<div><b>${who(null)}</b><i class="slot"></i></div></div>` : drafting ? '<i class="slot"></i>' : p.diff ? "" : t.notes.at(-1)?.author === null
       ? '<button class="reply" data-act="reply">Edit…</button><button class="reply" data-act="delete">Delete</button>'
       : '<button class="reply" data-act="reply">Reply…</button>') + "</div>";
 }

@@ -556,6 +556,11 @@ fn the_diff_view_shows_each_thread_below_its_line() -> Result<()> {
          .map(r => r.textContent.slice(r.querySelector('.g').textContent.length).trimEnd())",
     );
     assert_eq!(tinted, Ok(json!([" keep", "+new", " last"])));
+    assert_eq!(
+        c.eval("document.querySelectorAll('#p1 .card .reply').length"),
+        Ok(json!(0)),
+        "a diff view card offers no Reply, Edit or Delete"
+    );
     assert_eq!(c.errors(), json!([]));
     Ok(())
 }
